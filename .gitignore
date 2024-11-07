@@ -1,0 +1,5 @@
+.env
+.data/
+kipl_ml.egg-info/
+*__pycache__/
+outputs/
