@@ -129,8 +129,6 @@ def _save_ts5_to_standard():
 
                     np.save(path_, dat)
                     L += 1
-            if L > 1000:
-                break
 
         pd.concat(seq_rows, axis=0).reset_index().to_hdf(
             os.path.join(KIPL_SEQS_DATA_DIR, dataset, "metadf.h5"), key="metadf"
