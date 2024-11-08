@@ -1,0 +1,12 @@
+axes.spines.top: False
+axes.spines.right: False
+legend.frameon: False
+figure.figsize: 10, 4
+figure.facecolor: '1'
+lines.markersize: 5
+lines.marker: |
+lines.linewidth: 1
+axes.titlelocation: left
+axes.titlesize: normal
+axes.titleweight: bold
+figure.titleweight: bold

@@ -5,7 +5,7 @@ import pickle as pkl
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
-from kipl_ml.data.utils import get_dataset_root
+from kipl_ml.data.utils import METADF_FNAME, get_dataset_root
 from kipl_ml.logging.logger import get_logger
 
 logger = get_logger(__name__)
@@ -86,8 +86,8 @@ def _data_to_meta_row(
 
 
 def _save_meta_df(seq_rows: list[pd.DataFrame], dataset: str):
-    path = os.path.join(get_dataset_root(dataset), "metadf.h5")
-    pd.concat(seq_rows, axis=0).reset_index().to_hdf(path, key="metadf")
+    path = os.path.join(get_dataset_root(dataset), METADF_FNAME)
+    pd.concat(seq_rows, axis=0).reset_index(drop=True).to_hdf(path, key="metadf")
 
 
 def _save_ts5_to_standard():

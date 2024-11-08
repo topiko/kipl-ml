@@ -1,6 +1,5 @@
 import os
 
-import hydra
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
@@ -11,6 +10,7 @@ logger = get_logger(__name__)
 load_dotenv()
 
 STD_FLOWS_DATA_DIR = os.getenv("STD_FLOWS_DATA_DIR")
+METADF_FNAME = "metadf.h5"
 
 
 def get_dataset_root(dataset: str) -> str:
