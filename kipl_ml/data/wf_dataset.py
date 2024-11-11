@@ -1,9 +1,10 @@
 import pandas as pd
 import torch
 from kipl_ml.data.assets import assets
-from kipl_ml.data.utils import get_meta_df, get_std_flow_array
+from kipl_ml.data.utils import get_std_flow_array, load_dataset_meta_df
+from kipl_ml.flow.transforms import _TR, Identity, get_tr_seq_outputs
 from kipl_ml.logging.logger import get_logger
-from torch import Dataset
+from torch.utils.data import Dataset
 
 logger = get_logger(__name__)
 
@@ -13,11 +14,11 @@ class WFDataset(Dataset):
         self,
         dataset: str,
         n_packets: int = 500,
-        transform: torch.transforms.Compose | None = None,
+        transform: list[_TR] = [Identity()],
         device: torch.device = torch.device("cpu"),
     ) -> None:
 
-        meta_df = get_meta_df(dataset)
+        meta_df = load_dataset_meta_df(dataset)
         self.device = device
         self.n_packets = n_packets
 
@@ -31,6 +32,14 @@ class WFDataset(Dataset):
             )
         self.meta_df = meta_df[packet_mask]
         self.transform = transform
+
+    @property
+    def n_classes(self) -> int:
+        return self.meta_df[assets.LABEL].nunique()
+
+    @property
+    def outputs(self) -> list[tuple[str, int]]:
+        return get_tr_seq_outputs(self.transform)
 
     @property
     def device(self):
