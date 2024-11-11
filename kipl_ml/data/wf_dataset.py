@@ -1,7 +1,7 @@
 import pandas as pd
 import torch
 from kipl_ml.data.assets import assets
-from kipl_ml.data.utils import get_std_flow_array
+from kipl_ml.data.utils import get_meta_df, get_std_flow_array
 from kipl_ml.logging.logger import get_logger
 from torch import Dataset
 
@@ -11,12 +11,13 @@ logger = get_logger(__name__)
 class WFDataset(Dataset):
     def __init__(
         self,
-        meta_df: pd.DataFrame,
-        device: torch.device = torch.device("cpu"),
+        dataset: str,
         n_packets: int = 500,
         transform: torch.transforms.Compose | None = None,
+        device: torch.device = torch.device("cpu"),
     ) -> None:
 
+        meta_df = get_meta_df(dataset)
         self.device = device
         self.n_packets = n_packets
 
