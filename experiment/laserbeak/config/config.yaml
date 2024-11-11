@@ -1,0 +1,12 @@
+dataset:
+  name: "bigenough"
+  nsamples: 1000
+flow:
+  n_packets: 300
+model:
+  name: "dfnet"
+transform:
+  list: ["resize", "normalize"]
+train:
+  batch_size: 32
+
