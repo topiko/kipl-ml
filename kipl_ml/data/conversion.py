@@ -5,6 +5,7 @@ import pickle as pkl
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+from kipl_ml.data.assets import assets
 from kipl_ml.data.utils import METADF_FNAME, get_dataset_root
 from kipl_ml.logging.logger import get_logger
 
@@ -57,7 +58,7 @@ def _data_to_meta_row(
     row_df = (
         pd.Series(
             {
-                "label": label,
+                assets.LABEL: label,
                 "dataset": dataset,
                 "n_packets": _n_packets("up") + _n_packets("down"),
                 "time [ns]": _time(),
@@ -112,6 +113,8 @@ def _save_ts5_to_standard():
                     times = np.abs(seq)
                     dirs = np.sign(seq)
                     sizes = np.ones_like(seq)
+
+                    # Check kipl_ml.data.assets for the indices!
                     dat = np.vstack([times, dirs, sizes]).T
 
                     key = f"ms={i:04d}|seq={j:04d}"
@@ -175,6 +178,7 @@ def _save_big_enough_to_standard():
             )
             sizes = np.ones_like(times)
 
+            # Check kipl_ml.data.assets for the indices!
             flow = np.vstack([times, dirs, sizes]).T
             log_f = log_f.replace(".log", "")
             path_ = os.path.join(
