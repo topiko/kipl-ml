@@ -1,0 +1,16 @@
+[pydeps]
+max_bacon = 2
+no_show = False
+verbose = 1
+pylib = False
+exclude =
+    os
+    re
+    sys
+    pandas
+    numpy
+    dotenv
+    matplotlib
+    omegaconf
+    collections
+    __future__
