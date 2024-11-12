@@ -2,21 +2,25 @@
 Classification metrics.
 """
 
+from typing import ClassVar, Protocol
+
 import torch
 from torch import nn
 
 
-class Metric:
-    name: str
-    objective: str
+class Metric(Protocol):
+    name: ClassVar[str]
+    objective: ClassVar[str]
+    pred_type: ClassVar[str]
 
     def __call__(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> float:
         raise NotImplementedError
 
 
-class CrossEntropyLoss(Metric):
+class CrossEntropyLoss:
     name: str = "CrossEntropyLoss"
     objective: str = "min"
+    pred_type: str = "logits"
 
     def __init__(self, *args, **kwargs):
         self.loss = nn.CrossEntropyLoss(*args, **kwargs)
@@ -25,15 +29,16 @@ class CrossEntropyLoss(Metric):
         return self.loss(y_pred, y_true).item()
 
 
-class Accuracy(Metric):
+class Accuracy:
     name: str = "accuracy"
     objective: str = "max"
+    pred_type: str = "classes"
 
     def __call__(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> float:
         return (y_pred == y_true).float().mean().item()
 
 
-METRICS = {Accuracy, CrossEntropyLoss}
+METRICS: set[Metric] = {Accuracy, CrossEntropyLoss}
 
 
 def get_objective(metric_name: str) -> str:
