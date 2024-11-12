@@ -81,7 +81,9 @@ def train_model(
                 best_epoch = epoch
                 # best_model = model.copy()
 
-        logger.info(key_val_fmt(early_stop_metric, early_stop_m_val))
+        logger.info("Current epoch:")
+        for k, v in metrics_vals.items():
+            logger.info(key_val_fmt(k, f"{v:1.4f}"))
         logger.info("Current best:")
         logger.info(
             key_val_fmt(

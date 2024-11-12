@@ -59,9 +59,3 @@ def get_objective(metric_name: str) -> str:
         if metric.name == metric_name:
             return metric.objective
     raise ValueError(f"Metric {metric_name} not found.")
-
-
-def evaluate(
-    metrics: list[Metric], y_pred: torch.Tensor, y_true: torch.Tensor
-) -> dict[str, float]:
-    return {metric.name: metric(y_pred, y_true) for metric in metrics}
