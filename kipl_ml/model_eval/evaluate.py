@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 import torch
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.metrics.clf_metrics import Metric
+from kipl_ml.metrics.clf_metrics import Metric, PredType
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -43,9 +43,9 @@ def evaluate_model(
 
     metric_vals: dict[str, float | torch.Tensor] = {}
     for m in metrics:
-        if m.pred_type == "classes":
+        if m.pred_type == PredType.CLASSES:
             metric_vals[m.name] = m(y_pred=pred_class, y_true=y_true)
-        elif m.pred_type == "logits":
+        elif m.pred_type == PredType.LOGITS:
             metric_vals[m.name] = m(y_pred=y_prob, y_true=y_true)
         else:
             raise ValueError(f"Unknown prediction type {m.pred_type}")

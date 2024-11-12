@@ -7,7 +7,7 @@ from collections.abc import Callable
 import torch
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
-from kipl_ml.metrics.clf_metrics import Metric, get_objective
+from kipl_ml.metrics.clf_metrics import Metric, Objective, get_objective
 from kipl_ml.model_eval.evaluate import evaluate_model
 from torch import nn
 from tqdm import tqdm
@@ -55,9 +55,9 @@ def train_model(
     logger.info(key_val_fmt("model", model.name))
     logger.info(key_val_fmt("dataset", train_loader.dataset.name))
     objective = get_objective(early_stop_metric)
-    if objective == "min":
+    if objective == Objective.MIN:
         best_early_stop_val = float("inf")
-    elif objective == "max":
+    elif objective == Objective.MAX:
         best_early_stop_val = float("-inf")
 
     epoch = 0
@@ -70,21 +70,25 @@ def train_model(
         else:
             early_stop_m_val = metrics_vals[early_stop_metric]
 
-        if objective == "min":
+        if objective == Objective.MIN:
             if early_stop_m_val < best_early_stop_val:
                 best_early_stop_val = early_stop_m_val
                 best_epoch = epoch
                 # best_model = model.copy()
-        elif objective == "max":
+        elif objective == Objective.MAX:
             if early_stop_m_val > best_early_stop_val:
                 best_early_stop_val = early_stop_m_val
                 best_epoch = epoch
                 # best_model = model.copy()
 
         logger.info(key_val_fmt(early_stop_metric, early_stop_m_val))
+        logger.info("Current best:")
         logger.info(
-            f"Current best {early_stop_metric}: {best_early_stop_val:1.4f} at epoch {best_epoch}"
+            key_val_fmt(
+                early_stop_metric, f"{best_early_stop_val:1.4f} at epoch {best_epoch}"
+            )
         )
+
         if epoch - best_epoch >= patience:
             logger.info("Terminate; early stopping")
             break

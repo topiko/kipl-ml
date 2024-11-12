@@ -2,10 +2,23 @@
 Classification metrics.
 """
 
+from dataclasses import dataclass
 from typing import ClassVar, Protocol
 
 import torch
 from torch import nn
+
+
+@dataclass
+class Objective:
+    MIN: str = "min"
+    MAX: str = "max"
+
+
+@dataclass
+class PredType:
+    CLASSES: str = "classes"
+    LOGITS: str = "logits"
 
 
 class Metric(Protocol):
@@ -19,8 +32,8 @@ class Metric(Protocol):
 
 class CrossEntropyLoss:
     name: str = "CrossEntropyLoss"
-    objective: str = "min"
-    pred_type: str = "logits"
+    objective: str = Objective.MIN
+    pred_type: str = PredType.LOGITS
 
     def __init__(self, *args, **kwargs):
         self.loss = nn.CrossEntropyLoss(*args, **kwargs)
@@ -31,8 +44,8 @@ class CrossEntropyLoss:
 
 class Accuracy:
     name: str = "accuracy"
-    objective: str = "max"
-    pred_type: str = "classes"
+    objective: str = Objective.MAX
+    pred_type: str = PredType.CLASSES
 
     def __call__(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> float:
         return (y_pred == y_true).float().mean().item()
