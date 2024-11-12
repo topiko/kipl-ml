@@ -7,6 +7,7 @@ from __future__ import annotations
 import torch
 from kipl_ml.data.assets import assets
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.logging.utils import key_val_fmt
 
 logger = get_logger(__name__)
 
@@ -105,8 +106,9 @@ class FeatureTrs:
         return [tr.name for tr in self._feature_trs]
 
     def report(self) -> str:
+
         return "Feature Transforms:\n" + "\n".join(
-            [f"{tr.name: >30}: {tr.output_size}" for tr in self._feature_trs]
+            [key_val_fmt(tr.name, tr.output_size) for tr in self._feature_trs]
         )
 
     def __call__(self, flow: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:

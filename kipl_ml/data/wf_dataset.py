@@ -6,6 +6,7 @@ from kipl_ml.data.assets import assets
 from kipl_ml.data.utils import get_std_flow_array, load_dataset_meta_df
 from kipl_ml.flow.transforms import _TR, FeatureTrs
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.logging.utils import key_val_fmt
 from torch.utils.data import Dataset
 
 logger = get_logger(__name__)
@@ -19,6 +20,9 @@ class WFDataset(Dataset):
         n_packets: int = 500,
         device: torch.device = torch.device("cpu"),
     ) -> None:
+
+        logger.info("Buidling dataset...")
+        logger.info(key_val_fmt("name", dataset))
 
         meta_df = load_dataset_meta_df(dataset)
         self.name = dataset
@@ -36,6 +40,8 @@ class WFDataset(Dataset):
         self.meta_df = meta_df[packet_mask]
         self.feature_trs = feature_trs
         self.get_feature_shapes()
+        for _l in self.feature_trs.report().split("\n"):
+            logger.info(_l)
 
     @property
     def n_classes(self) -> int:

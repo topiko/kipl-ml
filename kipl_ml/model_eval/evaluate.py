@@ -13,9 +13,7 @@ logger = get_logger(__name__)
 def run_inference(
     model: nn.Module, dataloader: torch.utils.data.DataLoader
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    logger.info(f"Run inference:")
-    logger.info(f"\tmodel   : {model.name}")
-    logger.info(f"\tdataset : {dataloader.dataset.name}")
+    logger.info(f"Run inference...")
     model.eval()
 
     preds = []
@@ -37,7 +35,8 @@ def evaluate_model(
     metrics: list[Metric],
     loss_fn: Callable | None = None,
 ) -> dict[str, float | torch.Tensor]:
-    logger.info(f"Evaluate {model.name}")
+    logger.info(f"Evaluate...")
+
     y_prob, y_true = run_inference(model, dataloader)
 
     pred_class = y_prob.argmax(dim=1)

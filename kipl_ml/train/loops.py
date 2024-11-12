@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 import torch
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.metrics.clf_metrics import Metric, get_objective
 from kipl_ml.model_eval.evaluate import evaluate_model
 from torch import nn
@@ -22,7 +23,7 @@ def _one_epoch(
     n_epoch: int = 0,
 ):
 
-    logger.info(f"Running epoch {n_epoch: 03d}")
+    logger.info(f"Running epoch {n_epoch: 03d}...")
 
     model.train()
     with tqdm(dataloader, desc=f"epoch {n_epoch: 03d}") as pbar:
@@ -50,6 +51,9 @@ def train_model(
     patience: int = 2,
 ) -> nn.Module:
 
+    logger.info("Training model...")
+    logger.info(key_val_fmt("model", model.name))
+    logger.info(key_val_fmt("dataset", train_loader.dataset.name))
     objective = get_objective(early_stop_metric)
     if objective == "min":
         best_early_stop_val = float("inf")
@@ -77,7 +81,7 @@ def train_model(
                 best_epoch = epoch
                 # best_model = model.copy()
 
-        logger.info(f"{early_stop_metric}: {early_stop_m_val:1.4f}")
+        logger.info(key_val_fmt(early_stop_metric, early_stop_m_val))
         logger.info(
             f"Current best {early_stop_metric}: {best_early_stop_val:1.4f} at epoch {best_epoch}"
         )
