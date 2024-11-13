@@ -19,25 +19,30 @@ class WFDataset(Dataset):
         feature_trs: FeatureTrs,
         n_packets: int = 500,
         device: torch.device = torch.device("cpu"),
+        short_flow_policy: str = "pad",
     ) -> None:
+        if short_flow_policy not in ("drop", "pad"):
+            raise ValueError(
+                f"short_flow_policy must be 'drop' or 'pad', got {short_flow_policy}"
+            )
 
         logger.info("Buidling dataset...")
         logger.info(key_val_fmt("name", dataset))
 
-        meta_df = load_dataset_meta_df(dataset)
+        self.meta_df = load_dataset_meta_df(dataset)
         self.name = dataset
         self.device = device
         self.n_packets = n_packets
 
-        packet_mask = meta_df.n_packets >= n_packets
-
-        if packet_mask.sum() < len(meta_df):
-            n_rem = len(meta_df) - packet_mask.sum()
-            logger.info(
-                f"Removing fraction {n_rem / len(meta_df): .2f} "
-                f"of flows due to less than {n_packets} packets."
-            )
-        self.meta_df = meta_df[packet_mask]
+        if short_flow_policy == "drop":
+            packet_mask = self.meta_df.n_packets >= n_packets
+            if packet_mask.sum() < len(self.meta_df):
+                n_rem = len(self.meta_df) - packet_mask.sum()
+                logger.info(
+                    f"Removing fraction {n_rem / len(self.meta_df): .2f} "
+                    f"of flows due to less than {n_packets} packets."
+                )
+            self.meta_df = self.meta_df[packet_mask]
         self.feature_trs = feature_trs
         self.get_feature_shapes()
         for _l in self.feature_trs.report().split("\n"):
@@ -71,6 +76,9 @@ class WFDataset(Dataset):
         np_flow = get_std_flow_array(path)
 
         flow = torch.Tensor(np_flow, device=self.device)[: self.n_packets]
+
+        if len(flow) < self.n_packets:
+            flow = torch.cat([flow, torch.zeros(self.n_packets - len(flow), 3)])
 
         return {
             assets.TIME: flow[:, assets.TIME_IDX],
