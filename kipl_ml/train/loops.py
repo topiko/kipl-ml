@@ -87,7 +87,8 @@ def train_model(
         logger.info("Current best:")
         logger.info(
             key_val_fmt(
-                early_stop_metric, f"{best_early_stop_val:1.4f} at epoch {best_epoch}"
+                early_stop_metric,
+                f"{best_early_stop_val:1.4f} at epoch {best_epoch: 03d}",
             )
         )
 
