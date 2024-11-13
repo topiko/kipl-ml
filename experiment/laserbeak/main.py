@@ -85,7 +85,7 @@ def main(cfg: DictConfig):
     optimizer = torch.optim.Adam(model.parameters())
     loss_fn = torch.nn.CrossEntropyLoss()
     metrics = [Accuracy(), CrossEntropyLoss()]
-    early_stop_metric = "accuracy"
+    early_stop_metric = metrics[0].name
     patience = 2
 
     train_model(

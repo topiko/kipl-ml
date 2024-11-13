@@ -21,6 +21,12 @@ class PredType:
     LOGITS: str = "logits"
 
 
+@dataclass
+class CLFMetrics:
+    ACCURACY: str = "accuracy"
+    CROSS_ENTROPY_LOSS: str = "CrossEntropyLoss"
+
+
 class Metric(Protocol):
     name: ClassVar[str]
     objective: ClassVar[str]
@@ -31,7 +37,7 @@ class Metric(Protocol):
 
 
 class CrossEntropyLoss:
-    name: str = "CrossEntropyLoss"
+    name: str = CLFMetrics.CROSS_ENTROPY_LOSS
     objective: str = Objective.MIN
     pred_type: str = PredType.LOGITS
 
@@ -43,7 +49,7 @@ class CrossEntropyLoss:
 
 
 class Accuracy:
-    name: str = "accuracy"
+    name: str = CLFMetrics.ACCURACY
     objective: str = Objective.MAX
     pred_type: str = PredType.CLASSES
 
