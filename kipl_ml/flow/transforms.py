@@ -91,6 +91,7 @@ class Normalize(_TR):
 
     def __call__(self, flow: dict[str, torch.Tensor]) -> torch.Tensor:
         if (std := flow[self.asset].std()) == 0:
+            logger.warning(f"Std zeron when standardizing! {self.name}")
             if all(flow[self.asset] == 0):
                 return flow[self.asset]
             raise ValueError("Standard deviation is zero. Cannot normalize.")
@@ -119,7 +120,6 @@ class IAT(_TR):
         return self
 
     def __call__(self, flow: dict[str, torch.Tensor]) -> torch.Tensor:
-        iats = torch.zeros_like(flow[assets.TIME])
 
         if self.dir_key == "up":
             mask = flow[assets.DIR] > 1
@@ -128,7 +128,9 @@ class IAT(_TR):
         else:
             mask = torch.ones_like(flow[assets.DIR], dtype=torch.bool)
 
-        iats[mask][1:] = torch.diff(flow[assets.TIME][mask], dim=0)
+        idxs = torch.where(mask)[0]
+        iats = torch.zeros_like(flow[assets.TIME])
+        iats[idxs[1:]] = torch.diff(flow[assets.TIME][mask], dim=0)
         return iats
 
 
