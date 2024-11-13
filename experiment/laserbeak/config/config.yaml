@@ -2,7 +2,7 @@ dataset:
   name: "bigenough"
   nsamples: 1000
 flow:
-  n_packets: 300
+  n_packets: 3000
 model:
   name: "dfnet"
 train:
@@ -11,6 +11,10 @@ features:
   - "times"
   - "up_packets"
   - "down_packets"
+  - "dirs"
+  - "times_normalized"
+  - "iats"
+  - "iats_normalized"
 
 
 
