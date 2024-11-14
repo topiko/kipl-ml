@@ -69,6 +69,19 @@ class TestTR(unittest.TestCase):
         self.assertTrue(torch.allclose(tr_up(flow), (flow[assets.DIR] == 1).float()))
         self.assertTrue(torch.allclose(tr_down(flow), (flow[assets.DIR] == -1).float()))
 
+    def test_up_iats(self):
+        flow = self._get_flow(self.N_PACKETS)
+        tr = self._get_key("up_iats", flow)
+
+        self._shapes_test(tr, flow)
+
+        mask = flow[assets.DIR] > 1
+        idxs = torch.where(mask)[0]
+        iats = torch.zeros_like(flow[assets.TIME])
+        iats[idxs[1:]] = torch.diff(flow[assets.TIME][mask], dim=0)
+
+        self.assertTrue(torch.allclose(tr(flow), iats))
+
 
 if __name__ == "__main__":
     unittest.main()
