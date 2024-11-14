@@ -74,7 +74,7 @@ def main(cfg: DictConfig):
 
     ds_train, ds_valid, _ = get_train_valid_test(
         dataset=dataset,
-        n_samples=(10000, 1000, 1000),
+        n_samples=(16000, 1000, 1000),
         feature_trs=feature_trs,
         n_packets=n_packets,
     )

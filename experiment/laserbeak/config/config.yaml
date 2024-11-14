@@ -4,7 +4,7 @@ dataset:
 flow:
   n_packets: 3000
 model:
-  name: "cvt"
+  name: "dfnet"
 train:
   batch_size: 32
 features:
