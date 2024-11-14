@@ -96,7 +96,17 @@ class TestTR(unittest.TestCase):
 
         self.assertTrue(torch.allclose(tr(flow), iats))
 
+    def test_normalized_times(self):
+        flow = self._get_flow(self.N_PACKETS)
+        tr = self._get_key("times_normalized", flow)
 
+        self._shapes_test(tr, flow)
+
+        times = flow[assets.TIME]
+        times -= times.mean()
+        times /= times.std()
+
+        self.assertTrue(torch.allclose(tr(flow), times))
 
 if __name__ == "__main__":
     unittest.main()
