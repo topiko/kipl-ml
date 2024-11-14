@@ -3,6 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+from kipl_ml.data.assets import assets
 from kipl_ml.logging.logger import get_logger
 from omegaconf import DictConfig
 
@@ -37,3 +38,34 @@ def get_std_flow_array(path: os.PathLike) -> np.ndarray:
 
     """
     return np.load(path)
+
+
+def preserve_class_frac_sample(
+    meta_df: pd.DataFrame, n_samples: int, missing_classes: str = "raise"
+) -> pd.DataFrame:
+    """
+    Sample n_samples preserving the class fraction
+    """
+
+    frac = n_samples / len(meta_df)
+    sampled_meta_df = (
+        meta_df.groupby(assets.LABEL)
+        .apply(lambda x: x.sample(frac=frac))
+        .reset_index(drop=True)
+    )
+
+    if set(meta_df[assets.LABEL]) != set(sampled_meta_df[assets.LABEL]):
+        msg = "Sampled meta_df does not contain all classes."
+        if missing_classes == "raise":
+            raise ValueError(msg)
+        elif missing_classes == "warn":
+            logger.warning(msg)
+        elif missing_classes == "ignore":
+            pass
+        else:
+            raise KeyError("Invalid missing classes key: '{missing_classes}'")
+
+    if len(sampled_meta_df) == 0:
+        raise ValueError("Empty df")
+
+    return sampled_meta_df

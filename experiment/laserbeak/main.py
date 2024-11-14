@@ -4,10 +4,10 @@ import os
 import hydra
 import src
 import torch
-from kipl_ml.data.wf_dataset import WFDataset
+from kipl_ml.data.wf_dataset import WFDataset, get_train_valid_test
 from kipl_ml.flow.transforms import FeatureTrs
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.metrics.clf_metrics import Accuracy, CrossEntropyLoss
+from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall, CrossEntropyLoss
 from kipl_ml.train.loops import train_model
 from omegaconf import DictConfig
 from src.cls_cvt import ConvolutionalVisionTransformer
@@ -72,26 +72,32 @@ def main(cfg: DictConfig):
 
     feature_trs = FeatureTrs(feature_names=cfg.features)
 
-    trainset = WFDataset(dataset, feature_trs=feature_trs, n_packets=n_packets)
+    ds_train, ds_valid, _ = get_train_valid_test(
+        dataset=dataset,
+        n_samples=(10000, 1000, 1000),
+        feature_trs=feature_trs,
+        n_packets=n_packets,
+    )
 
     model = get_model(
         model,
-        n_classes=trainset.n_classes,
-        inputs=trainset.outputs,
+        n_classes=ds_train.n_classes,
+        inputs=ds_train.outputs,
     )
 
-    train_loader = DataLoader(trainset, batch_size=cfg.train.batch_size, shuffle=True)
+    train_loader = DataLoader(ds_train, batch_size=cfg.train.batch_size, shuffle=True)
+    valid_loader = DataLoader(ds_valid, batch_size=cfg.train.batch_size, shuffle=True)
 
     optimizer = torch.optim.Adam(model.parameters())
     loss_fn = torch.nn.CrossEntropyLoss()
-    metrics = [Accuracy(), CrossEntropyLoss()]
-    early_stop_metric = metrics[0].name
+    metrics = [Accuracy(), CrossEntropyLoss(), ClassRecall(1)]
+    early_stop_metric = metrics[0]
     patience = 2
 
     train_model(
         model=model,
         train_loader=train_loader,
-        valid_loader=train_loader,
+        valid_loader=valid_loader,
         optimizer=optimizer,
         loss_fn=loss_fn,
         metrics=metrics,
