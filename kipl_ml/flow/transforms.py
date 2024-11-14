@@ -4,6 +4,8 @@ Various transforms for for flows.
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
+
 import torch
 from kipl_ml.data.assets import assets
 from kipl_ml.logging.logger import get_logger
@@ -12,7 +14,7 @@ from kipl_ml.logging.utils import key_val_fmt
 logger = get_logger(__name__)
 
 
-class _TR:
+class _TR(ABC):
     NAME: str
 
     def __init__(self, asset: str):
@@ -36,9 +38,11 @@ class _TR:
     def name(self) -> str:
         return self.NAME + f"_{self.asset}"
 
+    @abstractmethod
     def get_shapes(self, flow: dict[str, torch.Tensor]) -> _TR:
         raise NotImplementedError
 
+    @abstractmethod
     def __call__(self, flow: dict[str, torch.Tensor]) -> torch.Tensor:
         raise NotImplementedError
 
@@ -75,9 +79,9 @@ class UDPackets(_TR):
 
     def __call__(self, flow: dict[str, torch.Tensor]) -> torch.Tensor:
         if self.up_down == "up":
-            mask = flow[self.asset] > 1
+            mask = flow[self.asset] == 1
         elif self.up_down == "down":
-            mask = flow[self.asset] < 1
+            mask = flow[self.asset] == -1
         return mask.float()
 
 
