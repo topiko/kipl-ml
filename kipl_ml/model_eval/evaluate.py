@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 import torch
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.metrics.clf_metrics import Metric, PredType
+from kipl_ml.metrics.clf_metrics import ClassMetric, GeneralMetric, PredType
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -32,7 +32,7 @@ def run_inference(
 def evaluate_model(
     model: nn.Module,
     dataloader: torch.utils.data.DataLoader,
-    metrics: list[Metric],
+    metrics: list[GeneralMetric | ClassMetric],
     loss_fn: Callable | None = None,
 ) -> dict[str, float | torch.Tensor]:
     logger.info(f"Evaluate...")
@@ -43,12 +43,12 @@ def evaluate_model(
 
     metric_vals: dict[str, float | torch.Tensor] = {}
     for m in metrics:
-        if m.pred_type == PredType.CLASSES:
+        if m.PRED_TYPE == PredType.CLASSES:
             metric_vals[m.name] = m(y_pred=pred_class, y_true=y_true)
-        elif m.pred_type == PredType.LOGITS:
+        elif m.PRED_TYPE == PredType.LOGITS:
             metric_vals[m.name] = m(y_pred=y_prob, y_true=y_true)
         else:
-            raise ValueError(f"Unknown prediction type {m.pred_type}")
+            raise ValueError(f"Unknown prediction type {m.PRED_TYPE}")
 
     if loss_fn is not None:
         loss = loss_fn(y_prob, y_true)

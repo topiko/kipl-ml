@@ -2,8 +2,9 @@
 Classification metrics.
 """
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import ClassVar, Protocol
+from typing import ClassVar
 
 import torch
 from torch import nn
@@ -19,27 +20,42 @@ class Objective:
 class PredType:
     CLASSES: str = "classes"
     LOGITS: str = "logits"
+    PROBS: str = "probs"
 
 
-@dataclass
-class CLFMetrics:
-    ACCURACY: str = "accuracy"
-    CROSS_ENTROPY_LOSS: str = "CrossEntropyLoss"
+class GeneralMetric(ABC):
+    OBJECTIVE: ClassVar[str]
+    PRED_TYPE: ClassVar[str]
 
+    @property
+    def name(self) -> str:
+        return self.__class__.__name__.lower()
 
-class Metric(Protocol):
-    name: ClassVar[str]
-    objective: ClassVar[str]
-    pred_type: ClassVar[str]
-
+    @abstractmethod
     def __call__(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> float:
         raise NotImplementedError
 
 
-class CrossEntropyLoss:
-    name: str = CLFMetrics.CROSS_ENTROPY_LOSS
-    objective: str = Objective.MIN
-    pred_type: str = PredType.LOGITS
+class ClassMetric(ABC):
+    OBJECTIVE: ClassVar[str]
+    PRED_TYPE: ClassVar[str]
+    CLASS_IDX: int
+
+    def __init__(self, class_idx: int):
+        self.CLASS_IDX = class_idx
+
+    @property
+    def name(self):
+        return f"{self.CLASS_IDX:04d} - {self.__class__.__name__.lower()}"
+
+    @abstractmethod
+    def __call__(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> float:
+        raise NotImplementedError
+
+
+class CrossEntropyLoss(GeneralMetric):
+    OBJECTIVE: ClassVar[str] = Objective.MIN
+    PRED_TYPE: ClassVar[str] = PredType.LOGITS
 
     def __init__(self, *args, **kwargs):
         self.loss = nn.CrossEntropyLoss(*args, **kwargs)
@@ -48,20 +64,36 @@ class CrossEntropyLoss:
         return self.loss(y_pred, y_true).item()
 
 
-class Accuracy:
-    name: str = CLFMetrics.ACCURACY
-    objective: str = Objective.MAX
-    pred_type: str = PredType.CLASSES
+class Accuracy(GeneralMetric):
+    OBJECTIVE: ClassVar[str] = Objective.MAX
+    PRED_TYPE: ClassVar[str] = PredType.CLASSES
 
     def __call__(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> float:
         return (y_pred == y_true).float().mean().item()
 
 
-METRICS: set[Metric] = {Accuracy, CrossEntropyLoss}
+def _recall(y_pred: torch.Tensor, y_true: torch.Tensor) -> float:
+    tp = (y_pred == y_true).sum()
+    fn = (y_pred != y_true).sum()
+    return (tp / (tp + fn)).item()
 
 
-def get_objective(metric_name: str) -> str:
-    for metric in METRICS:
-        if metric.name == metric_name:
-            return metric.objective
-    raise ValueError(f"Metric {metric_name} not found.")
+class Recall(GeneralMetric):
+    OBJECTIVE: ClassVar[str] = Objective.MAX
+    PRED_TYPE: ClassVar[str] = PredType.CLASSES
+
+    def __call__(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> float:
+        return _recall(y_pred, y_true)
+
+
+class ClassRecall(ClassMetric):
+    OBJECTIVE: ClassVar[str] = Objective.MAX
+    PRED_TYPE: ClassVar[str] = PredType.CLASSES
+    CLASS_IDX: int
+
+    def __call__(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> float:
+        mask = y_true == self.CLASS_IDX
+        y_true_ = y_true[mask]
+        y_pred_ = y_pred[mask]
+
+        return _recall(y_pred_, y_true_)
