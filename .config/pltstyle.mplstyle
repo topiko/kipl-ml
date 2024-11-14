@@ -7,6 +7,6 @@ lines.markersize: 5
 lines.marker: |
 lines.linewidth: 1
 axes.titlelocation: left
-axes.titlesize: normal
+axes.titlesize: medium
 axes.titleweight: bold
 figure.titleweight: bold
