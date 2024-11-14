@@ -82,6 +82,21 @@ class TestTR(unittest.TestCase):
 
         self.assertTrue(torch.allclose(tr(flow), iats))
 
+    def test_normalize_iats(self):
+        flow = self._get_flow(self.N_PACKETS)
+        tr = self._get_key("iats_normalized", flow)
+
+        self._shapes_test(tr, flow)
+
+        iats = torch.zeros_like(flow[assets.TIME])
+        iats[1:] = torch.diff(flow[assets.TIME], dim=0)
+
+        iats -= iats.mean()
+        iats /= iats.std()
+
+        self.assertTrue(torch.allclose(tr(flow), iats))
+
+
 
 if __name__ == "__main__":
     unittest.main()
