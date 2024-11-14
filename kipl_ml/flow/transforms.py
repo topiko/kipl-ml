@@ -134,7 +134,8 @@ class IAT(_TR):
 
         idxs = torch.where(mask)[0]
         iats = torch.zeros_like(flow[assets.TIME])
-        iats[idxs[1:]] = torch.diff(flow[assets.TIME][mask], dim=0)
+        if len(idxs) > 1:
+            iats[idxs[1:]] = torch.diff(flow[assets.TIME][mask], dim=0)
         return iats
 
 
