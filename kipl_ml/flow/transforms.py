@@ -126,9 +126,9 @@ class IAT(_TR):
     def __call__(self, flow: dict[str, torch.Tensor]) -> torch.Tensor:
 
         if self.dir_key == "up":
-            mask = flow[assets.DIR] > 1
+            mask = flow[assets.DIR] == 1
         elif self.dir_key == "down":
-            mask = flow[assets.DIR] < 1
+            mask = flow[assets.DIR] == -1
         else:
             mask = torch.ones_like(flow[assets.DIR], dtype=torch.bool)
 

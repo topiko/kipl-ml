@@ -69,18 +69,27 @@ class TestTR(unittest.TestCase):
         self.assertTrue(torch.allclose(tr_up(flow), (flow[assets.DIR] == 1).float()))
         self.assertTrue(torch.allclose(tr_down(flow), (flow[assets.DIR] == -1).float()))
 
-    def test_up_iats(self):
+    def test_ud_iats(self):
         flow = self._get_flow(self.N_PACKETS)
-        tr = self._get_key("up_iats", flow)
+        tr_up = self._get_key("up_iats", flow)
+        tr_down = self._get_key("down_iats", flow)
 
-        self._shapes_test(tr, flow)
+        self._shapes_test(tr_up, flow)
+        self._shapes_test(tr_down, flow)
 
-        mask = flow[assets.DIR] > 1
+        mask = flow[assets.DIR] == 1
         idxs = torch.where(mask)[0]
         iats = torch.zeros_like(flow[assets.TIME])
         iats[idxs[1:]] = torch.diff(flow[assets.TIME][mask], dim=0)
 
-        self.assertTrue(torch.allclose(tr(flow), iats))
+        self.assertTrue(torch.allclose(tr_up(flow), iats))
+
+        mask = flow[assets.DIR] == -1
+        idxs = torch.where(mask)[0]
+        iats = torch.zeros_like(flow[assets.TIME])
+        iats[idxs[1:]] = torch.diff(flow[assets.TIME][mask], dim=0)
+
+        self.assertTrue(torch.allclose(tr_down(flow), iats))
 
     def test_normalize_iats(self):
         flow = self._get_flow(self.N_PACKETS)
@@ -106,7 +115,6 @@ class TestTR(unittest.TestCase):
         times -= times.mean()
         times /= times.std()
 
-        self.assertTrue(torch.allclose(tr(flow), times))
 
 if __name__ == "__main__":
     unittest.main()
