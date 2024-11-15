@@ -5,7 +5,7 @@ import hydra
 import src
 import torch
 from kipl_ml.data.wf_dataset import WFDataset, get_train_valid_test
-from kipl_ml.flow.transforms import FeatureTrs
+from kipl_ml.trace.transforms import FeatureTrs
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall, CrossEntropyLoss
 from kipl_ml.train.loops import train_model
@@ -68,7 +68,7 @@ def get_model(model_name: str, n_classes: int, inputs: dict[str, int]) -> nn.Mod
 def main(cfg: DictConfig):
     dataset = cfg.dataset.name
     model = cfg.model.name
-    n_packets = cfg.flow.n_packets
+    n_packets = cfg.trace.n_packets
 
     feature_trs = FeatureTrs(feature_names=cfg.features)
 

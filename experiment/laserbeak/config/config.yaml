@@ -1,7 +1,7 @@
 dataset:
   name: "bigenough"
   nsamples: 1000
-flow:
+trace:
   n_packets: 300
 model:
   name: "dfnet"

@@ -31,7 +31,7 @@ def _load_pickle_data(data_path: str) -> dict[int, list[list[np.ndarray | list]]
 
 
 def _data_to_meta_row(
-    data: np.ndarray, label: int, path: str, dataset: str, flow_id: str
+    data: np.ndarray, label: int, path: str, dataset: str, trace_id: str
 ) -> pd.Series:
     """
     Convert data to metadata series
@@ -62,7 +62,7 @@ def _data_to_meta_row(
                 "dataset": dataset,
                 "n_packets": _n_packets("up") + _n_packets("down"),
                 "time [ns]": _time(),
-                "flow_id": flow_id,
+                "trace_id": trace_id,
                 "n_packets_up": _n_packets("up"),
                 "n_packets_down": _n_packets("down"),
                 "path": path,
@@ -74,7 +74,7 @@ def _data_to_meta_row(
                 "label": int,
                 "n_packets": int,
                 "time [ns]": float,
-                "flow_id": str,
+                "trace_id": str,
                 "path": str,
                 "dataset": str,
                 "n_packets_up": int,
@@ -159,17 +159,17 @@ def _save_big_enough_to_standard():
     def parse_row(row: str, idx: int) -> str:
         return row.split(",")[idx]
 
-    flow_dfs = []
+    trace_dfs = []
     for dir_ in os.listdir(root):
         if not os.path.isdir(os.path.join(root, dir_)):
             continue
 
         label = int(dir_)
-        flow_dir = os.path.join(root, dir_)
-        for log_f in os.listdir(flow_dir):
+        trace_dir = os.path.join(root, dir_)
+        for log_f in os.listdir(trace_dir):
             if not log_f.endswith(".log"):
                 logger.warning(f"Skipping {log_f}")
-            with open(os.path.join(flow_dir, log_f), "r") as fi:
+            with open(os.path.join(trace_dir, log_f), "r") as fi:
                 seq = fi.readlines()
 
             times = np.array([parse_row(p, 0) for p in seq], dtype=float)
@@ -179,22 +179,22 @@ def _save_big_enough_to_standard():
             sizes = np.ones_like(times)
 
             # Check kipl_ml.data.assets for the indices!
-            flow = np.vstack([times, dirs, sizes]).T
+            trace = np.vstack([times, dirs, sizes]).T
             log_f = log_f.replace(".log", "")
             path_ = os.path.join(
                 STD_FLOWS_DATA_DIR, "bigenough", f"{label:04d}", f"{log_f}.npy"
             )
-            flow_df = _data_to_meta_row(
-                data=flow, label=label, path=path_, dataset="bigenough", flow_id=log_f
+            trace_df = _data_to_meta_row(
+                data=trace, label=label, path=path_, dataset="bigenough", trace_id=log_f
             )
 
             if not os.path.exists(os.path.dirname(path_)):
                 os.makedirs(os.path.dirname(path_))
-            np.save(path_, flow)
+            np.save(path_, trace)
 
-            flow_dfs.append(flow_df)
+            trace_dfs.append(trace_df)
 
-    _save_meta_df(flow_dfs, "bigenough")
+    _save_meta_df(trace_dfs, "bigenough")
 
 
 if __name__ == "__main__":

@@ -27,9 +27,9 @@ def load_dataset_meta_df(dataset: str) -> pd.DataFrame:
     return pd.read_hdf(meta_path)
 
 
-def get_std_flow_array(path: os.PathLike) -> np.ndarray:
+def get_std_trace_array(path: os.PathLike) -> np.ndarray:
     """
-    Load a standard flow array from a file
+    Load a standard trace array from a file
     The standard is given by:
         - shape: (n_timesteps, n_features), where n_features = 3
         - (n_timesteps, 0) = timestamp in [ns]

@@ -1,5 +1,5 @@
 """
-Various transforms for for flows.
+Various transforms for for traces.
 """
 
 from __future__ import annotations
@@ -39,24 +39,24 @@ class _TR(ABC):
         return self.NAME + f"_{self.asset}"
 
     @abstractmethod
-    def get_shapes(self, flow: dict[str, torch.Tensor]) -> _TR:
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> _TR:
         raise NotImplementedError
 
     @abstractmethod
-    def __call__(self, flow: dict[str, torch.Tensor]) -> torch.Tensor:
+    def __call__(self, trace: dict[str, torch.Tensor]) -> torch.Tensor:
         raise NotImplementedError
 
 
 class Select(_TR):
     NAME = "identity"
 
-    def get_shapes(self, flow: dict[str, torch.Tensor]) -> Select:
-        self._input_size = flow[self.asset].shape[0]
-        self._output_size = flow[self.asset].shape[0]
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> Select:
+        self._input_size = trace[self.asset].shape[0]
+        self._output_size = trace[self.asset].shape[0]
         return self
 
-    def __call__(self, flow: dict[str, torch.Tensor]) -> torch.Tensor:
-        return flow[self.asset]
+    def __call__(self, trace: dict[str, torch.Tensor]) -> torch.Tensor:
+        return trace[self.asset]
 
 
 class UDPackets(_TR):
@@ -72,34 +72,34 @@ class UDPackets(_TR):
     def name(self) -> str:
         return self.up_down + "_packets"
 
-    def get_shapes(self, flow: dict[str, torch.Tensor]) -> UpPackets:
-        self._input_size = flow[self.asset].shape[0]
-        self._output_size = flow[self.asset].shape[0]
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> UpPackets:
+        self._input_size = trace[self.asset].shape[0]
+        self._output_size = trace[self.asset].shape[0]
         return self
 
-    def __call__(self, flow: dict[str, torch.Tensor]) -> torch.Tensor:
+    def __call__(self, trace: dict[str, torch.Tensor]) -> torch.Tensor:
         if self.up_down == "up":
-            mask = flow[self.asset] == 1
+            mask = trace[self.asset] == 1
         elif self.up_down == "down":
-            mask = flow[self.asset] == -1
+            mask = trace[self.asset] == -1
         return mask.float()
 
 
 class Normalize(_TR):
     NAME = "normalized"
 
-    def get_shapes(self, flow: dict[str, torch.Tensor]) -> Normlaize:
-        self._input_size = flow[self.asset].shape[0]
-        self._output_size = flow[self.asset].shape[0]
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> Normlaize:
+        self._input_size = trace[self.asset].shape[0]
+        self._output_size = trace[self.asset].shape[0]
         return self
 
-    def __call__(self, flow: dict[str, torch.Tensor]) -> torch.Tensor:
-        if (std := flow[self.asset].std()) == 0:
+    def __call__(self, trace: dict[str, torch.Tensor]) -> torch.Tensor:
+        if (std := trace[self.asset].std()) == 0:
             logger.warning(f"Std zeron when standardizing! {self.name}")
-            if all(flow[self.asset] == 0):
-                return flow[self.asset]
+            if all(trace[self.asset] == 0):
+                return trace[self.asset]
             raise ValueError("Standard deviation is zero. Cannot normalize.")
-        return (flow[self.asset] - flow[self.asset].mean()) / std
+        return (trace[self.asset] - trace[self.asset].mean()) / std
 
 
 class IAT(_TR):
@@ -118,24 +118,24 @@ class IAT(_TR):
 
         return f"{self.dir_key}_{self.NAME}"
 
-    def get_shapes(self, flow: dict[str, torch.Tensor]) -> IAT:
-        self._input_size = flow[self.asset].shape[0]
-        self._output_size = flow[self.asset].shape[0]
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> IAT:
+        self._input_size = trace[self.asset].shape[0]
+        self._output_size = trace[self.asset].shape[0]
         return self
 
-    def __call__(self, flow: dict[str, torch.Tensor]) -> torch.Tensor:
+    def __call__(self, trace: dict[str, torch.Tensor]) -> torch.Tensor:
 
         if self.dir_key == "up":
-            mask = flow[assets.DIR] == 1
+            mask = trace[assets.DIR] == 1
         elif self.dir_key == "down":
-            mask = flow[assets.DIR] == -1
+            mask = trace[assets.DIR] == -1
         else:
-            mask = torch.ones_like(flow[assets.DIR], dtype=torch.bool)
+            mask = torch.ones_like(trace[assets.DIR], dtype=torch.bool)
 
         idxs = torch.where(mask)[0]
-        iats = torch.zeros_like(flow[assets.TIME])
+        iats = torch.zeros_like(trace[assets.TIME])
         if len(idxs) > 1:
-            iats[idxs[1:]] = torch.diff(flow[assets.TIME][mask], dim=0)
+            iats[idxs[1:]] = torch.diff(trace[assets.TIME][mask], dim=0)
         return iats
 
 
@@ -151,12 +151,12 @@ class Compose(_TR):
     def name(self) -> str:
         return "pipe:" + "-->".join(tr.name for tr in self.transforms)
 
-    def get_shapes(self, flow: dict[str, torch.Tensor]) -> Compose:
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> Compose:
         outs = None
         for i, tr in enumerate(self.transforms):
-            tr.get_shapes(flow)
+            tr.get_shapes(trace)
             outs = tr.output_size
-            flow[tr.name] = flow[tr.asset][:outs]
+            trace[tr.name] = trace[tr.asset][:outs]
 
             if i == 0:
                 self._input_size = tr.input_size
@@ -165,11 +165,11 @@ class Compose(_TR):
 
         return self
 
-    def __call__(self, flow: dict[str, torch.Tensor]) -> torch.Tensor:
+    def __call__(self, trace: dict[str, torch.Tensor]) -> torch.Tensor:
         for i, tr in enumerate(self.transforms):
-            tensor = tr(flow)
+            tensor = tr(trace)
             if i < len(self.transforms) - 1:
-                flow[self.transforms[i].name] = tensor
+                trace[self.transforms[i].name] = tensor
 
         return tensor
 
@@ -191,9 +191,9 @@ class FeatureTrs:
 
         self._feature_trs = feature_trs
 
-    def get_shapes(self, flow: dict[str, torch.Tensor]) -> FeatureTrs:
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> FeatureTrs:
         for tr in self._feature_trs:
-            tr.get_shapes(flow)
+            tr.get_shapes(trace)
         return self
 
     @property
@@ -213,8 +213,8 @@ class FeatureTrs:
             ]
         )
 
-    def __call__(self, flow: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        return {tr.name: tr(flow) for tr in self._feature_trs}
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        return {tr.name: tr(trace) for tr in self._feature_trs}
 
 
 def build_feature_trs(feature_name: list[str]) -> list[_TR]:

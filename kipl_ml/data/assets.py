@@ -7,7 +7,7 @@ class assets:
     SIZE: str = "size"
     TIME: str = "time"
     LABEL: str = "label"
-    FLOW_ID: str = "flow_id"
+    TRACE_ID: str = "flow_id"
 
     TIME_IDX: int = 0
     DIR_IDX: int = 1
