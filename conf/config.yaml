@@ -1,5 +1,0 @@
-data:
-  dataset: "ts5-monitored"
-  nsamples: 1000
-flow:
-  n_max_samples: 300
