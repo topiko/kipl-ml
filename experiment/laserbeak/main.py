@@ -5,9 +5,9 @@ import hydra
 import src
 import torch
 from kipl_ml.data.wf_dataset import WFDataset, get_train_valid_test
-from kipl_ml.trace.transforms import FeatureTrs
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall, CrossEntropyLoss
+from kipl_ml.trace.transforms import FeatureTrs
 from kipl_ml.train.loops import train_model
 from omegaconf import DictConfig
 from src.cls_cvt import ConvolutionalVisionTransformer

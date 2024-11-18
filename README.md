@@ -15,6 +15,20 @@ pip install -e .
 pip install -r requirements.txt
 ```
 
+### Data:
+
+We rather have a single file for a trace to prepare for potential massive datasets.
+In order to make the conversion to this standard use `kipl_ml/data/conversion.py --dataset DATASET`.
+There are implementations for "bigenough" and "ts5" datasets.
+In order to find these you need to set two paths in `.env` file.
+
+```
+.env
+
+WF_DATA_DIR=/path/to/orig/data
+STD_FLOWS_DATA_DIR=/where/you/want/to/save
+```
+
 ##### To train the laserbeak models you'll also need:
 
 `git@github.com:notem/Laserbeak-WF-Classifier.git`
