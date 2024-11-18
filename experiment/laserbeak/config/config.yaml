@@ -1,0 +1,17 @@
+dataset:
+  name: "bigenough"
+  nsamples: 1000
+trace:
+  n_packets: 300
+model:
+  name: "dfnet"
+train:
+  batch_size: 32
+features:
+  - "up_packets"
+  - "down_packets"
+  - "times_normalized"
+  - "iats_normalized"
+
+
+
