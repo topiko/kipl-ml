@@ -17,15 +17,15 @@ pip install -r requirements.txt
 
 ##### To train the laserbeak models you'll also need:
 
-Modify the activate script by adding:
+`git@github.com:notem/Laserbeak-WF-Classifier.git`
+
+Modify the venv activate script by adding:
 
 `export PYTHONPATH="$PYTHONPATH:/PATH/TO/Laserbeak-WF-Classifier"`
 
 You also need to clone and install (for laserbeak to work):
 
 `git@github.com:huggingface/pytorch-image-models.git`
-
-
 
 
 ### PyDeps for dep tracking:
