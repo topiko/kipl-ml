@@ -34,7 +34,7 @@ MLFLOW_TRACKING_URI=http://127.0.0.1:8000
 
 Run the mlflow server (note the env var from above):
 
-`mlflow server --host 127.0.0.1 --port 8000  --backend-store-uri 'file:///ABS/PATH/TO/PROJECTROOT/.mlruns'`
+`mlflow server --host 127.0.0.1 --port 8000 --backend-store-uri 'file:///abs/path/to/projectroot/.mlruns'`
 
 ##### To train the laserbeak models you'll also need:
 
