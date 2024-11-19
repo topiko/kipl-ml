@@ -71,6 +71,8 @@ def _one_epoch(
             optimizer.step()
 
             pbar.set_postfix({"loss": f"{loss.item():1.4f}"})
+            # TODO: do this prpoerly, the last batch is smaller than the rest
+            # however that effect should be insignificant.
             loss_val += loss.item() * len(X) / len(dataloader.dataset)
 
     return model, loss_val
