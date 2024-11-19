@@ -27,7 +27,14 @@ In order to find these you need to set two paths in `.env` file.
 
 WF_DATA_DIR=/path/to/orig/data
 STD_FLOWS_DATA_DIR=/where/you/want/to/save
+MLFLOW_TRACKING_URI=http://127.0.0.1:8000
 ```
+
+### MLFlow:
+
+Run the mlflow server (note the env var from above):
+
+`mlflow server --host 127.0.0.1 --port 8000  --backend-store-uri 'file:///ABS/PATH/TO/PROJECTROOT/.mlruns'`
 
 ##### To train the laserbeak models you'll also need:
 
