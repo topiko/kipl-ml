@@ -1,10 +1,14 @@
+hydra:
+  sweeper:
+    params:
+      features: default,plain
 defaults:
   - _self_
-  - features: default
   - model: dfnet
+  - features: default
   - dataset: bigenough
 mlflow:
-  experiment_name: "laserbeak"
+  experiment_name: "laserbeak_tune"
 trace:
   n_packets: 300
 train:
