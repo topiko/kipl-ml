@@ -7,11 +7,7 @@ from collections.abc import Callable
 import torch
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
-from kipl_ml.metrics.clf_metrics import (
-    ClassMetric,
-    GeneralMetric,
-    Objective,
-)
+from kipl_ml.metrics.clf_metrics import ClassMetric, GeneralMetric, Objective
 from kipl_ml.model_eval.evaluate import evaluate_model
 from torch import nn
 from tqdm import tqdm
@@ -19,41 +15,9 @@ from tqdm import tqdm
 logger = get_logger(__name__)
 
 
-def _one_epoch(
-    model: nn.Module,
-    dataloader: torch.utils.data.DataLoader,
-    optimizer: torch.optim.Optimizer,
-    loss_fn: nn.Module,
-    n_epoch: int = 0,
-):
-
-    logger.info(f"Running epoch {n_epoch: 03d}...")
-
-    model.train()
-    with tqdm(dataloader, desc=f"epoch {n_epoch: 03d}") as pbar:
-        for X, y in pbar:
-            optimizer.zero_grad()
-            output = model(X)
-            loss = loss_fn(output, y)
-
-            loss.backward()
-            optimizer.step()
-
-            pbar.set_postfix({"loss": f"{loss.item():1.4f}"})
-
-    return model
-
-
-def train_model(
-    model: nn.Module,
-    train_loader: torch.utils.data.DataLoader,
-    valid_loader: torch.utils.data.DataLoader,
-    optimizer: torch.optim.Optimizer,
-    loss_fn: Callable,
-    metrics: list[GeneralMetric | ClassMetric],
-    early_stop_metric: GeneralMetric | ClassMetric | str = "loss",
-    patience: int = 2,
-) -> nn.Module:
+def _get_val_and_metric_str(
+    early_stop_metric: GeneralMetric | ClassMetric | str,
+) -> tuple[str, float]:
     if early_stop_metric == "loss":
         best_early_stop_val = float("inf")
         early_stop_metric_str = "loss"
@@ -67,12 +31,73 @@ def train_model(
     else:
         raise ValueError(f"Invalid early_stop_metric {early_stop_metric}")
 
+    return early_stop_metric_str, best_early_stop_val
+
+
+def _one_epoch(
+    model: nn.Module,
+    dataloader: torch.utils.data.DataLoader,
+    optimizer: torch.optim.Optimizer,
+    loss_fn: Callable,
+    n_epoch: int = 0,
+) -> tuple[nn.Module, float]:
+    """
+    Run one epoch of training.
+
+    Args:
+        model:
+        dataloader:
+        optimizer:
+        loss_fn:
+        n_epoch:
+
+    Returns:
+        model: nn.Module
+        train_loss: float
+
+    """
+
+    logger.info(f"Running epoch {n_epoch: 03d}...")
+
+    model.train()
+    loss_val = 0
+    with tqdm(dataloader, desc=f"epoch {n_epoch: 03d}") as pbar:
+        for X, y in pbar:
+            optimizer.zero_grad()
+            output = model(X)
+            loss = loss_fn(output, y)
+
+            loss.backward()
+            optimizer.step()
+
+            pbar.set_postfix({"loss": f"{loss.item():1.4f}"})
+            loss_val += loss.item() * len(X) / len(dataloader.dataset)
+
+    return model, loss_val
+
+
+def train_model(
+    model: nn.Module,
+    train_loader: torch.utils.data.DataLoader,
+    valid_loader: torch.utils.data.DataLoader,
+    optimizer: torch.optim.Optimizer,
+    loss_fn: Callable,
+    metrics: list[GeneralMetric | ClassMetric],
+    early_stop_metric: GeneralMetric | ClassMetric | str = "loss",
+    patience: int = 2,
+) -> nn.Module:
     logger.info("Training model...")
     logger.info(key_val_fmt("model", model.name))
     logger.info(key_val_fmt("dataset", train_loader.dataset.name))
 
+    early_stop_metric_str, best_early_stop_val = _get_val_and_metric_str(
+        early_stop_metric
+    )
+
     epoch = 0
     best_epoch = 0
+    best_model_state = None
+    train_loss = None
     while True:
         metrics_vals = evaluate_model(model, valid_loader, metrics, loss_fn)
 
@@ -89,16 +114,17 @@ def train_model(
             raise ValueError(
                 f"Early stop metric value must be a float, got {type(early_stop_m_val)}"
             )
+
         if objective == Objective.MIN:
             if early_stop_m_val < best_early_stop_val:
                 best_early_stop_val = early_stop_m_val
                 best_epoch = epoch
-                # best_model = model.copy()
+                best_model_state = model.state_dict()
         elif objective == Objective.MAX:
             if early_stop_m_val > best_early_stop_val:
                 best_early_stop_val = early_stop_m_val
                 best_epoch = epoch
-                # best_model = model.copy()
+                best_model_state = model.state_dict()
 
         logger.info("Valid metrics...")
         logger.info("Current epoch:")
@@ -117,6 +143,14 @@ def train_model(
             break
 
         epoch += 1
-        model = _one_epoch(model, train_loader, optimizer, loss_fn, n_epoch=epoch)
+        model, train_loss = _one_epoch(
+            model, train_loader, optimizer, loss_fn, n_epoch=epoch
+        )
+        logger.info(key_val_fmt("Train loss", f"{train_loss:1.4f}"))
+
+    if best_model_state is None:
+        raise ValueError("No best model state found.")
+
+    model.load_state_dict(best_model_state, strict=True)
 
     return model

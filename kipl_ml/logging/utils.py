@@ -1,7 +1,34 @@
 from typing import Any
 
+import mlflow
+from kipl_ml.logging.logger import get_logger
+
 KEY_LEN = 25
+
+logger = get_logger(__name__)
 
 
 def key_val_fmt(key: str, val: Any, key_len: int = KEY_LEN) -> str:
     return f"{key:>{key_len}}: {val}"
+
+
+def get_mlflow_expr(experiment_name: str) -> str:
+    """
+    Retrieve the ID of an existing MLflow experiment or create a new one if it doesn't exist.
+
+    If it does, the function returns its ID. If not, it creates a new experiment with the provided name and returns its ID.
+
+    Args:
+        experiment_name (str): Name of the MLflow experiment.
+
+    Returns:
+        str: ID of the existing or newly created MLflow experiment.
+
+    """
+
+    if experiment := mlflow.get_experiment_by_name(experiment_name):
+        logger.info(f"Experiment '{experiment_name}' already exists --> return.")
+        return experiment.experiment_id
+
+    logger.info(f"Experiment '{experiment_name}' does not exist --> create.")
+    return mlflow.create_experiment(experiment_name)
