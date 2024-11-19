@@ -3,18 +3,16 @@ import os
 import dotenv
 import hydra
 import mlflow
-import src
 import torch
 from kipl_ml.data.wf_dataset import WFDataset, get_train_valid_test
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import get_mlflow_expr
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall, CrossEntropyLoss
 from kipl_ml.model_eval.evaluate import evaluate_model
-from kipl_ml.models.laserbeak import CNNVisTransformer, WrapDFNet
+from kipl_ml.models.laserbeak import get_model
 from kipl_ml.trace.features import FeatureTrs
 from kipl_ml.train.loops import train_model
-from omegaconf import DictConfig, OmegaConf
-from torch import nn
+from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
 logger = get_logger(__name__)
@@ -26,25 +24,6 @@ CONFIG_DIR_PATH = os.path.join(WORKING_DIR, "config")
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
 
 assert MLFLOW_TRACKING_URI is not None, "MLFLOW_TRACKING_URI must be set in .env file."
-
-
-def get_model(model_name: str, n_classes: int, inputs: dict[str, int]) -> nn.Module:
-
-    if len(set(inputs.values())) != 1:
-        raise ValueError("All inputs must have the same size.")
-
-    input_size = inputs[list(inputs.keys())[0]]
-
-    if model_name == "dfnet":
-        return WrapDFNet(
-            num_classes=n_classes, input_channels=len(inputs), input_size=input_size
-        )
-    if model_name == "cvt":
-        return CNNVisTransformer(
-            num_classes=n_classes, in_chans=len(inputs), input_size=input_size
-        )
-
-    raise NotImplementedError("Model not implemented yet.")
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
