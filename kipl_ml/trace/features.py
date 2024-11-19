@@ -12,6 +12,48 @@ from kipl_ml.trace.transforms import _TR
 logger = get_logger(__name__)
 
 
+def _pad_short_trace(trace: torch.Tensor, n_packets: int) -> torch.Tensor:
+    if trace.shape[0] >= n_packets:
+        return trace[:n_packets]
+
+    return torch.cat(
+        [
+            trace,
+            torch.zeros(
+                n_packets - trace.shape[0],
+                *trace.shape[1:],
+                dtype=trace.dtype,
+                device=trace.device,
+            ),
+        ]
+    )
+
+
+class CutTrace(_TR):
+    NAME = "sel_packets"
+
+    def __init__(self, asset: str, n_packets: int):
+        self.n_packets = n_packets
+        super().__init__(asset)
+
+    @property
+    def name(self) -> str:
+        return f"{self.n_packets}-{self.asset}"
+
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> CutTrace:
+        self._input_size = trace[self.asset].shape[0]
+        self._output_size = self.n_packets
+
+        return self
+
+    def __call__(self, trace: dict[str, torch.Tensor]) -> torch.Tensor:
+        trace_ = _pad_short_trace(trace[self.asset], self.n_packets)
+        print(self.asset)
+        print(trace_.shape)
+        print()
+        return trace_
+
+
 class Select(_TR):
     NAME = "identity"
 
@@ -27,11 +69,11 @@ class Select(_TR):
 class UDPackets(_TR):
     NAME = "up/down_packets"
 
-    def __init__(self, up_down: str):
+    def __init__(self, up_down: str, dir_asset: str = assets.DIR):
         if up_down not in {"up", "down"}:
             raise ValueError("up_down must be either 'up' or 'down'")
         self.up_down = up_down
-        super().__init__(assets.DIR)
+        super().__init__(dir_asset)
 
     @property
     def name(self) -> str:
@@ -70,11 +112,11 @@ class Normalize(_TR):
 class IAT(_TR):
     NAME = "iat"
 
-    def __init__(self, dir_key: str):
+    def __init__(self, dir_key: str, time_asset: str = assets.TIME):
         if dir_key not in {"up", "down", "any"}:
             raise ValueError("Dir key must be either 'up' or 'down', or 'any'")
         self.dir_key = dir_key
-        super().__init__(assets.TIME)
+        super().__init__(asset=time_asset)
 
     @property
     def name(self) -> str:
@@ -144,13 +186,16 @@ class FeatureTrs:
         self,
         feature_trs: list[_TR] | None = None,
         feature_names: list[str] | None = None,
+        n_packets: int | None = None,
     ):
         if feature_trs is None and feature_names is None:
             raise ValueError(
                 "Either 'feature_trs' or 'feature_names' must be provided."
             )
         if feature_trs is None:
-            feature_trs = build_feature_trs(feature_names)
+            if n_packets is None:
+                raise ValueError("n_packets must be provided if 'feature_names' is.")
+            feature_trs = build_feature_trs(feature_names, n_packets)
         elif not all(isinstance(tr, _TR) for tr in feature_trs):
             raise ValueError("All elements in 'feature_trs' must be of type _TR.")
 
@@ -182,32 +227,54 @@ class FeatureTrs:
         return {tr.name: tr(trace) for tr in self._feature_trs}
 
 
-def build_feature_trs(feature_name: list[str]) -> list[_TR]:
-    return [get_feature_tr(f) for f in feature_name]
+def build_feature_trs(feature_name: list[str], n_packets: int) -> list[_TR]:
+    return [get_feature_tr(f, n_packets) for f in feature_name]
 
 
-def get_feature_tr(feature_name: str) -> _TR:
+def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
     match feature_name:
         case "dirs":
-            return Select(assets.DIR)
+            return CutTrace(assets.DIR, n_packets)
         case "sizes":
-            return Select(assets.SIZE)
+            return CutTrace(assets.SIZE, n_packets)
         case "times":
-            return Select(assets.TIME)
+            return CutTrace(assets.TIME, n_packets)
         case "up_packets":
-            return UDPackets("up")
+            return Compose(
+                CutTrace(assets.DIR, n_packets),
+                UDPackets("up", f"{n_packets}-{assets.DIR}"),
+            )
         case "down_packets":
-            return UDPackets("down")
+            return Compose(
+                CutTrace(assets.DIR, n_packets),
+                UDPackets("down", f"{n_packets}-{assets.DIR}"),
+            )
         case "iats":
-            return IAT("any")
+            return Compose(
+                CutTrace(assets.TIME, n_packets),
+                IAT("any", f"{n_packets}-{assets.TIME}"),
+            )
         case "up_iats":
-            return IAT("up")
+            return Compose(
+                CutTrace(assets.TIME, n_packets),
+                IAT("up", f"{n_packets}-{assets.TIME}"),
+            )
         case "down_iats":
-            return IAT("down")
+            return Compose(
+                CutTrace(assets.TIME, n_packets),
+                IAT("down", f"{n_packets}-{assets.TIME}"),
+            )
         case "times_normalized":
-            return Normalize(assets.TIME)
+            return Compose(
+                CutTrace(assets.TIME, n_packets),
+                Normalize(f"{n_packets}-{assets.TIME}"),
+            )
         case "iats_normalized":
-            return Compose(IAT("any"), Normalize("iat"))
+            return Compose(
+                CutTrace(assets.TIME, n_packets),
+                IAT("any", f"{n_packets}-{assets.TIME}"),
+                Normalize("iat"),
+            )
         case _:
             raise ValueError(f"Unknown feature name: {feature_name}")
 

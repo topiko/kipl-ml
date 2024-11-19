@@ -10,6 +10,7 @@ class TestTR(unittest.TestCase):
     N_PACKETS = 100
 
     def _get_trace(self, n_packets: int = 50):
+        n_packets = n_packets + 10
         dirs = torch.ones(n_packets, dtype=torch.float32)
         dirs[::2] = -1
 
@@ -19,13 +20,14 @@ class TestTR(unittest.TestCase):
         return {assets.DIR: dirs, assets.SIZE: sizes, assets.TIME: times}
 
     def _get_key(self, key: str, trace: dict[str, torch.Tensor]) -> _TR:
-        tr = get_feature_tr(key)
+        tr = get_feature_tr(key, self.N_PACKETS)
         tr.get_shapes(trace)
         return tr
 
     def _shapes_test(self, tr: _TR, trace: dict[str, torch.Tensor]):
-        self.assertEqual(tr.input_size, self.N_PACKETS)
+        # self.assertEqual(tr.input_size, self.N_PACKETS)
         self.assertEqual(tr.output_size, self.N_PACKETS)
+        self.assertEqual(tr(trace).shape[0], self.N_PACKETS)
 
     def _simple_test(self, key: str):
         trace = self._get_trace(self.N_PACKETS)
@@ -37,7 +39,7 @@ class TestTR(unittest.TestCase):
             key
         ]
 
-        self.assertTrue(torch.allclose(tr(trace), trace[asset_key]))
+        self.assertTrue(torch.allclose(tr(trace), trace[asset_key][: self.N_PACKETS]))
 
     def test_dirs(self):
         self._simple_test("dirs")
@@ -67,9 +69,15 @@ class TestTR(unittest.TestCase):
         self._shapes_test(tr_up, trace)
         self._shapes_test(tr_down, trace)
 
-        self.assertTrue(torch.allclose(tr_up(trace), (trace[assets.DIR] == 1).float()))
         self.assertTrue(
-            torch.allclose(tr_down(trace), (trace[assets.DIR] == -1).float())
+            torch.allclose(
+                tr_up(trace), (trace[assets.DIR][: self.N_PACKETS] == 1).float()
+            )
+        )
+        self.assertTrue(
+            torch.allclose(
+                tr_down(trace), (trace[assets.DIR][: self.N_PACKETS] == -1).float()
+            )
         )
 
     def test_ud_iats(self):

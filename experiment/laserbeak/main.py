@@ -38,13 +38,12 @@ def main(cfg: DictConfig):
     mlflow.set_experiment(experiment_id=experiment_id)
     run_name = model_name + "_" + cfg.features.name
 
-    feature_trs = FeatureTrs(feature_names=cfg.features.features)
+    feature_trs = FeatureTrs(feature_names=cfg.features.features, n_packets=n_packets)
 
     ds_train, ds_valid, ds_test = get_train_valid_test(
         dataset=dataset_name,
         n_samples=(cfg.dataset.n_train_traces, 1000, 1000),
         feature_trs=feature_trs,
-        n_packets=n_packets,
     )
 
     model = get_model(
