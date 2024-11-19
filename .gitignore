@@ -5,3 +5,6 @@ kipl_ml.egg-info/
 outputs/
 *.svg
 *.mypy_cache/
+mlartifacts/
+.mlruns/
+*multirun/
