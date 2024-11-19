@@ -10,7 +10,7 @@ from kipl_ml.logging.utils import get_mlflow_expr
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall, CrossEntropyLoss
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.laserbeak import get_model
-from kipl_ml.trace.features import FeatureTrs
+from kipl_ml.trace.features import FeatureTrs, log_feature_trs_to_mlflow
 from kipl_ml.train.loops import train_model
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
@@ -78,6 +78,7 @@ def main(cfg: DictConfig):
 
         mlflow.log_params(dict(cfg))
         mlflow.pytorch.log_model(trained_model, "model")
+        log_feature_trs_to_mlflow(feature_trs)
 
         for key, loader in zip(["valid", "test"], [valid_loader, test_loader]):
             metrics_vals = evaluate_model(
