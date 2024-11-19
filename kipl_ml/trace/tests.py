@@ -2,7 +2,8 @@ import unittest
 
 import torch
 from kipl_ml.data.assets import assets
-from kipl_ml.trace.transforms import _TR, get_feature_tr
+from kipl_ml.trace.features import get_feature_tr
+from kipl_ml.trace.transforms import _TR
 
 
 class TestTR(unittest.TestCase):
@@ -67,7 +68,9 @@ class TestTR(unittest.TestCase):
         self._shapes_test(tr_down, trace)
 
         self.assertTrue(torch.allclose(tr_up(trace), (trace[assets.DIR] == 1).float()))
-        self.assertTrue(torch.allclose(tr_down(trace), (trace[assets.DIR] == -1).float()))
+        self.assertTrue(
+            torch.allclose(tr_down(trace), (trace[assets.DIR] == -1).float())
+        )
 
     def test_ud_iats(self):
         trace = self._get_trace(self.N_PACKETS)

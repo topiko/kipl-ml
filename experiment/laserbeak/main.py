@@ -11,7 +11,7 @@ from kipl_ml.logging.utils import get_mlflow_expr
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall, CrossEntropyLoss
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.laserbeak import CNNVisTransformer, WrapDFNet
-from kipl_ml.trace.transforms import FeatureTrs
+from kipl_ml.trace.features import FeatureTrs
 from kipl_ml.train.loops import train_model
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
