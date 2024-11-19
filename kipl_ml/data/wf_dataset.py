@@ -10,7 +10,8 @@ from kipl_ml.data.utils import (
 )
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
-from kipl_ml.trace.transforms import _TR, FeatureTrs
+from kipl_ml.trace.transforms import _TR
+from kipl_ml.trace.features import FeatureTrs
 from torch.utils.data import Dataset
 
 logger = get_logger(__name__)
