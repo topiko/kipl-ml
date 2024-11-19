@@ -7,11 +7,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 import torch
-from kipl_ml.data.assets import assets
-from kipl_ml.logging.logger import get_logger
-from kipl_ml.logging.utils import key_val_fmt
-
-logger = get_logger(__name__)
 
 
 class _TR(ABC):
