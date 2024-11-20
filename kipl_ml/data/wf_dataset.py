@@ -1,8 +1,8 @@
 import os
 
+import kipl_ml.data.assets as assets
 import pandas as pd
 import torch
-from kipl_ml.data.assets import assets
 from kipl_ml.data.utils import (
     get_std_trace_array,
     load_dataset_meta_df,
@@ -51,7 +51,7 @@ class WFDataset(Dataset):
         return self.meta_df[assets.LABEL].nunique()
 
     @property
-    def outputs(self) -> dict[str, int]:
+    def output_sizes(self) -> dict[str, int]:
         return self.feature_trs.output_sizes
 
     @property
@@ -76,9 +76,9 @@ class WFDataset(Dataset):
         trace = torch.Tensor(np_trace, device=self.device)
 
         return {
-            assets.TIME: trace[:, assets.TIME_IDX],
-            assets.DIR: trace[:, assets.DIR_IDX],
-            assets.SIZE: trace[:, assets.SIZE_IDX],
+            assets.TIMES: trace[:, assets.TIMES_IDX],
+            assets.DIRS: trace[:, assets.DIRS_IDX],
+            assets.SIZES: trace[:, assets.SIZES_IDX],
         }
 
     def _get_label(self, idx: int) -> torch.Tensor:

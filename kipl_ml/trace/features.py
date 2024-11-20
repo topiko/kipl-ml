@@ -225,7 +225,7 @@ class FeatureTrs:
 
     @property
     def output_sizes(self) -> dict[str, int]:
-        return {tr.name: tr.output_size for tr in self._feature_trs}
+        return {tr.name: tr.output_sizes for tr in self._feature_trs}
 
     @property
     def features(self) -> list[str]:
@@ -233,15 +233,23 @@ class FeatureTrs:
 
     def report(self) -> str:
         max_l = max(len(tr.name) for tr in self._feature_trs) + 3
-        return "Feature Transforms:\n" + "\n".join(
-            [
-                key_val_fmt(tr.name, tr.output_size, key_len=max_l)
-                for tr in self._feature_trs
-            ]
-        )
+        report = "Feature Transforms:\n"
+        for tr in self._feature_trs:
+            report += key_val_fmt(tr.name, tr.output_sizes, key_len=max_l) + "\n"
+
+        return report
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        return {tr.name: tr(trace) for tr in self._feature_trs}
+
+        trace_: dict[str, torch.Tensor] = {}
+        for tr in self._feature_trs:
+            out = tr(trace)
+            if len(out) != 1:
+                raise ValueError(f"Transform {tr.name} returned more than one tensor.")
+
+            trace_.update(out)
+
+        return trace_
 
 
 def build_feature_trs(feature_name: list[str], n_packets: int) -> list[_TR]:

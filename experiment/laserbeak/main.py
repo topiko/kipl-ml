@@ -49,7 +49,7 @@ def main(cfg: DictConfig):
     model = get_model(
         model_name,
         n_classes=ds_train.n_classes,
-        inputs=ds_train.outputs,
+        inputs=ds_train.output_sizes,
     )
 
     train_loader = DataLoader(ds_train, batch_size=cfg.train.batch_size, shuffle=True)

@@ -2,10 +2,10 @@ import argparse
 import os
 import pickle as pkl
 
+import kipl_ml.data.assets as assets
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
-from kipl_ml.data.assets import assets
 from kipl_ml.data.utils import METADF_FNAME, get_dataset_root
 from kipl_ml.logging.logger import get_logger
 

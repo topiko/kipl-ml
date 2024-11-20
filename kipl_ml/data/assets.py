@@ -1,6 +1,6 @@
-DIRS: str = "dir"
-SIZES: str = "size"
-TIMES: str = "time"
+DIRS: str = "dirs"
+SIZES: str = "sizes"
+TIMES: str = "times"
 TIMES_NORMALIZED: str = "times_normalized"
 LABEL: str = "label"
 IATS: str = "iats"
@@ -13,6 +13,6 @@ UP_PACKETS: str = "up_packets"
 DOWN_PACKETS: str = "down_packets"
 TRACE_ID: str = "flow_id"
 
-TIME_IDX: int = 0
-DIR_IDX: int = 1
-SIZE_IDX: int = 2
+TIMES_IDX: int = 0
+DIRS_IDX: int = 1
+SIZES_IDX: int = 2
