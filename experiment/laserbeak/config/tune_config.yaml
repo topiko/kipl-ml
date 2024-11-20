@@ -10,10 +10,9 @@ defaults:
   - features: default
   - trace: medium
   - dataset: bigenough
+  - train: default
 mlflow:
   experiment_name: "laserbeak_tune"
-train:
-  batch_size: 32
 
 
 

@@ -4,10 +4,9 @@ defaults:
   - trace: medium
   - model: dfnet
   - dataset: bigenough
+  - train: default
 mlflow:
   experiment_name: "laserbeak"
-train:
-  batch_size: 32
 
 
 
