@@ -32,12 +32,18 @@ class CNNVisTransformer(ConvolutionalVisionTransformer):
         return super().forward(x)
 
 
-def get_model(model_name: str, n_classes: int, inputs: dict[str, int]) -> nn.Module:
+def get_model(
+    model_name: str, n_classes: int, inputs: dict[str, dict[str, int]]
+) -> nn.Module:
 
-    if len(set(inputs.values())) != 1:
+    input_lens: set[int] = set()
+    for input_dict in inputs.values():
+        input_lens = input_lens.union(set(input_dict.values()))
+
+    if len(input_lens) != 1:
         raise ValueError("All inputs must have the same size.")
 
-    input_size = inputs[list(inputs.keys())[0]]
+    input_size = next(iter(input_lens))
 
     if model_name == "dfnet":
         return WrapDFNet(

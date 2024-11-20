@@ -1,9 +1,9 @@
 import os
 
+import kipl_ml.data.assets as assets
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
-from kipl_ml.data.assets import assets
 from kipl_ml.logging.logger import get_logger
 from omegaconf import DictConfig
 
