@@ -11,23 +11,13 @@ import torch
 
 class _TR(ABC):
     NAME: str
-
-    def __init__(self, asset: str):
-        self.asset = asset
-        self._output_size: int | None = None
-        self._input_size: int | None = None
+    _output_sizes: dict[str, int] | None = None
 
     @property
-    def input_size(self) -> int:
-        if self._input_size is None:
-            raise ValueError("Input size not set. Need to call fit first.")
-        return self._input_size
-
-    @property
-    def output_size(self) -> int:
-        if self._output_size is None:
+    def output_sizes(self) -> dict[str, int]:
+        if self._output_sizes is None:
             raise ValueError("Output size not set. Need to call fit first.")
-        return self._output_size
+        return self._output_sizes
 
     @property
     def name(self) -> str:
@@ -38,5 +28,5 @@ class _TR(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def __call__(self, trace: dict[str, torch.Tensor]) -> torch.Tensor:
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         raise NotImplementedError

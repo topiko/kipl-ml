@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pickle
 
+import kipl_ml.data.assets as assets
 import mlflow
 import torch
-from kipl_ml.data.assets import assets
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.trace.transforms import _TR
@@ -32,118 +32,144 @@ def _pad_short_trace(trace: torch.Tensor, n_packets: int) -> torch.Tensor:
 class CutTrace(_TR):
     NAME = "sel_packets"
 
-    def __init__(self, asset: str, n_packets: int):
+    def __init__(self, n_packets: int):
         self.n_packets = n_packets
-        super().__init__(asset)
 
     @property
     def name(self) -> str:
-        return f"{self.n_packets}-{self.asset}"
+        return f"cut|{self.n_packets}"
 
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> CutTrace:
-        self._input_size = trace[self.asset].shape[0]
-        self._output_size = self.n_packets
+        self._output_sizes = {key: self.n_packets for key in trace.keys()}
 
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> torch.Tensor:
-        trace_ = _pad_short_trace(trace[self.asset], self.n_packets)
-        print(self.asset)
-        print(trace_.shape)
-        print()
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+
+        trace_ = {
+            self.name + f"_{key}": _pad_short_trace(val, self.n_packets)
+            for key, val in trace.items()
+        }
+
         return trace_
 
 
 class Select(_TR):
     NAME = "identity"
 
+    def __init__(self, asset: str):
+        self.asset = asset
+
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> Select:
-        self._input_size = trace[self.asset].shape[0]
-        self._output_size = trace[self.asset].shape[0]
+        self._output_sizes = {self.asset: trace[self.asset].shape[0]}
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> torch.Tensor:
-        return trace[self.asset]
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        return {self.asset: trace[self.asset]}
 
 
 class UDPackets(_TR):
     NAME = "up/down_packets"
 
-    def __init__(self, up_down: str, dir_asset: str = assets.DIR):
+    def __init__(self, up_down: str, dir_asset: str = assets.DIRS):
         if up_down not in {"up", "down"}:
             raise ValueError("up_down must be either 'up' or 'down'")
         self.up_down = up_down
-        super().__init__(dir_asset)
+        self.dir_asset = dir_asset
 
     @property
     def name(self) -> str:
         return self.up_down + "_packets"
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> UpPackets:
-        self._input_size = trace[self.asset].shape[0]
-        self._output_size = trace[self.asset].shape[0]
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> UDPackets:
+        self._output_sizes = {self.name: trace[self.dir_asset].shape[0]}
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> torch.Tensor:
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         if self.up_down == "up":
-            mask = trace[self.asset] == 1
+            mask = trace[self.dir_asset] == 1
         elif self.up_down == "down":
-            mask = trace[self.asset] == -1
-        return mask.float()
+            mask = trace[self.dir_asset] == -1
+
+        return {self.name: mask.float()}
 
 
 class Normalize(_TR):
     NAME = "normalized"
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> Normlaize:
-        self._input_size = trace[self.asset].shape[0]
-        self._output_size = trace[self.asset].shape[0]
+    def __init__(self, normalized_asset: str, input_asset: str):
+        self.normalized_asset = normalized_asset
+        self.input_asset = input_asset
+
+    @property
+    def name(self) -> str:
+        match self.normalized_asset:
+            case assets.TIMES:
+                name_ = assets.TIMES_NORMALIZED
+            case assets.IATS:
+                name_ = assets.IATS_NORMALIZED
+            case assets.UP_IATS:
+                name_ = assets.UP_IATS_NORMALIZED
+            case assets.DOWN_IATS:
+                name_ = assets.DOWN_IATS_NORMALIZED
+            case _:
+                raise ValueError(f"Unknown asset: {self.input_asset}")
+
+        return name_
+
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> Normalize:
+        self._output_sizes = {self.name: trace[self.input_asset].shape[0]}
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> torch.Tensor:
-        if (std := trace[self.asset].std()) == 0:
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        if (std := trace[self.input_asset].std()) == 0:
             logger.warning(f"Std zeron when standardizing! {self.name}")
-            if all(trace[self.asset] == 0):
-                return trace[self.asset]
+            if all(trace[self.input_asset] == 0):
+                return trace[self.input_asset]
             raise ValueError("Standard deviation is zero. Cannot normalize.")
-        return (trace[self.asset] - trace[self.asset].mean()) / std
+
+        trace_ = (trace[self.input_asset] - trace[self.input_asset].mean()) / std
+        return {self.name: trace_}
 
 
 class IAT(_TR):
-    NAME = "iat"
 
-    def __init__(self, dir_key: str, time_asset: str = assets.TIME):
+    def __init__(
+        self, dir_key: str, time_asset: str = assets.TIMES, dir_asset: str = assets.DIRS
+    ):
         if dir_key not in {"up", "down", "any"}:
             raise ValueError("Dir key must be either 'up' or 'down', or 'any'")
         self.dir_key = dir_key
-        super().__init__(asset=time_asset)
+        self.time_asset = time_asset
+        self.dir_asset = dir_asset
 
     @property
     def name(self) -> str:
         if self.dir_key == "any":
-            return self.NAME
+            return assets.IATS
+        if self.dir_key == "up":
+            return assets.UP_IATS
 
-        return f"{self.dir_key}_{self.NAME}"
+        return assets.DOWN_IATS
 
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> IAT:
-        self._input_size = trace[self.asset].shape[0]
-        self._output_size = trace[self.asset].shape[0]
+        self._output_sizes = {self.name: trace[self.time_asset].shape[0]}
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> torch.Tensor:
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
 
         if self.dir_key == "up":
-            mask = trace[assets.DIR] == 1
+            mask = trace[self.dir_asset] == 1
         elif self.dir_key == "down":
-            mask = trace[assets.DIR] == -1
+            mask = trace[self.dir_asset] == -1
         else:
-            mask = torch.ones_like(trace[assets.DIR], dtype=torch.bool)
+            mask = torch.ones_like(trace[self.dir_asset], dtype=torch.bool)
 
         idxs = torch.where(mask)[0]
-        iats = torch.zeros_like(trace[assets.TIME])
+        iats = torch.zeros_like(trace[self.time_asset])
         if len(idxs) > 1:
-            iats[idxs[1:]] = torch.diff(trace[assets.TIME][mask], dim=0)
-        return iats
+            iats[idxs[1:]] = torch.diff(trace[self.time_asset][mask], dim=0)
+        return {self.name: iats}
 
 
 class Compose(_TR):
@@ -151,34 +177,25 @@ class Compose(_TR):
 
     def __init__(self, *transforms: _TR):
         self.transforms = transforms
-        self._output_size = None
-        self._input_size = None
 
     @property
     def name(self) -> str:
         return "pipe:" + "-->".join(tr.name for tr in self.transforms)
 
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> Compose:
-        outs = None
-        for i, tr in enumerate(self.transforms):
+        for tr in self.transforms:
             tr.get_shapes(trace)
-            outs = tr.output_size
-            trace[tr.name] = trace[tr.asset][:outs]
+            trace = tr(trace)
 
-            if i == 0:
-                self._input_size = tr.input_size
-
-        self._output_size = outs
+        self._output_sizes = tr.output_sizes
 
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> torch.Tensor:
-        for i, tr in enumerate(self.transforms):
-            tensor = tr(trace)
-            if i < len(self.transforms) - 1:
-                trace[self.transforms[i].name] = tensor
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        for tr in self.transforms:
+            trace = tr(trace)
 
-        return tensor
+        return trace
 
 
 class FeatureTrs:
@@ -233,47 +250,72 @@ def build_feature_trs(feature_name: list[str], n_packets: int) -> list[_TR]:
 
 def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
     match feature_name:
-        case "dirs":
-            return CutTrace(assets.DIR, n_packets)
-        case "sizes":
-            return CutTrace(assets.SIZE, n_packets)
-        case "times":
-            return CutTrace(assets.TIME, n_packets)
-        case "up_packets":
+        case assets.DIRS:
             return Compose(
-                CutTrace(assets.DIR, n_packets),
-                UDPackets("up", f"{n_packets}-{assets.DIR}"),
+                CutTrace(n_packets), Select(f"cut|{n_packets}_{assets.DIRS}")
             )
-        case "down_packets":
+        case assets.SIZES:
             return Compose(
-                CutTrace(assets.DIR, n_packets),
-                UDPackets("down", f"{n_packets}-{assets.DIR}"),
+                CutTrace(n_packets), Select(f"cut|{n_packets}_{assets.SIZES}")
             )
-        case "iats":
+        case assets.TIMES:
             return Compose(
-                CutTrace(assets.TIME, n_packets),
-                IAT("any", f"{n_packets}-{assets.TIME}"),
+                CutTrace(n_packets), Select(f"cut|{n_packets}_{assets.TIMES}")
             )
-        case "up_iats":
+        case assets.UP_PACKETS:
             return Compose(
-                CutTrace(assets.TIME, n_packets),
-                IAT("up", f"{n_packets}-{assets.TIME}"),
+                CutTrace(n_packets),
+                UDPackets("up", f"cut|{n_packets}_{assets.DIRS}"),
             )
-        case "down_iats":
+        case assets.DOWN_PACKETS:
             return Compose(
-                CutTrace(assets.TIME, n_packets),
-                IAT("down", f"{n_packets}-{assets.TIME}"),
+                CutTrace(n_packets),
+                UDPackets("down", f"cut|{n_packets}_{assets.DIRS}"),
             )
-        case "times_normalized":
+        case assets.IATS:
             return Compose(
-                CutTrace(assets.TIME, n_packets),
-                Normalize(f"{n_packets}-{assets.TIME}"),
+                CutTrace(n_packets),
+                IAT(
+                    "any",
+                    time_asset=f"cut|{n_packets}_{assets.TIMES}",
+                    dir_asset=f"cut|{n_packets}_{assets.DIRS}",
+                ),
             )
-        case "iats_normalized":
+        case assets.UP_IATS:
             return Compose(
-                CutTrace(assets.TIME, n_packets),
-                IAT("any", f"{n_packets}-{assets.TIME}"),
-                Normalize("iat"),
+                CutTrace(n_packets),
+                IAT(
+                    "up",
+                    time_asset=f"cut|{n_packets}_{assets.TIMES}",
+                    dir_asset=f"cut|{n_packets}_{assets.DIRS}",
+                ),
+            )
+        case assets.DOWN_IATS:
+            return Compose(
+                CutTrace(n_packets),
+                IAT(
+                    "down",
+                    time_asset=f"cut|{n_packets}_{assets.TIMES}",
+                    dir_asset=f"cut|{n_packets}_{assets.DIRS}",
+                ),
+            )
+        case assets.TIMES_NORMALIZED:
+            return Compose(
+                CutTrace(n_packets),
+                Normalize(
+                    normalized_asset=assets.TIMES,
+                    input_asset=f"cut|{n_packets}_{assets.TIMES}",
+                ),
+            )
+        case assets.IATS_NORMALIZED:
+            return Compose(
+                CutTrace(n_packets),
+                IAT(
+                    "any",
+                    time_asset=f"cut|{n_packets}_{assets.TIMES}",
+                    dir_asset=f"cut|{n_packets}_{assets.DIRS}",
+                ),
+                Normalize(normalized_asset=assets.IATS, input_asset=assets.IATS),
             )
         case _:
             raise ValueError(f"Unknown feature name: {feature_name}")
