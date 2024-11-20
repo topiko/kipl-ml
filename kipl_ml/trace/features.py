@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import pickle
-
 import kipl_ml.data.assets as assets
 import mlflow
 import torch
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.trace.transforms import _TR
+from mlflow.models import set_model
 
 logger = get_logger(__name__)
 
@@ -327,17 +326,3 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
             )
         case _:
             raise ValueError(f"Unknown feature name: {feature_name}")
-
-
-def log_feature_trs_to_mlflow(feature_trs: FeatureTrs):
-    if (run := mlflow.active_run()) is None:
-        raise ValueError("No active MLFlow run.")
-
-    run_id = run.info.run_id
-
-    fname = f"feature_trs_{run_id}.pkl"
-    with open(fname, "wb") as f:
-        pickle.dump(feature_trs, f)
-
-    logger.info(f"Logging feature transforms to MLFlow.")
-    mlflow.log_artifact(fname, artifact_path="feature_trs")
