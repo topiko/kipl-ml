@@ -3,6 +3,9 @@ Wrappers for laserbeak models.
 """
 
 import torch
+from kipl_ml.data.wf_dataset import WFDataset
+from mlflow.models import infer_signature
+from mlflow.models.signature import ModelSignature
 from src.cls_cvt import ConvolutionalVisionTransformer
 from src.transdfnet import DFNet
 from torch import nn
@@ -10,6 +13,9 @@ from torch import nn
 
 class WrapDFNet(DFNet):
     name = "lasereak_dfnet"
+
+    def example_input(self, X: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        return get_example_input(X)
 
     def forward(
         self,
@@ -26,6 +32,9 @@ class WrapDFNet(DFNet):
 
 class CNNVisTransformer(ConvolutionalVisionTransformer):
     name = "lasereak_cvt"
+
+    def example_input(self, X: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        return get_example_input(X)
 
     def forward(self, x: torch.Tensor):
         x = torch.cat([x_.unsqueeze(1) for x_ in x.values()], dim=1)
@@ -55,3 +64,22 @@ def get_model(
         )
 
     raise NotImplementedError("Model not implemented yet.")
+
+
+def get_example_input(X: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    X_ = {k: v.unsqueeze(0) for k, v in X.items()}
+    return X_
+
+
+def get_signature(
+    model: WrapDFNet | CNNVisTransformer, ds: WFDataset
+) -> ModelSignature:
+
+    model.eval()
+    with torch.no_grad():
+        X_ = model.example_input(ds[0][0])
+        y_ = model(X_).numpy()
+
+    signature = infer_signature({k: v.numpy() for k, v in X_.items()}, y_)
+
+    return signature

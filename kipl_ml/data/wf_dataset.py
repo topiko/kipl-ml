@@ -1,5 +1,3 @@
-import os
-
 import kipl_ml.data.assets as assets
 import pandas as pd
 import torch
@@ -66,10 +64,12 @@ class WFDataset(Dataset):
         return len(self.meta_df)
 
     def get_feature_shapes(self) -> None:
-        X = self._get_trace(self.meta_df.iloc[0]["path"])
+        X = self._get_trace(0)
         self.feature_trs.get_shapes(X)
 
-    def _get_trace(self, path: os.PathLike) -> dict[str, torch.Tensor]:
+    def _get_trace(self, idx: int) -> dict[str, torch.Tensor]:
+
+        path = self.meta_df.iloc[idx]["path"]
 
         np_trace = get_std_trace_array(path)
 
@@ -87,9 +87,8 @@ class WFDataset(Dataset):
         )
 
     def __getitem__(self, idx: int) -> tuple[dict[str, torch.Tensor], torch.tensor]:
-        row = self.meta_df.iloc[idx]
 
-        trace_dict = self._get_trace(row["path"])
+        trace_dict = self._get_trace(idx)
         trace_dict = self.feature_trs(trace_dict)
 
         label = self._get_label(idx)
