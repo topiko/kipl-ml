@@ -9,8 +9,8 @@ from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import get_mlflow_expr
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall, CrossEntropyLoss
 from kipl_ml.model_eval.evaluate import evaluate_model
-from kipl_ml.models.laserbeak import get_model
-from kipl_ml.trace.features import FeatureTrs, log_feature_trs_to_mlflow
+from kipl_ml.models.laserbeak import get_model, get_signature
+from kipl_ml.trace.features import FeatureTrs
 from kipl_ml.train.loops import train_model
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
@@ -24,6 +24,7 @@ CONFIG_DIR_PATH = os.path.join(WORKING_DIR, "config")
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
 
 assert MLFLOW_TRACKING_URI is not None, "MLFLOW_TRACKING_URI must be set in .env file."
+mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
@@ -32,11 +33,8 @@ def main(cfg: DictConfig):
     model_name = cfg.model.name
     n_packets = cfg.trace.n_packets
 
-    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     experiment_name = cfg.mlflow.experiment_name
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
-    mlflow.set_experiment(experiment_id=experiment_id)
-    run_name = model_name + "_" + cfg.features.name
 
     feature_trs = FeatureTrs(feature_names=cfg.features.features, n_packets=n_packets)
 
@@ -52,17 +50,20 @@ def main(cfg: DictConfig):
         inputs=ds_train.output_sizes,
     )
 
-    train_loader = DataLoader(ds_train, batch_size=cfg.train.batch_size, shuffle=True)
-    valid_loader = DataLoader(ds_valid, batch_size=32, shuffle=False)
-    test_loader = DataLoader(ds_test, batch_size=32, shuffle=False)
+    bs = cfg.train.batch_size
+    train_loader = DataLoader(ds_train, batch_size=bs, shuffle=True)
+    valid_loader = DataLoader(ds_valid, batch_size=bs, shuffle=False)
+    test_loader = DataLoader(ds_test, batch_size=bs, shuffle=False)
 
     optimizer = torch.optim.Adam(model.parameters())
     loss_fn = torch.nn.CrossEntropyLoss()
     metrics = [Accuracy(), CrossEntropyLoss(), ClassRecall(1)]
     early_stop_metric = "loss"
-    patience = 2
+    patience = cfg.train.patience
 
-    with mlflow.start_run(run_name=run_name):
+    mlflow.set_experiment(experiment_id=experiment_id)
+    run_name = model_name + "_" + cfg.features.name
+    with mlflow.start_run(run_name=run_name) as run:
 
         trained_model = train_model(
             model=model,
@@ -75,10 +76,23 @@ def main(cfg: DictConfig):
             patience=patience,
         )
 
-        mlflow.log_params(dict(cfg))
-        mlflow.pytorch.log_model(trained_model, "model")
-        log_feature_trs_to_mlflow(feature_trs)
+        signature = get_signature(model=trained_model, ds=ds_train)
+        mlflow.pytorch.log_model(trained_model, "model", signature=signature)
+        mlflow.log_table(ds_test.meta_df, "test_df.json")
+        mlflow.log_table({"features": cfg.features.features}, "features.json")
 
+        mlflow.log_params(
+            {
+                "feature_names": cfg.features.features,
+                "n_packets": n_packets,
+                "model_name": model_name,
+                "dataset_name": dataset_name,
+                "n_train_traces": cfg.dataset.n_train_traces,
+                "batch_size": bs,
+                "patience": patience,
+                "early_stop_metric": early_stop_metric,
+            }
+        )
         for key, loader in zip(["valid", "test"], [valid_loader, test_loader]):
             metrics_vals = evaluate_model(
                 model=trained_model,
