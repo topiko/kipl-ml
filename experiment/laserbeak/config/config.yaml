@@ -1,12 +1,11 @@
 defaults:
   - _self_
   - features: default
+  - trace: medium
   - model: dfnet
   - dataset: bigenough
 mlflow:
   experiment_name: "laserbeak"
-trace:
-  n_packets: 300
 train:
   batch_size: 32
 
