@@ -4,12 +4,14 @@ The usual train loops...
 
 from collections.abc import Callable
 
+import mlflow
 import torch
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.metrics.clf_metrics import ClassMetric, GeneralMetric, Objective
 from kipl_ml.model_eval.evaluate import evaluate_model
 from torch import nn
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm import tqdm
 
 logger = get_logger(__name__)
@@ -73,7 +75,9 @@ def _one_epoch(
             pbar.set_postfix({"loss": f"{loss.item():1.4f}"})
             # TODO: do this prpoerly, the last batch is smaller than the rest
             # however that effect should be insignificant.
-            loss_val += loss.item() * len(X) / len(dataloader.dataset)
+            loss_val += loss.item() * dataloader.batch_size
+
+    loss_val /= len(dataloader.dataset)
 
     return model, loss_val
 
@@ -85,6 +89,7 @@ def train_model(
     optimizer: torch.optim.Optimizer,
     loss_fn: Callable,
     metrics: list[GeneralMetric | ClassMetric],
+    lr_scheduler: ReduceLROnPlateau | None = None,
     early_stop_metric: GeneralMetric | ClassMetric | str = "loss",
     patience: int = 2,
 ) -> nn.Module:
@@ -95,6 +100,12 @@ def train_model(
     early_stop_metric_str, best_early_stop_val = _get_val_and_metric_str(
         early_stop_metric
     )
+
+    if lr_scheduler is not None:
+        if not isinstance(lr_scheduler, ReduceLROnPlateau):
+            raise ValueError(
+                f"Invalid lr_scheduler {lr_scheduler}, must be ReduceLROnPlateau"
+            )
 
     epoch = 0
     best_epoch = 0
@@ -116,6 +127,10 @@ def train_model(
             raise ValueError(
                 f"Early stop metric value must be a float, got {type(early_stop_m_val)}"
             )
+
+        mlflow.log_metrics(
+            {f"valid_{m}": mv for m, mv in metric_vals.items()}, step=epoch
+        )
 
         if objective == Objective.MIN:
             if early_stop_m_val < best_early_stop_val:
@@ -148,6 +163,11 @@ def train_model(
         model, train_loss = _one_epoch(
             model, train_loader, optimizer, loss_fn, n_epoch=epoch
         )
+        mlflow.log_metric("train_loss", train_loss, step=epoch)
+
+        if lr_scheduler is not None:
+            lr_scheduler.step(metrics_vals["loss"])
+
         logger.info(key_val_fmt("Train loss", f"{train_loss:1.4f}"))
 
     if best_model_state is None:

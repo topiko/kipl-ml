@@ -68,7 +68,10 @@ def main(cfg: DictConfig):
         valid_loader = DataLoader(ds_valid, batch_size=bs, shuffle=False)
         test_loader = DataLoader(ds_test, batch_size=bs, shuffle=False)
 
-        optimizer = torch.optim.Adam(model.parameters())
+        optimizer = torch.optim.Adam(model.parameters(), lr=cfg.train.lr)
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", factor=0.5
+        )
         loss_fn = torch.nn.CrossEntropyLoss()
         metrics = [Accuracy()]
         early_stop_metric = "loss"
@@ -81,6 +84,7 @@ def main(cfg: DictConfig):
             optimizer=optimizer,
             loss_fn=loss_fn,
             metrics=metrics,
+            lr_scheduler=lr_scheduler,
             early_stop_metric=early_stop_metric,
             patience=patience,
         )
@@ -111,9 +115,9 @@ def main(cfg: DictConfig):
                 loss_fn=loss_fn,
                 metrics=metrics,
             )
-            metrics_vals = {f"{key}_{k}": v for k, v in metrics_vals.items()}
+            metrics_vals = {f"final|{key}_{k}": v for k, v in metrics_vals.items()}
 
-            mlflow.log_metrics(metrics_vals, step=0)
+            mlflow.log_metrics(metrics_vals)
 
     with mlflow.start_run(run_name=run_name):
         for fraction in FRACTIONS:
