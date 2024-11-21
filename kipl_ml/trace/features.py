@@ -11,24 +11,34 @@ from mlflow.models import set_model
 logger = get_logger(__name__)
 
 
-def _pad_short_trace(trace: torch.Tensor, n_packets: int) -> torch.Tensor:
-    if trace.shape[0] >= n_packets:
+def _pad_short_trace(
+    trace: torch.Tensor, n_packets: int, asset_key: str, cut: bool = True
+) -> torch.Tensor:
+    if cut and (trace.shape[0] >= n_packets):
         return trace[:n_packets]
+
+    if asset_key == assets.TIMES:
+        pad_val = trace[-1].item()
+    elif asset_key in {assets.DIRS, assets.SIZES}:
+        pad_val = 0.0
+    else:
+        raise ValueError(f"Unknown asset key: {asset_key}")
 
     return torch.cat(
         [
             trace,
-            torch.zeros(
+            torch.ones(
                 n_packets - trace.shape[0],
                 *trace.shape[1:],
                 dtype=trace.dtype,
                 device=trace.device,
-            ),
+            )
+            * pad_val,
         ]
     )
 
 
-class CutTrace(_TR):
+class PadOrCutTrace(_TR):
     NAME = "sel_packets"
 
     def __init__(self, n_packets: int):
@@ -38,7 +48,7 @@ class CutTrace(_TR):
     def name(self) -> str:
         return f"cut|{self.n_packets}"
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> CutTrace:
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> PadOrCutTrace:
         self._output_sizes = {key: self.n_packets for key in trace.keys()}
 
         return self
@@ -46,7 +56,8 @@ class CutTrace(_TR):
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
 
         trace_ = {
-            key: _pad_short_trace(val, self.n_packets) for key, val in trace.items()
+            key: _pad_short_trace(val, self.n_packets, asset_key=key)
+            for key, val in trace.items()
         }
 
         return trace_
@@ -257,44 +268,44 @@ def build_feature_trs(feature_name: list[str], n_packets: int) -> list[_TR]:
 def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
     match feature_name:
         case assets.DIRS:
-            return Compose(CutTrace(n_packets), Select(assets.DIRS))
+            return Compose(PadOrCutTrace(n_packets), Select(assets.DIRS))
         case assets.SIZES:
-            return Compose(CutTrace(n_packets), Select(assets.SIZES))
+            return Compose(PadOrCutTrace(n_packets), Select(assets.SIZES))
         case assets.TIMES:
-            return Compose(CutTrace(n_packets), Select(assets.TIMES))
+            return Compose(PadOrCutTrace(n_packets), Select(assets.TIMES))
         case assets.UP_PACKETS:
             return Compose(
-                CutTrace(n_packets),
+                PadOrCutTrace(n_packets),
                 UDPackets("up", assets.DIRS),
             )
         case assets.DOWN_PACKETS:
             return Compose(
-                CutTrace(n_packets),
+                PadOrCutTrace(n_packets),
                 UDPackets("down", assets.DIRS),
             )
         case assets.IATS:
             return Compose(
-                CutTrace(n_packets),
+                PadOrCutTrace(n_packets),
                 IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
             )
         case assets.UP_IATS:
             return Compose(
-                CutTrace(n_packets),
+                PadOrCutTrace(n_packets),
                 IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
             )
         case assets.DOWN_IATS:
             return Compose(
-                CutTrace(n_packets),
+                PadOrCutTrace(n_packets),
                 IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
             )
         case assets.TIMES_NORMALIZED:
             return Compose(
-                CutTrace(n_packets),
+                PadOrCutTrace(n_packets),
                 Normalize(normalized_asset=assets.TIMES, input_asset=assets.TIMES),
             )
         case assets.IATS_NORMALIZED:
             return Compose(
-                CutTrace(n_packets),
+                PadOrCutTrace(n_packets),
                 IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
                 Normalize(normalized_asset=assets.IATS, input_asset=assets.IATS),
             )
