@@ -21,6 +21,8 @@ def _pad_short_trace(
         pad_val = trace[-1].item()
     elif asset_key in {assets.DIRS, assets.SIZES}:
         pad_val = 0.0
+    elif asset_key == assets.ORIG_PACKETS:
+        pad_val = 0
     else:
         raise ValueError(f"Unknown asset key: {asset_key}")
 
@@ -240,11 +242,15 @@ class FeatureTrs:
     def features(self) -> list[str]:
         return [tr.name for tr in self._feature_trs]
 
-    def report(self) -> str:
+    def report(self, to_log: bool = True) -> str:
         max_l = max(len(tr.name) for tr in self._feature_trs) + 3
         report = "Feature Transforms:\n"
         for tr in self._feature_trs:
             report += key_val_fmt(tr.name, tr.output_sizes, key_len=max_l) + "\n"
+
+        if to_log:
+            for line in report.split("\n"):
+                logger.info(line)
 
         return report
 

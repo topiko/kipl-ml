@@ -6,6 +6,7 @@ from kipl_ml.data.utils import (
     load_dataset_meta_df,
     preserve_class_frac_sample,
 )
+from kipl_ml.defences.defences import Defences, NoDefence
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.trace.features import FeatureTrs
@@ -21,9 +22,9 @@ class WFDataset(Dataset):
         dataset: str,
         meta_df: pd.DataFrame,
         feature_trs: FeatureTrs,
+        defences: Defences | None = None,
         device: torch.device = torch.device("cpu"),
         short_trace_policy: str = "pad",
-        n_samples: int | None = None,
     ) -> None:
         if short_trace_policy not in ("drop", "pad"):
             raise ValueError(
@@ -39,10 +40,18 @@ class WFDataset(Dataset):
 
         if short_trace_policy == "drop":
             raise NotImplementedError("short_trace_policy='drop' not implemented.")
+
         self.feature_trs = feature_trs
+
+        self.defences = defences or Defences([NoDefence()])
         self.get_feature_shapes()
-        for _l in self.feature_trs.report().split("\n"):
-            logger.info(_l)
+        self.report()
+
+    def report(self, to_log: bool = True) -> str:
+        str_ = self.feature_trs.report(to_log=to_log)
+        str_ += self.defences.report(to_log=to_log)
+
+        return str_
 
     @property
     def n_classes(self) -> int:
@@ -75,11 +84,13 @@ class WFDataset(Dataset):
 
         trace = torch.Tensor(np_trace, device=self.device)
 
-        return {
+        trace_dict = {
             assets.TIMES: trace[:, assets.TIMES_IDX],
             assets.DIRS: trace[:, assets.DIRS_IDX],
             assets.SIZES: trace[:, assets.SIZES_IDX],
         }
+
+        return self.defences(trace_dict)
 
     def _get_label(self, idx: int) -> torch.Tensor:
         return torch.tensor(

@@ -33,20 +33,16 @@ def main(cfg: DictConfig):
     dataset_name = cfg.dataset.name
     model_name = cfg.model.name
     n_packets = cfg.trace.n_packets
-
-    print("defence", cfg.defences)
-    print("dataset", dataset_name, cfg.dataset)
-
     experiment_name = cfg.mlflow.experiment_name
-    experiment_id = get_mlflow_expr(experiment_name=experiment_name)
 
     feature_trs = FeatureTrs(feature_names=cfg.features.features, n_packets=n_packets)
-    defences = Defences(defences=cfg.defences)
+    defences = Defences(defences=[dict(d) for d in cfg.defences])
 
     ds_train, ds_valid, ds_test = get_train_valid_test(
         dataset=dataset_name,
         n_samples=(cfg.dataset.n_train_traces, 1000, 1000),
         feature_trs=feature_trs,
+        defences=defences,
     )
 
     model = get_model(
@@ -66,9 +62,9 @@ def main(cfg: DictConfig):
     early_stop_metric = "loss"
     patience = cfg.train.patience
 
+    experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
     run_name = model_name + "_" + cfg.features.name
-
     with mlflow.start_run(run_name=run_name):
 
         trained_model = train_model(

@@ -2,7 +2,7 @@
 Naive dummy defences for testing.
 """
 
-import kipl_ml.assets as assets
+import kipl_ml.data.assets as assets
 import torch
 from kipl_ml.defences.base import _Def
 from torch.distributions.chi2 import Chi2
@@ -17,12 +17,12 @@ class RandomPadding(_Def):
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         times = trace[assets.TIMES]
-        packets = trace[assets.PACKETS]
+        dirs = trace[assets.DIRS]
         sizes = trace[assets.SIZES]
 
         device = times.device
 
-        n_pad_packets = int(packets * self.fraction)
+        n_pad_packets = int(len(dirs) * self.fraction)
 
         t0 = times.min()
         t1 = times.max()
@@ -32,23 +32,23 @@ class RandomPadding(_Def):
         pad_packet_sizes = torch.ones_like(pad_packet_times, device=device)
 
         times = torch.cat([times, pad_packet_times])
-        packets = torch.cat([packets, pad_packet_dirs])
+        dirs = torch.cat([dirs, pad_packet_dirs])
         sizes = torch.cat([sizes, pad_packet_sizes])
         orig_packets = torch.cat(
             [
-                torch.ones(len(packets), dtype=torch.bool, device=device),
+                torch.ones(len(dirs), dtype=torch.bool, device=device),
                 torch.zeros(n_pad_packets, dtype=torch.bool, device=device),
             ]
         )
 
         times, sort_index = torch.sort(times)
-        packets = packets[sort_index]
+        dirs = dirs[sort_index]
         sizes = sizes[sort_index]
         orig_packets = orig_packets[sort_index]
 
         return {
             assets.TIMES: times,
-            assets.PACKETS: packets,
+            assets.DIRS: dirs,
             assets.SIZES: sizes,
             assets.ORIG_PACKETS: orig_packets,
         }
@@ -57,9 +57,10 @@ class RandomPadding(_Def):
 class Chi2Delays(_Def):
     def __init__(self, df: float = 0.1):
         self.chi2 = Chi2(df)
+        self.df = df
 
     def report(self, to_log: bool = True) -> str:
-        return self._report(to_log, distribution=self.chi2)
+        return self._report(to_log, df=self.df)
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         times = trace[assets.TIMES]
@@ -67,7 +68,7 @@ class Chi2Delays(_Def):
         device = times.device
 
         n_packets = len(times)
-        delays = self.chi2.sample_n(n_packets).to(device=device)
+        delays = self.chi2.sample((n_packets,)).to(device=device)
 
         times += torch.cumsum(delays, dim=0)
 

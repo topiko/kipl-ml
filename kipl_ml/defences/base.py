@@ -14,7 +14,8 @@ class _Def(ABC):
             str_ += key_val_fmt(key, value)
 
         if to_log:
-            logger.info(str_)
+            for line in str_.split("\n"):
+                logger.info(line)
 
         return str_
 
