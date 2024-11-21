@@ -1,0 +1,3 @@
+name: "bigenough"
+n_train_traces: 16000
+random_state: 42
