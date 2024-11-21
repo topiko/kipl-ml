@@ -4,7 +4,7 @@ import dotenv
 import hydra
 import mlflow
 import torch
-from kipl_ml.data.wf_dataset import WFDataset, get_train_valid_test
+from kipl_ml.data.wf_dataset import get_train_valid_test
 from kipl_ml.defences.defences import Defences
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import get_mlflow_expr

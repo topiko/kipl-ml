@@ -41,7 +41,10 @@ def get_std_trace_array(path: os.PathLike) -> np.ndarray:
 
 
 def preserve_class_frac_sample(
-    meta_df: pd.DataFrame, n_samples: int, missing_classes: str = "raise"
+    meta_df: pd.DataFrame,
+    n_samples: int,
+    random_state: int | None = None,
+    missing_classes: str = "raise",
 ) -> pd.DataFrame:
     """
     Sample n_samples preserving the class fraction
@@ -50,7 +53,7 @@ def preserve_class_frac_sample(
     frac = n_samples / len(meta_df)
     sampled_meta_df = (
         meta_df.groupby(assets.LABEL)
-        .apply(lambda x: x.sample(frac=frac))
+        .apply(lambda x: x.sample(frac=frac, random_state=random_state))
         .reset_index(drop=True)
     )
 

@@ -119,7 +119,10 @@ class WFDataset(Dataset):
 
 
 def get_train_valid_test(
-    dataset: str, n_samples: int | tuple[int, int, int], **kwargs
+    dataset: str,
+    n_samples: int | tuple[int, int, int],
+    random_state: int | None = None,
+    **kwargs,
 ) -> tuple[WFDataset, WFDataset, WFDataset]:
 
     if isinstance(n_samples, int):
@@ -127,14 +130,19 @@ def get_train_valid_test(
 
     meta_df = load_dataset_meta_df(dataset)
 
-    train_df = preserve_class_frac_sample(meta_df, n_samples[0])
+    train_df = preserve_class_frac_sample(
+        meta_df, n_samples[0], random_state=random_state
+    )
     train_ds = WFDataset(dataset=f"{dataset}-train", meta_df=train_df, **kwargs)
 
     valid_mask = ~meta_df.loc[:, assets.TRACE_ID].isin(train_df.loc[:, assets.TRACE_ID])
     meta_df = meta_df[valid_mask]
 
     valid_df = preserve_class_frac_sample(
-        meta_df, n_samples=n_samples[1], missing_classes="warn"
+        meta_df,
+        n_samples=n_samples[1],
+        random_state=random_state,
+        missing_classes="warn",
     )
     valid_ds = WFDataset(dataset=f"{dataset}-valid", meta_df=valid_df, **kwargs)
 
@@ -142,7 +150,10 @@ def get_train_valid_test(
     meta_df = meta_df[test_mask]
 
     test_df = preserve_class_frac_sample(
-        meta_df, n_samples=n_samples[2], missing_classes="warn"
+        meta_df,
+        n_samples=n_samples[2],
+        random_state=random_state,
+        missing_classes="warn",
     )
     test_ds = WFDataset(dataset=f"{dataset}-test", meta_df=test_df, **kwargs)
 
