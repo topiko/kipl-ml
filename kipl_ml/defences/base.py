@@ -23,7 +23,7 @@ class _Def(ABC):
         return self.__class__.__name__
 
     @abstractmethod
-    def report(self, logger: bool = True) -> str:
+    def report(self, to_log: bool = True) -> str:
         raise NotImplementedError
 
     @abstractmethod

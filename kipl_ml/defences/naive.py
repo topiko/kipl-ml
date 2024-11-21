@@ -5,6 +5,7 @@ Naive dummy defences for testing.
 import kipl_ml.assets as assets
 import torch
 from kipl_ml.defences.base import _Def
+from torch.distributions.chi2 import Chi2
 
 
 class RandomPadding(_Def):
@@ -51,3 +52,25 @@ class RandomPadding(_Def):
             assets.SIZES: sizes,
             assets.ORIG_PACKETS: orig_packets,
         }
+
+
+class Chi2Delays(_Def):
+    def __init__(self, df: float = 0.1):
+        self.chi2 = Chi2(df)
+
+    def report(self, to_log: bool = True) -> str:
+        return self._report(to_log, distribution=self.chi2)
+
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        times = trace[assets.TIMES]
+
+        device = times.device
+
+        n_packets = len(times)
+        delays = self.chi2.sample_n(n_packets).to(device=device)
+
+        times += torch.cumsum(delays, dim=0)
+
+        trace[assets.TIMES] = times
+
+        return trace
