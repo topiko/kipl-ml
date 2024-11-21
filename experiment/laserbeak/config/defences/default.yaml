@@ -1,4 +1,4 @@
 - name: random_padding
-  fraction: 0.1
+  fraction: 0.0
 - name: chi2delays
-  df: 1
+  df: 0

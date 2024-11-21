@@ -48,8 +48,19 @@ class WFDataset(Dataset):
         self.report()
 
     def report(self, to_log: bool = True) -> str:
-        str_ = self.feature_trs.report(to_log=to_log)
-        str_ += self.defences.report(to_log=to_log)
+        str_ = f"Dataset: {self.name}...\n"
+        str_ += key_val_fmt("n_traces", len(self)) + "\n"
+        str_ += key_val_fmt("n_classes", self.n_classes) + "\n"
+        str_ += self.feature_trs.report(to_log=False)
+        str_ += self.defences.report(to_log=False)
+
+        if to_log:
+            for i, line in enumerate(str_.split("\n")):
+                tab = "\t"
+                if i == 0:
+                    tab = ""
+
+                logger.info(tab + line)
 
         return str_
 

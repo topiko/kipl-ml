@@ -56,7 +56,11 @@ class RandomPadding(_Def):
 
 class Chi2Delays(_Def):
     def __init__(self, df: float = 0.1):
-        self.chi2 = Chi2(df)
+        if df <= 0:
+            self.identity = True
+        else:
+            self.identity = False
+            self.chi2 = Chi2(df)
         self.df = df
 
     def report(self, to_log: bool = True) -> str:
@@ -68,7 +72,10 @@ class Chi2Delays(_Def):
         device = times.device
 
         n_packets = len(times)
-        delays = self.chi2.sample((n_packets,)).to(device=device)
+        if self.identity:
+            delays = torch.zeros(n_packets, device=device)
+        else:
+            delays = self.chi2.sample((n_packets,)).to(device=device)
 
         times += torch.cumsum(delays, dim=0)
 
