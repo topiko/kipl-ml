@@ -2,8 +2,8 @@
 hydra:
   sweeper:
     params:
-      trace.n_packets: 100
-      dataset.n_train_traces: 2000
+      trace.n_packets: 200
+      dataset.n_train_traces: 10000
 
 
 defaults:
