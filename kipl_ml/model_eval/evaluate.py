@@ -11,7 +11,7 @@ logger = get_logger(__name__)
 
 
 def run_inference(
-    model: nn.Module, dataloader: torch.utils.data.DataLoader
+    model: nn.Module, dataloader: DataLoader
 ) -> tuple[torch.Tensor, torch.Tensor]:
     logger.info(f"Run inference...")
     model.eval()
@@ -31,7 +31,7 @@ def run_inference(
 
 def evaluate_model(
     model: nn.Module,
-    dataloader: torch.utils.data.DataLoader,
+    dataloader: DataLoader,
     metrics: list[GeneralMetric | ClassMetric],
     loss_fn: Callable | None = None,
 ) -> dict[str, float | torch.Tensor]:

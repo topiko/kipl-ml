@@ -25,9 +25,9 @@ class WrapDFNet(DFNet):
         *args,
         **kwargs
     ):
-        x = torch.cat([x_.unsqueeze(1) for x_ in x.values()], dim=1)
+        x_ = torch.cat([x_.unsqueeze(1) for x_ in x.values()], dim=1)
 
-        return super().forward(x, sample_sizes, return_feats, *args, **kwargs)
+        return super().forward(x_, sample_sizes, return_feats, *args, **kwargs)
 
 
 class CNNVisTransformer(ConvolutionalVisionTransformer):

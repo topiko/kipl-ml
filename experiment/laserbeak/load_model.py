@@ -5,8 +5,12 @@ import mlflow
 import pandas as pd
 from kipl_ml.data.wf_dataset import WFDataset
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.logging.utils import key_val_fmt
+from kipl_ml.metrics.clf_metrics import Accuracy
+from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.trace.features import FeatureTrs
 from mlflow.entities import ViewType
+from torch.utils.data import DataLoader
 
 dotenv.load_dotenv()
 logger = get_logger(__name__)
@@ -16,11 +20,9 @@ assert MLFLOW_TRACKING_URI is not None, "MLFLOW_TRACKING_URI must be set in .env
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 SHOW = [
-    "run_id",
     "start_time",
     "tags.mlflow.runName",
     "metrics.test_accuracy",
-    "experiment_id",
 ]
 
 
@@ -35,7 +37,7 @@ def list_runs(experiment_names: list[str] | None = None) -> pd.DataFrame:
 
     assert isinstance(runs, pd.DataFrame)
     mask = runs.loc[:, "status"] == "FINISHED"
-    runs = runs.loc[mask, SHOW].reset_index(drop=True)
+    runs = runs[mask].reset_index(drop=True)
 
     return runs
 
@@ -43,7 +45,7 @@ def list_runs(experiment_names: list[str] | None = None) -> pd.DataFrame:
 def main():
     runs = list_runs()
 
-    print(runs)
+    print(runs.loc[:, SHOW])
 
     idx = int(input("Your choice (idx): "))
 
@@ -66,10 +68,17 @@ def main():
 
     test_meta_df = mlflow.load_table(artifact_file="test_df.json", run_ids=[run_id])
 
-    dataset = WFDataset(
+    test_dataset = WFDataset(
         dataset=dataset_name, meta_df=test_meta_df, feature_trs=feature_trs
     )
-    model = mlflow.pyfunc.load_model(artifact_uri + "/model")
+    model = mlflow.pytorch.load_model(artifact_uri + "/model")
+
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+
+    metrics = [Accuracy()]
+    metrics_d = evaluate_model(model=model, dataloader=test_loader, metrics=metrics)
+    for m, m_val in metrics_d.items():
+        logger.info(key_val_fmt(m, m_val))
 
 
 if __name__ == "__main__":
