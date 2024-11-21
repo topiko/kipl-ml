@@ -13,6 +13,7 @@ UP_PACKETS: str = "up_packets"
 DOWN_PACKETS: str = "down_packets"
 TRACE_ID: str = "flow_id"
 
+ORIG_PACKETS: str = "orig_packets"
 TIMES_IDX: int = 0
 DIRS_IDX: int = 1
 SIZES_IDX: int = 2

@@ -11,6 +11,7 @@ defaults:
   - trace: medium
   - dataset: bigenough
   - train: default
+  - defence: default
 mlflow:
   experiment_name: "laserbeak_tune"
 

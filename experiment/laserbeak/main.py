@@ -32,6 +32,9 @@ def main(cfg: DictConfig):
     dataset_name = cfg.dataset.name
     model_name = cfg.model.name
     n_packets = cfg.trace.n_packets
+    defence = cfg.defence.name
+
+    print("defence", defence)
 
     experiment_name = cfg.mlflow.experiment_name
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
