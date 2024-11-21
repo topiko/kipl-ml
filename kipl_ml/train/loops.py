@@ -129,7 +129,7 @@ def train_model(
             )
 
         mlflow.log_metrics(
-            {f"valid_{m}": mv for m, mv in metric_vals.items()}, step=epoch
+            {f"valid_{m}": mv for m, mv in metrics_vals.items()}, step=epoch
         )
 
         if objective == Objective.MIN:
