@@ -2,16 +2,17 @@ hydra:
   sweeper:
     params:
       features: default,plain
-      trace: short, medium, long
+      trace.n_packets: 100,500,1000
+      defence.fraction: 0.1,0.2,0.3
 
 defaults:
   - _self_
   - model: dfnet
   - features: default
-  - trace: medium
+  - trace: default
   - dataset: bigenough
   - train: default
-  - defence: default
+  - defence: naive_padding
 mlflow:
   experiment_name: "laserbeak_tune"
 

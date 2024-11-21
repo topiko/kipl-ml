@@ -27,14 +27,15 @@ assert MLFLOW_TRACKING_URI is not None, "MLFLOW_TRACKING_URI must be set in .env
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 
-@hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
+@hydra.main(config_path=CONFIG_DIR_PATH, config_name="test", version_base=None)
 def main(cfg: DictConfig):
     dataset_name = cfg.dataset.name
     model_name = cfg.model.name
     n_packets = cfg.trace.n_packets
     defence = cfg.defence.name
 
-    print("defence", defence)
+    print("defence", defence, cfg.defence)
+    print("dataset", dataset_name, cfg.dataset)
 
     experiment_name = cfg.mlflow.experiment_name
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
@@ -66,7 +67,8 @@ def main(cfg: DictConfig):
 
     mlflow.set_experiment(experiment_id=experiment_id)
     run_name = model_name + "_" + cfg.features.name
-    with mlflow.start_run(run_name=run_name) as run:
+
+    with mlflow.start_run(run_name=run_name):
 
         trained_model = train_model(
             model=model,
