@@ -3,7 +3,6 @@ hydra:
     params:
       features: default,plain
       trace.n_packets: 100,500,1000
-      defence.fraction: 0.1,0.2,0.3
 
 defaults:
   - _self_
