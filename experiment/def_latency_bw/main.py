@@ -46,7 +46,8 @@ def main(cfg: DictConfig):
 
     def single_run(defences: Defences):
         feature_trs = FeatureTrs(
-            feature_names=cfg.features.features, n_packets=n_packets
+            feature_names=cfg.features.features,
+            n_packets=int(n_packets * (1 + fraction)),
         )
 
         ds_train, ds_valid, ds_test = get_train_valid_test(
@@ -115,7 +116,7 @@ def main(cfg: DictConfig):
                 loss_fn=loss_fn,
                 metrics=metrics,
             )
-            metrics_vals = {f"final|{key}_{k}": v for k, v in metrics_vals.items()}
+            metrics_vals = {f"final:{key}_{k}": v for k, v in metrics_vals.items()}
 
             mlflow.log_metrics(metrics_vals)
 
