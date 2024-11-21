@@ -12,7 +12,7 @@ defaults:
   - trace: default
   - dataset: bigenough
   - train: default
-  - defence: naive_padding
+  - defences: default
 mlflow:
   experiment_name: "laserbeak_tune"
 

@@ -1,0 +1,4 @@
+- name: naive_padding
+  fraction: 0.1
+- name: chi2delays
+  df: 1

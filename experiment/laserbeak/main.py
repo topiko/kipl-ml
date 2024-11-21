@@ -5,6 +5,7 @@ import hydra
 import mlflow
 import torch
 from kipl_ml.data.wf_dataset import WFDataset, get_train_valid_test
+from kipl_ml.defences.defences import Defences
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import get_mlflow_expr
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall, CrossEntropyLoss
@@ -32,15 +33,15 @@ def main(cfg: DictConfig):
     dataset_name = cfg.dataset.name
     model_name = cfg.model.name
     n_packets = cfg.trace.n_packets
-    defence = cfg.defence.name
 
-    print("defence", defence, cfg.defence)
+    print("defence", cfg.defences)
     print("dataset", dataset_name, cfg.dataset)
 
     experiment_name = cfg.mlflow.experiment_name
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
 
     feature_trs = FeatureTrs(feature_names=cfg.features.features, n_packets=n_packets)
+    defences = Defences(defences=cfg.defences)
 
     ds_train, ds_valid, ds_test = get_train_valid_test(
         dataset=dataset_name,
