@@ -46,8 +46,7 @@ class CutTrace(_TR):
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
 
         trace_ = {
-            self.name + f"_{key}": _pad_short_trace(val, self.n_packets)
-            for key, val in trace.items()
+            key: _pad_short_trace(val, self.n_packets) for key, val in trace.items()
         }
 
         return trace_
@@ -258,70 +257,45 @@ def build_feature_trs(feature_name: list[str], n_packets: int) -> list[_TR]:
 def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
     match feature_name:
         case assets.DIRS:
-            return Compose(
-                CutTrace(n_packets), Select(f"cut|{n_packets}_{assets.DIRS}")
-            )
+            return Compose(CutTrace(n_packets), Select(assets.DIRS))
         case assets.SIZES:
-            return Compose(
-                CutTrace(n_packets), Select(f"cut|{n_packets}_{assets.SIZES}")
-            )
+            return Compose(CutTrace(n_packets), Select(assets.SIZES))
         case assets.TIMES:
-            return Compose(
-                CutTrace(n_packets), Select(f"cut|{n_packets}_{assets.TIMES}")
-            )
+            return Compose(CutTrace(n_packets), Select(assets.TIMES))
         case assets.UP_PACKETS:
             return Compose(
                 CutTrace(n_packets),
-                UDPackets("up", f"cut|{n_packets}_{assets.DIRS}"),
+                UDPackets("up", assets.DIRS),
             )
         case assets.DOWN_PACKETS:
             return Compose(
                 CutTrace(n_packets),
-                UDPackets("down", f"cut|{n_packets}_{assets.DIRS}"),
+                UDPackets("down", assets.DIRS),
             )
         case assets.IATS:
             return Compose(
                 CutTrace(n_packets),
-                IAT(
-                    "any",
-                    time_asset=f"cut|{n_packets}_{assets.TIMES}",
-                    dir_asset=f"cut|{n_packets}_{assets.DIRS}",
-                ),
+                IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
             )
         case assets.UP_IATS:
             return Compose(
                 CutTrace(n_packets),
-                IAT(
-                    "up",
-                    time_asset=f"cut|{n_packets}_{assets.TIMES}",
-                    dir_asset=f"cut|{n_packets}_{assets.DIRS}",
-                ),
+                IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
             )
         case assets.DOWN_IATS:
             return Compose(
                 CutTrace(n_packets),
-                IAT(
-                    "down",
-                    time_asset=f"cut|{n_packets}_{assets.TIMES}",
-                    dir_asset=f"cut|{n_packets}_{assets.DIRS}",
-                ),
+                IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
             )
         case assets.TIMES_NORMALIZED:
             return Compose(
                 CutTrace(n_packets),
-                Normalize(
-                    normalized_asset=assets.TIMES,
-                    input_asset=f"cut|{n_packets}_{assets.TIMES}",
-                ),
+                Normalize(normalized_asset=assets.TIMES, input_asset=assets.TIMES),
             )
         case assets.IATS_NORMALIZED:
             return Compose(
                 CutTrace(n_packets),
-                IAT(
-                    "any",
-                    time_asset=f"cut|{n_packets}_{assets.TIMES}",
-                    dir_asset=f"cut|{n_packets}_{assets.DIRS}",
-                ),
+                IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
                 Normalize(normalized_asset=assets.IATS, input_asset=assets.IATS),
             )
         case _:
