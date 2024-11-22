@@ -17,7 +17,7 @@ def forge_defence(**kwargs) -> _Def:
         case "chi2delays":
             return Chi2Delays(**kwargs)
         case "no_defence":
-            return NoDefence(
+            return NoDefence()
         case _:
             raise ValueError(f"Invalid defence: {defence_name}")
 
