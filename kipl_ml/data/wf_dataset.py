@@ -133,6 +133,7 @@ def get_train_valid_test(
     train_df = preserve_class_frac_sample(
         meta_df, n_samples[0], random_state=random_state
     )
+
     train_ds = WFDataset(dataset=f"{dataset}-train", meta_df=train_df, **kwargs)
 
     valid_mask = ~meta_df.loc[:, assets.TRACE_ID].isin(train_df.loc[:, assets.TRACE_ID])

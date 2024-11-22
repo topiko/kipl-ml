@@ -30,7 +30,7 @@ mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 
 FRACTIONS = [0, 0.01, 0.02, 0.05, 0.1, 0.2]
-DFS = [0, 1, 5, 10, 50, 100]
+KS = [0, 1, 2, 3, 4, 5]
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
@@ -106,7 +106,7 @@ def main(cfg: DictConfig):
                 "patience": patience,
                 "early_stop_metric": early_stop_metric,
                 "def_padding_fraction": fraction,
-                "def_chi2_df": df,
+                "def_chi2_df": k,
             }
         )
         for key, loader in zip(["valid", "test"], [valid_loader, test_loader]):
@@ -122,12 +122,12 @@ def main(cfg: DictConfig):
 
     with mlflow.start_run(run_name=run_name):
         for fraction in FRACTIONS:
-            for df in DFS:
+            for k in KS:
                 defences = Defences(
-                    [Chi2Delays(df=df), RandomPadding(fraction=fraction)]
+                    [Chi2Delays(k=k), RandomPadding(fraction=fraction)]
                 )
 
-                run_name = f"chi2={df}_pad={fraction}"
+                run_name = f"chi2={k}_pad={fraction}"
                 with mlflow.start_run(nested=True, run_name=run_name):
                     single_run(defences)
 

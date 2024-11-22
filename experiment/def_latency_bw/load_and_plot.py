@@ -31,14 +31,17 @@ with open("config/config.yaml", "r") as f:
 
 
 def heatmap(res_df: pd.DataFrame) -> pd.DataFrame:
+
+    res_df = res_df.astype(float)
     res_df = res_df.pivot(
         index="params.def_padding_fraction",
         columns="params.def_chi2_df",
         values="metrics.final:test_accuracy",
-    ).iloc[::-1]
+    ).sort_index(ascending=False)
 
+    res_df = res_df.reindex(sorted(res_df.columns), axis=1)
 
-    sns.heatmap(res_df, annot=True, fmt=".2f")
+    sns.heatmap(res_df, annot=True, fmt=".3f")
     plt.show()
 
 
@@ -56,6 +59,7 @@ def main():
     ]
 
     heatmap(data)
+
 
 if __name__ == "__main__":
     main()

@@ -11,7 +11,7 @@ class _Def(ABC):
     def _report(self, to_log: bool = True, **kwargs) -> str:
         str_ = f"{self.name}\n"
         for key, value in kwargs.items():
-            str_ += key_val_fmt(key, value)
+            str_ += key_val_fmt(key, value) + "\n"
 
         if to_log:
             for line in str_.split("\n"):

@@ -55,27 +55,33 @@ class RandomPadding(_Def):
 
 
 class Chi2Delays(_Def):
-    def __init__(self, df: float = 0.1):
-        if df <= 0:
+    def __init__(self, k: int = 1, scale_frac: float = 0.1):
+        if k <= 0:
             self.identity = True
         else:
             self.identity = False
-            self.chi2 = Chi2(df)
-        self.df = df
+            self.chi2 = Chi2(k)
+        self.scale_frac = scale_frac
+        self.k = k
 
     def report(self, to_log: bool = True) -> str:
-        return self._report(to_log, df=self.df)
+        return self._report(to_log, k=self.k, scale_frac=self.scale_frac)
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         times = trace[assets.TIMES]
 
+        scale_ns = torch.diff(times).mean().item()
         device = times.device
 
         n_packets = len(times)
         if self.identity:
             delays = torch.zeros(n_packets, device=device)
         else:
-            delays = self.chi2.sample((n_packets,)).to(device=device)
+            delays = (
+                self.chi2.sample((n_packets,)).to(device=device)
+                * scale_ns
+                * self.scale_frac
+            )
 
         times += torch.cumsum(delays, dim=0)
 
