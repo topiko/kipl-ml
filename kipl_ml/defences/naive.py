@@ -68,20 +68,20 @@ class Chi2Delays(_Def):
         return self._report(to_log, k=self.k, scale_frac=self.scale_frac)
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        if self.identity:
+            return trace
+
         times = trace[assets.TIMES]
 
         scale_ns = torch.diff(times).mean().item()
         device = times.device
 
         n_packets = len(times)
-        if self.identity:
-            delays = torch.zeros(n_packets, device=device)
-        else:
-            delays = (
-                self.chi2.sample((n_packets,)).to(device=device)
-                * scale_ns
-                * self.scale_frac
-            )
+        delays = (
+            self.chi2.sample((n_packets,)).to(device=device)
+            * scale_ns
+            * self.scale_frac
+        )
 
         times += torch.cumsum(delays, dim=0)
 
