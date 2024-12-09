@@ -183,6 +183,24 @@ class IAT(_TR):
         return {self.name: iats}
 
 
+class TimeDirs(_TR):
+
+    def __init__(self, time_asset: str = assets.TIMES, dir_asset: str = assets.DIRS):
+        self.time_asset = time_asset
+        self.dir_asset = dir_asset
+
+    @property
+    def name(self) -> str:
+        return assets.TIME_DIRS
+
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> TimeDirs:
+        self._output_sizes = {self.name: trace[self.time_asset].shape[0]}
+        return self
+
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        return {self.name: trace[self.time_asset] * trace[self.dir_asset]}
+
+
 class Compose(_TR):
     NAME = "compose"
 
@@ -314,6 +332,11 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                 PadOrCutTrace(n_packets),
                 IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
                 Normalize(normalized_asset=assets.IATS, input_asset=assets.IATS),
+            )
+        case assets.TIME_DIRS:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                TimeDirs(time_asset=assets.TIMES, dir_asset=assets.DIRS),
             )
         case _:
             raise ValueError(f"Unknown feature name: {feature_name}")

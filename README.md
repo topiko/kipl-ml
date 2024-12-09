@@ -56,3 +56,7 @@ Run:
 `pydeps path/to/module.py`
 
 to generate a dependency graph of a module. Config file in `.pydeps`.
+
+### Conventions:
+
+From the `bigenough` we currently map the direction flags: "s" and "r" into -1 and 1 respectively. We consider dir > 0 as the "upload" direction (according to Laserbeak conventions). However, the aforementioned "s" and "r" ought to be still verified. See `kipl_ml/data/conversion.py` for the mapping.

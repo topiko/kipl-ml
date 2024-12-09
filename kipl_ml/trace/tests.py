@@ -129,6 +129,18 @@ class TestTR(unittest.TestCase):
 
         self.assertTrue(torch.allclose(tr(trace)[assets.TIMES_NORMALIZED], times))
 
+    def test_time_dirs(self):
+        trace = self._get_trace(self.N_PACKETS)
+        tr = self._get_key(assets.TIME_DIRS, trace)
+
+        self._shapes_test(tr, trace)
+
+        time_dirs = (
+            trace[assets.TIMES][: self.N_PACKETS] * trace[assets.DIRS][: self.N_PACKETS]
+        )
+
+        self.assertTrue(torch.allclose(tr(trace)[assets.TIME_DIRS], time_dirs))
+
 
 if __name__ == "__main__":
     unittest.main()

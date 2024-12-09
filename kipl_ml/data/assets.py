@@ -11,6 +11,7 @@ DOWN_IATS: str = "down_iats"
 DOWN_IATS_NORMALIZED: str = "down_iats_normalized"
 UP_PACKETS: str = "up_packets"
 DOWN_PACKETS: str = "down_packets"
+TIME_DIRS: str = "time_dirs"
 TRACE_ID: str = "flow_id"
 
 ORIG_PACKETS: str = "orig_packets"
