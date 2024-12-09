@@ -308,21 +308,24 @@ class FlowIATS(_TR):
         return {self.name: flow_iats}
 
 
-class InvIATLog(_TR):
-    NAME = "inv_iat_log"
+class LogInv(_TR):
+    NAME = "log_inv"
+
+    def __init__(self, asset: str):
+        self.asset = asset
 
     @property
     def name(self) -> str:
-        return assets.INV_IAT_LOG
+        return f"log_inv_{self.asset}"
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> InvIATLog:
-        self._output_sizes = {self.name: trace[assets.IATS].shape[0]}
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> LogInv:
+        self._output_sizes = {self.name: trace[self.asset].shape[0]}
         return self
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        iats = trace[assets.IATS]
-        iats = torch.where(iats == 0, torch.ones_like(iats), iats)
-        return {self.name: 1 / torch.log(iats)}
+        log_inv = torch.log(torch.nan_to_num(1 / trace[self.asset] + 1, posinf=1e4))
+
+        return {self.name: log_inv}
 
 
 class Compose(_TR):
@@ -530,5 +533,41 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                     input_asset=assets.FLOW_IATS,
                 ),
             )
+        case assets.LOG_INV_IATS:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                FlowIATS(),
+                LogInv(assets.FLOW_IATS),
+            )
+        case assets.LOG_INV_IATS_NORMALIZED:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                FlowIATS(),
+                Normalize(
+                    normalized_asset=assets.FLOW_IATS,
+                    input_asset=assets.FLOW_IATS,
+                ),
+                LogInv(assets.FLOW_IATS_NORMALIZED),
+            )
+        case assets.LOG_INV_IATS_NORMALIZED_DIRS:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                FlowIATS(),
+                Normalize(
+                    normalized_asset=assets.FLOW_IATS,
+                    input_asset=assets.FLOW_IATS,
+                ),
+                LogInv(assets.FLOW_IATS_NORMALIZED),
+                IATDirs(
+                    iat_asset=assets.LOG_INV_IATS_NORMALIZED, dir_asset=assets.DIRS
+                ),
+            )
+
         case _:
             raise ValueError(f"Unknown feature name: {feature_name}")
