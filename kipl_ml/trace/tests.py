@@ -271,6 +271,22 @@ class TestTR(unittest.TestCase):
 
         tr(trace)[assets.LOG_INV_IATS_NORMALIZED_DIRS]
 
+    def test_running_rate(self):
+
+        trace = self._get_trace(self.N_PACKETS)
+        tr = self._get_key(assets.RUNNING_RATE_SIZES, trace)
+
+        rsizes = tr(trace)[assets.RUNNING_RATE_SIZES]
+
+        sizes = trace[assets.SIZES][: self.N_PACKETS]
+        times = trace[assets.TIMES][: self.N_PACKETS]
+        sizes[0] = 0.0
+        times[0] = 1.0
+
+        rsizes_true = torch.cumsum(sizes, dim=0) / times
+
+        self.assertTrue(torch.allclose(rsizes, rsizes_true))
+
 
 if __name__ == "__main__":
     unittest.main()

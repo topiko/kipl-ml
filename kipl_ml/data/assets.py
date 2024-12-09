@@ -27,6 +27,7 @@ LOG_INV_IATS: str = f"log_inv_{FLOW_IATS}"
 LOG_INV_IATS_NORMALIZED: str = f"log_inv_{FLOW_IATS_NORMALIZED}"
 LOG_INV_IATS_NORMALIZED_DIRS: str = f"log_inv_{FLOW_IATS_NORMALIZED}_dirs"
 LOG_INV_IAT_DIRS: str = f"log_inv_{IAT_DIRS}"
+RUNNING_RATE_SIZES: str = f"running_rate_{SIZES}"
 TRACE_ID: str = "flow_id"
 
 ORIG_PACKETS: str = "orig_packets"

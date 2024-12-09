@@ -328,6 +328,33 @@ class LogInv(_TR):
         return {self.name: log_inv}
 
 
+class RunningRate(_TR):
+    NAME = "running_rate"
+
+    def __init__(self, asset: str, time_asset: str):
+        self.asset = asset
+        self.time_asset = time_asset
+
+    @property
+    def name(self) -> str:
+        return f"running_rate_{self.asset}"
+
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> RunningRate:
+        self._output_sizes = {self.name: trace[self.asset].shape[0]}
+        return self
+
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        times = trace[self.time_asset]
+        values = trace[self.asset]
+
+        # First time is 0.0
+        values[0] = 0.0
+        times[0] = 1.0
+
+        running_rate = torch.cumsum(values, dim=0) / times
+        return {self.name: running_rate}
+
+
 class Compose(_TR):
     NAME = "compose"
 
@@ -568,6 +595,10 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                     iat_asset=assets.LOG_INV_IATS_NORMALIZED, dir_asset=assets.DIRS
                 ),
             )
-
+        case assets.RUNNING_RATE_SIZES:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                RunningRate(assets.SIZES, assets.TIMES),
+            )
         case _:
             raise ValueError(f"Unknown feature name: {feature_name}")
