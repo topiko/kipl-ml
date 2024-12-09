@@ -3,6 +3,7 @@ import unittest
 import kipl_ml.data.assets as assets
 import torch
 from kipl_ml.trace.features import get_feature_tr
+from kipl_ml.trace.params import DOWNLOAD, UPLOAD
 from kipl_ml.trace.transforms import _TR
 
 
@@ -159,7 +160,7 @@ class TestTR(unittest.TestCase):
 
     def test_normalized_iat_dirs(self):
         trace = self._get_trace(self.N_PACKETS)
-        tr = self._get_key(assets.NORMALIZED_IAT_DIRS, trace)
+        tr = self._get_key(assets.IAT_DIRS_NORMALIZED, trace)
 
         self._shapes_test(tr, trace)
 
@@ -174,7 +175,7 @@ class TestTR(unittest.TestCase):
 
         iat_dirs = iats * dirs
 
-        self.assertTrue(torch.allclose(tr(trace)[assets.NORMALIZED_IAT_DIRS], iat_dirs))
+        self.assertTrue(torch.allclose(tr(trace)[assets.IAT_DIRS_NORMALIZED], iat_dirs))
 
     def test_max_normalized_iats(self):
         trace = self._get_trace(self.N_PACKETS)
@@ -217,6 +218,39 @@ class TestTR(unittest.TestCase):
         cum_sizes_tr = tr(trace)[assets.MAX_NORMALIZED_CUM_SIZES]
 
         self.assertTrue(torch.allclose(cum_sizes, cum_sizes_tr))
+
+    def test_burst_edges(self):
+        trace = self._get_trace(self.N_PACKETS)
+        tr = self._get_key(assets.BURST_EDGES, trace)
+
+        self._shapes_test(tr, trace)
+
+        dirs = trace[assets.DIRS][: self.N_PACKETS]
+        edges = torch.diff(dirs, dim=0, prepend=torch.Tensor([0]))
+
+        self.assertTrue(torch.allclose(tr(trace)[assets.BURST_EDGES], edges))
+
+    def test_normalized_flow_iats(self):
+        trace = self._get_trace(self.N_PACKETS)
+        tr = self._get_key(assets.FLOW_IATS_NORMALIZED, trace)
+
+        self._shapes_test(tr, trace)
+
+        flow_iats_tr = tr(trace)[assets.FLOW_IATS_NORMALIZED]
+
+        dirs = trace[assets.DIRS][: self.N_PACKETS]
+        up_idxs = torch.where(dirs == UPLOAD)[0]
+        down_idxs = torch.where(dirs == DOWNLOAD)[0]
+
+        flow_iats = torch.zeros_like(dirs)
+
+        flow_iats[up_idxs[1:]] = torch.diff(trace[assets.TIMES][up_idxs], dim=0)
+        flow_iats[down_idxs[1:]] = torch.diff(trace[assets.TIMES][down_idxs], dim=0)
+
+        flow_iats -= flow_iats.mean()
+        flow_iats /= flow_iats.std()
+
+        self.assertTrue(torch.allclose(flow_iats_tr, flow_iats))
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import mlflow
 import torch
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
+from kipl_ml.trace.params import DOWNLOAD, UPLOAD
 from kipl_ml.trace.transforms import _TR
 from mlflow.models import set_model
 
@@ -127,6 +128,7 @@ class Normalize(_TR):
                 assets.UP_IATS: assets.UP_IATS_NORMALIZED,
                 assets.DOWN_IATS: assets.DOWN_IATS_NORMALIZED,
                 assets.CUM_SIZES: assets.CUM_SIZES_NORMALIZED,
+                assets.FLOW_IATS: assets.FLOW_IATS_NORMALIZED,
             }[self.normalized_asset]
 
         return {
@@ -187,9 +189,9 @@ class IAT(_TR):
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
 
         if self.dir_key == "up":
-            mask = trace[self.dir_asset] == 1
+            mask = trace[self.dir_asset] == UPLOAD
         elif self.dir_key == "down":
-            mask = trace[self.dir_asset] == -1
+            mask = trace[self.dir_asset] == DOWNLOAD
         else:
             mask = torch.ones_like(trace[self.dir_asset], dtype=torch.bool)
 
@@ -250,7 +252,7 @@ class NormalizedIATDirs(_TimeWeight):
 
     @property
     def name(self) -> str:
-        return assets.NORMALIZED_IAT_DIRS
+        return assets.IAT_DIRS_NORMALIZED
 
 
 class Cumulative(_TR):
@@ -268,6 +270,59 @@ class Cumulative(_TR):
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         return {self.name: torch.cumsum(trace[self.asset], dim=0)}
+
+
+class BurstEdges(_TR):
+    NAME = "burst_edges"
+
+    @property
+    def name(self) -> str:
+        return "burst_edges"
+
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> BurstEdges:
+        self._output_sizes = {self.name: trace[assets.DIRS].shape[0]}
+        return self
+
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        edges = torch.diff(trace[assets.DIRS], dim=0, prepend=torch.Tensor([0]))
+        return {self.name: edges}
+
+
+class FlowIATS(_TR):
+    NAME = "flow_iats"
+
+    @property
+    def name(self) -> str:
+        return assets.FLOW_IATS
+
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> FlowIATS:
+        self._output_sizes = {self.name: trace[assets.UP_IATS].shape[0]}
+        return self
+
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+
+        dirs = trace[assets.DIRS]
+        flow_iats = torch.zeros_like(dirs)
+        flow_iats[dirs == UPLOAD] = trace[assets.UP_IATS][dirs == UPLOAD]
+        flow_iats[dirs == DOWNLOAD] = trace[assets.DOWN_IATS][dirs == DOWNLOAD]
+        return {self.name: flow_iats}
+
+
+class InvIATLog(_TR):
+    NAME = "inv_iat_log"
+
+    @property
+    def name(self) -> str:
+        return assets.INV_IAT_LOG
+
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> InvIATLog:
+        self._output_sizes = {self.name: trace[assets.IATS].shape[0]}
+        return self
+
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        iats = trace[assets.IATS]
+        iats = torch.where(iats == 0, torch.ones_like(iats), iats)
+        return {self.name: 1 / torch.log(iats)}
 
 
 class Compose(_TR):
@@ -430,7 +485,7 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                 IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
                 IATDirs(iat_asset=assets.IATS, dir_asset=assets.DIRS),
             )
-        case assets.NORMALIZED_IAT_DIRS:
+        case assets.IAT_DIRS_NORMALIZED:
             return Compose(
                 PadOrCutTrace(n_packets),
                 IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
@@ -452,6 +507,28 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                     division="max",
                 ),
             )
-
+        case assets.BURST_EDGES:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                BurstEdges(),
+            )
+        case assets.FLOW_IATS:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                FlowIATS(),
+            )
+        case assets.FLOW_IATS_NORMALIZED:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                FlowIATS(),
+                Normalize(
+                    normalized_asset=assets.FLOW_IATS,
+                    input_asset=assets.FLOW_IATS,
+                ),
+            )
         case _:
             raise ValueError(f"Unknown feature name: {feature_name}")
