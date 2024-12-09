@@ -141,6 +141,43 @@ class TestTR(unittest.TestCase):
 
         self.assertTrue(torch.allclose(tr(trace)[assets.TIME_DIRS], time_dirs))
 
+    def test_iat_dirs(self):
+        trace = self._get_trace(self.N_PACKETS)
+        tr = self._get_key(assets.IAT_DIRS, trace)
+
+        self._shapes_test(tr, trace)
+
+        iats = torch.zeros_like(trace[assets.TIMES])
+        iats[1:] = torch.diff(trace[assets.TIMES], dim=0) + 1.0
+        iats[0] = 1.0
+
+        dirs = trace[assets.DIRS][: self.N_PACKETS]
+
+        iat_dirs = iats * dirs
+
+        self.assertTrue(torch.allclose(tr(trace)[assets.IAT_DIRS], iat_dirs))
+
+    def test_normalized_iat_dirs(self):
+        trace = self._get_trace(self.N_PACKETS)
+        tr = self._get_key(assets.NORMALIZED_IAT_DIRS, trace)
+
+        self._shapes_test(tr, trace)
+
+        iats = torch.zeros_like(trace[assets.TIMES])
+        iats[1:] = torch.diff(trace[assets.TIMES], dim=0)
+        iats -= iats.mean()
+        iats /= iats.std()
+
+        iats += 1.0
+
+        dirs = trace[assets.DIRS][: self.N_PACKETS]
+
+        iat_dirs = iats * dirs
+
+        print(torch.allclose(tr(trace)[assets.NORMALIZED_IAT_DIRS], iat_dirs))
+
+
+
 
 if __name__ == "__main__":
     unittest.main()

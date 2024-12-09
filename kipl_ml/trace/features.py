@@ -108,9 +108,14 @@ class UDPackets(_TR):
 class Normalize(_TR):
     NAME = "normalized"
 
-    def __init__(self, normalized_asset: str, input_asset: str):
+    def __init__(self, normalized_asset: str, input_asset: str, division: str = "std"):
+
+        if division not in {"std", "max"}:
+            raise ValueError("Division must be either 'std' or 'max'")
+
         self.normalized_asset = normalized_asset
         self.input_asset = input_asset
+        self.division = division
 
     @property
     def name(self) -> str:
@@ -133,17 +138,27 @@ class Normalize(_TR):
         return self
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        if (std := trace[self.input_asset].std()) == 0:
-            logger.warning(f"Std zeron when standardizing! {self.name}")
-            if all(trace[self.input_asset] == 0):
-                return trace[self.input_asset]
-            raise ValueError("Standard deviation is zero. Cannot normalize.")
+        trace_ = trace[self.input_asset] - trace[self.input_asset].mean()
 
-        trace_ = (trace[self.input_asset] - trace[self.input_asset].mean()) / std
+        if self.division == "std":
+            if (div := trace_.std()) == 0:
+                logger.warning(f"Std zero when standardizing! {self.name}")
+                if all(trace_ == 0):
+                    return trace_
+                raise ValueError("Standard deviation is zero. Cannot normalize.")
+        elif self.division == "max":
+            div = torch.max(torch.abs(trace_))
+            if div == 0:
+                logger.warning(f"Max zero when max normalizing! {self.name}")
+                if all(trace_ == 0):
+                    return trace_
+
+        trace_ = trace_ / div
         return {self.name: trace_}
 
 
 class IAT(_TR):
+    NAME = "iat"
 
     def __init__(
         self, dir_key: str, time_asset: str = assets.TIMES, dir_asset: str = assets.DIRS
@@ -183,22 +198,57 @@ class IAT(_TR):
         return {self.name: iats}
 
 
-class TimeDirs(_TR):
+class _TimeWeight(_TR):
 
-    def __init__(self, time_asset: str = assets.TIMES, dir_asset: str = assets.DIRS):
+    def __init__(self, w_asset: str, time_asset: str):
         self.time_asset = time_asset
-        self.dir_asset = dir_asset
+        self.w_asset = w_asset
 
-    @property
-    def name(self) -> str:
-        return assets.TIME_DIRS
-
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> TimeDirs:
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> _TimeWeight:
         self._output_sizes = {self.name: trace[self.time_asset].shape[0]}
         return self
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        return {self.name: trace[self.time_asset] * trace[self.dir_asset]}
+        return {self.name: trace[self.time_asset] * trace[self.w_asset]}
+
+
+class TimeDirs(_TimeWeight):
+    NAME = "time_dirs"
+
+    def __init__(self, time_asset: str = assets.TIMES, dir_asset: str = assets.DIRS):
+        super().__init__(dir_asset, time_asset)
+
+    @property
+    def name(self) -> str:
+        return self.time_asset + "_dirs"
+
+
+class IATDirs(_TimeWeight):
+    NAME = "iat_dirs"
+
+    def __init__(self, iat_asset: str = assets.IATS, dir_asset: str = assets.DIRS):
+        super().__init__(dir_asset, iat_asset)
+
+    @property
+    def name(self) -> str:
+        return self.time_asset + "_dirs"
+
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        trace[self.time_asset] = trace[self.time_asset] + 1.0
+        return super().__call__(trace)
+
+
+class NormalizedIATDirs(_TimeWeight):
+    NAME = "normalized_iat_dirs"
+
+    def __init__(
+        self, iat_asset: str = assets.IATS_NORMALIZED, dir_asset: str = assets.DIRS
+    ):
+        super().__init__(dir_asset, iat_asset)
+
+    @property
+    def name(self) -> str:
+        return assets.NORMALIZED_IAT_DIRS
 
 
 class Compose(_TR):
@@ -214,15 +264,22 @@ class Compose(_TR):
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> Compose:
         for tr in self.transforms:
             tr.get_shapes(trace)
-            trace = tr(trace)
+            if tr == self.transforms[-1]:
+                trace = tr(trace)
+            else:
+                trace.update(tr(trace))
 
         self._output_sizes = tr.output_sizes
 
         return self
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+
         for tr in self.transforms:
-            trace = tr(trace)
+            if tr == self.transforms[-1]:
+                trace = tr(trace)
+            else:
+                trace.update(tr(trace))
 
         return trace
 
@@ -337,6 +394,19 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
             return Compose(
                 PadOrCutTrace(n_packets),
                 TimeDirs(time_asset=assets.TIMES, dir_asset=assets.DIRS),
+            )
+        case assets.IAT_DIRS:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IATDirs(iat_asset=assets.IATS, dir_asset=assets.DIRS),
+            )
+        case assets.NORMALIZED_IAT_DIRS:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                Normalize(normalized_asset=assets.IATS, input_asset=assets.IATS),
+                IATDirs(iat_asset=assets.IATS_NORMALIZED, dir_asset=assets.DIRS),
             )
         case _:
             raise ValueError(f"Unknown feature name: {feature_name}")
