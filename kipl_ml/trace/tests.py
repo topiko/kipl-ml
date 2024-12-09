@@ -70,13 +70,13 @@ class TestTR(unittest.TestCase):
         self.assertTrue(
             torch.allclose(
                 tr_up(trace)[assets.UP_PACKETS],
-                (trace[assets.DIRS][: self.N_PACKETS] == 1).float(),
+                (trace[assets.DIRS][: self.N_PACKETS] == UPLOAD).float(),
             )
         )
         self.assertTrue(
             torch.allclose(
                 tr_down(trace)[assets.DOWN_PACKETS],
-                (trace[assets.DIRS][: self.N_PACKETS] == -1).float(),
+                (trace[assets.DIRS][: self.N_PACKETS] == DOWNLOAD).float(),
             )
         )
 
@@ -88,7 +88,7 @@ class TestTR(unittest.TestCase):
         self._shapes_test(tr_up, trace)
         self._shapes_test(tr_down, trace)
 
-        mask = trace[assets.DIRS] == 1
+        mask = trace[assets.DIRS] == UPLOAD
         idxs = torch.where(mask)[0]
         iats = torch.zeros_like(trace[assets.TIMES])
         iats[idxs[1:]] = torch.diff(trace[assets.TIMES][mask], dim=0)
@@ -96,7 +96,7 @@ class TestTR(unittest.TestCase):
 
         self.assertTrue(torch.allclose(tr_up(trace)[assets.UP_IATS], iats))
 
-        mask = trace[assets.DIRS] == -1
+        mask = trace[assets.DIRS] == DOWNLOAD
         idxs = torch.where(mask)[0]
         iats = torch.zeros_like(trace[assets.TIMES])
         iats[idxs[1:]] = torch.diff(trace[assets.TIMES][mask], dim=0)

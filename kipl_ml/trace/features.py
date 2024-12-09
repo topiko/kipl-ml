@@ -99,9 +99,9 @@ class UDPackets(_TR):
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         if self.up_down == "up":
-            mask = trace[self.dir_asset] == 1
+            mask = trace[self.dir_asset] == UPLOAD
         elif self.up_down == "down":
-            mask = trace[self.dir_asset] == -1
+            mask = trace[self.dir_asset] == DOWNLOAD
 
         return {self.name: mask.float()}
 
