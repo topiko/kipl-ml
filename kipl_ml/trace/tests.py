@@ -174,9 +174,49 @@ class TestTR(unittest.TestCase):
 
         iat_dirs = iats * dirs
 
-        print(torch.allclose(tr(trace)[assets.NORMALIZED_IAT_DIRS], iat_dirs))
+        self.assertTrue(torch.allclose(tr(trace)[assets.NORMALIZED_IAT_DIRS], iat_dirs))
 
+    def test_max_normalized_iats(self):
+        trace = self._get_trace(self.N_PACKETS)
+        tr = self._get_key(assets.IATS_MAX_NORMALIZED, trace)
 
+        self._shapes_test(tr, trace)
+
+        iats = torch.zeros_like(trace[assets.TIMES])
+        iats[1:] = torch.diff(trace[assets.TIMES], dim=0)
+
+        iats -= iats.mean()
+        iats /= torch.absolute(iats).max()
+
+        self.assertTrue(torch.allclose(tr(trace)[assets.IATS_MAX_NORMALIZED], iats))
+
+    def test_cum_sizes(self):
+        trace = self._get_trace(self.N_PACKETS)
+        tr = self._get_key(assets.CUM_SIZES, trace)
+
+        self._shapes_test(tr, trace)
+
+        sizes = trace[assets.SIZES][: self.N_PACKETS]
+
+        cum_sizes = torch.cumsum(sizes, dim=0)
+
+        self.assertTrue(torch.allclose(tr(trace)[assets.CUM_SIZES], cum_sizes))
+
+    def test_max_normalized_cum_sizes(self):
+        trace = self._get_trace(self.N_PACKETS)
+        tr = self._get_key(assets.MAX_NORMALIZED_CUM_SIZES, trace)
+
+        self._shapes_test(tr, trace)
+
+        sizes = trace[assets.SIZES][: self.N_PACKETS]
+
+        cum_sizes = torch.cumsum(sizes, dim=0)
+        cum_sizes -= cum_sizes.mean()
+        cum_sizes /= torch.absolute(cum_sizes).max()
+
+        cum_sizes_tr = tr(trace)[assets.MAX_NORMALIZED_CUM_SIZES]
+
+        self.assertTrue(torch.allclose(cum_sizes, cum_sizes_tr))
 
 
 if __name__ == "__main__":

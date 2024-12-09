@@ -119,19 +119,21 @@ class Normalize(_TR):
 
     @property
     def name(self) -> str:
-        match self.normalized_asset:
-            case assets.TIMES:
-                name_ = assets.TIMES_NORMALIZED
-            case assets.IATS:
-                name_ = assets.IATS_NORMALIZED
-            case assets.UP_IATS:
-                name_ = assets.UP_IATS_NORMALIZED
-            case assets.DOWN_IATS:
-                name_ = assets.DOWN_IATS_NORMALIZED
-            case _:
-                raise ValueError(f"Unknown asset: {self.input_asset}")
 
-        return name_
+        if self.division == "std":
+            return {
+                assets.TIMES: assets.TIMES_NORMALIZED,
+                assets.IATS: assets.IATS_NORMALIZED,
+                assets.UP_IATS: assets.UP_IATS_NORMALIZED,
+                assets.DOWN_IATS: assets.DOWN_IATS_NORMALIZED,
+                assets.CUM_SIZES: assets.CUM_SIZES_NORMALIZED,
+            }[self.normalized_asset]
+
+        return {
+            assets.TIMES: assets.TIMES_MAX_NORMALIZED,
+            assets.IATS: assets.IATS_MAX_NORMALIZED,
+            assets.CUM_SIZES: assets.MAX_NORMALIZED_CUM_SIZES,
+        }[self.normalized_asset]
 
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> Normalize:
         self._output_sizes = {self.name: trace[self.input_asset].shape[0]}
@@ -249,6 +251,23 @@ class NormalizedIATDirs(_TimeWeight):
     @property
     def name(self) -> str:
         return assets.NORMALIZED_IAT_DIRS
+
+
+class Cumulative(_TR):
+    NAME = "cumulative"
+
+    def __init__(self, asset: str):
+        self.asset = asset
+
+    @property
+    def name(self) -> str:
+        return f"cum_{self.asset}"
+
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> Cumulative:
+        self._output_sizes = {self.name: trace[self.asset].shape[0]}
+
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        return {self.name: torch.cumsum(trace[self.asset], dim=0)}
 
 
 class Compose(_TR):
@@ -390,6 +409,16 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                 IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
                 Normalize(normalized_asset=assets.IATS, input_asset=assets.IATS),
             )
+        case assets.IATS_MAX_NORMALIZED:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                Normalize(
+                    normalized_asset=assets.IATS,
+                    input_asset=assets.IATS,
+                    division="max",
+                ),
+            )
         case assets.TIME_DIRS:
             return Compose(
                 PadOrCutTrace(n_packets),
@@ -408,5 +437,21 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                 Normalize(normalized_asset=assets.IATS, input_asset=assets.IATS),
                 IATDirs(iat_asset=assets.IATS_NORMALIZED, dir_asset=assets.DIRS),
             )
+        case assets.CUM_SIZES:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                Cumulative(assets.SIZES),
+            )
+        case assets.MAX_NORMALIZED_CUM_SIZES:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                Cumulative(assets.SIZES),
+                Normalize(
+                    normalized_asset=assets.CUM_SIZES,
+                    input_asset=assets.CUM_SIZES,
+                    division="max",
+                ),
+            )
+
         case _:
             raise ValueError(f"Unknown feature name: {feature_name}")
