@@ -5,6 +5,7 @@ Wrappers for laserbeak models.
 import torch
 from kipl_ml.data.wf_dataset import WFDataset
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.models.utils import count_parameters
 from mlflow.models import infer_signature
 from mlflow.models.signature import ModelSignature
 from src.cls_cvt import ConvolutionalVisionTransformer
@@ -62,6 +63,7 @@ def get_model(
         raise ValueError("Input size mismatch.")
 
     logger.info(f"Creating model {model_name}...")
+    logger.info(f"\tConfig:")
     for k, v in model_config.items():
         logger.info(f"{k:>30}: {v}")
 
@@ -70,6 +72,8 @@ def get_model(
             num_classes=n_classes, input_channels=len(inputs), **model_config
         )
         net.name = model_name
+        logger.info(f"\t-->{count_parameters(net):d} parameters.")
+
         return net
 
     if model_name == "cvt":
