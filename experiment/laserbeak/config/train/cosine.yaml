@@ -1,0 +1,7 @@
+patience: 5
+batch_size: 64
+lr: 0.002
+warmup_period: 10
+epochs: 50
+scheduler: cosine
+

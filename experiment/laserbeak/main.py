@@ -87,15 +87,23 @@ def main(cfg: DictConfig):
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=cfg.train.lr, betas=opt_betas, weight_decay=opt_wd
     )
-    warmup_period = cfg.train.warmup_period
-    epochs = cfg.train.epochs
-    scheduler = get_cosine_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=len(train_loader) * warmup_period,
-        num_training_steps=len(train_loader) * epochs,
-        num_cycles=0.5,
-        last_epoch=-1,
-    )
+    if cfg.train.scheduler == "cosine":
+        warmup_period = cfg.train.warmup_period
+        epochs = cfg.train.epochs
+        scheduler = get_cosine_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=len(train_loader) * warmup_period,
+            num_training_steps=len(train_loader) * epochs,
+            num_cycles=0.5,
+            last_epoch=-1,
+        )
+    elif cfg.train.scheduler == "plateau":
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", factor=0.3, patience=5
+        )
+    else:
+        scheduler = None
+
     loss_fn = torch.nn.CrossEntropyLoss()
     metrics = [Accuracy(), CrossEntropyLoss(), ClassRecall(1)]
     early_stop_metric = "loss"
