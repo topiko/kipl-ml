@@ -66,6 +66,7 @@ def main(cfg: DictConfig):
     ds_train, ds_valid, ds_test = get_train_valid_test(
         dataset=dataset_name,
         n_samples=(cfg.dataset.n_train_traces, 1000, 1000),
+        random_state=cfg.dataset.random_state,
         feature_trs=feature_trs,
         defences=defences,
     )
@@ -114,6 +115,19 @@ def main(cfg: DictConfig):
     run_name = model_name
     with mlflow.start_run(run_name=run_name):
 
+        mlflow.log_params(
+            {
+                "feature_names": cfg.features.features,
+                "n_packets": n_packets,
+                "model_name": model_name,
+                "dataset_name": dataset_name,
+                "n_train_traces": cfg.dataset.n_train_traces,
+                "batch_size": bs,
+                "patience": patience,
+                "early_stop_metric": early_stop_metric,
+            }
+        )
+
         trained_model = train_model(
             model=model,
             train_loader=train_loader,
@@ -131,28 +145,15 @@ def main(cfg: DictConfig):
         mlflow.log_table(ds_test.meta_df, "test_df.json")
         mlflow.log_table({"features": cfg.features.features}, "features.json")
 
-        mlflow.log_params(
-            {
-                "feature_names": cfg.features.features,
-                "n_packets": n_packets,
-                "model_name": model_name,
-                "dataset_name": dataset_name,
-                "n_train_traces": cfg.dataset.n_train_traces,
-                "batch_size": bs,
-                "patience": patience,
-                "early_stop_metric": early_stop_metric,
-            }
+        # Evaluate on test set
+        metrics_vals = evaluate_model(
+            model=trained_model,
+            dataloader=test_loader,
+            loss_fn=loss_fn,
+            metrics=metrics,
         )
-        for key, loader in zip(["valid", "test"], [valid_loader, test_loader]):
-            metrics_vals = evaluate_model(
-                model=trained_model,
-                dataloader=loader,
-                loss_fn=loss_fn,
-                metrics=metrics,
-            )
-            metrics_vals = {f"{key}_{k}": v for k, v in metrics_vals.items()}
-
-            mlflow.log_metrics(metrics_vals, step=0)
+        metrics_vals = {"test_{k}": v for k, v in metrics_vals.items()}
+        mlflow.log_metrics(metrics_vals, step=None)
 
 
 if __name__ == "__main__":
