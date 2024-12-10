@@ -125,6 +125,9 @@ def main(cfg: DictConfig):
                 "batch_size": bs,
                 "patience": patience,
                 "early_stop_metric": early_stop_metric,
+                "data_random_state": cfg.dataset.random_state,
+                "scheduler": cfg.train.scheduler,
+                "lr": cfg.train.lr,
             }
         )
 
