@@ -11,7 +11,7 @@ from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.metrics.clf_metrics import ClassMetric, GeneralMetric, Objective
 from kipl_ml.model_eval.evaluate import evaluate_model
 from torch import nn
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
 from tqdm import tqdm
 
 logger = get_logger(__name__)
@@ -89,7 +89,7 @@ def train_model(
     optimizer: torch.optim.Optimizer,
     loss_fn: Callable,
     metrics: list[GeneralMetric | ClassMetric],
-    lr_scheduler: ReduceLROnPlateau | None = None,
+    lr_scheduler: ReduceLROnPlateau | LambdaLR | None = None,
     early_stop_metric: GeneralMetric | ClassMetric | str = "loss",
     patience: int = 2,
 ) -> nn.Module:
@@ -102,9 +102,9 @@ def train_model(
     )
 
     if lr_scheduler is not None:
-        if not isinstance(lr_scheduler, ReduceLROnPlateau):
+        if not isinstance(lr_scheduler, (ReduceLROnPlateau, LambdaLR)):
             raise ValueError(
-                f"Invalid lr_scheduler {lr_scheduler}, must be ReduceLROnPlateau"
+                f"Invalid lr_scheduler {lr_scheduler}, must be ReduceLROnPlateau or LambdaLR"
             )
 
     epoch = 0
@@ -167,8 +167,12 @@ def train_model(
         )
         mlflow.log_metric("train_loss", train_loss, step=epoch)
 
-        if lr_scheduler is not None:
+        if isinstance(lr_scheduler, ReduceLROnPlateau):
             lr_scheduler.step(metrics_vals["loss"])
+        elif isinstance(lr_scheduler, LambdaLR):
+            lr_scheduler.step()
+        else:
+            pass
 
         logger.info(key_val_fmt("Train loss", f"{train_loss:1.4f}"))
 

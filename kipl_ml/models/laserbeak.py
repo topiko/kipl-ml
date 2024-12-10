@@ -72,7 +72,7 @@ def get_model(
             num_classes=n_classes, input_channels=len(inputs), **model_config
         )
         net.name = model_name
-        logger.info(f"\t-->{count_parameters(net):d} parameters.")
+        logger.info(f"\t-->{count_parameters(net)} parameters.")
 
         return net
 

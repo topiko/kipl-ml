@@ -18,6 +18,7 @@ from kipl_ml.trace.features import FeatureTrs
 from kipl_ml.train.loops import train_model
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
+from torchtune.training.lr_schedulers import get_cosine_schedule_with_warmup
 
 logger = get_logger(__name__)
 
@@ -81,7 +82,20 @@ def main(cfg: DictConfig):
     valid_loader = DataLoader(ds_valid, batch_size=bs, shuffle=False)
     test_loader = DataLoader(ds_test, batch_size=bs, shuffle=False)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.train.lr)
+    opt_betas = (0.9, 0.999)
+    opt_wd = 0.001
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=cfg.train.lr, betas=opt_betas, weight_decay=opt_wd
+    )
+    warmup_period = cfg.train.warmup_period
+    epochs = cfg.train.epochs
+    scheduler = get_cosine_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=len(train_loader) * warmup_period,
+        num_training_steps=len(train_loader) * epochs,
+        num_cycles=0.5,
+        last_epoch=-1,
+    )
     loss_fn = torch.nn.CrossEntropyLoss()
     metrics = [Accuracy(), CrossEntropyLoss(), ClassRecall(1)]
     early_stop_metric = "loss"
@@ -100,6 +114,7 @@ def main(cfg: DictConfig):
             loss_fn=loss_fn,
             metrics=metrics,
             early_stop_metric=early_stop_metric,
+            lr_scheduler=scheduler,
             patience=patience,
         )
 
