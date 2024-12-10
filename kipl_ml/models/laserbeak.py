@@ -4,11 +4,14 @@ Wrappers for laserbeak models.
 
 import torch
 from kipl_ml.data.wf_dataset import WFDataset
+from kipl_ml.logging.logger import get_logger
 from mlflow.models import infer_signature
 from mlflow.models.signature import ModelSignature
 from src.cls_cvt import ConvolutionalVisionTransformer
 from src.transdfnet import DFNet
 from torch import nn
+
+logger = get_logger(__name__)
 
 
 class WrapDFNet(DFNet):
@@ -22,7 +25,7 @@ class WrapDFNet(DFNet):
         sample_sizes=None,
         return_feats=False,
         *args,
-        **kwargs
+        **kwargs,
     ):
         x_ = torch.cat([x_.unsqueeze(1) for x_ in x.values()], dim=1)
 
@@ -57,6 +60,10 @@ def get_model(
 
     if model_config["input_size"] != input_size:
         raise ValueError("Input size mismatch.")
+
+    logger.info(f"Creating model {model_name}...")
+    for k, v in model_config.items():
+        logger.info(f"{k:>30}: {v}")
 
     if model_name.startswith("df-"):
         net = WrapDFNet(

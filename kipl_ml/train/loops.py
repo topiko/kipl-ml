@@ -128,9 +128,11 @@ def train_model(
                 f"Early stop metric value must be a float, got {type(early_stop_m_val)}"
             )
 
-        mlflow.log_metrics(
-            {f"valid_{m}": mv for m, mv in metrics_vals.items()}, step=epoch
-        )
+        for m, mv in metrics_vals.items():
+            if epoch == 0 and "loss" in m:
+                continue
+            if isinstance(mv, float):
+                mlflow.log_metric(f"valid_{m}", mv, step=epoch)
 
         if objective == Objective.MIN:
             if early_stop_m_val < best_early_stop_val:

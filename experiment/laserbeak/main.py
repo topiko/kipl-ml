@@ -45,7 +45,7 @@ def main(cfg: DictConfig):
     dataset_name = cfg.dataset.name
     model_name = cfg.model.name
     n_packets = cfg.trace.n_packets
-    experiment_name = cfg.mlflow.experiment_name
+    experiment_name = cfg.mlflow.experiment_name + "->" + model_name
     feature_names = cfg.features.features
 
     config_path = os.path.join(list(lasereak_configs.__path__)[0], model_name + ".json")
@@ -89,7 +89,7 @@ def main(cfg: DictConfig):
 
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
-    run_name = model_name + "_" + cfg.features.name
+    run_name = model_name
     with mlflow.start_run(run_name=run_name):
 
         trained_model = train_model(
