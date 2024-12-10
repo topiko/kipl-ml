@@ -1,9 +1,12 @@
+import json
 import os
 
+import configs as lasereak_configs
 import dotenv
 import hydra
 import mlflow
 import torch
+from kipl_ml.data import assets
 from kipl_ml.data.wf_dataset import get_train_valid_test
 from kipl_ml.defences.defences import Defences
 from kipl_ml.logging.logger import get_logger
@@ -27,6 +30,15 @@ MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
 assert MLFLOW_TRACKING_URI is not None, "MLFLOW_TRACKING_URI must be set in .env file."
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
+FEAT_NAME_MAP = {
+    "time_dirs": assets.TIME_DIRS,
+    "times_norm": assets.TIMES_MAX_NORMALIZED,
+    "cumul_norm": assets.MAX_NORMALIZED_CUM_SIZES,
+    "iat_dirs": assets.IAT_DIRS,
+    "inv_iat_log_dirs": assets.LOG_INV_IAT_DIRS,
+    "running_rates": assets.RUNNING_RATE_SIZES,
+}
+
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="test", version_base=None)
 def main(cfg: DictConfig):
@@ -34,8 +46,20 @@ def main(cfg: DictConfig):
     model_name = cfg.model.name
     n_packets = cfg.trace.n_packets
     experiment_name = cfg.mlflow.experiment_name
+    feature_names = cfg.features.features
 
-    feature_trs = FeatureTrs(feature_names=cfg.features.features, n_packets=n_packets)
+    config_path = os.path.join(list(lasereak_configs.__path__)[0], model_name + ".json")
+
+    with open(config_path, "r") as fi:
+        model_config = json.load(fi)
+
+    if model_config.get("input_size"):
+        n_packets = model_config["input_size"]
+
+    if model_config.get("feature_list"):
+        feature_names = [FEAT_NAME_MAP[feat] for feat in model_config["feature_list"]]
+
+    feature_trs = FeatureTrs(feature_names=feature_names, n_packets=n_packets)
     defences = Defences(defences=[dict(d) for d in cfg.defences])
 
     ds_train, ds_valid, ds_test = get_train_valid_test(
@@ -49,6 +73,7 @@ def main(cfg: DictConfig):
         model_name,
         n_classes=ds_train.n_classes,
         inputs=ds_train.output_sizes,
+        model_config=model_config,
     )
 
     bs = cfg.train.batch_size
@@ -56,7 +81,7 @@ def main(cfg: DictConfig):
     valid_loader = DataLoader(ds_valid, batch_size=bs, shuffle=False)
     test_loader = DataLoader(ds_test, batch_size=bs, shuffle=False)
 
-    optimizer = torch.optim.Adam(model.parameters())
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.train.lr)
     loss_fn = torch.nn.CrossEntropyLoss()
     metrics = [Accuracy(), CrossEntropyLoss(), ClassRecall(1)]
     early_stop_metric = "loss"

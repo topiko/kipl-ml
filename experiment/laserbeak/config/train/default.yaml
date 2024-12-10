@@ -1,2 +1,3 @@
-patience: 5
+patience: 20
 batch_size: 32
+lr: 0.001

@@ -488,6 +488,15 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                 PadOrCutTrace(n_packets),
                 Normalize(normalized_asset=assets.TIMES, input_asset=assets.TIMES),
             )
+        case assets.TIMES_MAX_NORMALIZED:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                Normalize(
+                    normalized_asset=assets.TIMES,
+                    input_asset=assets.TIMES,
+                    division="max",
+                ),
+            )
         case assets.IATS_NORMALIZED:
             return Compose(
                 PadOrCutTrace(n_packets),
@@ -579,6 +588,15 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                     input_asset=assets.FLOW_IATS,
                 ),
                 LogInv(assets.FLOW_IATS_NORMALIZED),
+            )
+        case assets.LOG_INV_IAT_DIRS:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                FlowIATS(),
+                LogInv(assets.FLOW_IATS),
+                IATDirs(iat_asset=assets.LOG_INV_IATS, dir_asset=assets.DIRS),
             )
         case assets.LOG_INV_IATS_NORMALIZED_DIRS:
             return Compose(

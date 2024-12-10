@@ -12,7 +12,6 @@ from torch import nn
 
 
 class WrapDFNet(DFNet):
-    name = "lasereak_dfnet"
 
     def example_input(self, X: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         return get_example_input(X)
@@ -31,7 +30,6 @@ class WrapDFNet(DFNet):
 
 
 class CNNVisTransformer(ConvolutionalVisionTransformer):
-    name = "lasereak_cvt"
 
     def example_input(self, X: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         return get_example_input(X)
@@ -42,7 +40,10 @@ class CNNVisTransformer(ConvolutionalVisionTransformer):
 
 
 def get_model(
-    model_name: str, n_classes: int, inputs: dict[str, dict[str, int]]
+    model_name: str,
+    n_classes: int,
+    inputs: dict[str, dict[str, int]],
+    model_config: dict,
 ) -> nn.Module:
 
     input_lens: set[int] = set()
@@ -54,14 +55,22 @@ def get_model(
 
     input_size = next(iter(input_lens))
 
-    if model_name == "dfnet":
-        return WrapDFNet(
-            num_classes=n_classes, input_channels=len(inputs), input_size=input_size
+    if model_config["input_size"] != input_size:
+        raise ValueError("Input size mismatch.")
+
+    if model_name.startswith("df-"):
+        net = WrapDFNet(
+            num_classes=n_classes, input_channels=len(inputs), **model_config
         )
+        net.name = model_name
+        return net
+
     if model_name == "cvt":
-        return CNNVisTransformer(
+        net = CNNVisTransformer(
             num_classes=n_classes, in_chans=len(inputs), input_size=input_size
         )
+        net.name = model_name
+        return net
 
     raise NotImplementedError("Model not implemented yet.")
 
