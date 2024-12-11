@@ -1,7 +1,7 @@
 from collections.abc import Callable
 
 import torch
-from kipl_ml.logging.logger import get_logger
+from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.metrics.clf_metrics import ClassMetric, GeneralMetric, PredType
 from torch import nn
 from torch.utils.data import DataLoader
@@ -19,7 +19,7 @@ def run_inference(
     preds = []
     labels = []
     with torch.no_grad():
-        with tqdm(dataloader) as pbar:
+        with tqdm(dataloader, ncols=TQDM_W) as pbar:
             for X, y in pbar:
                 preds.append(model(X))
                 labels.append(y)

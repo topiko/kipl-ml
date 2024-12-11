@@ -1,5 +1,6 @@
 import logging
 
+TQDM_W = 88
 
 class Colors:
     grey = "\x1b[0;37m"

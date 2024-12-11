@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import mlflow
 import torch
-from kipl_ml.logging.logger import get_logger
+from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.metrics.clf_metrics import ClassMetric, GeneralMetric, Objective
 from kipl_ml.model_eval.evaluate import evaluate_model
@@ -63,7 +63,7 @@ def _one_epoch(
 
     model.train()
     loss_val = 0
-    with tqdm(dataloader, desc=f"epoch {n_epoch: 03d}") as pbar:
+    with tqdm(dataloader, desc=f"epoch {n_epoch: 03d}", ncols=TQDM_W) as pbar:
         for X, y in pbar:
             optimizer.zero_grad()
             output = model(X)
