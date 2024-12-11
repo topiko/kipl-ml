@@ -8,6 +8,7 @@ import pandas as pd
 from dotenv import load_dotenv
 from kipl_ml.data.utils import METADF_FNAME, get_dataset_root
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.trace.params import DOWNLOAD, UPLOAD
 
 logger = get_logger(__name__)
 load_dotenv()
@@ -111,6 +112,7 @@ def _save_ts5_to_standard():
 
                     logger.info(f"Processing label {label}...")
                     times = np.abs(seq)
+                    raise NotImplementedError("Check the direction!")
                     dirs = np.sign(seq)
                     sizes = np.ones_like(seq)
 
@@ -173,8 +175,11 @@ def _save_big_enough_to_standard():
                 seq = fi.readlines()
 
             times = np.array([parse_row(p, 0) for p in seq], dtype=float)
+
+            # Here (s)end and (r)eceive from the client perspective.
             dirs = np.array(
-                [{"s": -1, "r": 1}[parse_row(p, 1)] for p in seq], dtype=float
+                [{"s": UPLOAD, "r": DOWNLOAD}[parse_row(p, 1)] for p in seq],
+                dtype=float,
             )
             sizes = np.ones_like(times)
 
