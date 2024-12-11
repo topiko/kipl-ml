@@ -67,7 +67,7 @@ def get_model(
     for k, v in model_config.items():
         logger.info(f"{k:>30}: {v}")
 
-    if model_name.startswith("df-"):
+    if model_name.startswith("df") or model_name.startswith("laserbeak"):
         net = WrapDFNet(
             num_classes=n_classes, input_channels=len(inputs), **model_config
         )

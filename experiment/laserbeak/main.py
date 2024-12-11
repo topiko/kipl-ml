@@ -34,9 +34,9 @@ mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 FEAT_NAME_MAP = {
     "time_dirs": assets.TIME_DIRS,
     "times_norm": assets.TIMES_MAX_NORMALIZED,
-    "cumul_norm": assets.MAX_NORMALIZED_CUM_SIZES,
+    "cumul_norm": assets.CUM_SIZE_DIRS_MAX_NORMALIZED,
     "iat_dirs": assets.IAT_DIRS,
-    "inv_iat_log_dirs": assets.LOG_INV_IAT_DIRS,
+    "inv_iat_log_dirs": assets.LOG_INV_FLOW_IAT_DIRS,
     "running_rates": assets.RUNNING_RATE_SIZES,
 }
 

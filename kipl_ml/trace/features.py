@@ -134,7 +134,8 @@ class Normalize(_TR):
         return {
             assets.TIMES: assets.TIMES_MAX_NORMALIZED,
             assets.IATS: assets.IATS_MAX_NORMALIZED,
-            assets.CUM_SIZES: assets.MAX_NORMALIZED_CUM_SIZES,
+            assets.CUM_SIZES: assets.CUM_SIZES_MAX_NORMALIZED,
+            assets.CUM_SIZE_DIRS: assets.CUM_SIZE_DIRS_MAX_NORMALIZED,
         }[self.normalized_asset]
 
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> Normalize:
@@ -148,14 +149,13 @@ class Normalize(_TR):
             if (div := trace_.std()) == 0:
                 logger.warning(f"Std zero when standardizing! {self.name}")
                 if all(trace_ == 0):
-                    return trace_
+                    return {self.name: trace_}
                 raise ValueError("Standard deviation is zero. Cannot normalize.")
         elif self.division == "max":
-            div = torch.max(torch.abs(trace_))
-            if div == 0:
+            if (div := torch.max(torch.abs(trace_))) == 0:
                 logger.warning(f"Max zero when max normalizing! {self.name}")
                 if all(trace_ == 0):
-                    return trace_
+                    return {self.name: trace_}
 
         trace_ = trace_ / div
         return {self.name: trace_}
@@ -202,47 +202,47 @@ class IAT(_TR):
         return {self.name: iats}
 
 
-class _TimeWeight(_TR):
+class _DirWeight(_TR):
 
-    def __init__(self, w_asset: str, time_asset: str):
-        self.time_asset = time_asset
+    def __init__(self, dir_asset: str, w_asset: str):
+        self.dir_asset = dir_asset
         self.w_asset = w_asset
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> _TimeWeight:
-        self._output_sizes = {self.name: trace[self.time_asset].shape[0]}
+    @property
+    def name(self) -> str:
+        return self.w_asset + "_dirs"
+
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> _DirWeight:
+        self._output_sizes = {self.name: trace[self.dir_asset].shape[0]}
         return self
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        return {self.name: trace[self.time_asset] * trace[self.w_asset]}
+        return {self.name: trace[self.dir_asset] * trace[self.w_asset]}
 
 
-class TimeDirs(_TimeWeight):
+class TimeDirs(_DirWeight):
     NAME = "time_dirs"
 
-    def __init__(self, time_asset: str = assets.TIMES, dir_asset: str = assets.DIRS):
+    def __init__(self, dir_asset: str = assets.DIRS, time_asset: str = assets.TIMES):
         super().__init__(dir_asset, time_asset)
 
-    @property
-    def name(self) -> str:
-        return self.time_asset + "_dirs"
 
-
-class IATDirs(_TimeWeight):
+class IATDirs(TimeDirs):
     NAME = "iat_dirs"
 
-    def __init__(self, iat_asset: str = assets.IATS, dir_asset: str = assets.DIRS):
-        super().__init__(dir_asset, iat_asset)
-
-    @property
-    def name(self) -> str:
-        return self.time_asset + "_dirs"
-
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        trace[self.time_asset] = trace[self.time_asset] + 1.0
+        trace[self.w_asset] = trace[self.w_asset] + 1.0
         return super().__call__(trace)
 
 
-class NormalizedIATDirs(_TimeWeight):
+class SizeDirs(_DirWeight):
+    NAME = "size_dirs"
+
+    def __init__(self, dir_asset: str = assets.DIRS, size_asset: str = assets.SIZES):
+        super().__init__(dir_asset, size_asset)
+
+
+class NormalizedIATDirs(_DirWeight):
     NAME = "normalized_iat_dirs"
 
     def __init__(
@@ -522,21 +522,21 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
             return Compose(
                 PadOrCutTrace(n_packets),
                 IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
-                IATDirs(iat_asset=assets.IATS, dir_asset=assets.DIRS),
+                IATDirs(dir_asset=assets.DIRS, time_asset=assets.IATS),
             )
         case assets.IAT_DIRS_NORMALIZED:
             return Compose(
                 PadOrCutTrace(n_packets),
                 IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
                 Normalize(normalized_asset=assets.IATS, input_asset=assets.IATS),
-                IATDirs(iat_asset=assets.IATS_NORMALIZED, dir_asset=assets.DIRS),
+                IATDirs(dir_asset=assets.DIRS, time_asset=assets.IATS_NORMALIZED),
             )
         case assets.CUM_SIZES:
             return Compose(
                 PadOrCutTrace(n_packets),
                 Cumulative(assets.SIZES),
             )
-        case assets.MAX_NORMALIZED_CUM_SIZES:
+        case assets.CUM_SIZES_MAX_NORMALIZED:
             return Compose(
                 PadOrCutTrace(n_packets),
                 Cumulative(assets.SIZES),
@@ -569,7 +569,7 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                     input_asset=assets.FLOW_IATS,
                 ),
             )
-        case assets.LOG_INV_IATS:
+        case assets.LOG_INV_FLOW_IATS:
             return Compose(
                 PadOrCutTrace(n_packets),
                 IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
@@ -577,7 +577,7 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                 FlowIATS(),
                 LogInv(assets.FLOW_IATS),
             )
-        case assets.LOG_INV_IATS_NORMALIZED:
+        case assets.LOG_INV_FLOW_IATS_NORMALIZED:
             return Compose(
                 PadOrCutTrace(n_packets),
                 IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
@@ -589,16 +589,16 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                 ),
                 LogInv(assets.FLOW_IATS_NORMALIZED),
             )
-        case assets.LOG_INV_IAT_DIRS:
+        case assets.LOG_INV_FLOW_IAT_DIRS:
             return Compose(
                 PadOrCutTrace(n_packets),
                 IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
                 IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
                 FlowIATS(),
                 LogInv(assets.FLOW_IATS),
-                IATDirs(iat_asset=assets.LOG_INV_IATS, dir_asset=assets.DIRS),
+                IATDirs(dir_asset=assets.DIRS, time_asset=assets.LOG_INV_FLOW_IATS),
             )
-        case assets.LOG_INV_IATS_NORMALIZED_DIRS:
+        case assets.LOG_INV_FLOW_IATS_NORMALIZED_DIRS:
             return Compose(
                 PadOrCutTrace(n_packets),
                 IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
@@ -610,13 +610,35 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                 ),
                 LogInv(assets.FLOW_IATS_NORMALIZED),
                 IATDirs(
-                    iat_asset=assets.LOG_INV_IATS_NORMALIZED, dir_asset=assets.DIRS
+                    dir_asset=assets.DIRS, time_asset=assets.LOG_INV_FLOW_IATS_NORMALIZED
                 ),
             )
         case assets.RUNNING_RATE_SIZES:
             return Compose(
                 PadOrCutTrace(n_packets),
                 RunningRate(assets.SIZES, assets.TIMES),
+            )
+        case assets.SIZE_DIRS:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                SizeDirs(dir_asset=assets.DIRS, size_asset=assets.SIZES),
+            )
+        case assets.CUM_SIZE_DIRS:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                SizeDirs(dir_asset=assets.DIRS, size_asset=assets.CUM_SIZES),
+                Cumulative(assets.SIZE_DIRS),
+            )
+        case assets.CUM_SIZE_DIRS_MAX_NORMALIZED:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                SizeDirs(dir_asset=assets.DIRS, size_asset=assets.SIZES),
+                Cumulative(assets.SIZE_DIRS),
+                Normalize(
+                    normalized_asset=assets.CUM_SIZE_DIRS,
+                    input_asset=assets.SIZE_DIRS,
+                    division="max",
+                ),
             )
         case _:
             raise ValueError(f"Unknown feature name: {feature_name}")

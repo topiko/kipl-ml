@@ -205,7 +205,7 @@ class TestTR(unittest.TestCase):
 
     def test_max_normalized_cum_sizes(self):
         trace = self._get_trace(self.N_PACKETS)
-        tr = self._get_key(assets.MAX_NORMALIZED_CUM_SIZES, trace)
+        tr = self._get_key(assets.CUM_SIZES_MAX_NORMALIZED, trace)
 
         self._shapes_test(tr, trace)
 
@@ -215,7 +215,7 @@ class TestTR(unittest.TestCase):
         cum_sizes -= cum_sizes.mean()
         cum_sizes /= torch.absolute(cum_sizes).max()
 
-        cum_sizes_tr = tr(trace)[assets.MAX_NORMALIZED_CUM_SIZES]
+        cum_sizes_tr = tr(trace)[assets.CUM_SIZES_MAX_NORMALIZED]
 
         self.assertTrue(torch.allclose(cum_sizes, cum_sizes_tr))
 
@@ -267,9 +267,9 @@ class TestTR(unittest.TestCase):
 
         trace = self._get_trace(self.N_PACKETS)
 
-        tr = self._get_key(assets.LOG_INV_IATS_NORMALIZED_DIRS, trace)
+        tr = self._get_key(assets.LOG_INV_FLOW_IATS_NORMALIZED_DIRS, trace)
 
-        tr(trace)[assets.LOG_INV_IATS_NORMALIZED_DIRS]
+        tr(trace)[assets.LOG_INV_FLOW_IATS_NORMALIZED_DIRS]
 
     def test_running_rate(self):
 
@@ -286,6 +286,19 @@ class TestTR(unittest.TestCase):
         rsizes_true = torch.cumsum(sizes, dim=0) / times
 
         self.assertTrue(torch.allclose(rsizes, rsizes_true))
+
+    def test_size_dirs(self):
+        trace = self._get_trace(self.N_PACKETS)
+        tr = self._get_key(assets.SIZE_DIRS, trace)
+
+        self._shapes_test(tr, trace)
+
+        sizes = trace[assets.SIZES][: self.N_PACKETS]
+        dirs = trace[assets.DIRS][: self.N_PACKETS]
+
+        size_dirs = sizes * dirs
+
+        self.assertTrue(torch.allclose(tr(trace)[assets.SIZE_DIRS], size_dirs))
 
 
 if __name__ == "__main__":
