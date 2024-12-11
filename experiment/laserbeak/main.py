@@ -106,7 +106,7 @@ def main(cfg: DictConfig):
         scheduler = None
 
     loss_fn = torch.nn.CrossEntropyLoss()
-    metrics = [Accuracy(), CrossEntropyLoss(), ClassRecall(1)]
+    metrics = [Accuracy(), ClassRecall(1)]
     early_stop_metric = "loss"
     patience = cfg.train.patience
 
@@ -155,7 +155,7 @@ def main(cfg: DictConfig):
             loss_fn=loss_fn,
             metrics=metrics,
         )
-        metrics_vals = {"test_{k}": v for k, v in metrics_vals.items()}
+        metrics_vals = {f"test_{k}": v for k, v in metrics_vals.items()}
         mlflow.log_metrics(metrics_vals, step=None)
 
 
