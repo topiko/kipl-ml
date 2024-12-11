@@ -14,7 +14,7 @@ from kipl_ml.logging.utils import get_mlflow_expr
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall, CrossEntropyLoss
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.laserbeak import get_model, get_signature
-from kipl_ml.trace.features import FeatureTrs
+from kipl_ml.trace.features import Feats, FeatureTrs
 from kipl_ml.train.loops import train_model
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
@@ -32,12 +32,12 @@ assert MLFLOW_TRACKING_URI is not None, "MLFLOW_TRACKING_URI must be set in .env
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 FEAT_NAME_MAP = {
-    "time_dirs": assets.TIME_DIRS,
-    "times_norm": assets.TIMES_MAX_NORMALIZED,
-    "cumul_norm": assets.CUM_SIZE_DIRS_MAX_NORMALIZED,
-    "iat_dirs": assets.IAT_DIRS,
-    "inv_iat_log_dirs": assets.LOG_INV_FLOW_IAT_DIRS,
-    "running_rates": assets.RUNNING_RATE_SIZES,
+    "time_dirs": Feats.TIME_DIRS,
+    "times_norm": Feats.TIMES_MAX_NORMALIZED,
+    "cumul_norm": Feats.CUM_SIZE_DIRS_MAX_NORMALIZED,
+    "iat_dirs": Feats.IAT_DIRS,
+    "inv_iat_log_dirs": Feats.LOG_INV_FLOW_IAT_DIRS,
+    "running_rates": Feats.RUNNING_RATE_SIZES,
 }
 
 

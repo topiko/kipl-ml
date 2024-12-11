@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import kipl_ml.data.assets as assets
 import mlflow
 import torch
@@ -12,17 +14,54 @@ from mlflow.models import set_model
 logger = get_logger(__name__)
 
 
+@dataclass
+class Feats:
+    DIRS: str = assets.DIRS
+    SIZES: str = assets.SIZES
+    TIMES: str = assets.TIMES
+    TIMES_NORMALIZED: str = f"normalized_{TIMES}"
+    TIMES_MAX_NORMALIZED: str = f"max_normalized_{TIMES}"
+    CUM_TIMES: str = f"cum_{TIMES}"
+    CUM_SIZES: str = f"cum_{SIZES}"
+    CUM_SIZES_NORMALIZED: str = f"normalized_{CUM_SIZES}"
+    LABEL: str = "label"
+    IATS: str = "iats"
+    IATS_NORMALIZED: str = f"normalized_{IATS}"
+    IATS_MAX_NORMALIZED: str = f"max_normalized_{IATS}"
+    UP_IATS: str = f"up_{IATS}"
+    UP_IATS_NORMALIZED: str = f"up_{IATS_NORMALIZED}"
+    DOWN_IATS: str = f"down_{IATS}"
+    DOWN_IATS_NORMALIZED: str = f"down_{IATS_NORMALIZED}"
+    UP_PACKETS: str = "up_packets"
+    DOWN_PACKETS: str = "down_packets"
+    TIME_DIRS: str = f"{TIMES}_dirs"
+    IAT_DIRS: str = f"{IATS}_dirs"
+    IAT_DIRS_NORMALIZED: str = f"{IATS_NORMALIZED}_dirs"
+    CUM_SIZES_MAX_NORMALIZED = f"max_normalized_{CUM_SIZES}"
+    BURST_EDGES: str = "burst_edges"
+    FLOW_IATS: str = "flow_iats"
+    FLOW_IATS_NORMALIZED: str = f"normalized_{FLOW_IATS}"
+    LOG_INV_FLOW_IATS: str = f"log_inv_{FLOW_IATS}"
+    LOG_INV_FLOW_IATS_NORMALIZED: str = f"log_inv_{FLOW_IATS_NORMALIZED}"
+    LOG_INV_FLOW_IATS_NORMALIZED_DIRS: str = f"log_inv_{FLOW_IATS_NORMALIZED}_dirs"
+    LOG_INV_FLOW_IAT_DIRS: str = f"log_inv_{IAT_DIRS}"
+    RUNNING_RATE_SIZES: str = f"running_rate_{SIZES}"
+    SIZE_DIRS: str = f"{SIZES}_dirs"
+    CUM_SIZE_DIRS: str = f"cum_{SIZE_DIRS}"
+    CUM_SIZE_DIRS_MAX_NORMALIZED: str = f"max_normalized_{CUM_SIZE_DIRS}"
+
+
 def _pad_short_trace(
     trace: torch.Tensor, n_packets: int, asset_key: str, cut: bool = True
 ) -> torch.Tensor:
     if cut and (trace.shape[0] >= n_packets):
         return trace[:n_packets]
 
-    if asset_key == assets.TIMES:
+    if asset_key == Feats.TIMES:
         pad_val = trace[-1].item()
-    elif asset_key in {assets.DIRS, assets.SIZES}:
+    elif asset_key in {Feats.DIRS, Feats.SIZES}:
         pad_val = 0.0
-    elif asset_key == assets.ORIG_PACKETS:
+    elif asset_key == Feats.ORIG_PACKETS:
         pad_val = 0
     else:
         raise ValueError(f"Unknown asset key: {asset_key}")
@@ -83,7 +122,7 @@ class Select(_TR):
 class UDPackets(_TR):
     NAME = "up/down_packets"
 
-    def __init__(self, up_down: str, dir_asset: str = assets.DIRS):
+    def __init__(self, up_down: str, dir_asset: str = Feats.DIRS):
         if up_down not in {"up", "down"}:
             raise ValueError("up_down must be either 'up' or 'down'")
         self.up_down = up_down
@@ -123,19 +162,19 @@ class Normalize(_TR):
 
         if self.division == "std":
             return {
-                assets.TIMES: assets.TIMES_NORMALIZED,
-                assets.IATS: assets.IATS_NORMALIZED,
-                assets.UP_IATS: assets.UP_IATS_NORMALIZED,
-                assets.DOWN_IATS: assets.DOWN_IATS_NORMALIZED,
-                assets.CUM_SIZES: assets.CUM_SIZES_NORMALIZED,
-                assets.FLOW_IATS: assets.FLOW_IATS_NORMALIZED,
+                Feats.TIMES: Feats.TIMES_NORMALIZED,
+                Feats.IATS: Feats.IATS_NORMALIZED,
+                Feats.UP_IATS: Feats.UP_IATS_NORMALIZED,
+                Feats.DOWN_IATS: Feats.DOWN_IATS_NORMALIZED,
+                Feats.CUM_SIZES: Feats.CUM_SIZES_NORMALIZED,
+                Feats.FLOW_IATS: Feats.FLOW_IATS_NORMALIZED,
             }[self.normalized_asset]
 
         return {
-            assets.TIMES: assets.TIMES_MAX_NORMALIZED,
-            assets.IATS: assets.IATS_MAX_NORMALIZED,
-            assets.CUM_SIZES: assets.CUM_SIZES_MAX_NORMALIZED,
-            assets.CUM_SIZE_DIRS: assets.CUM_SIZE_DIRS_MAX_NORMALIZED,
+            Feats.TIMES: Feats.TIMES_MAX_NORMALIZED,
+            Feats.IATS: Feats.IATS_MAX_NORMALIZED,
+            Feats.CUM_SIZES: Feats.CUM_SIZES_MAX_NORMALIZED,
+            Feats.CUM_SIZE_DIRS: Feats.CUM_SIZE_DIRS_MAX_NORMALIZED,
         }[self.normalized_asset]
 
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> Normalize:
@@ -165,7 +204,7 @@ class IAT(_TR):
     NAME = "iat"
 
     def __init__(
-        self, dir_key: str, time_asset: str = assets.TIMES, dir_asset: str = assets.DIRS
+        self, dir_key: str, time_asset: str = Feats.TIMES, dir_asset: str = Feats.DIRS
     ):
         if dir_key not in {"up", "down", "any"}:
             raise ValueError("Dir key must be either 'up' or 'down', or 'any'")
@@ -176,11 +215,11 @@ class IAT(_TR):
     @property
     def name(self) -> str:
         if self.dir_key == "any":
-            return assets.IATS
+            return Feats.IATS
         if self.dir_key == "up":
-            return assets.UP_IATS
+            return Feats.UP_IATS
 
-        return assets.DOWN_IATS
+        return Feats.DOWN_IATS
 
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> IAT:
         self._output_sizes = {self.name: trace[self.time_asset].shape[0]}
@@ -223,7 +262,7 @@ class _DirWeight(_TR):
 class TimeDirs(_DirWeight):
     NAME = "time_dirs"
 
-    def __init__(self, dir_asset: str = assets.DIRS, time_asset: str = assets.TIMES):
+    def __init__(self, dir_asset: str = Feats.DIRS, time_asset: str = Feats.TIMES):
         super().__init__(dir_asset, time_asset)
 
 
@@ -238,7 +277,7 @@ class IATDirs(TimeDirs):
 class SizeDirs(_DirWeight):
     NAME = "size_dirs"
 
-    def __init__(self, dir_asset: str = assets.DIRS, size_asset: str = assets.SIZES):
+    def __init__(self, dir_asset: str = Feats.DIRS, size_asset: str = Feats.SIZES):
         super().__init__(dir_asset, size_asset)
 
 
@@ -246,13 +285,13 @@ class NormalizedIATDirs(_DirWeight):
     NAME = "normalized_iat_dirs"
 
     def __init__(
-        self, iat_asset: str = assets.IATS_NORMALIZED, dir_asset: str = assets.DIRS
+        self, iat_asset: str = Feats.IATS_NORMALIZED, dir_asset: str = Feats.DIRS
     ):
         super().__init__(dir_asset, iat_asset)
 
     @property
     def name(self) -> str:
-        return assets.IAT_DIRS_NORMALIZED
+        return Feats.IAT_DIRS_NORMALIZED
 
 
 class Cumulative(_TR):
@@ -280,11 +319,11 @@ class BurstEdges(_TR):
         return "burst_edges"
 
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> BurstEdges:
-        self._output_sizes = {self.name: trace[assets.DIRS].shape[0]}
+        self._output_sizes = {self.name: trace[Feats.DIRS].shape[0]}
         return self
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        edges = torch.diff(trace[assets.DIRS], dim=0, prepend=torch.Tensor([0]))
+        edges = torch.diff(trace[Feats.DIRS], dim=0, prepend=torch.Tensor([0]))
         return {self.name: edges}
 
 
@@ -293,18 +332,18 @@ class FlowIATS(_TR):
 
     @property
     def name(self) -> str:
-        return assets.FLOW_IATS
+        return Feats.FLOW_IATS
 
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> FlowIATS:
-        self._output_sizes = {self.name: trace[assets.UP_IATS].shape[0]}
+        self._output_sizes = {self.name: trace[Feats.UP_IATS].shape[0]}
         return self
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
 
-        dirs = trace[assets.DIRS]
+        dirs = trace[Feats.DIRS]
         flow_iats = torch.zeros_like(dirs)
-        flow_iats[dirs == UPLOAD] = trace[assets.UP_IATS][dirs == UPLOAD]
-        flow_iats[dirs == DOWNLOAD] = trace[assets.DOWN_IATS][dirs == DOWNLOAD]
+        flow_iats[dirs == UPLOAD] = trace[Feats.UP_IATS][dirs == UPLOAD]
+        flow_iats[dirs == DOWNLOAD] = trace[Feats.DOWN_IATS][dirs == DOWNLOAD]
         return {self.name: flow_iats}
 
 
@@ -452,191 +491,192 @@ def build_feature_trs(feature_name: list[str], n_packets: int) -> list[_TR]:
 
 def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
     match feature_name:
-        case assets.DIRS:
-            return Compose(PadOrCutTrace(n_packets), Select(assets.DIRS))
-        case assets.SIZES:
-            return Compose(PadOrCutTrace(n_packets), Select(assets.SIZES))
-        case assets.TIMES:
-            return Compose(PadOrCutTrace(n_packets), Select(assets.TIMES))
-        case assets.UP_PACKETS:
+        case Feats.DIRS:
+            return Compose(PadOrCutTrace(n_packets), Select(Feats.DIRS))
+        case Feats.SIZES:
+            return Compose(PadOrCutTrace(n_packets), Select(Feats.SIZES))
+        case Feats.TIMES:
+            return Compose(PadOrCutTrace(n_packets), Select(Feats.TIMES))
+        case Feats.UP_PACKETS:
             return Compose(
                 PadOrCutTrace(n_packets),
-                UDPackets("up", assets.DIRS),
+                UDPackets("up", Feats.DIRS),
             )
-        case assets.DOWN_PACKETS:
+        case Feats.DOWN_PACKETS:
             return Compose(
                 PadOrCutTrace(n_packets),
-                UDPackets("down", assets.DIRS),
+                UDPackets("down", Feats.DIRS),
             )
-        case assets.IATS:
+        case Feats.IATS:
             return Compose(
                 PadOrCutTrace(n_packets),
-                IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("any", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
             )
-        case assets.UP_IATS:
+        case Feats.UP_IATS:
             return Compose(
                 PadOrCutTrace(n_packets),
-                IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("up", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
             )
-        case assets.DOWN_IATS:
+        case Feats.DOWN_IATS:
             return Compose(
                 PadOrCutTrace(n_packets),
-                IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
             )
-        case assets.TIMES_NORMALIZED:
+        case Feats.TIMES_NORMALIZED:
             return Compose(
                 PadOrCutTrace(n_packets),
-                Normalize(normalized_asset=assets.TIMES, input_asset=assets.TIMES),
+                Normalize(normalized_asset=Feats.TIMES, input_asset=Feats.TIMES),
             )
-        case assets.TIMES_MAX_NORMALIZED:
+        case Feats.TIMES_MAX_NORMALIZED:
             return Compose(
                 PadOrCutTrace(n_packets),
                 Normalize(
-                    normalized_asset=assets.TIMES,
-                    input_asset=assets.TIMES,
+                    normalized_asset=Feats.TIMES,
+                    input_asset=Feats.TIMES,
                     division="max",
                 ),
             )
-        case assets.IATS_NORMALIZED:
+        case Feats.IATS_NORMALIZED:
             return Compose(
                 PadOrCutTrace(n_packets),
-                IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
-                Normalize(normalized_asset=assets.IATS, input_asset=assets.IATS),
+                IAT("any", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
+                Normalize(normalized_asset=Feats.IATS, input_asset=Feats.IATS),
             )
-        case assets.IATS_MAX_NORMALIZED:
+        case Feats.IATS_MAX_NORMALIZED:
             return Compose(
                 PadOrCutTrace(n_packets),
-                IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("any", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 Normalize(
-                    normalized_asset=assets.IATS,
-                    input_asset=assets.IATS,
+                    normalized_asset=Feats.IATS,
+                    input_asset=Feats.IATS,
                     division="max",
                 ),
             )
-        case assets.TIME_DIRS:
+        case Feats.TIME_DIRS:
             return Compose(
                 PadOrCutTrace(n_packets),
-                TimeDirs(time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                TimeDirs(time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
             )
-        case assets.IAT_DIRS:
+        case Feats.IAT_DIRS:
             return Compose(
                 PadOrCutTrace(n_packets),
-                IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
-                IATDirs(dir_asset=assets.DIRS, time_asset=assets.IATS),
+                IAT("any", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
+                IATDirs(dir_asset=Feats.DIRS, time_asset=Feats.IATS),
             )
-        case assets.IAT_DIRS_NORMALIZED:
+        case Feats.IAT_DIRS_NORMALIZED:
             return Compose(
                 PadOrCutTrace(n_packets),
-                IAT("any", time_asset=assets.TIMES, dir_asset=assets.DIRS),
-                Normalize(normalized_asset=assets.IATS, input_asset=assets.IATS),
-                IATDirs(dir_asset=assets.DIRS, time_asset=assets.IATS_NORMALIZED),
+                IAT("any", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
+                Normalize(normalized_asset=Feats.IATS, input_asset=Feats.IATS),
+                IATDirs(dir_asset=Feats.DIRS, time_asset=Feats.IATS_NORMALIZED),
             )
-        case assets.CUM_SIZES:
+        case Feats.CUM_SIZES:
             return Compose(
                 PadOrCutTrace(n_packets),
-                Cumulative(assets.SIZES),
+                Cumulative(Feats.SIZES),
             )
-        case assets.CUM_SIZES_MAX_NORMALIZED:
+        case Feats.CUM_SIZES_MAX_NORMALIZED:
             return Compose(
                 PadOrCutTrace(n_packets),
-                Cumulative(assets.SIZES),
+                Cumulative(Feats.SIZES),
                 Normalize(
-                    normalized_asset=assets.CUM_SIZES,
-                    input_asset=assets.CUM_SIZES,
+                    normalized_asset=Feats.CUM_SIZES,
+                    input_asset=Feats.CUM_SIZES,
                     division="max",
                 ),
             )
-        case assets.BURST_EDGES:
+        case Feats.BURST_EDGES:
             return Compose(
                 PadOrCutTrace(n_packets),
                 BurstEdges(),
             )
-        case assets.FLOW_IATS:
+        case Feats.FLOW_IATS:
             return Compose(
                 PadOrCutTrace(n_packets),
-                IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
-                IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("up", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
+                IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 FlowIATS(),
             )
-        case assets.FLOW_IATS_NORMALIZED:
+        case Feats.FLOW_IATS_NORMALIZED:
             return Compose(
                 PadOrCutTrace(n_packets),
-                IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
-                IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("up", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
+                IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 FlowIATS(),
                 Normalize(
-                    normalized_asset=assets.FLOW_IATS,
-                    input_asset=assets.FLOW_IATS,
+                    normalized_asset=Feats.FLOW_IATS,
+                    input_asset=Feats.FLOW_IATS,
                 ),
             )
-        case assets.LOG_INV_FLOW_IATS:
+        case Feats.LOG_INV_FLOW_IATS:
             return Compose(
                 PadOrCutTrace(n_packets),
-                IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
-                IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("up", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
+                IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 FlowIATS(),
-                LogInv(assets.FLOW_IATS),
+                LogInv(Feats.FLOW_IATS),
             )
-        case assets.LOG_INV_FLOW_IATS_NORMALIZED:
+        case Feats.LOG_INV_FLOW_IATS_NORMALIZED:
             return Compose(
                 PadOrCutTrace(n_packets),
-                IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
-                IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("up", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
+                IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 FlowIATS(),
                 Normalize(
-                    normalized_asset=assets.FLOW_IATS,
-                    input_asset=assets.FLOW_IATS,
+                    normalized_asset=Feats.FLOW_IATS,
+                    input_asset=Feats.FLOW_IATS,
                 ),
-                LogInv(assets.FLOW_IATS_NORMALIZED),
+                LogInv(Feats.FLOW_IATS_NORMALIZED),
             )
-        case assets.LOG_INV_FLOW_IAT_DIRS:
+        case Feats.LOG_INV_FLOW_IAT_DIRS:
             return Compose(
                 PadOrCutTrace(n_packets),
-                IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
-                IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("up", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
+                IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 FlowIATS(),
-                LogInv(assets.FLOW_IATS),
-                IATDirs(dir_asset=assets.DIRS, time_asset=assets.LOG_INV_FLOW_IATS),
+                LogInv(Feats.FLOW_IATS),
+                IATDirs(dir_asset=Feats.DIRS, time_asset=Feats.LOG_INV_FLOW_IATS),
             )
-        case assets.LOG_INV_FLOW_IATS_NORMALIZED_DIRS:
+        case Feats.LOG_INV_FLOW_IATS_NORMALIZED_DIRS:
             return Compose(
                 PadOrCutTrace(n_packets),
-                IAT("up", time_asset=assets.TIMES, dir_asset=assets.DIRS),
-                IAT("down", time_asset=assets.TIMES, dir_asset=assets.DIRS),
+                IAT("up", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
+                IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 FlowIATS(),
                 Normalize(
-                    normalized_asset=assets.FLOW_IATS,
-                    input_asset=assets.FLOW_IATS,
+                    normalized_asset=Feats.FLOW_IATS,
+                    input_asset=Feats.FLOW_IATS,
                 ),
-                LogInv(assets.FLOW_IATS_NORMALIZED),
+                LogInv(Feats.FLOW_IATS_NORMALIZED),
                 IATDirs(
-                    dir_asset=assets.DIRS, time_asset=assets.LOG_INV_FLOW_IATS_NORMALIZED
+                    dir_asset=Feats.DIRS,
+                    time_asset=Feats.LOG_INV_FLOW_IATS_NORMALIZED,
                 ),
             )
-        case assets.RUNNING_RATE_SIZES:
+        case Feats.RUNNING_RATE_SIZES:
             return Compose(
                 PadOrCutTrace(n_packets),
-                RunningRate(assets.SIZES, assets.TIMES),
+                RunningRate(Feats.SIZES, Feats.TIMES),
             )
-        case assets.SIZE_DIRS:
+        case Feats.SIZE_DIRS:
             return Compose(
                 PadOrCutTrace(n_packets),
-                SizeDirs(dir_asset=assets.DIRS, size_asset=assets.SIZES),
+                SizeDirs(dir_asset=Feats.DIRS, size_asset=Feats.SIZES),
             )
-        case assets.CUM_SIZE_DIRS:
+        case Feats.CUM_SIZE_DIRS:
             return Compose(
                 PadOrCutTrace(n_packets),
-                SizeDirs(dir_asset=assets.DIRS, size_asset=assets.CUM_SIZES),
-                Cumulative(assets.SIZE_DIRS),
+                SizeDirs(dir_asset=Feats.DIRS, size_asset=Feats.CUM_SIZES),
+                Cumulative(Feats.SIZE_DIRS),
             )
-        case assets.CUM_SIZE_DIRS_MAX_NORMALIZED:
+        case Feats.CUM_SIZE_DIRS_MAX_NORMALIZED:
             return Compose(
                 PadOrCutTrace(n_packets),
-                SizeDirs(dir_asset=assets.DIRS, size_asset=assets.SIZES),
-                Cumulative(assets.SIZE_DIRS),
+                SizeDirs(dir_asset=Feats.DIRS, size_asset=Feats.SIZES),
+                Cumulative(Feats.SIZE_DIRS),
                 Normalize(
-                    normalized_asset=assets.CUM_SIZE_DIRS,
-                    input_asset=assets.SIZE_DIRS,
+                    normalized_asset=Feats.CUM_SIZE_DIRS,
+                    input_asset=Feats.SIZE_DIRS,
                     division="max",
                 ),
             )
