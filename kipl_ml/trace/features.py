@@ -266,8 +266,11 @@ class TimeDirs(_DirWeight):
         super().__init__(dir_asset, time_asset)
 
 
-class IATDirs(TimeDirs):
+class IATDirs(_DirWeight):
     NAME = "iat_dirs"
+
+    def __init__(self, dir_asset: str = Feats.DIRS, iat_asset: str = Feats.TIMES):
+        super().__init__(dir_asset, iat_asset)
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         trace[self.w_asset] = trace[self.w_asset] + 1.0
@@ -279,19 +282,6 @@ class SizeDirs(_DirWeight):
 
     def __init__(self, dir_asset: str = Feats.DIRS, size_asset: str = Feats.SIZES):
         super().__init__(dir_asset, size_asset)
-
-
-class NormalizedIATDirs(_DirWeight):
-    NAME = "normalized_iat_dirs"
-
-    def __init__(
-        self, iat_asset: str = Feats.IATS_NORMALIZED, dir_asset: str = Feats.DIRS
-    ):
-        super().__init__(dir_asset, iat_asset)
-
-    @property
-    def name(self) -> str:
-        return Feats.IAT_DIRS_NORMALIZED
 
 
 class Cumulative(_TR):
@@ -561,14 +551,14 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
             return Compose(
                 PadOrCutTrace(n_packets),
                 IAT("any", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
-                IATDirs(dir_asset=Feats.DIRS, time_asset=Feats.IATS),
+                IATDirs(dir_asset=Feats.DIRS, iat_asset=Feats.IATS),
             )
         case Feats.IAT_DIRS_NORMALIZED:
             return Compose(
                 PadOrCutTrace(n_packets),
                 IAT("any", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 Normalize(normalized_asset=Feats.IATS, input_asset=Feats.IATS),
-                IATDirs(dir_asset=Feats.DIRS, time_asset=Feats.IATS_NORMALIZED),
+                IATDirs(dir_asset=Feats.DIRS, iat_asset=Feats.IATS_NORMALIZED),
             )
         case Feats.CUM_SIZES:
             return Compose(
@@ -635,7 +625,7 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                 IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 FlowIATS(),
                 LogInv(Feats.FLOW_IATS),
-                IATDirs(dir_asset=Feats.DIRS, time_asset=Feats.LOG_INV_FLOW_IATS),
+                IATDirs(dir_asset=Feats.DIRS, iat_asset=Feats.LOG_INV_FLOW_IATS),
             )
         case Feats.LOG_INV_FLOW_IATS_NORMALIZED_DIRS:
             return Compose(
@@ -650,7 +640,7 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                 LogInv(Feats.FLOW_IATS_NORMALIZED),
                 IATDirs(
                     dir_asset=Feats.DIRS,
-                    time_asset=Feats.LOG_INV_FLOW_IATS_NORMALIZED,
+                    iat_asset=Feats.LOG_INV_FLOW_IATS_NORMALIZED,
                 ),
             )
         case Feats.RUNNING_RATE_SIZES:
