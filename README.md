@@ -50,6 +50,9 @@ You also need to clone and install (for laserbeak to work):
 
 `git@github.com:huggingface/pytorch-image-models.git`
 
+### Maybenot bindings:
+
+`maturin develop --release`
 
 ### PyDeps for dep tracking:
 
@@ -62,7 +65,6 @@ to generate a dependency graph of a module. Config file in `.pydeps`.
 ### Conventions:
 
 From the `bigenough` we currently map the direction flags: "s"(end) and "r"(eceive) into 1 and -1 respectively. We consider dir > 0 as the "upload" direction (according to Laserbeak conventions). See `kipl_ml/data/conversion.py` for the mapping.
-
 
 ### TODO:
 
