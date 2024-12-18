@@ -28,9 +28,7 @@ class Maybenot(_Def):
     def report(self, to_log: bool = True) -> str:
         return "Maybenot"
 
-    def sim_defence(
-        self, trace_path: os.PathLike, device: torch.device
-    ) -> dict[str, torch.Tensor]:
+    def sim_defence(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
 
         machine_idx = np.random.choice(len(self.machines))
         times, dirs, paddings = sim_trace_from_file(
@@ -40,7 +38,7 @@ class Maybenot(_Def):
             self.network_delay_millis,
         )
 
-        trace_d = parse_trace_to_tensor_dict(times, dirs, paddings, None, device=device)
+        trace_d = parse_trace_to_tensor_dict(times, dirs, paddings, None)
         return trace_d
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:

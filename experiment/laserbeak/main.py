@@ -79,9 +79,16 @@ def main(cfg: DictConfig):
     )
 
     bs = cfg.train.batch_size
-    train_loader = DataLoader(ds_train, batch_size=bs, shuffle=True)
-    valid_loader = DataLoader(ds_valid, batch_size=bs, shuffle=False)
-    test_loader = DataLoader(ds_test, batch_size=bs, shuffle=False)
+    num_workers = 4
+    train_loader = DataLoader(
+        ds_train, batch_size=bs, shuffle=True, num_workers=num_workers
+    )
+    valid_loader = DataLoader(
+        ds_valid, batch_size=bs, shuffle=False, num_workers=num_workers
+    )
+    test_loader = DataLoader(
+        ds_test, batch_size=bs, shuffle=False, num_workers=num_workers
+    )
 
     opt_betas = (0.9, 0.999)
     opt_wd = 0.001

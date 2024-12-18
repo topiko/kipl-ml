@@ -64,30 +64,24 @@ class Defences(_Def):
 
         return str_
 
-    def _sim_defence(
-        self, trace_path: os.PathLike, device: torch.device
-    ) -> dict[str, torch.Tensor]:
+    def _sim_defence(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
 
-        trace = get_std_trace_dict(trace_path, device)
+        trace = get_std_trace_dict(trace_path)
 
         for defence in self.defences:
             trace = defence(trace)
 
         return trace
 
-    def _sim_maybenot(
-        self, trace_path: os.PathLike, device: torch.device
-    ) -> dict[str, torch.Tensor]:
-        return self.defences[0].sim_defence(trace_path, device)
+    def _sim_maybenot(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
+        return self.defences[0].sim_defence(trace_path)
 
-    def sim_defence(
-        self, trace_path: os.PathLike, device: torch.device
-    ) -> dict[str, torch.Tensor]:
+    def sim_defence(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
 
         if isinstance(self.defences[0], Maybenot):
-            return self._sim_maybenot(trace_path, device)
+            return self._sim_maybenot(trace_path)
 
-        return self._sim_defence(trace_path, device)
+        return self._sim_defence(trace_path)
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         raise NotImplementedError("You need to implement this method")

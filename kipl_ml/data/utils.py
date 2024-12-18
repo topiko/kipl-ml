@@ -48,7 +48,6 @@ def parse_trace_to_tensor_dict(
     dirs: np.ndarray,
     paddings: np.ndarray,
     sizes: np.ndarray | None = None,
-    device: torch.device = "cpu",
 ) -> dict[str, torch.Tensor]:
 
     sizes = sizes or np.ones_like(times)
@@ -60,24 +59,22 @@ def parse_trace_to_tensor_dict(
         ]
     ).T
 
-    trace_tensor = torch.Tensor(np_trace, device=device)
+    trace_tensor = torch.Tensor(np_trace)
 
     trace_dict = {
         assets.TIMES: trace_tensor[:, 0],
         assets.DIRS: trace_tensor[:, 1],
         assets.SIZES: trace_tensor[:, 2],
-        assets.PADDING: torch.tensor(paddings, device=device, dtype=torch.bool),
+        assets.PADDING: torch.tensor(paddings, dtype=torch.bool),
     }
 
     return trace_dict
 
 
-def get_std_trace_dict(
-    path: os.PathLike, device: torch.device
-) -> dict[str, torch.Tensor]:
+def get_std_trace_dict(path: os.PathLike) -> dict[str, torch.Tensor]:
 
     times, dirs, paddings = get_std_trace_array(path)
-    return parse_trace_to_tensor_dict(times, dirs, paddings, None, device=device)
+    return parse_trace_to_tensor_dict(times, dirs, paddings, None)
 
 
 def preserve_class_frac_sample(

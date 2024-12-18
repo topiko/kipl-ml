@@ -74,6 +74,8 @@ class WFDataset(Dataset):
 
     @property
     def device(self):
+        if self._device != torch.device("cpu"):
+            raise NotImplementedError("Currently only supports CPU")
         return self._device
 
     @device.setter
@@ -91,7 +93,7 @@ class WFDataset(Dataset):
 
         path = self.meta_df.iloc[idx]["orig_path"]
 
-        return self.defences.sim_defence(path, self.device)
+        return self.defences.sim_defence(path)
 
     def _get_label(self, idx: int) -> torch.Tensor:
         return torch.tensor(
