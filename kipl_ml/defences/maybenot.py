@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 class Maybenot(_Def):
     def __init__(self, deck_path: os.PathLike, network_delay_millis: int):
         self.machines: list[dict[str, str]] = self._load_machines(deck_path)
-        self.network_delay_millis: int = 0
+        self.network_delay_millis: int = network_delay_millis
 
     def _load_machines(self, deck_path: os.PathLike) -> list[dict[str, str]]:
         logger.info(f"Loading machines from {deck_path}")
