@@ -30,6 +30,8 @@ def forge_defence(**kwargs) -> _Def:
             return RandomPadding(**kwargs)
         case "chi2delays":
             return Chi2Delays(**kwargs)
+        case "maybenot":
+            return Maybenot(**kwargs)
         case "no_defence":
             return NoDefence()
         case _:
@@ -62,15 +64,30 @@ class Defences(_Def):
 
         return str_
 
-    def sim_defence(
+    def _sim_defence(
         self, trace_path: os.PathLike, device: torch.device
     ) -> dict[str, torch.Tensor]:
+
         trace = get_std_trace_dict(trace_path, device)
 
         for defence in self.defences:
             trace = defence(trace)
 
         return trace
+
+    def _sim_maybenot(
+        self, trace_path: os.PathLike, device: torch.device
+    ) -> dict[str, torch.Tensor]:
+        return self.defences[0].sim_defence(trace_path, device)
+
+    def sim_defence(
+        self, trace_path: os.PathLike, device: torch.device
+    ) -> dict[str, torch.Tensor]:
+
+        if isinstance(self.defences[0], Maybenot):
+            return self._sim_maybenot(trace_path, device)
+
+        return self._sim_defence(trace_path, device)
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         raise NotImplementedError("You need to implement this method")

@@ -101,6 +101,7 @@ class WFDataset(Dataset):
     def __getitem__(self, idx: int) -> tuple[dict[str, torch.Tensor], torch.tensor]:
 
         trace_dict = self._get_trace(idx)
+
         trace_dict = self.feature_trs(trace_dict)
 
         label = self._get_label(idx)

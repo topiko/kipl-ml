@@ -27,7 +27,7 @@ class RandomPadding(_Def):
         t0 = times.min()
         t1 = times.max()
 
-        pad_packet_times = torch.randn(n_pad_packets, device=device) * (t1 - t0) + t0
+        pad_packet_times = torch.rand(n_pad_packets, device=device) * (t1 - t0) + t0
         pad_packet_dirs = torch.randint(0, 2, size=(n_pad_packets,), device=device) - 1
         pad_packet_sizes = torch.ones_like(pad_packet_times, device=device)
 

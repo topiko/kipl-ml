@@ -377,9 +377,9 @@ class RunningRate(_TR):
         times = trace[self.time_asset]
         values = trace[self.asset]
 
-        # First time is 0.0
-        values[0] = 0.0
-        times[0] = 1.0
+        # Firs n times can be 0...
+        if (n_zeros := (times == 0).sum()) > 0:
+            times[: n_zeros] = 1.0
 
         running_rate = torch.cumsum(values, dim=0) / times
         return {self.name: running_rate}
