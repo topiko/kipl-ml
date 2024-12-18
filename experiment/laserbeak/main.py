@@ -47,6 +47,11 @@ def main(cfg: DictConfig):
     model_name = cfg.model.name
     n_packets = cfg.trace.n_packets
     experiment_name = cfg.mlflow.experiment_name + "->" + model_name
+
+    defence_str = "-".join(d.name for d in cfg.defences)
+    if defence_str != "no_defence":
+        experiment_name += f" vs. {defence_str}"
+
     feature_names = cfg.features.features
 
     config_path = os.path.join(list(lasereak_configs.__path__)[0], model_name + ".json")
