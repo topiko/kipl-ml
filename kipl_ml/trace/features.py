@@ -19,6 +19,7 @@ class Feats:
     DIRS: str = assets.DIRS
     SIZES: str = assets.SIZES
     TIMES: str = assets.TIMES
+    PADDING: str = assets.PADDING
     TIMES_NORMALIZED: str = f"normalized_{TIMES}"
     TIMES_MAX_NORMALIZED: str = f"max_normalized_{TIMES}"
     CUM_TIMES: str = f"cum_{TIMES}"
@@ -61,8 +62,8 @@ def _pad_short_trace(
         pad_val = trace[-1].item()
     elif asset_key in {Feats.DIRS, Feats.SIZES}:
         pad_val = 0.0
-    elif asset_key == Feats.ORIG_PACKETS:
-        pad_val = 0
+    elif asset_key == Feats.PADDING:
+        pad_val = False
     else:
         raise ValueError(f"Unknown asset key: {asset_key}")
 

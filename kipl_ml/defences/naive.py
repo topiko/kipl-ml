@@ -50,7 +50,7 @@ class RandomPadding(_Def):
             assets.TIMES: times,
             assets.DIRS: dirs,
             assets.SIZES: sizes,
-            assets.ORIG_PACKETS: orig_packets,
+            assets.PADDING: ~orig_packets,
         }
 
 

@@ -3,9 +3,11 @@ import os
 import kipl_ml.data.assets as assets
 import numpy as np
 import pandas as pd
+import torch
 from dotenv import load_dotenv
 from kipl_ml.logging.logger import get_logger
 from omegaconf import DictConfig
+from rustbindings import load_trace_to_numpy
 
 logger = get_logger(__name__)
 load_dotenv()
@@ -27,17 +29,55 @@ def load_dataset_meta_df(dataset: str) -> pd.DataFrame:
     return pd.read_hdf(meta_path)
 
 
-def get_std_trace_array(path: os.PathLike) -> np.ndarray:
+def get_std_trace_array(path: os.PathLike) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Load a standard trace array from a file
     The standard is given by:
         - shape: (n_timesteps, n_features), where n_features = 3
-        - (n_timesteps, 0) = timestamp in [ns]
-        - (n_timesteps, 1) = direction in {-1, 1}
-        - (n_timesteps, 2) = packet size in [bytes]
+        - (n_timesteps, 0) = timestamp in [mus]  float32
+        - (n_timesteps, 1) = direction in {-1, 1} int8
+        - (n_timesteps, 2) = padding {True, False}] bool
 
     """
-    return np.load(path)
+
+    return load_trace_to_numpy(path, 0)
+
+
+def parse_trace_to_tensor_dict(
+    times: np.ndarray,
+    dirs: np.ndarray,
+    paddings: np.ndarray,
+    sizes: np.ndarray | None = None,
+    device: torch.device = "cpu",
+) -> dict[str, torch.Tensor]:
+
+    sizes = sizes or np.ones_like(times)
+    np_trace = np.vstack(
+        [
+            times.astype(np.float32),
+            dirs.astype(np.float32),
+            sizes.astype(np.float32),
+        ]
+    ).T
+
+    trace_tensor = torch.Tensor(np_trace, device=device)
+
+    trace_dict = {
+        assets.TIMES: trace_tensor[:, 0],
+        assets.DIRS: trace_tensor[:, 1],
+        assets.SIZES: trace_tensor[:, 2],
+        assets.PADDING: torch.tensor(paddings, device=device, dtype=torch.bool),
+    }
+
+    return trace_dict
+
+
+def get_std_trace_dict(
+    path: os.PathLike, device: torch.device
+) -> dict[str, torch.Tensor]:
+
+    times, dirs, paddings = get_std_trace_array(path)
+    return parse_trace_to_tensor_dict(times, dirs, paddings, None, device=device)
 
 
 def preserve_class_frac_sample(

@@ -89,19 +89,9 @@ class WFDataset(Dataset):
 
     def _get_trace(self, idx: int) -> dict[str, torch.Tensor]:
 
-        path = self.meta_df.iloc[idx]["path"]
+        path = self.meta_df.iloc[idx]["orig_path"]
 
-        np_trace = get_std_trace_array(path)
-
-        trace = torch.Tensor(np_trace, device=self.device)
-
-        trace_dict = {
-            assets.TIMES: trace[:, assets.TIMES_IDX],
-            assets.DIRS: trace[:, assets.DIRS_IDX],
-            assets.SIZES: trace[:, assets.SIZES_IDX],
-        }
-
-        return self.defences(trace_dict)
+        return self.defences.sim_defence(path, self.device)
 
     def _get_label(self, idx: int) -> torch.Tensor:
         return torch.tensor(

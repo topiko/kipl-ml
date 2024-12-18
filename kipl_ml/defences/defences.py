@@ -1,9 +1,23 @@
+import os
 from typing import Any
 
+import kipl_ml.data.assets as assets
+import pandas as pd
 import torch
+from kipl_ml.data.utils import (
+    get_std_trace_array,
+    get_std_trace_dict,
+    load_dataset_meta_df,
+    preserve_class_frac_sample,
+)
 from kipl_ml.defences.base import _Def
+from kipl_ml.defences.maybenot import Maybenot
 from kipl_ml.defences.naive import Chi2Delays, RandomPadding
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.logging.utils import key_val_fmt
+from kipl_ml.trace.features import FeatureTrs
+from kipl_ml.trace.transforms import _TR
+from torch.utils.data import Dataset
 
 logger = get_logger(__name__)
 
@@ -48,11 +62,18 @@ class Defences(_Def):
 
         return str_
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def sim_defence(
+        self, trace_path: os.PathLike, device: torch.device
+    ) -> dict[str, torch.Tensor]:
+        trace = get_std_trace_dict(trace_path, device)
+
         for defence in self.defences:
             trace = defence(trace)
 
         return trace
+
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        raise NotImplementedError("You need to implement this method")
 
 
 class NoDefence(_Def):

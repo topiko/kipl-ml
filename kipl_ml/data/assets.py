@@ -2,6 +2,7 @@ DIRS: str = "dirs"
 SIZES: str = "sizes"
 TIMES: str = "times"
 LABEL: str = "label"
+PADDING: str = "padding"
 TRACE_ID: str = "trace_id"
 
 ORIG_PACKETS: str = "orig_packets"

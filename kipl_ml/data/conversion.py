@@ -32,7 +32,7 @@ def _load_pickle_data(data_path: str) -> dict[int, list[list[np.ndarray | list]]
 
 
 def _data_to_meta_row(
-    data: np.ndarray, label: int, path: str, dataset: str, trace_id: str
+    data: np.ndarray, label: int, path: str, orig_path: str, dataset: str, trace_id: str
 ) -> pd.Series:
     """
     Convert data to metadata series
@@ -67,6 +67,7 @@ def _data_to_meta_row(
                 "n_packets_up": _n_packets("up"),
                 "n_packets_down": _n_packets("down"),
                 "path": path,
+                "orig_path": orig_path,
             }
         )
         .to_frame()
@@ -77,6 +78,7 @@ def _data_to_meta_row(
                 "time [ns]": float,
                 "trace_id": str,
                 "path": str,
+                "orig_path": str,
                 "dataset": str,
                 "n_packets_up": int,
                 "n_packets_down": int,
@@ -171,7 +173,8 @@ def _save_big_enough_to_standard():
         for log_f in os.listdir(trace_dir):
             if not log_f.endswith(".log"):
                 logger.warning(f"Skipping {log_f}")
-            with open(os.path.join(trace_dir, log_f), "r") as fi:
+            orig_path_ = os.path.join(trace_dir, log_f)
+            with open(orig_path_, "r") as fi:
                 seq = fi.readlines()
 
             times = np.array([parse_row(p, 0) for p in seq], dtype=float)
@@ -189,8 +192,14 @@ def _save_big_enough_to_standard():
             path_ = os.path.join(
                 STD_FLOWS_DATA_DIR, "bigenough", f"{label:04d}", f"{log_f}.npy"
             )
+
             trace_df = _data_to_meta_row(
-                data=trace, label=label, path=path_, dataset="bigenough", trace_id=log_f
+                data=trace,
+                label=label,
+                path=path_,
+                orig_path=orig_path_,
+                dataset="bigenough",
+                trace_id=log_f,
             )
 
             if not os.path.exists(os.path.dirname(path_)):
