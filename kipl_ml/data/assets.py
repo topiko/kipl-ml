@@ -2,7 +2,7 @@ DIRS: str = "dirs"
 SIZES: str = "sizes"
 TIMES: str = "times"
 LABEL: str = "label"
-TRACE_ID: str = "flow_id"
+TRACE_ID: str = "trace_id"
 
 ORIG_PACKETS: str = "orig_packets"
 TIMES_IDX: int = 0
