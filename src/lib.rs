@@ -5,10 +5,14 @@ use std::io;
 
 use itertools::Itertools;
 use maybenot::{event::TriggerEvent, Machine};
-use maybenot_simulator::{network::Network, parse_trace, sim, SimEvent};
+use maybenot_simulator::queue::SimQueue;
+use maybenot_simulator::{
+    network::Network, parse_trace, sim, sim_advanced, SimEvent, SimulatorArgs,
+};
+
 use std::{str::FromStr, time::Duration};
 
-fn logs_at_client(trace: Vec<SimEvent>) -> (Vec<f64>, Vec<i8>, Vec<bool>) {
+fn logs_at_client(trace: &Vec<SimEvent>) -> (Vec<f64>, Vec<i8>, Vec<bool>) {
     let starting_time = trace[0].time;
 
     let (times, events, paddings): (Vec<f64>, Vec<i8>, Vec<bool>) = trace
@@ -28,6 +32,21 @@ fn logs_at_client(trace: Vec<SimEvent>) -> (Vec<f64>, Vec<i8>, Vec<bool>) {
         .multiunzip();
 
     (times, events, paddings)
+}
+
+fn netwk_monitor(trace: &Vec<SimEvent>) {
+    let mut i: usize = 0;
+    let n: usize = 1000;
+    for p in trace.iter() {
+        println!(
+            "Time: {:?}, Event: {:?}, Client: {:?}, Padding: {:?}",
+            p.time, p.event, p.client, p.contains_padding,
+        );
+        if i > n {
+            break;
+        }
+        i += 1;
+    }
 }
 
 fn cast_to_numpy_trace(
@@ -54,38 +73,97 @@ fn convert_machines(machine_strs: Vec<String>) -> Vec<Machine> {
         .collect()
 }
 
+fn sim_def_on_trace(
+    raw_trace: &str,
+    machines_client: Vec<String>,
+    machines_server: Vec<String>,
+    network_delay_millis: u64,
+    max_trace_length: usize,
+) -> (Vec<f64>, Vec<i8>, Vec<bool>) {
+    let network = Network::new(Duration::from_millis(network_delay_millis), None);
+    let machines_client = convert_machines(machines_client);
+    let machines_server = convert_machines(machines_server);
+
+    let mut input_trace: SimQueue = parse_trace(&raw_trace, &network);
+
+    let trace: Vec<SimEvent> = sim(
+        &machines_client,
+        &machines_server,
+        &mut input_trace,
+        network.delay,
+        max_trace_length,
+        true,
+    );
+
+    let client_logs = logs_at_client(&trace);
+
+    if client_logs.0.len() == 0 {
+        netwk_monitor(&trace);
+    }
+
+    client_logs
+}
+
+fn sim_def_on_trace_advanced(
+    raw_trace: &str,
+    machines_client: Vec<String>,
+    machines_server: Vec<String>,
+    network_delay_millis: u64,
+    max_trace_length: usize,
+    max_padding_frac_client: f64,
+    max_padding_frac_server: f64,
+    max_blocking_frac_client: f64,
+    max_blocking_frac_server: f64,
+    debug: bool,
+) -> (Vec<f64>, Vec<i8>, Vec<bool>) {
+    let network = Network::new(Duration::from_millis(network_delay_millis), None);
+    let simulator_args = SimulatorArgs {
+        network: &network,
+        max_trace_length,
+        max_sim_iterations: 0,
+        only_client_events: false,
+        only_network_activity: !debug,
+        max_padding_frac_client,
+        max_padding_frac_server,
+        max_blocking_frac_client,
+        max_blocking_frac_server,
+        insecure_rng_seed: None,
+        client_integration: None,
+        server_integration: None,
+    };
+
+    let machines_client = convert_machines(machines_client);
+    let machines_server = convert_machines(machines_server);
+
+    let mut input_trace: SimQueue = parse_trace(&raw_trace, &network);
+    let input_len = input_trace.len().clone();
+
+    let trace: Vec<SimEvent> = sim_advanced(
+        &machines_client,
+        &machines_server,
+        &mut input_trace,
+        &simulator_args,
+    );
+
+    let client_logs = logs_at_client(&trace);
+
+    if debug {
+        netwk_monitor(&trace);
+        println!("Input trace len: {input_len}");
+    }
+    println!("Simulator args: {:?}", simulator_args);
+
+    client_logs
+}
+
+fn load_trace_to_string(path: &str) -> Result<String, io::Error> {
+    std::fs::read_to_string(path)
+}
+
 ///
 /// bindings for the maybenot simulator, and some laoding functions.
 #[pymodule]
 fn rustbindings<'py>(m: Bound<'py, PyModule>) -> PyResult<()> {
-    fn sim_def_on_trace(
-        raw_trace: &str,
-        machines_client: Vec<String>,
-        machines_server: Vec<String>,
-        network_delay_millis: u64,
-    ) -> (Vec<f64>, Vec<i8>, Vec<bool>) {
-        let network = Network::new(Duration::from_millis(network_delay_millis), None);
-        let machines_client = convert_machines(machines_client);
-        let machines_server = convert_machines(machines_server);
-
-        let mut input_trace = parse_trace(&raw_trace, &network);
-
-        let trace = sim(
-            &machines_client,
-            &machines_server,
-            &mut input_trace,
-            network.delay,
-            20_000,
-            true,
-        );
-
-        logs_at_client(trace)
-    }
-
-    fn load_trace_to_string(path: &str) -> Result<String, io::Error> {
-        std::fs::read_to_string(path)
-    }
-
     // wrapper of `sim_def`
     #[pyfn(m)]
     #[pyo3(name = "sim_trace")]
@@ -94,14 +172,55 @@ fn rustbindings<'py>(m: Bound<'py, PyModule>) -> PyResult<()> {
         raw_trace: String,
         machines_client: Vec<String>,
         machines_server: Vec<String>,
-        network_delay: u64,
+        network_delay_millis: u64,
+        max_trace_length: usize,
     ) -> (
         Bound<'py, PyArray1<f64>>,
         Bound<'py, PyArray1<i8>>,
         Bound<'py, PyArray1<bool>>,
     ) {
-        let (times, events, paddings) =
-            sim_def_on_trace(&raw_trace, machines_client, machines_server, network_delay);
+        let (times, events, paddings) = sim_def_on_trace(
+            &raw_trace,
+            machines_client,
+            machines_server,
+            network_delay_millis,
+            max_trace_length,
+        );
+
+        cast_to_numpy_trace(times, events, paddings, py)
+    }
+
+    #[pyfn(m)]
+    #[pyo3(name = "sim_trace_advanced")]
+    fn sim_trace_advanced<'py>(
+        py: Python<'py>,
+        raw_trace: String,
+        machines_client: Vec<String>,
+        machines_server: Vec<String>,
+        network_delay_millis: u64,
+        max_trace_length: usize,
+        max_padding_frac_client: f64,
+        max_padding_frac_server: f64,
+        max_blocking_frac_client: f64,
+        max_blocking_frac_server: f64,
+        debug: bool,
+    ) -> (
+        Bound<'py, PyArray1<f64>>,
+        Bound<'py, PyArray1<i8>>,
+        Bound<'py, PyArray1<bool>>,
+    ) {
+        let (times, events, paddings) = sim_def_on_trace_advanced(
+            &raw_trace,
+            machines_client,
+            machines_server,
+            network_delay_millis,
+            max_trace_length,
+            max_padding_frac_client,
+            max_padding_frac_server,
+            max_blocking_frac_client,
+            max_blocking_frac_server,
+            debug,
+        );
 
         cast_to_numpy_trace(times, events, paddings, py)
     }
@@ -114,6 +233,7 @@ fn rustbindings<'py>(m: Bound<'py, PyModule>) -> PyResult<()> {
         machines_client: Vec<String>,
         machines_server: Vec<String>,
         network_delay_millis: u64,
+        max_trace_length: usize,
     ) -> (
         Bound<'py, PyArray1<f64>>,
         Bound<'py, PyArray1<i8>>,
@@ -125,6 +245,7 @@ fn rustbindings<'py>(m: Bound<'py, PyModule>) -> PyResult<()> {
             machines_client,
             machines_server,
             network_delay_millis,
+            max_trace_length,
         );
 
         cast_to_numpy_trace(times, events, paddings, py)
@@ -136,6 +257,7 @@ fn rustbindings<'py>(m: Bound<'py, PyModule>) -> PyResult<()> {
         py: Python<'py>,
         path: String,
         network_delay_millis: u64,
+        max_trace_length: usize,
     ) -> (
         Bound<'py, PyArray1<f64>>,
         Bound<'py, PyArray1<i8>>,
@@ -143,8 +265,13 @@ fn rustbindings<'py>(m: Bound<'py, PyModule>) -> PyResult<()> {
     ) {
         let raw_trace = load_trace_to_string(&path).unwrap();
 
-        let (times, events, paddings) =
-            sim_def_on_trace(&raw_trace, vec![], vec![], network_delay_millis);
+        let (times, events, paddings) = sim_def_on_trace(
+            &raw_trace,
+            vec![],
+            vec![],
+            network_delay_millis,
+            max_trace_length,
+        );
 
         cast_to_numpy_trace(times, events, paddings, py)
     }
