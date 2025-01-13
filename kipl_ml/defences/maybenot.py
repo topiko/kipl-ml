@@ -23,6 +23,11 @@ def load_machines(
 
     machine_idxs = machine_idxs or list(range(len(defenses)))
 
+    if max(machine_idxs) >= len(defenses):
+        raise ValueError(
+            f"Machine idxs out of bounds: {max(machine_idxs)} >= {len(defenses)}"
+        )
+
     return [d[0] for i, d in enumerate(defenses) if i in machine_idxs]
 
 
@@ -60,8 +65,8 @@ class Maybenot(_Def):
     def report(self, to_log: bool = True) -> str:
         str_ = "Maybenot Defence\n"
         str_ += f"\tNumber of machines: {len(self.machines)}\n"
-        str_ += f"\tclient: {len(self.machines[0]['client']):02d}\n"
-        str_ += f"\tserver: {len(self.machines[0]['server']):02d}\n"
+        str_ += f"\tclient: {len(self.machines[0]['client']):2d}\n"
+        str_ += f"\tserver: {len(self.machines[0]['server']):2d}\n"
         str_ += f"\tNetwork delay: {self.network_delay_millis} ms\n"
         return str_
 
