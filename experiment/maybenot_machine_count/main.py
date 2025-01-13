@@ -73,16 +73,13 @@ def main(cfg: DictConfig):
 
     maybenot_config = dict(cfg.defences)
 
-    rng = np.random.default_rng()
-    n_machines = maybenot_config.pop("n_machines")
-    machine_idxs = (
-        list(rng.choice(10000, size=n_machines, replace=False))
-        if n_machines > 0
-        else []
-    )
-    maybenot_config["machine_idxs"] = machine_idxs
-    print(maybenot_config)
-    defence = Maybenot(**maybenot_config)
+    if (n_machines := maybenot_config.pop("n_machines")) == 0:
+        defence = NoDefence()
+    else:
+        rng = np.random.default_rng()
+        machine_idxs = list(rng.choice(10000, size=n_machines, replace=False))
+        maybenot_config["machine_idxs"] = machine_idxs
+        defence = Maybenot(**maybenot_config)
 
     defences = Defences(defences=[defence])
 
@@ -94,10 +91,15 @@ def main(cfg: DictConfig):
         defences=defences,
     )
 
-    try:
-        model = _fetch_base_model(model_name)
-    except Exception as e:
-        logger.error(f"Failed to fetch base model: {e}")
+    build_model = True
+    if cfg.load_base_model:
+        try:
+            model = _fetch_base_model(model_name)
+            build_model = False
+        except Exception as e:
+            logger.error(f"Failed to fetch base model: {e}")
+
+    if build_model:
         model = get_model(
             model_name,
             n_classes=ds_train.n_classes,
