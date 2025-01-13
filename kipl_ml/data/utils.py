@@ -30,7 +30,9 @@ def load_dataset_meta_df(dataset: str) -> pd.DataFrame:
     return pd.read_hdf(meta_path)
 
 
-def get_std_trace_array(path: os.PathLike) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def get_std_trace_array(
+    path: os.PathLike, network_delay_millis: int = 0
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Load a standard trace array from a file
     The standard is given by:
@@ -41,7 +43,11 @@ def get_std_trace_array(path: os.PathLike) -> tuple[np.ndarray, np.ndarray, np.n
 
     """
 
-    return load_trace_to_numpy(path, 0, max_trace_length=MAX_TRACE_LENGTH)
+    return load_trace_to_numpy(
+        path,
+        network_delay_millis=network_delay_millis,
+        max_trace_length=MAX_TRACE_LENGTH,
+    )
 
 
 def parse_trace_to_tensor_dict(
@@ -72,9 +78,13 @@ def parse_trace_to_tensor_dict(
     return trace_dict
 
 
-def get_std_trace_dict(path: os.PathLike) -> dict[str, torch.Tensor]:
+def get_std_trace_dict(
+    path: os.PathLike, network_delay_millis: int = 0
+) -> dict[str, torch.Tensor]:
 
-    times, dirs, paddings = get_std_trace_array(path)
+    times, dirs, paddings = get_std_trace_array(
+        path, network_delay_millis=network_delay_millis
+    )
     return parse_trace_to_tensor_dict(times, dirs, paddings, None)
 
 

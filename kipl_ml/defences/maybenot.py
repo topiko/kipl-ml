@@ -65,8 +65,8 @@ class Maybenot(_Def):
     def report(self, to_log: bool = True) -> str:
         str_ = "Maybenot Defence\n"
         str_ += f"\tNumber of machines: {len(self.machines)}\n"
-        str_ += f"\tclient: {len(self.machines[0]['client']):2d}\n"
-        str_ += f"\tserver: {len(self.machines[0]['server']):2d}\n"
+        str_ += f"\tclient: {len(self.machines[0]['client']):02d}\n"
+        str_ += f"\tserver: {len(self.machines[0]['server']):02d}\n"
         str_ += f"\tNetwork delay: {self.network_delay_millis} ms\n"
         return str_
 

@@ -2,7 +2,6 @@ import kipl_ml.data.assets as assets
 import pandas as pd
 import torch
 from kipl_ml.data.utils import (
-    get_std_trace_array,
     load_dataset_meta_df,
     preserve_class_frac_sample,
 )
