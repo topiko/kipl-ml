@@ -61,7 +61,7 @@ def main(cfg: DictConfig):
 
     if model_config.get("input_size"):
         logger.warning(
-            f"Trace len {n_packets} overwritten my model config -> {model_config['input_size']}"
+            f"Trace len {n_packets} overwritten by model config -> {model_config['input_size']}"
         )
 
         n_packets = model_config["input_size"]
