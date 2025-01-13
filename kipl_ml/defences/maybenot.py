@@ -52,8 +52,7 @@ class Maybenot(_Def):
             raise ValueError("Only random padding is supported for now")
 
         if any(
-            f != "no-blocking"
-            for f in (blocking_frac_client, blocking_frac_server)
+            f != "no-blocking" for f in (blocking_frac_client, blocking_frac_server)
         ):
             raise ValueError("Only no-blocking is supported for now")
 
