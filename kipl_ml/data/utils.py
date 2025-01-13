@@ -6,6 +6,7 @@ import pandas as pd
 import torch
 from dotenv import load_dotenv
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.trace.params import MAX_TRACE_LENGTH
 from omegaconf import DictConfig
 from rustbindings import load_trace_to_numpy
 
@@ -40,7 +41,7 @@ def get_std_trace_array(path: os.PathLike) -> tuple[np.ndarray, np.ndarray, np.n
 
     """
 
-    return load_trace_to_numpy(path, 0)
+    return load_trace_to_numpy(path, 0, max_trace_length=MAX_TRACE_LENGTH)
 
 
 def parse_trace_to_tensor_dict(

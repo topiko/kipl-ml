@@ -82,12 +82,12 @@ class WFDataset(Dataset):
     def device(self, device: torch.device) -> None:
         self._device = device
 
-    def __len__(self) -> int:
-        return len(self.meta_df)
-
     def get_feature_shapes(self) -> None:
         X = self._get_trace(0)
         self.feature_trs.get_shapes(X)
+
+    def __len__(self) -> int:
+        return len(self.meta_df)
 
     def _get_trace(self, idx: int) -> dict[str, torch.Tensor]:
 
