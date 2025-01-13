@@ -11,7 +11,6 @@ from kipl_ml.trace.params import MAX_TRACE_LENGTH
 from rustbindings import sim_trace_from_file_advanced
 
 logger = get_logger(__name__)
-MAX_PADDING_FRAC = 1.0
 
 
 def load_machines(
@@ -36,10 +35,12 @@ class Maybenot(_Def):
         self,
         deck_path: os.PathLike,
         network_delay_millis: int,
-        max_padding_frac_client: str = "random",
-        max_padding_frac_server: str = "random",
-        max_blocking_frac_client: str = "no-blocking",
-        max_blocking_frac_server: str = "no-blocking",
+        padding_frac_client: str = "random",
+        padding_frac_server: str = "random",
+        blocking_frac_client: str = "no-blocking",
+        blocking_frac_server: str = "no-blocking",
+        max_padding_frac: float = 1.0,
+        max_blocking_frac: float = 0.0,
         machine_idxs: list[int] | None = None,
     ):
         self.machines: list[dict[str, list[str]]] = load_machines(
@@ -47,37 +48,40 @@ class Maybenot(_Def):
         )
         self.network_delay_millis: np.uint64 = np.uint64(network_delay_millis)
 
-        if any(
-            f != "random" for f in (max_padding_frac_client, max_padding_frac_server)
-        ):
+        if any(f != "random" for f in (padding_frac_client, padding_frac_server)):
             raise ValueError("Only random padding is supported for now")
+
         if any(
             f != "no-blocking"
-            for f in (max_blocking_frac_client, max_blocking_frac_server)
+            for f in (blocking_frac_client, blocking_frac_server)
         ):
             raise ValueError("Only no-blocking is supported for now")
 
-        self.max_padding_frac_client = max_padding_frac_client
-        self.max_padding_frac_server = max_padding_frac_server
-        self.max_blocking_frac_client = max_blocking_frac_client
-        self.max_blocking_frac_server = max_blocking_frac_server
+        self.padding_frac_client = padding_frac_client
+        self.padding_frac_server = padding_frac_server
+        self.blocking_frac_client = blocking_frac_client
+        self.blocking_frac_server = blocking_frac_server
+        self.max_padding_frac = max_padding_frac
+        self.max_blocking_frac = max_blocking_frac
 
     def report(self, to_log: bool = True) -> str:
         str_ = "Maybenot Defence\n"
         str_ += f"\tNumber of machines: {len(self.machines)}\n"
         str_ += f"\tclient: {len(self.machines[0]['client']):02d}\n"
         str_ += f"\tserver: {len(self.machines[0]['server']):02d}\n"
+        str_ += f"\tMax padding frac: {self.max_padding_frac}\n"
+        str_ += f"\tMax blocking frac: {self.max_blocking_frac}\n"
         str_ += f"\tNetwork delay: {self.network_delay_millis} ms\n"
         return str_
 
     def _get_paddings(self) -> tuple[float, float]:
         def get_padding_frac(way: str) -> float:
             if way == "random":
-                return np.random.uniform(0.0, MAX_PADDING_FRAC)
+                return np.random.uniform(0.0, self.max_padding_frac)
             raise NotImplementedError(f"Padding way {way} not implemented")
 
-        client_padding = get_padding_frac(self.max_padding_frac_client)
-        server_padding = get_padding_frac(self.max_padding_frac_server)
+        client_padding = get_padding_frac(self.padding_frac_client)
+        server_padding = get_padding_frac(self.padding_frac_server)
 
         return client_padding, server_padding
 
@@ -87,8 +91,8 @@ class Maybenot(_Def):
                 return 0.0
             raise NotImplementedError(f"Blocking way {way} not implemented")
 
-        client_blocking = get_blocking_frac(self.max_blocking_frac_client)
-        server_blocking = get_blocking_frac(self.max_blocking_frac_server)
+        client_blocking = get_blocking_frac(self.blocking_frac_client)
+        server_blocking = get_blocking_frac(self.blocking_frac_server)
 
         return client_blocking, server_blocking
 
@@ -96,18 +100,19 @@ class Maybenot(_Def):
 
         machine_idx = np.random.choice(len(self.machines))
 
-        max_padding_client, max_padding_server = self._get_paddings()
-        max_blocking_client, max_blocking_server = self._get_blocking_fracs()
+        max_padding_frac_client, max_padding_frac_server = self._get_paddings()
+
+        max_blocking_frac_client, max_blocking_frac_server = self._get_blocking_fracs()
 
         times, dirs, paddings = sim_trace_from_file_advanced(
             trace_path,
             self.machines[machine_idx]["client"],
             self.machines[machine_idx]["server"],
             self.network_delay_millis,
-            max_padding_frac_client=max_padding_client,
-            max_padding_frac_server=max_padding_server,
-            max_blocking_frac_client=max_blocking_client,
-            max_blocking_frac_server=max_blocking_server,
+            max_padding_frac_client=max_padding_frac_client,
+            max_padding_frac_server=max_padding_frac_server,
+            max_blocking_frac_client=max_blocking_frac_client,
+            max_blocking_frac_server=max_blocking_frac_server,
             max_trace_length=MAX_TRACE_LENGTH,
         )
 
