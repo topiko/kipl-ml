@@ -150,8 +150,8 @@ fn sim_def_on_trace_advanced(
     if debug {
         netwk_monitor(&trace);
         println!("Input trace len: {input_len}");
+        println!("Simulator args: {:?}", simulator_args);
     }
-    println!("Simulator args: {:?}", simulator_args);
 
     client_logs
 }
@@ -246,6 +246,53 @@ fn rustbindings<'py>(m: Bound<'py, PyModule>) -> PyResult<()> {
             machines_server,
             network_delay_millis,
             max_trace_length,
+        );
+
+        cast_to_numpy_trace(times, events, paddings, py)
+    }
+
+    #[pyfn(m)]
+    #[pyo3(name = "sim_trace_from_file_advanced", signature = (
+    path,
+    machines_client,
+    machines_server,
+    network_delay_millis,
+    max_trace_length,
+    max_padding_frac_client,
+    max_padding_frac_server,
+    max_blocking_frac_client,
+    max_blocking_frac_server,
+    debug=false
+))]
+    fn sim_trace_from_file_advanced<'py>(
+        py: Python<'py>,
+        path: String,
+        machines_client: Vec<String>,
+        machines_server: Vec<String>,
+        network_delay_millis: u64,
+        max_trace_length: usize,
+        max_padding_frac_client: f64,
+        max_padding_frac_server: f64,
+        max_blocking_frac_client: f64,
+        max_blocking_frac_server: f64,
+        debug: bool,
+    ) -> (
+        Bound<'py, PyArray1<f64>>,
+        Bound<'py, PyArray1<i8>>,
+        Bound<'py, PyArray1<bool>>,
+    ) {
+        let raw_trace = load_trace_to_string(&path).unwrap();
+        let (times, events, paddings) = sim_def_on_trace_advanced(
+            &raw_trace,
+            machines_client,
+            machines_server,
+            network_delay_millis,
+            max_trace_length,
+            max_padding_frac_client,
+            max_padding_frac_server,
+            max_blocking_frac_client,
+            max_blocking_frac_server,
+            debug,
         );
 
         cast_to_numpy_trace(times, events, paddings, py)
