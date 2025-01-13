@@ -60,6 +60,10 @@ def main(cfg: DictConfig):
         model_config = json.load(fi)
 
     if model_config.get("input_size"):
+        logger.warning(
+            "Trace len {n_packets} overridden my model config -> {model_config['input_size']}"
+        )
+
         n_packets = model_config["input_size"]
 
     if model_config.get("feature_list"):
