@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from enum import StrEnum
 
 import kipl_ml.data.assets as assets
 import mlflow
@@ -14,8 +14,7 @@ from mlflow.models import set_model
 logger = get_logger(__name__)
 
 
-@dataclass
-class Feats:
+class Feats(StrEnum):
     DIRS: str = assets.DIRS
     SIZES: str = assets.SIZES
     TIMES: str = assets.TIMES
@@ -50,6 +49,22 @@ class Feats:
     SIZE_DIRS: str = f"{SIZES}_dirs"
     CUM_SIZE_DIRS: str = f"cum_{SIZE_DIRS}"
     CUM_SIZE_DIRS_MAX_NORMALIZED: str = f"max_normalized_{CUM_SIZE_DIRS}"
+
+    def __str__(self) -> str:
+        return self.value
+
+    def __repr__(self) -> str:
+        return self.value
+
+
+FEAT_NAME_MAP = {
+    "time_dirs": Feats.TIME_DIRS,
+    "times_norm": Feats.TIMES_MAX_NORMALIZED,
+    "cumul_norm": Feats.CUM_SIZE_DIRS_MAX_NORMALIZED,
+    "iat_dirs": Feats.IAT_DIRS,
+    "inv_iat_log_dirs": Feats.LOG_INV_FLOW_IAT_DIRS,
+    "running_rates": Feats.RUNNING_RATE_SIZES,
+}
 
 
 def _pad_short_trace(
