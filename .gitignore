@@ -9,4 +9,5 @@ mlartifacts/
 .mlruns/
 .mlartifacts/
 *multirun/
+*.png
 
