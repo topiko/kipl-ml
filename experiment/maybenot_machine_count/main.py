@@ -37,7 +37,7 @@ mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 
 BASE_MODEL_RUNEXPIDS = {
-    "df-multi": ("768f7d7e0a68496aaa73a28c6d7b5f78", "562836848803030619")
+    "df-multi": ("9fdfefde1c164eeb9940c0a85fdab831", "562836848803030619")
 }
 
 
@@ -77,7 +77,7 @@ def main(cfg: DictConfig):
         defence = NoDefence()
     else:
         rng = np.random.default_rng()
-        machine_idxs = list(rng.choice(100_000, size=n_machines, replace=False))
+        machine_idxs = list(rng.choice(10_000, size=n_machines, replace=False))
         maybenot_config["machine_idxs"] = machine_idxs
         defence = Maybenot(**maybenot_config)
 
