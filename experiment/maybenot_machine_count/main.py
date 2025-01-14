@@ -77,7 +77,7 @@ def main(cfg: DictConfig):
         defence = NoDefence()
     else:
         rng = np.random.default_rng()
-        machine_idxs = list(rng.choice(10000, size=n_machines, replace=False))
+        machine_idxs = list(rng.choice(100_000, size=n_machines, replace=False))
         maybenot_config["machine_idxs"] = machine_idxs
         defence = Maybenot(**maybenot_config)
 
