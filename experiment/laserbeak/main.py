@@ -82,6 +82,7 @@ def main(cfg: DictConfig):
         n_samples=(cfg.dataset.n_train_traces, 1000, 1000),
         random_state=cfg.dataset.random_state,
         feature_trs=feature_trs,
+        defence_aug=cfg.dataset.defence_augmentation,
         defence_train=defence,
         defence_valid_test=defence,
     )
@@ -156,6 +157,7 @@ def main(cfg: DictConfig):
                 "scheduler": cfg.train.scheduler,
                 "lr": cfg.train.lr,
                 "network_dealy_millis": netwk_delay,
+                "defence_augmentation": cfg.dataset.defence_augmentation,
             }
         )
 
