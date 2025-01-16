@@ -64,9 +64,6 @@ class WFDataset(Dataset):
         X = self._get_trace(0)
         self.feature_trs.get_shapes(X)
 
-    def __len__(self) -> int:
-        return len(self.meta_df)
-
     def _get_trace(self, idx: int) -> dict[str, torch.Tensor]:
 
         path = Path(self.meta_df.iloc[idx]["orig_path"])
@@ -75,6 +72,9 @@ class WFDataset(Dataset):
 
     def _get_label(self, idx: int) -> torch.Tensor:
         return torch.tensor(self.meta_df.iloc[idx][assets.LABEL], dtype=torch.long)
+
+    def __len__(self) -> int:
+        return len(self.meta_df)
 
     def __getitem__(self, idx: int) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
 
