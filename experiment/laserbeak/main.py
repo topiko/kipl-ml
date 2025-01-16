@@ -8,7 +8,7 @@ import mlflow
 import torch
 from kipl_ml.data import assets
 from kipl_ml.data.wf_dataset import get_train_valid_test
-from kipl_ml.defences.defences import Defences
+from kipl_ml.defences.utils import _forge_single_defence
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import get_mlflow_expr
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall, CrossEntropyLoss
@@ -48,9 +48,8 @@ def main(cfg: DictConfig):
     n_packets = cfg.trace.n_packets
     experiment_name = cfg.mlflow.experiment_name + "->" + model_name
 
-    defence_str = "-".join(d.name for d in cfg.defences)
-    if defence_str != "no_defence":
-        experiment_name += f" vs. {defence_str}"
+    if (defence_name := cfg.defences["name"]) != "no_defence":
+        experiment_name += f" vs. {defence_name}"
 
     feature_names = cfg.features.features
 
@@ -70,14 +69,15 @@ def main(cfg: DictConfig):
         feature_names = [FEAT_NAME_MAP[feat] for feat in model_config["feature_list"]]
 
     feature_trs = FeatureTrs(feature_names=feature_names, n_packets=n_packets)
-    defences = Defences(defences=[dict(d) for d in cfg.defences])
+
+    defence = _forge_single_defence(**cfg.defences)
 
     ds_train, ds_valid, ds_test = get_train_valid_test(
         dataset=dataset_name,
         n_samples=(cfg.dataset.n_train_traces, 1000, 1000),
         random_state=cfg.dataset.random_state,
         feature_trs=feature_trs,
-        defences=defences,
+        defence=defence,
     )
 
     model = get_model(

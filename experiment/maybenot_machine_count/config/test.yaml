@@ -10,7 +10,7 @@ defaults:
   - model: dfnet
   - dataset: bigenough
   - train: default
-  - defences: default
+  - defences: maybenot
 
 mlflow:
   experiment_name: "laserbeak_test"

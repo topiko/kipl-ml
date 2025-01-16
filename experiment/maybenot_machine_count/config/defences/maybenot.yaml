@@ -1,3 +1,4 @@
+name: maybenot
 deck_path: "/home/topiko/Playground/KIPL/.maybenot-decks/deck0.yaml"
 network_delay_millis: 100
 n_machines: 10_000

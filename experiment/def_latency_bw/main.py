@@ -5,7 +5,7 @@ import hydra
 import mlflow
 import torch
 from kipl_ml.data.wf_dataset import get_train_valid_test
-from kipl_ml.defences.defences import Defences
+from kipl_ml.defences.defences import StackedDefence
 from kipl_ml.defences.naive import Chi2Delays, RandomPadding
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import get_mlflow_expr
@@ -44,7 +44,7 @@ def main(cfg: DictConfig):
     mlflow.set_experiment(experiment_id=experiment_id)
     run_name = model_name + "_" + cfg.features.name
 
-    def single_run(defences: Defences):
+    def single_run(defences: StackedDefence):
         feature_trs = FeatureTrs(
             feature_names=cfg.features.features,
             n_packets=int(n_packets * (1 + fraction)),
@@ -123,7 +123,7 @@ def main(cfg: DictConfig):
     with mlflow.start_run(run_name=run_name):
         for fraction in FRACTIONS:
             for k in KS:
-                defences = Defences(
+                defences = StackedDefence(
                     [Chi2Delays(k=k), RandomPadding(fraction=fraction)]
                 )
 

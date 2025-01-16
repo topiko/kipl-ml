@@ -95,7 +95,7 @@ class Maybenot(_Def):
 
         return client_blocking, server_blocking
 
-    def sim_defence(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
+    def _simulate(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
 
         machine_idx = np.random.choice(len(self.machines))
 
@@ -104,7 +104,7 @@ class Maybenot(_Def):
         max_blocking_frac_client, max_blocking_frac_server = self._get_blocking_fracs()
 
         times, dirs, paddings = sim_trace_from_file_advanced(
-            trace_path,
+            str(trace_path),
             self.machines[machine_idx]["client"],
             self.machines[machine_idx]["server"],
             self.network_delay_millis,
@@ -122,6 +122,3 @@ class Maybenot(_Def):
             logger.warning(f"machine_idx: {machine_idx}")
 
         return trace_d
-
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        raise NotImplementedError("Maybenot has its own perks...")

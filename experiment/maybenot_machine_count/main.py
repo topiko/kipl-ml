@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from kipl_ml.data import assets
 from kipl_ml.data.wf_dataset import get_train_valid_test
-from kipl_ml.defences.defences import Defences, NoDefence
+from kipl_ml.defences.base import NoDefence
 from kipl_ml.defences.maybenot import Maybenot
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import get_mlflow_expr
@@ -72,6 +72,8 @@ def main(cfg: DictConfig):
     feature_trs = FeatureTrs(feature_names=feature_names, n_packets=n_packets)
 
     maybenot_config = dict(cfg.defences)
+    if maybenot_config.pop("name") != "maybenot":
+        raise ValueError("Defence must be 'maybenot'")
 
     if (n_machines := maybenot_config.pop("n_machines")) == 0:
         defence = NoDefence()
@@ -81,14 +83,12 @@ def main(cfg: DictConfig):
         maybenot_config["machine_idxs"] = machine_idxs
         defence = Maybenot(**maybenot_config)
 
-    defences = Defences(defences=[defence])
-
     ds_train, ds_valid, ds_test = get_train_valid_test(
         dataset=dataset_name,
         n_samples=(cfg.dataset.n_train_traces, 1000, 1000),
         random_state=cfg.dataset.random_state,
         feature_trs=feature_trs,
-        defences=defences,
+        defence=defence,
     )
 
     build_model = True

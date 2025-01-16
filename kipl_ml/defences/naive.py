@@ -2,6 +2,8 @@
 Naive dummy defences for testing.
 """
 
+import os
+
 import kipl_ml.data.assets as assets
 import torch
 from kipl_ml.defences.base import _Def
@@ -15,7 +17,10 @@ class RandomPadding(_Def):
     def report(self, to_log: bool = True) -> str:
         return self._report(to_log, fraction=self.fraction)
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def _simulate(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
+
+        trace = self.load_data(trace_path)
+
         times = trace[assets.TIMES]
         dirs = trace[assets.DIRS]
         sizes = trace[assets.SIZES]
@@ -67,7 +72,10 @@ class Chi2Delays(_Def):
     def report(self, to_log: bool = True) -> str:
         return self._report(to_log, k=self.k, scale_frac=self.scale_frac)
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def _simulate(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
+
+        trace = self.load_data(trace_path)
+
         if self.identity:
             return trace
 

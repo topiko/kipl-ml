@@ -1,11 +1,10 @@
+from pathlib import Path
+
 import kipl_ml.data.assets as assets
 import pandas as pd
 import torch
-from kipl_ml.data.utils import (
-    load_dataset_meta_df,
-    preserve_class_frac_sample,
-)
-from kipl_ml.defences.defences import Defences, NoDefence
+from kipl_ml.data.utils import load_dataset_meta_df, preserve_class_frac_sample
+from kipl_ml.defences.base import NoDefence, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.trace.features import FeatureTrs
@@ -21,28 +20,18 @@ class WFDataset(Dataset):
         dataset: str,
         meta_df: pd.DataFrame,
         feature_trs: FeatureTrs,
-        defences: Defences | None = None,
-        device: torch.device = torch.device("cpu"),
-        short_trace_policy: str = "pad",
+        defence: _Def | None = None,
     ) -> None:
-        if short_trace_policy not in ("drop", "pad"):
-            raise ValueError(
-                f"short_trace_policy must be 'drop' or 'pad', got {short_trace_policy}"
-            )
 
         logger.info("Buidling dataset...")
         logger.info(key_val_fmt("name", dataset))
 
         self.meta_df = meta_df
         self.name = dataset
-        self.device = device
-
-        if short_trace_policy == "drop":
-            raise NotImplementedError("short_trace_policy='drop' not implemented.")
 
         self.feature_trs = feature_trs
 
-        self.defences = defences or Defences([NoDefence()])
+        self.defence = defence or NoDefence()
         self.get_feature_shapes()
         self.report()
 
@@ -51,7 +40,7 @@ class WFDataset(Dataset):
         str_ += key_val_fmt("n_traces", len(self)) + "\n"
         str_ += key_val_fmt("n_classes", self.n_classes) + "\n"
         str_ += self.feature_trs.report(to_log=False)
-        str_ += self.defences.report(to_log=False)
+        str_ += self.defence.report(to_log=False)
 
         if to_log:
             for i, line in enumerate(str_.split("\n")):
@@ -71,16 +60,6 @@ class WFDataset(Dataset):
     def output_sizes(self) -> dict[str, int]:
         return self.feature_trs.output_sizes
 
-    @property
-    def device(self):
-        if self._device != torch.device("cpu"):
-            raise NotImplementedError("Currently only supports CPU")
-        return self._device
-
-    @device.setter
-    def device(self, device: torch.device) -> None:
-        self._device = device
-
     def get_feature_shapes(self) -> None:
         X = self._get_trace(0)
         self.feature_trs.get_shapes(X)
@@ -90,14 +69,12 @@ class WFDataset(Dataset):
 
     def _get_trace(self, idx: int) -> dict[str, torch.Tensor]:
 
-        path = self.meta_df.iloc[idx]["orig_path"]
+        path = Path(self.meta_df.iloc[idx]["orig_path"])
 
-        return self.defences.sim_defence(path)
+        return self.defence(path)
 
     def _get_label(self, idx: int) -> torch.Tensor:
-        return torch.tensor(
-            self.meta_df.iloc[idx][assets.LABEL], device=self.device, dtype=torch.long
-        )
+        return torch.tensor(self.meta_df.iloc[idx][assets.LABEL], dtype=torch.long)
 
     def __getitem__(self, idx: int) -> tuple[dict[str, torch.Tensor], torch.tensor]:
 

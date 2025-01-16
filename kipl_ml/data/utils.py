@@ -44,7 +44,7 @@ def get_std_trace_array(
     """
 
     return load_trace_to_numpy(
-        path,
+        str(path),
         network_delay_millis=network_delay_millis,
         max_trace_length=MAX_TRACE_LENGTH,
     )
