@@ -14,6 +14,7 @@ from kipl_ml.logging.utils import get_mlflow_expr
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall, CrossEntropyLoss
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.laserbeak import get_model, get_signature
+from kipl_ml.tools.mlflow_utils import log_dataset, log_hydra_conf
 from kipl_ml.trace.features import Feats, FeatureTrs
 from kipl_ml.train.loops import train_model
 from omegaconf import DictConfig
@@ -135,6 +136,11 @@ def main(cfg: DictConfig):
     mlflow.set_experiment(experiment_id=experiment_id)
     run_name = model_name
     with mlflow.start_run(run_name=run_name):
+
+        log_hydra_conf(cfg)
+
+        for ds in (ds_train, ds_valid, ds_test):
+            log_dataset(ds, store_cols=["label", "trace_id"])
 
         mlflow.log_params(
             {

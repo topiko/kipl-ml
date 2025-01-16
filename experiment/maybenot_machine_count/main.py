@@ -1,5 +1,4 @@
 import os
-import tempfile
 
 import configs as lasereak_configs
 import dotenv
@@ -17,6 +16,7 @@ from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall, CrossEntropyLoss
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.laserbeak import get_model, get_signature
 from kipl_ml.models.utils import get_laserbeak_model_config
+from kipl_ml.tools.mlflow_utils import log_dataset, log_hydra_conf
 from kipl_ml.trace.features import FEAT_NAME_MAP, Feats, FeatureTrs
 from kipl_ml.train.loops import train_model
 from mlflow.data.pandas_dataset import PandasDataset
@@ -183,12 +183,10 @@ def main(cfg: DictConfig):
 
         # Log the datasets
         for ds in (ds_train, ds_valid, ds_test):
-            ds_ = mlflow.data.from_pandas(
-                ds.meta_df.loc[:, STORE_DATA_COLS],
-                name=ds.name,
-                targets="label",
-            )
-            mlflow.log_input(dataset=ds_, context=f"{ds.name}_df.json")
+            log_dataset(ds, STORE_DATA_COLS)
+
+        # Log the config file as an artifact
+        log_hydra_conf(cfg)
 
         # Log the most interesting hyp params.
         mlflow.log_params(
@@ -210,13 +208,6 @@ def main(cfg: DictConfig):
                 "network_delay_millis": netwk_delay,
             }
         )
-
-        # Log the config file as an artifact
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".yaml") as temp_file:
-            OmegaConf.save(config=cfg, f=temp_file.name)
-            temp_yaml_path = temp_file.name
-
-        mlflow.log_artifact(temp_yaml_path, artifact_path="hydra_config")
 
         # Train model.
         trained_model = train_model(
