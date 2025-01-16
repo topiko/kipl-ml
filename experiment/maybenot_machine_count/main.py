@@ -75,22 +75,36 @@ def main(cfg: DictConfig):
     if maybenot_config.pop("name") != "maybenot":
         raise ValueError("Defence must be 'maybenot'")
 
+    N_VALID = 1000
+    N_TEST = 1000
+    N_MACHINES_IN_DECK = 10_000
+
     if (n_machines := maybenot_config.pop("n_machines")) == 0:
-        defence = NoDefence()
+        defence_train = NoDefence()
+        defence_valid_test = NoDefence()
     else:
         rng = np.random.default_rng()
-        machine_idxs = list(rng.choice(10_000, size=n_machines, replace=False))
+        machine_idxs = list(
+            rng.choice(N_MACHINES_IN_DECK, size=n_machines, replace=False)
+        )
         maybenot_config["machine_idxs"] = machine_idxs
-        defence = Maybenot(**maybenot_config)
+        defence_train = Maybenot(**maybenot_config)
+        maybenot_config["machine_idxs"] = list(
+            set(machine_idxs).difference(set(range(N_MACHINES_IN_DECK)))
+        )
+        defence_valid_test = Maybenot(**maybenot_config)
 
     ds_train, ds_valid, ds_test = get_train_valid_test(
         dataset=dataset_name,
-        n_samples=(cfg.dataset.n_train_traces, 1000, 1000),
+        n_samples=(cfg.dataset.n_train_traces, N_VALID, N_TEST),
         random_state=cfg.dataset.random_state,
         defence_aug=cfg.dataset.defence_augmentation,
         feature_trs=feature_trs,
-        defence=defence,
     )
+
+    ds_train.defence = defence_train
+    ds_valid.defence = defence_valid_test
+    ds_test.defence = defence_valid_test
 
     build_model = True
     if cfg.load_base_model:
