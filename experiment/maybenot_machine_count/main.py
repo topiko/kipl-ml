@@ -38,7 +38,7 @@ mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 
 BASE_MODEL_RUNEXPIDS = {
-    "df-multi": ("fdfefde1c164eeb9940c0a85fdab831", "562836848803030619")
+    "df-multi": ("78a904db32f0477a94f5ab4c4c4f32e2", "321789902449520941")
 }
 N_VALID = 1000
 N_TEST = 1000
@@ -207,6 +207,7 @@ def main(cfg: DictConfig):
                 "defence_augmentation": cfg.dataset.defence_augmentation,
                 "n_maybenot_machines": n_machines,
                 "max_padding_frac": cfg.defences.max_padding_frac,
+                "network_delay_millis": netwk_delay,
             }
         )
 
