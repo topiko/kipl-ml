@@ -48,11 +48,11 @@ class Maybenot(_Def):
         )
         self.network_delay_millis: np.uint64 = np.uint64(network_delay_millis)
 
-        if any(f != "random" for f in (padding_frac_client, padding_frac_server)):
+        if not all(f == "random" for f in (padding_frac_client, padding_frac_server)):
             raise ValueError("Only random padding is supported for now")
 
-        if any(
-            f != "no-blocking" for f in (blocking_frac_client, blocking_frac_server)
+        if not all(
+            f == "no-blocking" for f in (blocking_frac_client, blocking_frac_server)
         ):
             raise ValueError("Only no-blocking is supported for now")
 

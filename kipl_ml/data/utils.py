@@ -66,7 +66,7 @@ def parse_trace_to_tensor_dict(
         ]
     ).T
 
-    trace_tensor = torch.Tensor(np_trace)
+    trace_tensor = torch.as_tensor(np_trace)
 
     trace_dict = {
         assets.TIMES: trace_tensor[:, 0],

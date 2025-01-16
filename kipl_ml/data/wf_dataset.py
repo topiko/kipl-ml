@@ -76,7 +76,7 @@ class WFDataset(Dataset):
     def _get_label(self, idx: int) -> torch.Tensor:
         return torch.tensor(self.meta_df.iloc[idx][assets.LABEL], dtype=torch.long)
 
-    def __getitem__(self, idx: int) -> tuple[dict[str, torch.Tensor], torch.tensor]:
+    def __getitem__(self, idx: int) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
 
         trace_dict = self._get_trace(idx)
 
