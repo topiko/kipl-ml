@@ -8,6 +8,7 @@ defaults:
   - defences: default
 mlflow:
   experiment_name: "laserbeak"
-
+network:
+  network_delay_millis: 0
 
 
