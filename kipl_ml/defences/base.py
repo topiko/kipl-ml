@@ -2,9 +2,11 @@ import os
 from abc import ABC, abstractmethod
 
 import torch
-from kipl_ml.data.utils import get_std_trace_dict
+from kipl_ml.data.utils import get_std_trace_dict, parse_trace_to_tensor_dict
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
+from kipl_ml.trace.params import MAX_TRACE_LENGTH
+from rustbindings import sim_trace_from_file_advanced
 
 logger = get_logger(__name__)
 
@@ -47,11 +49,28 @@ class _Def(ABC):
 
 class NoDefence(_Def):
 
+    def __init__(self, network_delay_millis: int):
+        self.network_delay_millis = network_delay_millis
+
     def report(self, to_log: bool = True) -> str:
-        str_ = "No defence applied"
+        str_ = "No defence applied\n"
+        str_ += f"\tNetwork delay [ms]: {self.network_delay_millis}\n"
         if to_log:
             logger.info(str_)
         return str_
 
     def _simulate(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
-        return self.load_data(trace_path)
+
+        times, dirs, paddings = sim_trace_from_file_advanced(
+            str(trace_path),
+            [],
+            [],
+            self.network_delay_millis,
+            max_padding_frac_client=0,
+            max_padding_frac_server=0,
+            max_blocking_frac_client=0,
+            max_blocking_frac_server=0,
+            max_trace_length=MAX_TRACE_LENGTH,
+        )
+        trace_d = parse_trace_to_tensor_dict(times, dirs, paddings, None)
+        return trace_d

@@ -40,6 +40,9 @@ mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 BASE_MODEL_RUNEXPIDS = {
     "df-multi": ("9fdfefde1c164eeb9940c0a85fdab831", "562836848803030619")
 }
+N_VALID = 1000
+N_TEST = 1000
+N_MACHINES_IN_DECK = 10_000
 
 
 def _fetch_base_model(model_name: str) -> torch.nn.Module:
@@ -76,13 +79,10 @@ def main(cfg: DictConfig):
     if maybenot_config.pop("name") != "maybenot":
         raise ValueError("Defence must be 'maybenot'")
 
-    N_VALID = 1000
-    N_TEST = 1000
-    N_MACHINES_IN_DECK = 10_000
-
     if (n_machines := maybenot_config.pop("n_machines")) == 0:
-        defence_train = NoDefence()
-        defence_valid_test = NoDefence()
+        ntwk_delay = cfg.defences.network_delay_millis
+        defence_train = NoDefence(network_delay_millis=ntwk_delay)
+        defence_valid_test = NoDefence(network_delay_millis=ntwk_delay)
     else:
         rng = np.random.default_rng()
         machine_idxs = list(
@@ -116,11 +116,9 @@ def main(cfg: DictConfig):
         random_state=cfg.dataset.random_state,
         defence_aug=cfg.dataset.defence_augmentation,
         feature_trs=feature_trs,
+        defence_train=defence_train,
+        defence_valid_test=defence_valid_test,
     )
-
-    ds_train.defence = defence_train
-    ds_valid.defence = defence_valid_test
-    ds_test.defence = defence_valid_test
 
     build_model = True
     if cfg.load_base_model:

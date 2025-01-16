@@ -36,7 +36,7 @@ class WFDataset(Dataset):
 
         self.feature_trs = feature_trs
 
-        self.defence = defence or NoDefence()
+        self.defence = defence or NoDefence(network_delay_millis=0)
         self.defence_aug = defence_aug
 
         if defence_aug > 0:
@@ -127,6 +127,8 @@ def get_train_valid_test(
     dataset: str,
     n_samples: int | tuple[int, int, int],
     random_state: int | None = None,
+    defence_train: _Def | None = None,
+    defence_valid_test: _Def | None = None,
     **kwargs,
 ) -> tuple[WFDataset, WFDataset, WFDataset]:
 
@@ -139,7 +141,9 @@ def get_train_valid_test(
         meta_df, n_samples[0], random_state=random_state
     )
 
-    train_ds = WFDataset(dataset=f"{dataset}-train", meta_df=train_df, **kwargs)
+    train_ds = WFDataset(
+        dataset=f"{dataset}-train", meta_df=train_df, defence=defence_train, **kwargs
+    )
 
     valid_mask = ~meta_df.loc[:, assets.TRACE_ID].isin(train_df.loc[:, assets.TRACE_ID])
     meta_df = meta_df[valid_mask]
@@ -150,7 +154,12 @@ def get_train_valid_test(
         random_state=random_state,
         missing_classes="warn",
     )
-    valid_ds = WFDataset(dataset=f"{dataset}-valid", meta_df=valid_df, **kwargs)
+    valid_ds = WFDataset(
+        dataset=f"{dataset}-valid",
+        meta_df=valid_df,
+        defence=defence_valid_test,
+        **kwargs,
+    )
 
     test_mask = ~meta_df.loc[:, assets.TRACE_ID].isin(valid_df.loc[:, assets.TRACE_ID])
     meta_df = meta_df[test_mask]
@@ -161,6 +170,8 @@ def get_train_valid_test(
         random_state=random_state,
         missing_classes="warn",
     )
-    test_ds = WFDataset(dataset=f"{dataset}-test", meta_df=test_df, **kwargs)
+    test_ds = WFDataset(
+        dataset=f"{dataset}-test", meta_df=test_df, defence=defence_valid_test, **kwargs
+    )
 
     return train_ds, valid_ds, test_ds
