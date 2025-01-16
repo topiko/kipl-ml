@@ -7,7 +7,7 @@ defaults:
   - train: default
   - defences: maybenot
 mlflow:
-  experiment_name: "laserbeak"
+  experiment_name: "v2. laserbeak"
 load_base_model: False
 
 

@@ -1,3 +1,6 @@
+import atexit
+import os
+import shutil
 from pathlib import Path
 
 import kipl_ml.data.assets as assets
@@ -12,6 +15,7 @@ from kipl_ml.trace.transforms import _TR
 from torch.utils.data import Dataset
 
 logger = get_logger(__name__)
+TMP_TRACES = Path("tmp_traces/")
 
 
 class WFDataset(Dataset):
@@ -21,6 +25,7 @@ class WFDataset(Dataset):
         meta_df: pd.DataFrame,
         feature_trs: FeatureTrs,
         defence: _Def | None = None,
+        defence_aug: int = 0,
     ) -> None:
 
         logger.info("Buidling dataset...")
@@ -32,6 +37,11 @@ class WFDataset(Dataset):
         self.feature_trs = feature_trs
 
         self.defence = defence or NoDefence()
+        self.defence_aug = defence_aug
+
+        if defence_aug > 0:
+            TMP_TRACES.mkdir(exist_ok=True)
+
         self.get_feature_shapes()
         self.report()
 
@@ -39,6 +49,7 @@ class WFDataset(Dataset):
         str_ = f"Dataset: {self.name}...\n"
         str_ += key_val_fmt("n_traces", len(self)) + "\n"
         str_ += key_val_fmt("n_classes", self.n_classes) + "\n"
+        str_ += key_val_fmt("defence augmentation:", self.defence_aug) + "\n"
         str_ += self.feature_trs.report(to_log=False)
         str_ += self.defence.report(to_log=False)
 
@@ -66,9 +77,29 @@ class WFDataset(Dataset):
 
     def _get_trace(self, idx: int) -> dict[str, torch.Tensor]:
 
-        path = Path(self.meta_df.iloc[idx]["orig_path"])
+        orig_idx = idx
+        if self.defence_aug > 0:
+            orig_idx = idx // self.defence_aug
 
-        return self.defence(path)
+        orig_trace_path = Path(self.meta_df.iloc[orig_idx]["orig_path"])
+
+        if self.defence_aug == 0:
+            return self.defence(orig_trace_path)
+
+        sub_idx = orig_idx % self.defence_aug
+        tmp_trace_path = os.path.join(
+            TMP_TRACES, f"{orig_trace_path.name}.{sub_idx:03d}"
+        )
+
+        if not os.path.exists(tmp_trace_path):
+            trace = self.defence(orig_trace_path)
+            with open(tmp_trace_path, "wb") as f:
+                torch.save(trace, f)
+        else:
+            with open(tmp_trace_path, "rb") as f:
+                trace = torch.load(f, weights_only=True)
+
+        return trace
 
     def _get_label(self, idx: int) -> torch.Tensor:
         return torch.tensor(self.meta_df.iloc[idx][assets.LABEL], dtype=torch.long)
@@ -85,6 +116,11 @@ class WFDataset(Dataset):
         label = self._get_label(idx)
 
         return trace_dict, label
+
+
+@atexit.register
+def clean_tmp():
+    shutil.rmtree(TMP_TRACES, ignore_errors=True)
 
 
 def get_train_valid_test(

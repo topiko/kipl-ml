@@ -87,6 +87,7 @@ def main(cfg: DictConfig):
         dataset=dataset_name,
         n_samples=(cfg.dataset.n_train_traces, 1000, 1000),
         random_state=cfg.dataset.random_state,
+        defence_aug=cfg.dataset.defence_augmentation,
         feature_trs=feature_trs,
         defence=defence,
     )
@@ -173,6 +174,9 @@ def main(cfg: DictConfig):
                 "data_random_state": cfg.dataset.random_state,
                 "scheduler": cfg.train.scheduler,
                 "lr": cfg.train.lr,
+                "defence_augmentation": cfg.dataset.defence_augmentation,
+                "n_maybenot_machines": n_machines,
+                "max_padding_frac": cfg.defences.max_padding_frac,
             }
         )
 
