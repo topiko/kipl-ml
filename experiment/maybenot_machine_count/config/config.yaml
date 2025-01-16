@@ -8,6 +8,8 @@ defaults:
   - defences: maybenot
 mlflow:
   experiment_name: "v2. laserbeak"
+network:
+  network_delay_millis: 100
 load_base_model: False
 
 

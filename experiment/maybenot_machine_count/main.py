@@ -38,7 +38,7 @@ mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 
 BASE_MODEL_RUNEXPIDS = {
-    "df-multi": ("9fdfefde1c164eeb9940c0a85fdab831", "562836848803030619")
+    "df-multi": ("fdfefde1c164eeb9940c0a85fdab831", "562836848803030619")
 }
 N_VALID = 1000
 N_TEST = 1000
@@ -74,15 +74,16 @@ def main(cfg: DictConfig):
         feature_names = [FEAT_NAME_MAP[feat] for feat in model_config["feature_list"]]
 
     feature_trs = FeatureTrs(feature_names=feature_names, n_packets=n_packets)
+    netwk_delay = cfg.network.network_delay_millis
 
     maybenot_config = dict(cfg.defences)
+    maybenot_config["network_delay_millis"] = netwk_delay
     if maybenot_config.pop("name") != "maybenot":
         raise ValueError("Defence must be 'maybenot'")
 
     if (n_machines := maybenot_config.pop("n_machines")) == 0:
-        ntwk_delay = cfg.defences.network_delay_millis
-        defence_train = NoDefence(network_delay_millis=ntwk_delay)
-        defence_valid_test = NoDefence(network_delay_millis=ntwk_delay)
+        defence_train = NoDefence(network_delay_millis=netwk_delay)
+        defence_valid_test = NoDefence(network_delay_millis=netwk_delay)
     else:
         rng = np.random.default_rng()
         machine_idxs = list(

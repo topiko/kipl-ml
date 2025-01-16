@@ -1,4 +1,4 @@
 name: "bigenough"
 n_train_traces: 16000
 random_state: 24
-defence_augmentation: 2
+defence_augmentation: 0
