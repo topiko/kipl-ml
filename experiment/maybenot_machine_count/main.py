@@ -1,4 +1,5 @@
 import os
+import tempfile
 
 import configs as lasereak_configs
 import dotenv
@@ -19,7 +20,7 @@ from kipl_ml.models.utils import get_laserbeak_model_config
 from kipl_ml.trace.features import FEAT_NAME_MAP, Feats, FeatureTrs
 from kipl_ml.train.loops import train_model
 from mlflow.data.pandas_dataset import PandasDataset
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 from torchtune.training.lr_schedulers import get_cosine_schedule_with_warmup
 
@@ -88,11 +89,26 @@ def main(cfg: DictConfig):
             rng.choice(N_MACHINES_IN_DECK, size=n_machines, replace=False)
         )
         maybenot_config["machine_idxs"] = machine_idxs
+
         defence_train = Maybenot(**maybenot_config)
-        maybenot_config["machine_idxs"] = list(
-            set(machine_idxs).difference(set(range(N_MACHINES_IN_DECK)))
-        )
-        defence_valid_test = Maybenot(**maybenot_config)
+
+        if len(machine_idxs) > cfg.dataset.n_train_traces:
+            logger.info(
+                f"Number of machines ({len(machine_idxs)}) exceeds number of training traces ({cfg.dataset.n_train_traces}) --> consider as infinite machine limit."
+            )
+
+            test_machines = list(
+                set(range(N_MACHINES_IN_DECK)).difference(set(machine_idxs))
+            )
+            if len(test_machines) < N_TEST:
+                raise ValueError(
+                    f"Number of test machines ({len(test_machines)}) must be greater than N_TEST ({N_TEST})"
+                )
+
+            maybenot_config["machine_idxs"] = test_machines
+            defence_valid_test = Maybenot(**maybenot_config)
+        else:
+            defence_valid_test = defence_train
 
     ds_train, ds_valid, ds_test = get_train_valid_test(
         dataset=dataset_name,
@@ -166,15 +182,16 @@ def main(cfg: DictConfig):
     run_name = f"{n_machines} state-machines"
     with mlflow.start_run(run_name=run_name):
 
+        # Log the datasets
         for ds in (ds_train, ds_valid, ds_test):
             ds_ = mlflow.data.from_pandas(
                 ds.meta_df.loc[:, STORE_DATA_COLS],
                 name=ds.name,
                 targets="label",
             )
-            # from_pandas(ds.meta_df, name=ds.name)
             mlflow.log_input(dataset=ds_, context=f"{ds.name}_df.json")
 
+        # Log the most interesting hyp params.
         mlflow.log_params(
             {
                 "feature_names": cfg.features.features,
@@ -194,6 +211,14 @@ def main(cfg: DictConfig):
             }
         )
 
+        # Log the config file as an artifact
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".yaml") as temp_file:
+            OmegaConf.save(config=cfg, f=temp_file.name)
+            temp_yaml_path = temp_file.name
+
+        mlflow.log_artifact(temp_yaml_path, artifact_path="hydra_config")
+
+        # Train model.
         trained_model = train_model(
             model=model,
             train_loader=train_loader,
@@ -206,12 +231,12 @@ def main(cfg: DictConfig):
             patience=patience,
         )
 
+        # log model.
         signature = get_signature(model=trained_model, ds=ds_train)
         mlflow.pytorch.log_model(trained_model, "model", signature=signature)
-        mlflow.log_table(ds_test.meta_df, "test_df.json")
         mlflow.log_table({"features": cfg.features.features}, "features.json")
 
-        # Evaluate on test set
+        # Evaluate on test set and log.
         metrics_vals = evaluate_model(
             model=trained_model,
             dataloader=test_loader,
