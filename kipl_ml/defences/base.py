@@ -63,8 +63,8 @@ class NoDefence(_Def):
 
         times, dirs, paddings = sim_trace_from_file_advanced(
             str(trace_path),
-            [],
-            [],
+            [],  # Empty machines --> no defence
+            [],  # Empty machines --> no defence
             self.network_delay_millis,
             max_padding_frac_client=0,
             max_padding_frac_server=0,
