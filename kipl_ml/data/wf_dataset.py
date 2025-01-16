@@ -38,10 +38,10 @@ class WFDataset(Dataset):
 
         self.defence = defence or NoDefence(network_delay_millis=0)
         self.defence_aug = defence_aug
+        self.tmp_dir = Path(os.path.join(TMP_TRACES, Path(dataset)))
 
         if defence_aug > 0:
-            shutil.rmtree(TMP_TRACES, ignore_errors=True)
-            TMP_TRACES.mkdir(exist_ok=False)
+            os.makedirs(self.tmp_dir, exist_ok=False)
 
         self.get_feature_shapes()
         self.report()
@@ -89,7 +89,7 @@ class WFDataset(Dataset):
 
         sub_idx = orig_idx % self.defence_aug
         tmp_trace_path = os.path.join(
-            TMP_TRACES, f"{orig_trace_path.name}.{sub_idx:03d}"
+            self.tmp_dir, f"{orig_trace_path.name}.{sub_idx:03d}"
         )
 
         if not os.path.exists(tmp_trace_path):
@@ -121,7 +121,12 @@ class WFDataset(Dataset):
 
 @atexit.register
 def clean_tmp():
-    shutil.rmtree(TMP_TRACES, ignore_errors=True)
+    logger.info("Cleaning tmp traces...")
+
+    try:
+        shutil.rmtree(TMP_TRACES)  # , ignore_errors=True)
+    except FileNotFoundError:
+        logger.error(f"{TMP_TRACES}/ not found")
 
 
 def get_train_valid_test(

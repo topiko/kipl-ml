@@ -222,11 +222,6 @@ def main(cfg: DictConfig):
             patience=patience,
         )
 
-        # log model.
-        signature = get_signature(model=trained_model, ds=ds_train)
-        mlflow.pytorch.log_model(trained_model, "model", signature=signature)
-        mlflow.log_table({"features": cfg.features.features}, "features.json")
-
         # Evaluate on test set and log.
         metrics_vals = evaluate_model(
             model=trained_model,
@@ -236,6 +231,11 @@ def main(cfg: DictConfig):
         )
         metrics_vals = {f"test_{k}": v for k, v in metrics_vals.items()}
         mlflow.log_metrics(metrics_vals, step=None)
+
+        # log model.
+        signature = get_signature(model=trained_model, ds=ds_train)
+        mlflow.pytorch.log_model(trained_model, "model", signature=signature)
+        mlflow.log_table({"features": cfg.features.features}, "features.json")
 
 
 if __name__ == "__main__":

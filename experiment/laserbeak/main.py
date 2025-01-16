@@ -95,7 +95,7 @@ def main(cfg: DictConfig):
     )
 
     bs = cfg.train.batch_size
-    num_workers = 4
+    num_workers = 1
     train_loader = DataLoader(
         ds_train, batch_size=bs, shuffle=True, num_workers=num_workers
     )
@@ -173,11 +173,6 @@ def main(cfg: DictConfig):
             patience=patience,
         )
 
-        signature = get_signature(model=trained_model, ds=ds_train)
-        mlflow.pytorch.log_model(trained_model, "model", signature=signature)
-        mlflow.log_table(ds_test.meta_df, "test_df.json")
-        mlflow.log_table({"features": cfg.features.features}, "features.json")
-
         # Evaluate on test set
         metrics_vals = evaluate_model(
             model=trained_model,
@@ -187,6 +182,12 @@ def main(cfg: DictConfig):
         )
         metrics_vals = {f"test_{k}": v for k, v in metrics_vals.items()}
         mlflow.log_metrics(metrics_vals, step=None)
+
+        # Log model
+        signature = get_signature(model=trained_model, ds=ds_train)
+        mlflow.pytorch.log_model(trained_model, "model", signature=signature)
+        mlflow.log_table(ds_test.meta_df, "test_df.json")
+        mlflow.log_table({"features": cfg.features.features}, "features.json")
 
 
 if __name__ == "__main__":
