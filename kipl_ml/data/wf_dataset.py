@@ -15,7 +15,7 @@ from kipl_ml.trace.transforms import _TR
 from torch.utils.data import Dataset
 
 logger = get_logger(__name__)
-TMP_TRACES = Path("tmp_traces/")
+TMP_TRACES = Path(".traces/")
 
 
 class WFDataset(Dataset):
