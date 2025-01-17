@@ -3,6 +3,7 @@ The usual train loops...
 """
 
 from collections.abc import Callable
+from copy import deepcopy
 
 import mlflow
 import torch
@@ -138,12 +139,12 @@ def train_model(
             if early_stop_m_val < best_early_stop_val:
                 best_early_stop_val = early_stop_m_val
                 best_epoch = epoch
-                best_model_state = model.state_dict()
+                best_model_state = deepcopy(model.state_dict())
         elif objective == Objective.MAX:
             if early_stop_m_val > best_early_stop_val:
                 best_early_stop_val = early_stop_m_val
                 best_epoch = epoch
-                best_model_state = model.state_dict()
+                best_model_state = deepcopy(model.state_dict())
 
         logger.info("Valid metrics...")
         logger.info("Current epoch:")
@@ -180,5 +181,7 @@ def train_model(
         raise ValueError("No best model state found.")
 
     model.load_state_dict(best_model_state, strict=True)
+
+    metrics_vals = evaluate_model(model, valid_loader, metrics, loss_fn)
 
     return model

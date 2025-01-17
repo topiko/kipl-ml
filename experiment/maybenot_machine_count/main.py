@@ -38,7 +38,7 @@ mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 
 BASE_MODEL_RUNEXPIDS = {
-    "df-multi": ("78a904db32f0477a94f5ab4c4c4f32e2", "321789902449520941")
+    "df-multi": ("2e0cde39e91c420992fedd4909c49889", "321789902449520941")
 }
 N_VALID = 1000
 N_TEST = 1000
