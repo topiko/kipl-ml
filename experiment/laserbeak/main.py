@@ -79,7 +79,11 @@ def main(cfg: DictConfig):
 
     ds_train, ds_valid, ds_test = get_train_valid_test(
         dataset=dataset_name,
-        n_samples=(cfg.dataset.n_train_traces, 1000, 1000),
+        n_samples=(
+            cfg.dataset.n_train_traces,
+            cfg.dataset.n_valid_traces,
+            cfg.dataset.n_test_traces,
+        ),
         random_state=cfg.dataset.random_state,
         feature_trs=feature_trs,
         defence_aug=cfg.dataset.defence_augmentation,
