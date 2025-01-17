@@ -177,21 +177,25 @@ class Normalize(_TR):
     def name(self) -> str:
 
         if self.division == "std":
-            return {
-                Feats.TIMES: Feats.TIMES_NORMALIZED,
-                Feats.IATS: Feats.IATS_NORMALIZED,
-                Feats.UP_IATS: Feats.UP_IATS_NORMALIZED,
-                Feats.DOWN_IATS: Feats.DOWN_IATS_NORMALIZED,
-                Feats.CUM_SIZES: Feats.CUM_SIZES_NORMALIZED,
-                Feats.FLOW_IATS: Feats.FLOW_IATS_NORMALIZED,
-            }[self.normalized_asset]
+            return str(
+                {
+                    Feats.TIMES: Feats.TIMES_NORMALIZED,
+                    Feats.IATS: Feats.IATS_NORMALIZED,
+                    Feats.UP_IATS: Feats.UP_IATS_NORMALIZED,
+                    Feats.DOWN_IATS: Feats.DOWN_IATS_NORMALIZED,
+                    Feats.CUM_SIZES: Feats.CUM_SIZES_NORMALIZED,
+                    Feats.FLOW_IATS: Feats.FLOW_IATS_NORMALIZED,
+                }[self.normalized_asset]
+            )
 
-        return {
-            Feats.TIMES: Feats.TIMES_MAX_NORMALIZED,
-            Feats.IATS: Feats.IATS_MAX_NORMALIZED,
-            Feats.CUM_SIZES: Feats.CUM_SIZES_MAX_NORMALIZED,
-            Feats.CUM_SIZE_DIRS: Feats.CUM_SIZE_DIRS_MAX_NORMALIZED,
-        }[self.normalized_asset]
+        return str(
+            {
+                Feats.TIMES: Feats.TIMES_MAX_NORMALIZED,
+                Feats.IATS: Feats.IATS_MAX_NORMALIZED,
+                Feats.CUM_SIZES: Feats.CUM_SIZES_MAX_NORMALIZED,
+                Feats.CUM_SIZE_DIRS: Feats.CUM_SIZE_DIRS_MAX_NORMALIZED,
+            }[self.normalized_asset]
+        )
 
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> Normalize:
         self._output_sizes = {self.name: trace[self.input_asset].shape[0]}
@@ -231,11 +235,11 @@ class IAT(_TR):
     @property
     def name(self) -> str:
         if self.dir_key == "any":
-            return Feats.IATS
+            return str(Feats.IATS)
         if self.dir_key == "up":
-            return Feats.UP_IATS
+            return str(Feats.UP_IATS)
 
-        return Feats.DOWN_IATS
+        return str(Feats.DOWN_IATS)
 
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> IAT:
         self._output_sizes = {self.name: trace[self.time_asset].shape[0]}
@@ -338,7 +342,7 @@ class FlowIATS(_TR):
 
     @property
     def name(self) -> str:
-        return Feats.FLOW_IATS
+        return str(Feats.FLOW_IATS)
 
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> FlowIATS:
         self._output_sizes = {self.name: trace[Feats.UP_IATS].shape[0]}
