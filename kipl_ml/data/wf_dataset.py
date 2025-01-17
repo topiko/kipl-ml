@@ -38,8 +38,12 @@ class WFDataset(Dataset):
         self.defence = defence or NoDefence(network_delay_millis=0)
         self.defence_aug = defence_aug
 
+        self.tmp_dir = None
         if defence_aug > 0:
-            self.tmp_dir = TemporaryDirectory(".traces")
+            # With statement is unnecessary here as the tmp_dir will share
+            # its lifecykle w. the parent class and the TempDir class
+            # hadles the deletion, when garbage collected...?
+            self.tmp_dir = TemporaryDirectory(suffix=".traces", prefix=self.name)
 
         self.get_feature_shapes()
         self.report()
@@ -84,6 +88,9 @@ class WFDataset(Dataset):
 
         if self.defence_aug == 0:
             return self.defence(orig_trace_path)
+
+        if self.tmp_dir is None:
+            raise ValueError("Temporary directory not initialized")
 
         sub_idx = orig_idx % self.defence_aug
         tmp_trace_path = os.path.join(
