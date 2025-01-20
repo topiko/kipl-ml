@@ -36,14 +36,8 @@ class WFDataset(Dataset):
         self.feature_trs = feature_trs
 
         self.defence = defence or NoDefence(network_delay_millis=0)
-        self.defence_aug = defence_aug
-
         self.tmp_dir = None
-        if defence_aug > 0:
-            # With statement is unnecessary here as the tmp_dir will share
-            # its lifecykle w. the parent class and the TempDir class
-            # hadles the deletion, when garbage collected...?
-            self.tmp_dir = TemporaryDirectory(suffix=".traces", prefix=self.name)
+        self.defence_aug = defence_aug
 
         self.get_feature_shapes()
         self.report()
@@ -67,6 +61,25 @@ class WFDataset(Dataset):
         return str_
 
     @property
+    def defence_aug(self) -> int:
+        return self._defence_aug
+
+    @defence_aug.setter
+    def defence_aug(self, aug_factor: int) -> None:
+        if aug_factor < 0:
+            raise ValueError("Defence augmentation must be non-negative")
+
+        if not isinstance(aug_factor, int):
+            raise TypeError("Defence augmentation must be an integer")
+        if aug_factor > 0:
+            # With statement is unnecessary here as the tmp_dir will share
+            # its lifecykle w. the parent class and the TempDir class
+            # hadles the deletion, when garbage collected...?
+            self.tmp_dir = TemporaryDirectory(suffix=".traces", prefix=self.name)
+
+        self._defence_aug = aug_factor
+
+    @property
     def n_classes(self) -> int:
         return self.meta_df[assets.LABEL].nunique()
 
@@ -78,11 +91,15 @@ class WFDataset(Dataset):
         X = self._get_trace(0)
         self.feature_trs.get_shapes(X)
 
+    def _get_idx(self, idx: int) -> int:
+        if self.defence_aug == 0:
+            return idx
+
+        return idx // self.defence_aug
+
     def _get_trace(self, idx: int) -> dict[str, torch.Tensor]:
 
-        orig_idx = idx
-        if self.defence_aug > 0:
-            orig_idx = idx // self.defence_aug
+        orig_idx = self._get_idx(idx)
 
         orig_trace_path = Path(self.meta_df.iloc[orig_idx]["orig_path"])
 
@@ -108,9 +125,13 @@ class WFDataset(Dataset):
         return trace
 
     def _get_label(self, idx: int) -> torch.Tensor:
+        idx = self._get_idx(idx)
         return torch.tensor(self.meta_df.iloc[idx][assets.LABEL], dtype=torch.long)
 
     def __len__(self) -> int:
+        if self.defence_aug > 0:
+            return len(self.meta_df) * self.defence_aug
+
         return len(self.meta_df)
 
     def __getitem__(self, idx: int) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
