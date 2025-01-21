@@ -74,7 +74,10 @@ def main(cfg: DictConfig):
         feature_names = [FEAT_NAME_MAP[feat] for feat in model_config["feature_list"]]
 
     feature_trs = FeatureTrs(feature_names=feature_names, n_packets=n_packets)
-    netwk_delay = cfg.network.network_delay_millis
+    netwk_delay = (
+        cfg.network.network_delay_millis.min,
+        cfg.network.network_delay_millis.max,
+    )
 
     maybenot_config = dict(cfg.defences)
     maybenot_config["network_delay_millis"] = netwk_delay
@@ -209,7 +212,8 @@ def main(cfg: DictConfig):
                 "defence_augmentation": cfg.dataset.defence_augmentation,
                 "n_maybenot_machines": n_machines,
                 "max_padding_frac": cfg.defences.max_padding_frac,
-                "network_delay_millis": netwk_delay,
+                "network_delay_millis_min": netwk_delay[0],
+                "network_delay_millis_max": netwk_delay[1],
             }
         )
 

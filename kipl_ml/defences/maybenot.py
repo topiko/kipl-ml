@@ -1,11 +1,12 @@
 import os
+from collections.abc import Callable
 
 import kipl_ml.data.assets as assets
 import numpy as np
 import torch
 import yaml
 from kipl_ml.data.utils import parse_trace_to_tensor_dict
-from kipl_ml.defences.base import _Def
+from kipl_ml.defences.base import _Def, parse_netwk_delay_fun
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.trace.params import MAX_TRACE_LENGTH
 from rustbindings import sim_trace_from_file_advanced
@@ -34,7 +35,7 @@ class Maybenot(_Def):
     def __init__(
         self,
         deck_path: os.PathLike,
-        network_delay_millis: int,
+        network_delay_millis: int | tuple[int, int] | Callable[[], int],
         padding_frac_client: str = "random",
         padding_frac_server: str = "random",
         blocking_frac_client: str = "no-blocking",
@@ -46,7 +47,7 @@ class Maybenot(_Def):
         self.machines: list[dict[str, list[str]]] = load_machines(
             deck_path, machine_idxs
         )
-        self.network_delay_millis: np.uint64 = np.uint64(network_delay_millis)
+        self.network_delay_millis = parse_netwk_delay_fun(network_delay_millis)
 
         if not all(f == "random" for f in (padding_frac_client, padding_frac_server)):
             raise ValueError("Only random padding is supported for now")
@@ -70,7 +71,7 @@ class Maybenot(_Def):
         str_ += f"\tserver: {len(self.machines[0]['server']):02d}\n"
         str_ += f"\tMax padding frac: {self.max_padding_frac}\n"
         str_ += f"\tMax blocking frac: {self.max_blocking_frac}\n"
-        str_ += f"\tNetwork delay: {self.network_delay_millis} ms\n"
+        str_ += f"\t{self.network_delay_millis}\n"
         return str_
 
     def _get_paddings(self) -> tuple[float, float]:
@@ -107,7 +108,7 @@ class Maybenot(_Def):
             str(trace_path),
             self.machines[machine_idx]["client"],
             self.machines[machine_idx]["server"],
-            self.network_delay_millis,
+            self.network_delay_millis(),
             max_padding_frac_client=max_padding_frac_client,
             max_padding_frac_server=max_padding_frac_server,
             max_blocking_frac_client=max_blocking_frac_client,

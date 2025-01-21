@@ -1,6 +1,8 @@
 import os
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 
+import numpy as np
 import torch
 from kipl_ml.data.utils import get_std_trace_dict, parse_trace_to_tensor_dict
 from kipl_ml.logging.logger import get_logger
@@ -11,7 +13,43 @@ from rustbindings import sim_trace_from_file_advanced
 logger = get_logger(__name__)
 
 
+def netwk_delay_fun(
+    min_delay: int, max_delay: int, way: str = "random"
+) -> Callable[[], int]:
+    def _cast_to_uint64(val: int) -> np.uint64:
+
+        return np.uint64(val)
+
+    class _Rand:
+        def __call__(self):
+            return _cast_to_uint64(np.random.randint(min_delay, max_delay + 1))
+
+        def __str__(self):
+            return f"Netwk delay fun: random [{min_delay}, {max_delay}]ms."
+
+    if way == "random":
+        return _Rand()
+
+    raise NotImplementedError(f"Way {way} not implemented")
+
+
+def parse_netwk_delay_fun(
+    netwk_delay_millis: int | tuple[int, int] | Callable[[], int]
+) -> Callable[[], int]:
+    if isinstance(netwk_delay_millis, int):
+        return netwk_delay_fun(netwk_delay_millis, netwk_delay_millis)
+    if isinstance(netwk_delay_millis, tuple):
+        return netwk_delay_fun(*netwk_delay_millis)
+    if callable(netwk_delay_millis):
+        return netwk_delay_millis
+
+    raise TypeError(
+        f"Expected network_delay_millis to be int, tuple or callable, got: {type(netwk_delay_millis)}"
+    )
+
+
 class _Def(ABC):
+
     def _report(self, to_log: bool = True, **kwargs) -> str:
         str_ = f"{self.name}\n"
         for key, value in kwargs.items():
@@ -49,12 +87,13 @@ class _Def(ABC):
 
 class NoDefence(_Def):
 
-    def __init__(self, network_delay_millis: int):
-        self.network_delay_millis = network_delay_millis
+    def __init__(self, network_delay_millis: int | tuple[int, int] | Callable[[], int]):
+
+        self.network_delay_millis = parse_netwk_delay_fun(network_delay_millis)
 
     def report(self, to_log: bool = True) -> str:
         str_ = "No defence applied\n"
-        str_ += f"\tNetwork delay [ms]: {self.network_delay_millis}\n"
+        str_ += f"\t{self.network_delay_millis}\n"
         if to_log:
             logger.info(str_)
         return str_
@@ -65,7 +104,7 @@ class NoDefence(_Def):
             str(trace_path),
             [],  # Empty machines --> no defence
             [],  # Empty machines --> no defence
-            self.network_delay_millis,
+            self.network_delay_millis(),
             max_padding_frac_client=0,
             max_padding_frac_server=0,
             max_blocking_frac_client=0,

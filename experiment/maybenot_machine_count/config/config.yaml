@@ -5,11 +5,10 @@ defaults:
   - model: df-multi
   - dataset: bigenough
   - train: default
+  - network: default
   - defences: maybenot
 mlflow:
-  experiment_name: "v2. laserbeak"
-network:
-  network_delay_millis: 100
+  experiment_name: "v3. laserbeak"
 load_base_model: False
 
 
