@@ -1,6 +1,5 @@
 #!/bin/bash
 
-max_padding_frac=0.5
 ntrain_traces=7000
 
 python main.py --config-name=config \
@@ -18,7 +17,6 @@ do
 		echo "Running with $nmachines machines"
 		python main.py --config-name=config \
 			defences.n_machines=$nmachines \
-			defences.max_padding_frac=$max_padding_frac \
 			dataset.n_train_traces=$ntrain_traces \
 			dataset.defence_augmentation=$defence_aug \
 			load_base_model=True
