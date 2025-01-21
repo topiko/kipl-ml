@@ -12,6 +12,7 @@ from kipl_ml.data.utils import parse_trace_to_tensor_dict
 from kipl_ml.defences.base import _Def, parse_netwk_delay_fun
 from kipl_ml.defences.maybenot import Deck, DeckStats
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.logging.utils import log_multiline
 from kipl_ml.trace.params import MAX_TRACE_LENGTH
 from rustbindings import sim_trace_from_file_advanced
 
@@ -44,7 +45,11 @@ class _FixedMachine(_Def):
 
     def report(self, to_log: bool = False) -> str:
         str_ = self.__class__.__name__ + "\n"
-        str_ += self.deck.report(to_log=to_log)
+        str_ += "\t" + self.deck.report(to_log=False)
+
+        if to_log:
+            log_multiline(str_)
+
         return str_
 
     def _simulate(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
