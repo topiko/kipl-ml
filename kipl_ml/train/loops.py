@@ -95,8 +95,8 @@ def train_model(
     patience: int = 2,
 ) -> nn.Module:
     logger.info("Training model...")
-    logger.info(key_val_fmt("model", model.name))
-    logger.info(key_val_fmt("dataset", train_loader.dataset.name))
+    logger.info(key_val_fmt("model", model.name, suffix=""))
+    logger.info(key_val_fmt("dataset", train_loader.dataset.name, suffix=""))
 
     early_stop_metric_str, best_early_stop_val = _get_val_and_metric_str(
         early_stop_metric
@@ -149,12 +149,13 @@ def train_model(
         logger.info("Valid metrics...")
         logger.info("Current epoch:")
         for k, v in metrics_vals.items():
-            logger.info(key_val_fmt(k, f"{v:1.4f}"))
+            logger.info(key_val_fmt(k, f"{v:1.4f}", suffix=""))
         logger.info("Best:")
         logger.info(
             key_val_fmt(
                 early_stop_metric_str,
-                f"{best_early_stop_val:1.4f} at epoch {best_epoch: 03d}",
+                f"{best_early_stop_val:1.4f} at epoch {best_epoch:d} (/ {epoch:d})",
+                suffix="",
             )
         )
 
@@ -175,7 +176,7 @@ def train_model(
         else:
             pass
 
-        logger.info(key_val_fmt("Train loss", f"{train_loss:1.4f}"))
+        logger.info(key_val_fmt("Train loss", f"{train_loss:1.4f}", suffix=""))
 
     if best_model_state is None:
         raise ValueError("No best model state found.")

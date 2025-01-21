@@ -6,7 +6,7 @@ import kipl_ml.data.assets as assets
 import mlflow
 import torch
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.logging.utils import key_val_fmt
+from kipl_ml.logging.utils import key_val_fmt, log_multiline
 from kipl_ml.trace.params import DOWNLOAD, UPLOAD
 from kipl_ml.trace.transforms import _TR
 from mlflow.models import set_model
@@ -475,11 +475,10 @@ class FeatureTrs:
         max_l = max(len(tr.name) for tr in self._feature_trs) + 3
         report = "Feature Transforms:\n"
         for tr in self._feature_trs:
-            report += key_val_fmt(tr.name, tr.output_sizes, key_len=max_l) + "\n"
+            report += key_val_fmt(tr.name, tr.output_sizes, key_len=max_l)
 
         if to_log:
-            for line in report.split("\n"):
-                logger.info(line)
+            log_multiline(report)
 
         return report
 

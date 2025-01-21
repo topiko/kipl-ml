@@ -6,20 +6,18 @@ import hydra
 import mlflow
 import numpy as np
 import torch
-from kipl_ml.data import assets
 from kipl_ml.data.wf_dataset import get_train_valid_test
 from kipl_ml.defences.base import NoDefence
-from kipl_ml.defences.maybenot import Maybenot
+from kipl_ml.defences.maybenot import Deck, DeckStats, Maybenot
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.logging.utils import get_mlflow_expr
-from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall, CrossEntropyLoss
+from kipl_ml.logging.utils import get_mlflow_expr, log_multiline
+from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.laserbeak import get_model, get_signature
 from kipl_ml.models.utils import get_laserbeak_model_config
 from kipl_ml.tools.mlflow_utils import log_dataset, log_hydra_conf
-from kipl_ml.trace.features import FEAT_NAME_MAP, Feats, FeatureTrs
+from kipl_ml.trace.features import FEAT_NAME_MAP, FeatureTrs
 from kipl_ml.train.loops import train_model
-from mlflow.data.pandas_dataset import PandasDataset
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 from torchtune.training.lr_schedulers import get_cosine_schedule_with_warmup
@@ -40,9 +38,6 @@ mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 BASE_MODEL_RUNEXPIDS = {
     "df-multi": ("2e0cde39e91c420992fedd4909c49889", "321789902449520941")
 }
-N_VALID = 1000
-N_TEST = 1000
-N_MACHINES_IN_DECK = 10_000
 
 
 def _fetch_base_model(model_name: str) -> torch.nn.Module:
@@ -56,6 +51,9 @@ def _fetch_base_model(model_name: str) -> torch.nn.Module:
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="test", version_base=None)
 def main(cfg: DictConfig):
+    logger.info("Starting run w. config:")
+    log_multiline(OmegaConf.to_yaml(cfg))
+
     dataset_name = cfg.dataset.name
     model_name = cfg.model.name
     n_packets = cfg.trace.n_packets
@@ -81,6 +79,7 @@ def main(cfg: DictConfig):
 
     maybenot_config = dict(cfg.defences)
     maybenot_config["network_delay_millis"] = netwk_delay
+    deck_path = maybenot_config.pop("deck_path")
     if maybenot_config.pop("name") != "maybenot":
         raise ValueError("Defence must be 'maybenot'")
 
@@ -89,10 +88,13 @@ def main(cfg: DictConfig):
         defence_valid_test = NoDefence(network_delay_millis=netwk_delay)
     else:
         rng = np.random.default_rng()
+
+        deck_stats = DeckStats.load(deck_path)
         machine_idxs = list(
-            rng.choice(N_MACHINES_IN_DECK, size=n_machines, replace=False)
+            rng.choice(deck_stats.n_machines, size=n_machines, replace=False)
         )
-        maybenot_config["machine_idxs"] = machine_idxs
+
+        maybenot_config["deck"] = Deck(deck_stats, machine_idxs)
 
         defence_train = Maybenot(**maybenot_config)
 
@@ -102,14 +104,10 @@ def main(cfg: DictConfig):
             )
 
             test_machines = list(
-                set(range(N_MACHINES_IN_DECK)).difference(set(machine_idxs))
+                set(range(deck_stats.n_machines)).difference(set(machine_idxs))
             )
-            if len(test_machines) < N_TEST:
-                raise ValueError(
-                    f"Number of test machines ({len(test_machines)}) must be greater than N_TEST ({N_TEST})"
-                )
 
-            maybenot_config["machine_idxs"] = test_machines
+            maybenot_config["deck"] = Deck(deck_stats, test_machines)
             defence_valid_test = Maybenot(**maybenot_config)
         else:
             defence_valid_test = defence_train

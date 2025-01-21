@@ -28,7 +28,7 @@ class WFDataset(Dataset):
     ) -> None:
 
         logger.info("Buidling dataset...")
-        logger.info(key_val_fmt("name", dataset))
+        logger.info(key_val_fmt("name", dataset, suffix=""))
 
         self.meta_df = meta_df
         self.name = dataset
@@ -43,10 +43,10 @@ class WFDataset(Dataset):
         self.report()
 
     def report(self, to_log: bool = True) -> str:
-        str_ = f"Dataset: {self.name}...\n"
-        str_ += key_val_fmt("n_traces", len(self)) + "\n"
-        str_ += key_val_fmt("n_classes", self.n_classes) + "\n"
-        str_ += key_val_fmt("defence augmentation", self.defence_aug) + "\n"
+        str_ = f"Dataset {self.name}:\n"
+        str_ += key_val_fmt("n_traces", len(self))
+        str_ += key_val_fmt("n_classes", self.n_classes)
+        str_ += key_val_fmt("defence augmentation", self.defence_aug)
         str_ += self.feature_trs.report(to_log=False)
         str_ += self.defence.report(to_log=False)
 
