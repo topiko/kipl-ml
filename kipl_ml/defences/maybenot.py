@@ -50,6 +50,7 @@ class DeckStats:
             n_server = len(machines[0]["server"])
 
             stats = DeckStats(n_machines, n_client, n_server, deck_path)
+
         return stats
 
     def save(self):

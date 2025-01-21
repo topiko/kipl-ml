@@ -30,6 +30,7 @@ In order to find these you need to set two paths in `.env` file.
 WF_DATA_DIR=/path/to/orig/data
 STD_FLOWS_DATA_DIR=/where/you/want/to/save
 MLFLOW_TRACKING_URI=http://127.0.0.1:8000
+MACHINATION=/PATH/TO/MAYBENOT-GEN/target/release/machination
 ```
 
 ### MLFlow:
