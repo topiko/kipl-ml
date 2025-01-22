@@ -9,3 +9,7 @@ ORIG_PACKETS: str = "orig_packets"
 TIMES_IDX: int = 0
 DIRS_IDX: int = 1
 SIZES_IDX: int = 2
+
+
+def XV_SPLIT(n_splits: int) -> str:
+    return f"xv_splits-{n_splits}"

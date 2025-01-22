@@ -59,6 +59,11 @@ def main(cfg: DictConfig):
     n_packets = cfg.trace.n_packets
     experiment_name = cfg.mlflow.experiment_name + "->" + model_name + " vs. maybenot"
 
+    # Set seeds
+    torch.manual_seed(cfg.seed)
+    torch.use_deterministic_algorithms(True)
+    np.random.seed(cfg.seed)
+
     model_config = get_laserbeak_model_config(model_name)
     if model_config.get("input_size"):
         logger.warning(

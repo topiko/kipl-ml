@@ -1,33 +1,60 @@
+from __future__ import annotations
+
 import os
+from itertools import product
+from pathlib import Path
 
 import kipl_ml.data.assets as assets
 import numpy as np
 import pandas as pd
 import torch
-from dotenv import load_dotenv
+from kipl_ml.config import PROJECT_ROOT
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.trace.params import MAX_TRACE_LENGTH
 from omegaconf import DictConfig
 from rustbindings import load_trace_to_numpy
+from sklearn.model_selection import StratifiedKFold
 
 logger = get_logger(__name__)
-load_dotenv()
 
-STD_FLOWS_DATA_DIR = os.getenv("STD_FLOWS_DATA_DIR")
 METADF_FNAME = "metadf.h5"
 
 
-def get_dataset_root(dataset: str) -> str:
-    return os.path.join(STD_FLOWS_DATA_DIR, dataset)
+def _xv_splits_fname(dataset: str, n_splits: int) -> Path:
+
+    path = get_dataset_root(dataset).joinpath(f"xv_splits-{n_splits}.csv")
+
+    return path
 
 
-def load_dataset_meta_df(dataset: str) -> pd.DataFrame:
+def get_dataset_root(dataset: str) -> Path:
+
+    return Path(os.path.join(PROJECT_ROOT, ".data", dataset))
+
+
+def load_dataset_meta_df(dataset: str, include_xv_cols: bool = True) -> pd.DataFrame:
     """
     Load metadata for dataset
     """
     meta_path = os.path.join(get_dataset_root(dataset), "metadf.h5")
-    logger.info(f"Loading metadata for {dataset} from {meta_path}...")
-    return pd.read_hdf(meta_path)
+    logger.info("Loading metadata for %s from %s...", dataset, meta_path)
+    try:
+        meta_df = pd.read_hdf(meta_path)
+    except FileNotFoundError as e:
+        err = f"Could not find metadata file? Have you ran: 'python kipl_ml/data/conversion.py --dataset {dataset}'."
+        logger.error(err)
+        raise FileNotFoundError(err) from e
+
+    if include_xv_cols:
+        for nxv in range(16):
+            try:
+                df_ = pd.read_csv(_xv_splits_fname(dataset, nxv), index_col=False)
+                meta_df = meta_df.merge(df_, on=assets.TRACE_ID)
+
+            except FileNotFoundError:
+                pass
+
+    return meta_df
 
 
 def get_std_trace_array(
@@ -88,6 +115,73 @@ def get_std_trace_dict(
     return parse_trace_to_tensor_dict(times, dirs, paddings, None)
 
 
+def generate_xv_splits(
+    dataset: str,
+    n_splits: int,
+    random_state: int = 42,
+    overlap_policy: str = "warn",
+):
+
+    logger.info("Generating %d splits for dataset %s...", n_splits, dataset)
+    meta_df = load_dataset_meta_df(dataset, include_xv_cols=False)
+    meta_df = meta_df.sort_values(assets.TRACE_ID).reset_index(drop=True)
+    n_labels = meta_df.loc[:, assets.LABEL].value_counts()
+
+    if n_labels.nunique() != 1:
+        logger.warning("Different number of items per class --> checks omitted!")
+    else:
+        n_items_per_class = n_labels.unique()[0]
+
+        if n_items_per_class % n_splits != 0:
+            err = "Number of items per class is not divisible by n_splits --> expect overlapping xv splits."
+            if overlap_policy == "raise":
+                raise ValueError(err)
+            if overlap_policy == "warn":
+                logger.warning(err)
+            else:
+                raise ValueError(f"Invalid overlap policy: {overlap_policy}")
+
+    xv_splits = []
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    for i, (idxs_train, idxs_test) in enumerate(
+        skf.split(
+            meta_df.loc[:, [assets.TRACE_ID, assets.LABEL]],
+            meta_df.loc[:, assets.LABEL],
+        )
+    ):
+        test_trace_ids = meta_df.loc[idxs_test, assets.TRACE_ID]
+        xv_splits.append(test_trace_ids.values)
+
+    # Verify the difference between all splits
+    for xv1, xv2 in product(xv_splits, xv_splits):
+        if xv1 is not xv2:
+            if len(set(xv1).intersection(set(xv2))) != 0:
+                raise ValueError("Overlapping xv splits!?")
+
+    fname = _xv_splits_fname(dataset, n_splits)
+
+    if not fname.parent.exists():
+        os.makedirs(fname.parent, exist_ok=False)
+
+    if os.path.isfile(fname):
+        logger.warning(
+            "%s xv split file: %s exists - exiting w.o. replace", dataset, fname
+        )
+        return
+
+    trace_ids = np.concatenate(xv_splits)
+    xv_split = np.concatenate(
+        [np.ones(len(split), dtype=int) * i for i, split in enumerate(xv_splits)]
+    )
+
+    pd.DataFrame(
+        data=np.vstack((trace_ids, xv_split)).T,
+        columns=[assets.TRACE_ID, assets.XV_SPLIT(n_splits)],
+        dtype=str,
+    ).sort_values(assets.TRACE_ID).to_csv(fname, index=False)
+    logger.info("Saved xv splits (%s) to %s", n_splits, fname)
+
+
 def preserve_class_frac_sample(
     meta_df: pd.DataFrame,
     n_samples: int,
@@ -120,3 +214,7 @@ def preserve_class_frac_sample(
         raise ValueError("Empty df")
 
     return sampled_meta_df
+
+
+if __name__ == "__main__":
+    _xv_splits_fname("bigenough", 5)

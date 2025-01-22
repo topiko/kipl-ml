@@ -10,6 +10,7 @@ defaults:
 mlflow:
   experiment_name: "v3. laserbeak"
 load_base_model: False
+seed: 42
 
 
 
