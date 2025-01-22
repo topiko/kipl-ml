@@ -27,8 +27,17 @@ def netwk_delay_fun(
         def __str__(self):
             return f"Netwk delay fun: random [{min_delay}, {max_delay}]ms."
 
+    class _Fixed:
+        def __call__(self):
+            return _cast_to_uint64(min_delay)
+
+        def __str__(self):
+            return f"Netwk delay fun: fixed {min_delay}ms."
+
     if way == "random":
         return _Rand()
+    if way == "fixed":
+        return _Fixed()
 
     raise NotImplementedError(f"Way {way} not implemented")
 
@@ -37,7 +46,7 @@ def parse_netwk_delay_fun(
     netwk_delay_millis: int | tuple[int, int] | Callable[[], int]
 ) -> Callable[[], int]:
     if isinstance(netwk_delay_millis, int):
-        return netwk_delay_fun(netwk_delay_millis, netwk_delay_millis)
+        return netwk_delay_fun(netwk_delay_millis, netwk_delay_millis, way="fixed")
     if isinstance(netwk_delay_millis, tuple):
         return netwk_delay_fun(*netwk_delay_millis)
     if callable(netwk_delay_millis):
