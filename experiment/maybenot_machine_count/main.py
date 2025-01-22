@@ -77,6 +77,14 @@ def main(cfg: DictConfig):
         feature_names = [FEAT_NAME_MAP[feat] for feat in model_config["feature_list"]]
 
     feature_trs = FeatureTrs(feature_names=feature_names, n_packets=n_packets)
+    ds_train, ds_valid, ds_test = get_train_valid_test(
+        dataset=dataset_name,
+        n_splits=cfg.dataset.n_splits,
+        test_xv=cfg.dataset.test_xv,
+        random_state=cfg.dataset.random_state,
+        feature_trs=feature_trs,
+    )
+
     netwk_delay = (
         cfg.network.network_delay_millis.min,
         cfg.network.network_delay_millis.max,
@@ -90,9 +98,10 @@ def main(cfg: DictConfig):
 
     if (n_machines := maybenot_config.pop("n_machines")) == 0:
         defence_train = NoDefence(network_delay_millis=netwk_delay)
-        defence_valid_test = NoDefence(network_delay_millis=netwk_delay)
+        defence_valid = defence_train
+        defence_test = defence_train
     else:
-        rng = np.random.default_rng()
+        rng = np.random.default_rng(seed=cfg.seed)
 
         deck_stats = DeckStats.load(deck_path)
         machine_idxs = list(
@@ -103,7 +112,7 @@ def main(cfg: DictConfig):
 
         defence_train = Maybenot(**maybenot_config)
 
-        if len(machine_idxs) > cfg.dataset.n_train_traces:
+        if len(machine_idxs) > ds_train.n_orig_traces:
             logger.info(
                 f"Number of machines ({len(machine_idxs)}) exceeds number of training traces ({cfg.dataset.n_train_traces}) --> consider as infinite machine limit."
             )
@@ -113,23 +122,15 @@ def main(cfg: DictConfig):
             )
 
             maybenot_config["deck"] = Deck(deck_stats, test_machines)
-            defence_valid_test = Maybenot(**maybenot_config)
+            defence_valid = Maybenot(**maybenot_config)
+            defence_test = Maybenot(**maybenot_config)
         else:
-            defence_valid_test = defence_train
+            defence_valid = defence_train
+            defence_test = defence_train
 
-    ds_train, ds_valid, ds_test = get_train_valid_test(
-        dataset=dataset_name,
-        n_samples=(
-            cfg.dataset.n_train_traces,
-            cfg.dataset.n_valid_traces,
-            cfg.dataset.n_test_traces,
-        ),
-        random_state=cfg.dataset.random_state,
-        defence_aug=cfg.dataset.defence_augmentation,
-        feature_trs=feature_trs,
-        defence_train=defence_train,
-        defence_valid_test=defence_valid_test,
-    )
+    ds_train.defence = defence_train
+    ds_valid.defence = defence_valid
+    ds_test.defence = defence_test
 
     build_model = True
     if cfg.load_base_model:
@@ -205,7 +206,7 @@ def main(cfg: DictConfig):
                 "n_packets": n_packets,
                 "model_name": model_name,
                 "dataset_name": dataset_name,
-                "n_train_traces": cfg.dataset.n_train_traces,
+                "n_train_traces": ds_train.n_orig_traces,
                 "batch_size": bs,
                 "patience": patience,
                 "early_stop_metric": early_stop_metric,

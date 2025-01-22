@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import atexit
 import os
 from pathlib import Path
@@ -59,6 +61,10 @@ class WFDataset(Dataset):
                 logger.info(tab + line)
 
         return str_
+
+    @property
+    def n_orig_traces(self) -> int:
+        return len(self.meta_df)
 
     @property
     def defence_aug(self) -> int:
@@ -147,53 +153,41 @@ class WFDataset(Dataset):
 
 def get_train_valid_test(
     dataset: str,
-    n_samples: int | tuple[int, int, int],
+    n_splits: int,
+    test_xv: int,
     random_state: int | None = None,
     defence_train: _Def | None = None,
-    defence_valid_test: _Def | None = None,
+    defence_valid: _Def | None = None,
+    defence_test: _Def | None = None,
     **kwargs,
 ) -> tuple[WFDataset, WFDataset, WFDataset]:
 
-    if isinstance(n_samples, int):
-        n_samples = (n_samples,) * 3
-
     meta_df = load_dataset_meta_df(dataset)
 
-    train_df = preserve_class_frac_sample(
-        meta_df, n_samples[0], random_state=random_state
+    col = assets.XV_SPLIT(n_splits)
+
+    if not col in meta_df.columns:
+        raise KeyError(
+            f"Column '{col}' not found in meta_df, you can generate xv splits with kipl_ml.data.utils.generate_xv_splits"
+        )
+
+    valid_xv = test_xv - 1 if test_xv > 0 else n_splits - 1
+    train_df = meta_df[~meta_df[col].isin((valid_xv, test_xv))].sample(
+        frac=1, random_state=random_state
     )
+    valid_df = meta_df[meta_df[col] == valid_xv]
+    test_df = meta_df[meta_df[col] == test_xv]
 
     train_ds = WFDataset(
         dataset=f"{dataset}-train", meta_df=train_df, defence=defence_train, **kwargs
     )
 
-    valid_mask = ~meta_df.loc[:, assets.TRACE_ID].isin(train_df.loc[:, assets.TRACE_ID])
-    meta_df = meta_df[valid_mask]
-
-    valid_df = preserve_class_frac_sample(
-        meta_df,
-        n_samples=n_samples[1],
-        random_state=random_state,
-        missing_classes="warn",
-    )
     valid_ds = WFDataset(
-        dataset=f"{dataset}-valid",
-        meta_df=valid_df,
-        defence=defence_valid_test,
-        **kwargs,
+        dataset=f"{dataset}-valid", meta_df=valid_df, defence=defence_valid, **kwargs
     )
 
-    test_mask = ~meta_df.loc[:, assets.TRACE_ID].isin(valid_df.loc[:, assets.TRACE_ID])
-    meta_df = meta_df[test_mask]
-
-    test_df = preserve_class_frac_sample(
-        meta_df,
-        n_samples=n_samples[2],
-        random_state=random_state,
-        missing_classes="warn",
-    )
     test_ds = WFDataset(
-        dataset=f"{dataset}-test", meta_df=test_df, defence=defence_valid_test, **kwargs
+        dataset=f"{dataset}-test", meta_df=test_df, defence=defence_test, **kwargs
     )
 
     return train_ds, valid_ds, test_ds

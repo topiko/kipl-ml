@@ -1,6 +1,5 @@
 name: "bigenough"
-n_train_traces: 15200
-n_valid_traces: 1900
-n_test_traces: 1900
+n_xv_splits: 10
+test_xv: 0
 random_state: 42
 defence_augmentation: 1
