@@ -1,0 +1,4 @@
+
+network_delay_millis:
+  min: 50
+  max: 500
