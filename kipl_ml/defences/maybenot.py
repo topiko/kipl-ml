@@ -158,7 +158,7 @@ class Maybenot(_Def):
     def report(self, to_log: bool = True) -> str:
         str_ = "Maybenot Defence:\n"
         str_ += "\t" + self.deck.report().replace("\n", "\n\t")
-        str_ += f"\tMax padding frac: {self.max_padding_frac}\n"
+        str_ += f"Max padding frac: {self.max_padding_frac}\n"
         str_ += f"\tMax blocking frac: {self.max_blocking_frac}\n"
         str_ += f"\t{self.network_delay_millis}\n"
 
