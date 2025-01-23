@@ -15,7 +15,10 @@ cd rustbindings
 maturin develop --release --uv
 ```
 
-Maturin builds the rustbindings...
+Maturin builds the rustbindings require running (only once when creating... these commands add necessary stuff to pyproject.toml..)
+
+`uv init --lib PACKAGE`
+`uv init --build-backend maturin example-ext`
 
 ### Data:
 
