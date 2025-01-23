@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 dependencies = []
 
 [tool.maturin]
-module-name = "rustbindings"
+# module-name = "src.rustbindings"
 python-packages = ["rustbindings"]
 python-source = "src"
 

@@ -1,5 +1,4 @@
-from rustbindings._core import hello_from_bin
 
 
 def hello() -> str:
-    return hello_from_bin()
+    print("Hello from src!")
