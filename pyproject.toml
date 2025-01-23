@@ -20,4 +20,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.workspace]
-members = ["kipl_ml"]
+members = ["kipl_ml", "src", "src"]
