@@ -1,5 +1,5 @@
 [project]
-name = "kipl-ml"
+name = "kipl-ml-lib"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
