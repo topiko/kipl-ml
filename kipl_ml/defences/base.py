@@ -48,6 +48,8 @@ def parse_netwk_delay_fun(
     if isinstance(netwk_delay_millis, int):
         return netwk_delay_fun(netwk_delay_millis, netwk_delay_millis, way="fixed")
     if isinstance(netwk_delay_millis, tuple):
+        if netwk_delay_millis[0] == netwk_delay_millis[1]:
+            return netwk_delay_fun(*netwk_delay_millis, way="fixed")
         return netwk_delay_fun(*netwk_delay_millis)
     if callable(netwk_delay_millis):
         return netwk_delay_millis
