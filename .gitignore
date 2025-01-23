@@ -13,3 +13,4 @@ mlartifacts/
 mlruns/
 misc/
 rustbindings/target/
+uv.lock
