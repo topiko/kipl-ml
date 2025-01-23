@@ -11,6 +11,7 @@ mlflow:
   experiment_name: "v4. laserbeak"
 load_base_model: False
 seed: 42
+test: False
 
 
 

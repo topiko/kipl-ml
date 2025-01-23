@@ -58,6 +58,7 @@ def main(cfg: DictConfig):
     model_name = cfg.model.name
     n_packets = cfg.trace.n_packets
     experiment_name = cfg.mlflow.experiment_name + "->" + model_name + " vs. maybenot"
+    test = cfg.test
 
     # Set seeds
     torch.manual_seed(cfg.seed)
@@ -128,9 +129,11 @@ def main(cfg: DictConfig):
             defence_valid = defence_train
             defence_test = defence_train
 
-    ds_train.defence = defence_train
-    ds_valid.defence = defence_valid
-    ds_test.defence = defence_test
+    for ds, def_ in zip(
+        (ds_train, ds_valid, ds_test), (defence_train, defence_valid, defence_test)
+    ):
+        ds.defence = def_
+        ds.report(to_log=True)
 
     build_model = True
     if cfg.load_base_model:

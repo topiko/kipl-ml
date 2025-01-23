@@ -42,7 +42,6 @@ class WFDataset(Dataset):
         self.defence_aug = defence_aug
 
         self.get_feature_shapes()
-        self.report()
 
     def report(self, to_log: bool = True) -> str:
         str_ = f"Dataset {self.name}:\n"

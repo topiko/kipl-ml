@@ -51,7 +51,6 @@ itsdangerous==2.2.0
 jedi==0.19.1
 Jinja2==3.1.4
 joblib==1.4.2
-kipl-ml==0.0
 kiwisolver==1.4.7
 lxml==5.3.0
 Mako==1.3.6
@@ -122,7 +121,6 @@ PyYAML==6.0.2
 regex==2024.11.6
 requests==2.32.3
 rsa==4.9
--e git+ssh://git@github.com/topiko/kipl-ml.git@f083d1b48e15d424a45ed3bd77d0807cd95fe09a#egg=rustbindings
 safetensors==0.4.5
 scikit-learn==1.5.2
 scipy==1.14.1
@@ -139,7 +137,6 @@ sympy==1.13.1
 tables==3.10.1
 threadpoolctl==3.5.0
 tiktoken==0.8.0
--e git+ssh://git@github.com/huggingface/pytorch-image-models.git@8b9b6824aebb5980ccaa0b5a9ea877bc29b444ea#egg=timm
 tomlkit==0.13.2
 torch==2.5.1
 torchao==0.6.1
