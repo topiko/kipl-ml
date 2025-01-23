@@ -9,10 +9,10 @@ authors = [
 requires-python = ">=3.12"
 dependencies = []
 
-#[tool.maturin]
-#module-name = "src.rustbindings"
-#python-packages = ["src"]
-#python-source = "src"
+[tool.maturin]
+module-name = "rustbindings"
+python-packages = ["rustbindings"]
+python-source = "src"
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
