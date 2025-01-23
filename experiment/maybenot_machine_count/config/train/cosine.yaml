@@ -1,5 +1,5 @@
-patience: 5
-batch_size: 64
+defaults:
+  - base
 lr: 0.002
 warmup_period: 10
 epochs: 50

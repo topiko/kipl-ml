@@ -4,7 +4,7 @@ defaults:
   - trace: medium
   - model: df-multi
   - dataset: bigenough
-  - train: default
+  - train: plateau
   - network: default
   - defences: maybenot
 mlflow:
