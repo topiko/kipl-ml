@@ -4,16 +4,18 @@ ML for WF.
 
 ### Setup:
 
-Create a virtual env:
-
-`virtualenv -p /your/python3.10 venv-kipl-ml`
-
-Then activate, install, and get the requirements from `requirements.txt`.
+Create a virtual env using [uv](https://docs.astral.sh/uv/):
 
 ```
-pip install -e .
-pip install -r requirements.txt
+uv init
+source .venv/bin/activate
+
+uv sync
+cd rustbindings
+maturin develop --release --uv
 ```
+
+Maturin builds the rustbindings...
 
 ### Data:
 
@@ -28,7 +30,6 @@ In order to find these you need to set two paths in `.env` file.
 .env
 
 WF_DATA_DIR=/path/to/orig/data
-STD_FLOWS_DATA_DIR=/where/you/want/to/save
 MLFLOW_TRACKING_URI=http://127.0.0.1:8000
 MACHINATION=/PATH/TO/MAYBENOT-GEN/target/release/machination
 ```
@@ -43,17 +44,16 @@ Run the mlflow server (note the env var from above):
 
 `git@github.com:notem/Laserbeak-WF-Classifier.git`
 
-Modify the venv activate script by adding:
+Unfortunately the above is hard to install so just add it into you pythonpath for now... e.g., modify the venv activate script by adding:
 
 `export PYTHONPATH="$PYTHONPATH:/PATH/TO/Laserbeak-WF-Classifier"`
 
-You also need to clone and install (for laserbeak to work):
+You also need:
 
 `git@github.com:huggingface/pytorch-image-models.git`
 
-### Maybenot bindings:
+however, thos come as depencies and do not require manual installation.
 
-`maturin develop --release`
 
 ### PyDeps for dep tracking:
 
