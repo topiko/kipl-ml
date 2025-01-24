@@ -1,7 +1,7 @@
 [project]
 name = "kipl-ml"
 version = "0.1.0"
-description = "Add your description here"
+description = "ML operations and utils for website fingerprinting an their defences."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -22,6 +22,7 @@ dependencies = [
     "torchtune>=0.5.0",
     "tqdm>=4.67.1",
 ]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
