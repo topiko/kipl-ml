@@ -12,7 +12,7 @@ from kipl_ml.config import PROJECT_ROOT
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.trace.params import MAX_TRACE_LENGTH
 from omegaconf import DictConfig
-from rustbindings import load_trace_to_numpy
+from mbnt import load_trace_to_numpy
 from sklearn.model_selection import StratifiedKFold
 
 logger = get_logger(__name__)

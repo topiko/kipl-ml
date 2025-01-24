@@ -13,7 +13,7 @@ from kipl_ml.defences.base import _Def, parse_netwk_delay_fun
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt, log_multiline
 from kipl_ml.trace.params import MAX_TRACE_LENGTH
-from rustbindings import sim_trace_from_file_advanced
+from mbnt import sim_trace_from_file_advanced
 
 logger = get_logger(__name__)
 

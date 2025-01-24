@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 from kipl_ml.defences.fixed_machines import _FixedMachine
 from kipl_ml.logging.logger import get_logger
-from rustbindings import sim_trace_from_file_advanced
+from mbnt import sim_trace_from_file_advanced
 
 logger = get_logger(__name__)
 

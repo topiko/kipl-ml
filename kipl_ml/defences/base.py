@@ -8,7 +8,7 @@ from kipl_ml.data.utils import get_std_trace_dict, parse_trace_to_tensor_dict
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.trace.params import MAX_TRACE_LENGTH
-from rustbindings import sim_trace_from_file_advanced
+from mbnt import sim_trace_from_file_advanced
 
 logger = get_logger(__name__)
 

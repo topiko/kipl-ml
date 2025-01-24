@@ -8,17 +8,16 @@ Create a virtual env using [uv](https://docs.astral.sh/uv/):
 
 ```
 uv init
-source .venv/bin/activate
-
 uv sync
-cd rustbindings
-maturin develop --release --uv
 ```
 
-Maturin builds the rustbindings require running (only once when creating... these commands add necessary stuff to pyproject.toml..)
+and then either use `uv run *` or `source .venv/bin/activate` to activate the venv.
 
+To expose a package from a lib use:
 `uv init --lib PACKAGE`
-`uv init --build-backend maturin example-ext`
+
+E.g. here:
+`uv init --lib kipl_ml`
 
 ### Data:
 
@@ -55,7 +54,7 @@ You also need:
 
 `git@github.com:huggingface/pytorch-image-models.git`
 
-however, thos come as depencies and do not require manual installation.
+however, those come as depencies and do not require manual installation.
 
 
 ### PyDeps for dep tracking:

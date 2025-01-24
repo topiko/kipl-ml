@@ -14,7 +14,7 @@ from kipl_ml.defences.maybenot import Deck, DeckStats
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
 from kipl_ml.trace.params import MAX_TRACE_LENGTH
-from rustbindings import sim_trace_from_file_advanced
+from mbnt import sim_trace_from_file_advanced
 
 dotenv.load_dotenv()
 
