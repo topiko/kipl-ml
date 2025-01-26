@@ -1,6 +1,5 @@
 import os
 
-import configs as lasereak_configs
 import dotenv
 import hydra
 import mlflow
@@ -36,7 +35,7 @@ mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 
 BASE_MODEL_RUNEXPIDS = {
-    "df-multi": ("ea48e29d82384fee9e0f24a0dc866ca4", "242657484642918121")
+    "df-multi": ("09fd713aebed4450a7ea43d492b00c3d", "581319079988312243")
 }
 
 
@@ -84,6 +83,7 @@ def main(cfg: DictConfig):
         test_xv=cfg.dataset.test_xv,
         random_state=cfg.dataset.random_state,
         feature_trs=feature_trs,
+        defence_aug=cfg.dataset.defence_augmentation,
     )
 
     netwk_delay = (
