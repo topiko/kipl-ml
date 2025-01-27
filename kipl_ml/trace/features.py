@@ -262,8 +262,6 @@ class IAT(_TR):
         iats = torch.zeros_like(trace[self.time_asset])
         if len(idxs) > 1:
             iats[idxs[1:]] = torch.diff(trace[self.time_asset][mask], dim=0)
-            # TODO: handle this better -- besides should this even be like so?
-            # iats[idxs[0]] = trace[self.time_asset][mask][0]
         return {self.name: iats}
 
 
