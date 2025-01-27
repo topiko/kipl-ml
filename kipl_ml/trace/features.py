@@ -1,15 +1,14 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from enum import StrEnum
 
-import kipl_ml.data.assets as assets
-import mlflow
 import torch
+from kipl_ml.data import assets
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt, log_multiline
 from kipl_ml.trace.params import DOWNLOAD, UPLOAD
 from kipl_ml.trace.transforms import _TR
-from mlflow.models import set_model
 
 logger = get_logger(__name__)
 
@@ -36,6 +35,7 @@ class Feats(StrEnum):
     DOWN_PACKETS: str = "down_packets"
     TIME_DIRS: str = f"{TIMES}_dirs"
     IAT_DIRS: str = f"{IATS}_dirs"
+    # FLOW_IAT_DIRS: str = f"flow_{IAT_DIRS}"
     IAT_DIRS_NORMALIZED: str = f"{IATS_NORMALIZED}_dirs"
     CUM_SIZES_MAX_NORMALIZED = f"max_normalized_{CUM_SIZES}"
     BURST_EDGES: str = "burst_edges"
@@ -44,7 +44,7 @@ class Feats(StrEnum):
     LOG_INV_FLOW_IATS: str = f"log_inv_{FLOW_IATS}"
     LOG_INV_FLOW_IATS_NORMALIZED: str = f"log_inv_{FLOW_IATS_NORMALIZED}"
     LOG_INV_FLOW_IATS_NORMALIZED_DIRS: str = f"log_inv_{FLOW_IATS_NORMALIZED}_dirs"
-    LOG_INV_FLOW_IAT_DIRS: str = f"log_inv_{IAT_DIRS}"
+    LOG_INV_FLOW_IAT_DIRS: str = f"{LOG_INV_FLOW_IATS}_dirs"
     RUNNING_RATE_SIZES: str = f"running_rate_{SIZES}"
     SIZE_DIRS: str = f"{SIZES}_dirs"
     CUM_SIZE_DIRS: str = f"cum_{SIZE_DIRS}"
@@ -58,11 +58,15 @@ class Feats(StrEnum):
 
 
 FEAT_NAME_MAP = {
+    "flow_iats": Feats.FLOW_IATS,
     "time_dirs": Feats.TIME_DIRS,
+    "size_dirs": Feats.SIZE_DIRS,
+    "cumul": Feats.CUM_SIZE_DIRS,
     "times_norm": Feats.TIMES_MAX_NORMALIZED,
     "cumul_norm": Feats.CUM_SIZE_DIRS_MAX_NORMALIZED,
     "iat_dirs": Feats.IAT_DIRS,
     "inv_iat_log_dirs": Feats.LOG_INV_FLOW_IAT_DIRS,
+    "inv_iat_logs": Feats.LOG_INV_FLOW_IATS,
     "running_rates": Feats.RUNNING_RATE_SIZES,
 }
 
@@ -202,7 +206,7 @@ class Normalize(_TR):
         return self
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        trace_ = trace[self.input_asset] - trace[self.input_asset].mean()
+        trace_ = trace[self.normalized_asset] - trace[self.normalized_asset].mean()
 
         if self.division == "std":
             if (div := trace_.std()) == 0:
@@ -258,6 +262,8 @@ class IAT(_TR):
         iats = torch.zeros_like(trace[self.time_asset])
         if len(idxs) > 1:
             iats[idxs[1:]] = torch.diff(trace[self.time_asset][mask], dim=0)
+            # TODO: handle this better -- besides should this even be like so?
+            # iats[idxs[0]] = trace[self.time_asset][mask][0]
         return {self.name: iats}
 
 
@@ -283,17 +289,25 @@ class TimeDirs(_DirWeight):
     NAME = "time_dirs"
 
     def __init__(self, dir_asset: str = Feats.DIRS, time_asset: str = Feats.TIMES):
-        super().__init__(dir_asset, time_asset)
+        super().__init__(dir_asset=dir_asset, w_asset=time_asset)
 
 
 class IATDirs(_DirWeight):
     NAME = "iat_dirs"
 
-    def __init__(self, dir_asset: str = Feats.DIRS, iat_asset: str = Feats.TIMES):
-        super().__init__(dir_asset, iat_asset)
+    def __init__(
+        self,
+        dir_asset: str = Feats.DIRS,
+        iat_asset: str = Feats.TIMES,
+        add_unit_to_weight: bool = True,
+    ):
+        super().__init__(dir_asset=dir_asset, w_asset=iat_asset)
+        self.add = 0.0
+        if add_unit_to_weight:
+            self.add = 1.0
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        trace[self.w_asset] = trace[self.w_asset] + 1.0
+        trace[self.w_asset] = trace[self.w_asset] + self.add
         return super().__call__(trace)
 
 
@@ -301,7 +315,7 @@ class SizeDirs(_DirWeight):
     NAME = "size_dirs"
 
     def __init__(self, dir_asset: str = Feats.DIRS, size_asset: str = Feats.SIZES):
-        super().__init__(dir_asset, size_asset)
+        super().__init__(dir_asset=dir_asset, w_asset=size_asset)
 
 
 class Cumulative(_TR):
@@ -415,13 +429,20 @@ class Compose(_TR):
     def name(self) -> str:
         return "pipe:" + "-->".join(tr.name for tr in self.transforms)
 
+    @property
+    def output(self) -> str:
+        return self.transforms[-1].name
+
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> Compose:
+
+        # Avoid inplace changes
+        _trace = deepcopy(trace)
         for tr in self.transforms:
-            tr.get_shapes(trace)
+            tr.get_shapes(_trace)
             if tr == self.transforms[-1]:
-                trace = tr(trace)
+                _trace = tr(_trace)
             else:
-                trace.update(tr(trace))
+                _trace.update(tr(_trace))
 
         self._output_sizes = tr.output_sizes
 
@@ -429,6 +450,7 @@ class Compose(_TR):
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
 
+        # Here inplace changes are fine?
         for tr in self.transforms:
             if tr == self.transforms[-1]:
                 trace = tr(trace)
@@ -645,7 +667,11 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                 IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 FlowIATS(),
                 LogInv(Feats.FLOW_IATS),
-                IATDirs(dir_asset=Feats.DIRS, iat_asset=Feats.LOG_INV_FLOW_IATS),
+                IATDirs(
+                    dir_asset=Feats.DIRS,
+                    iat_asset=Feats.LOG_INV_FLOW_IATS,
+                    add_unit_to_weight=False,
+                ),
             )
         case Feats.LOG_INV_FLOW_IATS_NORMALIZED_DIRS:
             return Compose(
@@ -661,6 +687,7 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                 IATDirs(
                     dir_asset=Feats.DIRS,
                     iat_asset=Feats.LOG_INV_FLOW_IATS_NORMALIZED,
+                    add_unit_to_weight=False,
                 ),
             )
         case Feats.RUNNING_RATE_SIZES:
@@ -676,7 +703,7 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
         case Feats.CUM_SIZE_DIRS:
             return Compose(
                 PadOrCutTrace(n_packets),
-                SizeDirs(dir_asset=Feats.DIRS, size_asset=Feats.CUM_SIZES),
+                SizeDirs(dir_asset=Feats.DIRS, size_asset=Feats.SIZES),
                 Cumulative(Feats.SIZE_DIRS),
             )
         case Feats.CUM_SIZE_DIRS_MAX_NORMALIZED:

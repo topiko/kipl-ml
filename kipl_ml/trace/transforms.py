@@ -16,12 +16,16 @@ class _TR(ABC):
     @property
     def output_sizes(self) -> dict[str, int]:
         if self._output_sizes is None:
-            raise ValueError("Output size not set. Need to call fit first.")
+            raise ValueError("Output size not set. Need to call 'get_shapes(X)' first.")
         return self._output_sizes
 
     @property
     def name(self) -> str:
         return self.NAME + f"_{self.asset}"
+
+    @property
+    def output(self) -> str:
+        return self.name
 
     @abstractmethod
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> _TR:

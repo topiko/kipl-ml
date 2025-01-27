@@ -63,11 +63,11 @@ def get_std_trace_array(
     """
     Load a standard trace array from a file
     The standard is given by:
-        - shape: (n_timesteps, n_features), where n_features = 3
-        - (n_timesteps, 0) = timestamp in [mus]  float32
-        - (n_timesteps, 1) = direction in {-1, 1} int8
-        - (n_timesteps, 2) = padding {True, False}] bool
 
+    return:
+        - times: np.ndarray[float32]
+        - dirs: np.ndarray[int8]
+        - paddings: np.ndarray[bool]
     """
 
     return load_trace_to_numpy(
