@@ -1,5 +1,4 @@
 import os
-import tempfile
 
 import dotenv
 import mlflow
@@ -54,8 +53,26 @@ def log_dataset(ds: WFDataset, store_cols: list[str]):
 
 def log_hydra_conf(cfg: OmegaConf):
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".yaml") as temp_file:
-        OmegaConf.save(config=cfg, f=temp_file.name)
-        temp_yaml_path = temp_file.name
+    d = OmegaConf.to_container(cfg, resolve=True)
+    mlflow.log_dict(d, artifact_file="hydra_config.json")
 
-    mlflow.log_artifact(temp_yaml_path, artifact_path="hydra_config")
+
+def load_hydra_conf(run_id: str) -> OmegaConf:
+    run = mlflow.get_run(run_id)
+
+    artifact_uri = run.info.artifact_uri
+
+    d = mlflow.artifacts.load_dict(artifact_uri + "/hydra_config.json")
+
+    return OmegaConf.create(d)
+
+
+def hydra_run_exists(experiment_name: str, cfg: OmegaConf) -> str | None:
+    runs = list_runs(experiment_name, only_finished=True)
+
+    for i, row in runs.iterrows():
+        d = load_hydra_conf(row["run_id"])
+        if OmegaConf.to_container(cfg) == d:
+            return row["run_id"]
+
+    return None

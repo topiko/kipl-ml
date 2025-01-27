@@ -14,7 +14,7 @@ from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.laserbeak import get_model, get_signature
 from kipl_ml.models.utils import get_laserbeak_model_config
-from kipl_ml.tools.mlflow_utils import log_dataset, log_hydra_conf
+from kipl_ml.tools.mlflow_utils import hydra_run_exists, log_dataset, log_hydra_conf
 from kipl_ml.trace.features import FEAT_NAME_MAP, FeatureTrs
 from kipl_ml.train.loops import train_model
 from omegaconf import DictConfig, OmegaConf
@@ -57,7 +57,10 @@ def main(cfg: DictConfig):
     model_name = cfg.model.name
     n_packets = cfg.trace.n_packets
     experiment_name = cfg.mlflow.experiment_name + "->" + model_name + " vs. maybenot"
-    test = cfg.test
+
+    if run_id := hydra_run_exists(experiment_name, cfg):
+        logger.info("Run ('%s') already exists and is finished for. Skipping.", run_id)
+        return
 
     # Set seeds
     torch.manual_seed(cfg.seed)

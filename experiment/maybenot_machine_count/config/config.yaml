@@ -8,7 +8,7 @@ defaults:
   - network: default
   - defences: maybenot
 mlflow:
-  experiment_name: "v4. laserbeak"
+  experiment_name: "v5. laserbeak"
 load_base_model: False
 seed: 42
 test: False
