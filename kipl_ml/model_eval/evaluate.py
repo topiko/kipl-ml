@@ -1,6 +1,8 @@
 from collections.abc import Callable
 
+import pandas as pd
 import torch
+from kipl_ml.data.assets import LABEL, PRED, PRED_CLS_PROB
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.metrics.clf_metrics import ClassMetric, GeneralMetric, PredType
 from torch import nn
@@ -10,23 +12,43 @@ from tqdm import tqdm
 logger = get_logger(__name__)
 
 
+def get_clf_df(model: nn.Module, dataloader: DataLoader) -> pd.DataFrame:
+
+    no_shuffle_dl = DataLoader(
+        dataloader.dataset, batch_size=dataloader.batch_size, shuffle=False
+    )
+
+    logits, y_true = run_inference(model, no_shuffle_dl)
+
+    pred_probs = torch.softmax(logits, dim=1)
+    pred_class = logits.argmax(dim=1)
+
+    df = dataloader.dataset.meta_df
+
+    df.loc[:, PRED] = pred_class.numpy()
+    df.loc[:, PRED_CLS_PROB] = pred_probs.numpy()
+    df.loc[:, LABEL] = y_true.numpy()
+
+    return df
+
+
 def run_inference(
     model: nn.Module, dataloader: DataLoader
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    logger.info(f"Run inference...")
+    logger.info("Run inference...")
     model.eval()
 
-    preds = []
+    logits = []
     labels = []
     with torch.no_grad():
         with tqdm(dataloader, ncols=TQDM_W) as pbar:
             for X, y in pbar:
-                preds.append(model(X))
+                logits.append(model(X))
                 labels.append(y)
 
-    pred_y_prob = torch.cat(preds)
+    logits = torch.cat(logits)
     y_true = torch.cat(labels)
-    return pred_y_prob, y_true
+    return logits, y_true
 
 
 def evaluate_model(
@@ -35,23 +57,23 @@ def evaluate_model(
     metrics: list[GeneralMetric | ClassMetric],
     loss_fn: Callable | None = None,
 ) -> dict[str, float | torch.Tensor]:
-    logger.info(f"Evaluate...")
+    logger.info("Evaluate...")
 
-    y_prob, y_true = run_inference(model, dataloader)
+    logits, y_true = run_inference(model, dataloader)
 
-    pred_class = y_prob.argmax(dim=1)
+    pred_class = logits.argmax(dim=1)
 
     metric_vals: dict[str, float | torch.Tensor] = {}
     for m in metrics:
         if m.PRED_TYPE == PredType.CLASSES:
             metric_vals[m.name] = m(y_pred=pred_class, y_true=y_true)
         elif m.PRED_TYPE == PredType.LOGITS:
-            metric_vals[m.name] = m(y_pred=y_prob, y_true=y_true)
+            metric_vals[m.name] = m(y_pred=logits, y_true=y_true)
         else:
             raise ValueError(f"Unknown prediction type {m.PRED_TYPE}")
 
     if loss_fn is not None:
-        loss = loss_fn(y_prob, y_true)
+        loss = loss_fn(logits, y_true)
         metric_vals["loss"] = loss.item()
 
     return metric_vals
