@@ -18,6 +18,7 @@ from kipl_ml.tools.mlflow_utils import hydra_run_exists, log_dataset, log_hydra_
 from kipl_ml.trace.features import FEAT_NAME_MAP, FeatureTrs
 from kipl_ml.train.loops import train_model
 from omegaconf import DictConfig, OmegaConf
+from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from torchtune.training.lr_schedulers import get_cosine_schedule_with_warmup
 
@@ -46,6 +47,30 @@ def _fetch_base_model(model_name: str) -> torch.nn.Module:
     run = mlflow.get_run(run_id)
 
     return mlflow.pytorch.load_model(run.info.artifact_uri + "/model")
+
+
+def _get_lr_scheduler(
+    cfg: OmegaConf, optimizer: torch.optim.Optimizer, dl: DataLoader
+) -> ReduceLROnPlateau | LambdaLR | None:
+
+    if cfg.train.scheduler == "cosine":
+        warmup_period = cfg.train.warmup_period
+        epochs = cfg.train.epochs
+        scheduler = get_cosine_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=len(dl) * warmup_period,
+            num_training_steps=len(dl) * epochs,
+            num_cycles=0.5,
+            last_epoch=-1,
+        )
+    elif cfg.train.scheduler == "plateau":
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", factor=0.3, patience=5
+        )
+    else:
+        scheduler = None
+
+    return scheduler
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="test", version_base=None)
@@ -171,24 +196,12 @@ def main(cfg: DictConfig):
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=cfg.train.lr, betas=opt_betas, weight_decay=opt_wd
     )
-    if cfg.train.scheduler == "cosine":
-        warmup_period = cfg.train.warmup_period
-        epochs = cfg.train.epochs
-        scheduler = get_cosine_schedule_with_warmup(
-            optimizer,
-            num_warmup_steps=len(train_loader) * warmup_period,
-            num_training_steps=len(train_loader) * epochs,
-            num_cycles=0.5,
-            last_epoch=-1,
-        )
-    elif cfg.train.scheduler == "plateau":
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.3, patience=5
-        )
-    else:
-        scheduler = None
 
-    loss_fn = torch.nn.CrossEntropyLoss()
+    lr_scheduler = _get_lr_scheduler(cfg, optimizer, train_loader)
+
+    loss_fn = torch.nn.CrossEntropyLoss(
+        reduction="mean", label_smoothing=cfg.train.label_smoothing
+    )
     metrics = [Accuracy(), ClassRecall(1)]
     early_stop_metric = "loss"
     patience = cfg.train.patience
@@ -236,7 +249,7 @@ def main(cfg: DictConfig):
             loss_fn=loss_fn,
             metrics=metrics,
             early_stop_metric=early_stop_metric,
-            lr_scheduler=scheduler,
+            lr_scheduler=lr_scheduler,
             patience=patience,
         )
 

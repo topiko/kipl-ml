@@ -2,6 +2,6 @@ defaults:
   - base
 lr: 0.002
 warmup_period: 10
-epochs: 50
+epochs: 30
 scheduler: cosine
 
