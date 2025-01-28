@@ -6,7 +6,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import ClassVar
 
+import pandas as pd
 import torch
+from kipl_ml.data.assets import LABEL, PRED
 from torch import nn
 
 
@@ -97,3 +99,11 @@ class ClassRecall(ClassMetric):
         y_pred_ = y_pred[mask]
 
         return _recall(y_pred_, y_true_)
+
+
+def metric_from_df(df: pd.DataFrame, metric: ClassMetric) -> float:
+
+    preds = torch.tensor(df.loc[:, PRED].values, dtype=torch.int64)
+    labels = torch.tensor(df.loc[:, LABEL].values, dtype=torch.int64)
+
+    return metric(preds, labels)

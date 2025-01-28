@@ -2,6 +2,8 @@ DIRS: str = "dirs"
 SIZES: str = "sizes"
 TIMES: str = "times"
 LABEL: str = "label"
+PRED: str = "pred"
+PRED_CLS_PROB: str = "prob"
 PADDING: str = "padding"
 TRACE_ID: str = "trace_id"
 
