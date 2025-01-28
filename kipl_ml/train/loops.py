@@ -102,11 +102,10 @@ def train_model(
         early_stop_metric
     )
 
-    if lr_scheduler is not None:
-        if not isinstance(lr_scheduler, (ReduceLROnPlateau, LambdaLR)):
-            raise ValueError(
-                f"Invalid lr_scheduler {lr_scheduler}, must be ReduceLROnPlateau or LambdaLR"
-            )
+    if lr_scheduler and not isinstance(lr_scheduler, (ReduceLROnPlateau, LambdaLR)):
+        raise ValueError(
+            f"Invalid lr_scheduler {lr_scheduler}, must be ReduceLROnPlateau or LambdaLR"
+        )
 
     epoch = 0
     best_epoch = 0
