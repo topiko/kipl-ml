@@ -70,9 +70,12 @@ def load_hydra_conf(run_id: str) -> OmegaConf:
 def hydra_run_exists(experiment_name: str, cfg: OmegaConf) -> str | None:
     runs = list_runs(experiment_name, only_finished=True)
 
-    for i, row in runs.iterrows():
-        d = load_hydra_conf(row["run_id"])
-        if OmegaConf.to_container(cfg) == d:
-            return row["run_id"]
+    logger.warning("run exists fun is broken")
 
     return None
+    # for i, row in runs.iterrows():
+    #     d = load_hydra_conf(row["run_id"])
+    #     if OmegaConf.to_container(cfg) == d:
+    #         return row["run_id"]
+
+    # return None

@@ -75,7 +75,7 @@ def _get_lr_scheduler(
 
 def _get_dl(ds: Dataset, bs: int, shuffle: bool = False) -> DataLoader:
     pin_memory = True
-    num_workers = 12
+    num_workers = 16
     return DataLoader(
         ds,
         batch_size=bs,
@@ -230,7 +230,7 @@ def main(cfg: DictConfig):
                 "model_name": model_name,
                 "dataset_name": dataset_name,
                 "n_train_traces": ds_train.n_orig_traces,
-                "batch_size": bs,
+                "batch_size": cfg.train.batch_size,
                 "patience": patience,
                 "early_stop_metric": early_stop_metric,
                 "data_random_state": cfg.dataset.random_state,
