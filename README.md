@@ -6,6 +6,8 @@ ML for WF.
 
 Create a virtual env using [uv](https://docs.astral.sh/uv/):
 
+NOTE: you need [rust](https://www.rust-lang.org/tools/install)!
+
 ```
 uv init
 uv sync
