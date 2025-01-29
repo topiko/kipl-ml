@@ -7,6 +7,7 @@ from copy import deepcopy
 
 import mlflow
 import torch
+from kipl_ml.data.wf_dataset import dict_to_device
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.metrics.clf_metrics import ClassMetric, GeneralMetric, Objective
@@ -68,10 +69,22 @@ def _one_epoch(
             f"Invalid scheduler {lr_scheduler}, must be ReduceLROnPlateau or LambdaLR"
         )
 
+    if torch.cuda.is_available():
+        logger.info("Found cuda device - training on it")
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
     model.train()
+    model.to(device)
+
     loss_val = 0
     with tqdm(dataloader, desc=f"epoch {n_epoch: 03d}", ncols=TQDM_W) as pbar:
         for X, y in pbar:
+
+            X = dict_to_device(X, device)
+            y = y.to(device)
+
             optimizer.zero_grad()
             output = model(X)
             loss = loss_fn(output, y)
@@ -86,7 +99,7 @@ def _one_epoch(
             else:
                 pass
 
-            lr=optimizer.param_groups[0]["lr"]
+            lr = optimizer.param_groups[0]["lr"]
             pbar.set_postfix({"loss": f"{loss.item():1.4f}", "lr": f"{lr:1.4e}"})
             # TODO: do this prpoerly, the last batch is smaller than the rest
             # however that effect should be insignificant.
@@ -94,6 +107,7 @@ def _one_epoch(
 
     loss_val /= len(dataloader.dataset)
 
+    model.to("cpu")
     return model, loss_val
 
 
@@ -115,7 +129,6 @@ def train_model(
     early_stop_metric_str, best_early_stop_val = _get_val_and_metric_str(
         early_stop_metric
     )
-
 
     epoch = 0
     best_epoch = 0
@@ -177,7 +190,6 @@ def train_model(
             model, train_loader, optimizer, loss_fn, lr_scheduler, n_epoch=epoch
         )
         mlflow.log_metric("train_loss", train_loss, step=epoch)
-
 
         logger.info(key_val_fmt("Train loss", f"{train_loss:1.4f}", suffix=""))
 

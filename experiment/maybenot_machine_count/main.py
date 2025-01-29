@@ -89,7 +89,7 @@ def main(cfg: DictConfig):
 
     # Set seeds
     torch.manual_seed(cfg.seed)
-    torch.use_deterministic_algorithms(True)
+    # torch.use_deterministic_algorithms(True)
     np.random.seed(cfg.seed)
 
     model_config = get_laserbeak_model_config(model_name)

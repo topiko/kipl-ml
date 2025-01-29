@@ -1,19 +1,17 @@
 from __future__ import annotations
 
-import atexit
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-import kipl_ml.data.assets as assets
+from kipl_ml.data import assets
 import pandas as pd
 import torch
-from kipl_ml.data.utils import load_dataset_meta_df, preserve_class_frac_sample
+from kipl_ml.data.utils import load_dataset_meta_df
 from kipl_ml.defences.base import NoDefence, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.trace.features import FeatureTrs
-from kipl_ml.trace.transforms import _TR
 from torch.utils.data import Dataset
 
 logger = get_logger(__name__)
@@ -150,6 +148,12 @@ class WFDataset(Dataset):
         return trace_dict, label
 
 
+def dict_to_device(
+    X: dict[str, torch.tensor], device: torch.DeviceObjType
+) -> dict[str, torch.tensor]:
+    return {k: v.to(device) for k, v in X.items()}
+
+
 def get_train_valid_test(
     dataset: str,
     n_splits: int,
@@ -165,7 +169,7 @@ def get_train_valid_test(
 
     col = assets.XV_SPLIT(n_splits)
 
-    if not col in meta_df.columns:
+    if col not in meta_df.columns:
         raise KeyError(
             f"Column '{col}' not found in meta_df, you can generate xv splits with kipl_ml.data.utils.generate_xv_splits"
         )
