@@ -9,7 +9,7 @@ from kipl_ml.data.wf_dataset import get_train_valid_test
 from kipl_ml.defences.base import NoDefence
 from kipl_ml.defences.maybenot import Deck, DeckStats, Maybenot
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.logging.utils import get_mlflow_expr, log_multiline
+from kipl_ml.logging.utils import get_mlflow_expr, key_val_fmt, log_multiline
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.laserbeak import get_model, get_signature
@@ -19,7 +19,7 @@ from kipl_ml.trace.features import FEAT_NAME_MAP, FeatureTrs
 from kipl_ml.train.loops import train_model
 from omegaconf import DictConfig, OmegaConf
 from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchtune.training.lr_schedulers import get_cosine_schedule_with_warmup
 
 logger = get_logger(__name__)
@@ -71,6 +71,18 @@ def _get_lr_scheduler(
         scheduler = None
 
     return scheduler
+
+
+def _get_dl(ds: Dataset, bs: int, shuffle: bool = False) -> DataLoader:
+    pin_memory = True
+    num_workers = 12
+    return DataLoader(
+        ds,
+        batch_size=bs,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    )
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="test", version_base=None)
@@ -179,17 +191,9 @@ def main(cfg: DictConfig):
             model_config=model_config,
         )
 
-    bs = cfg.train.batch_size
-    num_workers = 4
-    train_loader = DataLoader(
-        ds_train, batch_size=bs, shuffle=True, num_workers=num_workers
-    )
-    valid_loader = DataLoader(
-        ds_valid, batch_size=bs, shuffle=False, num_workers=num_workers
-    )
-    test_loader = DataLoader(
-        ds_test, batch_size=bs, shuffle=False, num_workers=num_workers
-    )
+    train_loader = _get_dl(ds_train, cfg.train.batch_size, True)
+    valid_loader = _get_dl(ds_valid, 128)
+    test_loader = _get_dl(ds_test, 128)
 
     opt_betas = (0.9, 0.999)
     opt_wd = 0.001
@@ -260,6 +264,8 @@ def main(cfg: DictConfig):
             loss_fn=loss_fn,
             metrics=metrics,
         )
+        for k, v in metrics_vals.items():
+            logger.info(key_val_fmt(k, f"{v:1.4f}", suffix=""))
         metrics_vals = {f"test_{k}": v for k, v in metrics_vals.items()}
         mlflow.log_metrics(metrics_vals, step=None)
 

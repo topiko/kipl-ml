@@ -63,7 +63,7 @@ def evaluate_model(
     metrics: list[GeneralMetric | ClassMetric],
     loss_fn: Callable | None = None,
 ) -> dict[str, float | torch.Tensor]:
-    logger.info("Evaluate...")
+    logger.info(f"Evaluate... {dataloader.dataset.name}")
 
     logits, y_true = run_inference(model, dataloader)
 
