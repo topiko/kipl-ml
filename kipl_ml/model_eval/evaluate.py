@@ -3,8 +3,10 @@ from collections.abc import Callable
 import pandas as pd
 import torch
 from kipl_ml.data.assets import LABEL, PRED, PRED_CLS_PROB
+from kipl_ml.data.wf_dataset import dict_to_device
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.metrics.clf_metrics import ClassMetric, GeneralMetric, PredType
+from kipl_ml.tools.cuda_tools import get_device
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -37,17 +39,21 @@ def run_inference(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     logger.info("Run inference...")
     model.eval()
+    model.to(get_device())
 
     logits = []
     labels = []
     with torch.no_grad():
         with tqdm(dataloader, ncols=TQDM_W) as pbar:
             for X, y in pbar:
-                logits.append(model(X))
+                X_ = dict_to_device(X, get_device())
+                logits.append(model(X_).to("cpu"))
                 labels.append(y)
 
     logits = torch.cat(logits)
     y_true = torch.cat(labels)
+
+    model.to("cpu")
     return logits, y_true
 
 

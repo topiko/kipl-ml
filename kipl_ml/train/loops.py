@@ -12,6 +12,7 @@ from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.metrics.clf_metrics import ClassMetric, GeneralMetric, Objective
 from kipl_ml.model_eval.evaluate import evaluate_model
+from kipl_ml.tools.cuda_tools import get_device
 from torch import nn
 from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
 from tqdm import tqdm
@@ -69,25 +70,19 @@ def _one_epoch(
             f"Invalid scheduler {lr_scheduler}, must be ReduceLROnPlateau or LambdaLR"
         )
 
-    if torch.cuda.is_available():
-        logger.info("Found cuda device - training on it")
-        device = torch.device("cuda")
-    else:
-        device = torch.device("cpu")
-
     model.train()
-    model.to(device)
+    model.to(get_device())
 
     loss_val = 0
     with tqdm(dataloader, desc=f"epoch {n_epoch: 03d}", ncols=TQDM_W) as pbar:
         for X, y in pbar:
 
-            X = dict_to_device(X, device)
-            y = y.to(device)
+            X_ = dict_to_device(X, get_device())
+            y_ = y.to(get_device())
 
             optimizer.zero_grad()
-            output = model(X)
-            loss = loss_fn(output, y)
+            output = model(X_)
+            loss = loss_fn(output, y_)
 
             loss.backward()
             optimizer.step()
