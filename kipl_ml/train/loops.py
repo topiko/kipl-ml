@@ -42,6 +42,7 @@ def _one_epoch(
     dataloader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
     loss_fn: Callable,
+    lr_scheduler: ReduceLROnPlateau | LambdaLR | None = None,
     n_epoch: int = 0,
 ) -> tuple[nn.Module, float]:
     """
@@ -62,6 +63,11 @@ def _one_epoch(
 
     logger.info(f"Running epoch {n_epoch: 03d}...")
 
+    if lr_scheduler and not isinstance(lr_scheduler, (ReduceLROnPlateau, LambdaLR)):
+        raise ValueError(
+            f"Invalid scheduler {lr_scheduler}, must be ReduceLROnPlateau or LambdaLR"
+        )
+
     model.train()
     loss_val = 0
     with tqdm(dataloader, desc=f"epoch {n_epoch: 03d}", ncols=TQDM_W) as pbar:
@@ -73,7 +79,15 @@ def _one_epoch(
             loss.backward()
             optimizer.step()
 
-            pbar.set_postfix({"loss": f"{loss.item():1.4f}"})
+            if isinstance(lr_scheduler, ReduceLROnPlateau):
+                lr_scheduler.step(loss.item())
+            elif isinstance(lr_scheduler, LambdaLR):
+                lr_scheduler.step()
+            else:
+                pass
+
+            lr=optimizer.param_groups[0]["lr"]
+            pbar.set_postfix({"loss": f"{loss.item():1.4f}", "lr": f"{lr:1.4e}"})
             # TODO: do this prpoerly, the last batch is smaller than the rest
             # however that effect should be insignificant.
             loss_val += loss.item() * dataloader.batch_size
@@ -102,10 +116,6 @@ def train_model(
         early_stop_metric
     )
 
-    if lr_scheduler and not isinstance(lr_scheduler, (ReduceLROnPlateau, LambdaLR)):
-        raise ValueError(
-            f"Invalid lr_scheduler {lr_scheduler}, must be ReduceLROnPlateau or LambdaLR"
-        )
 
     epoch = 0
     best_epoch = 0
@@ -164,16 +174,10 @@ def train_model(
 
         epoch += 1
         model, train_loss = _one_epoch(
-            model, train_loader, optimizer, loss_fn, n_epoch=epoch
+            model, train_loader, optimizer, loss_fn, lr_scheduler, n_epoch=epoch
         )
         mlflow.log_metric("train_loss", train_loss, step=epoch)
 
-        if isinstance(lr_scheduler, ReduceLROnPlateau):
-            lr_scheduler.step(metrics_vals["loss"])
-        elif isinstance(lr_scheduler, LambdaLR):
-            lr_scheduler.step()
-        else:
-            pass
 
         logger.info(key_val_fmt("Train loss", f"{train_loss:1.4f}", suffix=""))
 

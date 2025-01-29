@@ -50,7 +50,7 @@ def _fetch_base_model(model_name: str) -> torch.nn.Module:
 
 
 def _get_lr_scheduler(
-    cfg: OmegaConf, optimizer: torch.optim.Optimizer, dl: DataLoader
+    cfg: OmegaConf, optimizer: torch.optim.Optimizer, train_loader: DataLoader
 ) -> ReduceLROnPlateau | LambdaLR | None:
 
     if cfg.train.scheduler == "cosine":
@@ -58,14 +58,14 @@ def _get_lr_scheduler(
         epochs = cfg.train.epochs
         scheduler = get_cosine_schedule_with_warmup(
             optimizer,
-            num_warmup_steps=len(dl) * warmup_period,
-            num_training_steps=len(dl) * epochs,
+            num_warmup_steps=len(train_loader) * warmup_period,
+            num_training_steps=len(train_loader) * epochs,
             num_cycles=0.5,
             last_epoch=-1,
         )
     elif cfg.train.scheduler == "plateau":
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.3, patience=5
+            optimizer, mode="min", factor=0.2, patience=3 * len(train_loader)
         )
     else:
         scheduler = None
