@@ -4,9 +4,9 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from kipl_ml.data import assets
 import pandas as pd
 import torch
+from kipl_ml.data import assets
 from kipl_ml.data.utils import load_dataset_meta_df
 from kipl_ml.defences.base import NoDefence, _Def
 from kipl_ml.logging.logger import get_logger
@@ -23,6 +23,7 @@ class WFDataset(Dataset):
         dataset: str,
         meta_df: pd.DataFrame,
         feature_trs: FeatureTrs,
+        label: str = assets.PAGE_LABEL,
         defence: _Def | None = None,
         defence_aug: int = 0,
     ) -> None:
@@ -32,6 +33,7 @@ class WFDataset(Dataset):
 
         self.meta_df = meta_df
         self.name = dataset
+        self.label = label
 
         self.feature_trs = feature_trs
 
@@ -42,7 +44,7 @@ class WFDataset(Dataset):
         self.get_feature_shapes()
 
     def report(self, to_log: bool = True) -> str:
-        str_ = f"Dataset {self.name}:\n"
+        str_ = f"Dataset {self.name} w. {self.label}s:\n"
         str_ += key_val_fmt("n_traces", len(self))
         str_ += key_val_fmt("n_classes", self.n_classes)
         str_ += key_val_fmt("defence augmentation", self.defence_aug)
@@ -84,7 +86,7 @@ class WFDataset(Dataset):
 
     @property
     def n_classes(self) -> int:
-        return self.meta_df[assets.PAGE_LABEL].nunique()
+        return self.meta_df[self.label].nunique()
 
     @property
     def output_sizes(self) -> dict[str, int]:
@@ -129,7 +131,7 @@ class WFDataset(Dataset):
 
     def _get_label(self, idx: int) -> torch.Tensor:
         idx = self._get_idx(idx)
-        return torch.tensor(self.meta_df.iloc[idx][assets.PAGE_LABEL], dtype=torch.long)
+        return torch.tensor(self.meta_df.iloc[idx][self.label], dtype=torch.long)
 
     def __len__(self) -> int:
         if self.defence_aug > 0:
@@ -156,6 +158,7 @@ def dict_to_device(
 
 def get_train_valid_test(
     dataset: str,
+    label: str,
     n_splits: int,
     test_xv: int,
     random_state: int | None = None,
@@ -167,7 +170,7 @@ def get_train_valid_test(
 
     meta_df = load_dataset_meta_df(dataset)
 
-    col = assets.XV_SPLIT(n_splits)
+    col = assets.XV_SPLIT(n_splits, label)
 
     if col not in meta_df.columns:
         raise KeyError(
@@ -182,15 +185,27 @@ def get_train_valid_test(
     test_df = meta_df[meta_df[col] == test_xv]
 
     train_ds = WFDataset(
-        dataset=f"{dataset}-train", meta_df=train_df, defence=defence_train, **kwargs
+        dataset=f"{dataset}-train",
+        label=label,
+        meta_df=train_df,
+        defence=defence_train,
+        **kwargs,
     )
 
     valid_ds = WFDataset(
-        dataset=f"{dataset}-valid", meta_df=valid_df, defence=defence_valid, **kwargs
+        dataset=f"{dataset}-valid",
+        label=label,
+        meta_df=valid_df,
+        defence=defence_valid,
+        **kwargs,
     )
 
     test_ds = WFDataset(
-        dataset=f"{dataset}-test", meta_df=test_df, defence=defence_test, **kwargs
+        dataset=f"{dataset}-test",
+        label=label,
+        meta_df=test_df,
+        defence=defence_test,
+        **kwargs,
     )
 
     return train_ds, valid_ds, test_ds

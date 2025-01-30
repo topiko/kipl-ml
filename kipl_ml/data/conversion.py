@@ -31,7 +31,9 @@ def _load_pickle_data(data_path: str) -> dict[int, list[list[np.ndarray | list]]
 
 def _data_to_meta_row(
     data: np.ndarray,
-    label: int,
+    page_label: int,
+    sub_page_label: int,
+    sample_id: int,
     path: os.PathLike,
     orig_path: str,
     dataset: str,
@@ -62,11 +64,13 @@ def _data_to_meta_row(
     row_df = (
         pd.Series(
             {
-                assets.PAGE_LABEL: label,
+                assets.PAGE_LABEL: page_label,
+                assets.SUB_PAGE_LABEL: sub_page_label,
                 "dataset": dataset,
                 "n_packets": _n_packets("up") + _n_packets("down"),
                 "time [ns]": _time(),
-                "trace_id": trace_id,
+                assets.TRACE_ID: trace_id,
+                assets.SAMPLE_ID: sample_id,
                 "n_packets_up": _n_packets("up"),
                 "n_packets_down": _n_packets("down"),
                 "path": str(path),
@@ -77,9 +81,11 @@ def _data_to_meta_row(
         .T.astype(
             {
                 assets.PAGE_LABEL: int,
+                assets.SUB_PAGE_LABEL: int,
                 "n_packets": int,
                 "time [ns]": float,
-                "trace_id": str,
+                assets.TRACE_ID: str,
+                assets.SAMPLE_ID: int,
                 "path": str,
                 "orig_path": str,
                 "dataset": str,
@@ -100,63 +106,6 @@ def _save_meta_df(seq_rows: list[pd.DataFrame], dataset: str):
     pd.concat(seq_rows, axis=0).reset_index(drop=True).to_hdf(path, key="metadf")
 
 
-def _save_ts5_to_standard(save_np: bool = True):
-    """
-    Convert data to standard format [seq_len, n_features], where features:
-        - 0: t = time
-        - 1: x = direction
-        - 2: s = size
-    """
-
-    def save(raw_data: dict[int, list[list[np.ndarray | list]]], dataset: str):
-
-        seq_rows = []
-        L = 0
-        for label, multisample in raw_data.items():
-            for i, sample in enumerate(multisample):
-                for j, seq in enumerate(sample):
-                    if isinstance(seq, list):
-                        seq = np.array(seq)
-
-                    logger.info(f"Processing label {label}...")
-                    times = np.abs(seq)
-                    raise NotImplementedError("Check the direction!")
-                    dirs = np.sign(seq)
-                    sizes = np.ones_like(seq)
-
-                    # Check kipl_ml.data.assets for the indices!
-                    dat = np.vstack([times, dirs, sizes]).T
-
-                    key = f"ms={i:04d}|seq={j:04d}"
-                    fname = f"{key}.npy"
-                    path_ = os.path.join(
-                        get_dataset_root(dataset), f"{label:03d}", fname
-                    )
-                    dir_ = os.path.dirname(path_)
-                    if not os.path.exists(dir_):
-                        os.makedirs(dir_)
-
-                    row = _data_to_meta_row(dat, label, path_, dataset, key)
-                    seq_rows.append(row)
-
-                    if len(dat) == 0:
-                        logger.warning(f"Empty sequence: {path_}")
-                        continue
-
-                    if save_np:
-                        np.save(path_, dat)
-                    L += 1
-
-        _save_meta_df(seq_rows, dataset)
-
-    raw_monit = _load_pickle_data(os.path.join(DATA_DIR, "ts5", "ts5-mon.pkl"))
-    save(raw_monit, dataset="ts5-monitored")
-
-    # raw_unmonit = _load_pickle_data(os.path.join(DATA_DIR, "ts5", "ts5-unm.pkl"))
-    # raw_unmonit = {-1: raw_unmonit}
-    # save(raw_unmonit, dataset="ts5-unmonitored")
-
-
 def _save_big_enough_to_standard(save_np: bool = True):
     """
     Convert data to standard format [seq_len, n_features], where features:
@@ -172,13 +121,17 @@ def _save_big_enough_to_standard(save_np: bool = True):
         return row.split(",")[idx]
 
     trace_dfs = []
-    for dir_ in os.listdir(root):
+    cur_max_subpage_label = 0
+    for dir_ in sorted(os.listdir(root), key=int):
         if not os.path.isdir(os.path.join(root, dir_)):
             continue
 
-        label = int(dir_)
+        page_label = int(dir_)
         trace_dir = os.path.join(root, dir_)
-        for log_f in os.listdir(trace_dir):
+        sub_pages = []
+        for log_f in sorted(
+            os.listdir(trace_dir), key=lambda x: [int(v) for v in x.split(",")[:-1]]
+        ):
             if not log_f.endswith(".log"):
                 logger.warning("Skipping %s", log_f)
             orig_path_ = os.path.join(trace_dir, log_f)
@@ -196,16 +149,27 @@ def _save_big_enough_to_standard(save_np: bool = True):
 
             # Check kipl_ml.data.assets for the indices!
             trace = np.vstack([times, dirs, sizes]).T
-            log_f = log_f.replace(".log", "")
-            path_ = get_dataset_root(BIGENOUGH).joinpath(f"{label:04d}", f"{log_f}.npy")
+            log_f_ = log_f.replace(".log", "")
+            path_ = get_dataset_root(BIGENOUGH).joinpath(
+                f"{page_label:04d}", f"{log_f_}.npy"
+            )
+
+            sub_page = int(log_f_.split("-")[1])
+            sub_page_label = sub_page + page_label * 10
+            sample_id = int(log_f_.split("-")[2])
+
+            sub_pages.append(sub_page_label)
+            print(log_f_, page_label, sub_page_label)
 
             trace_df = _data_to_meta_row(
                 data=trace,
-                label=label,
+                page_label=page_label,
+                sub_page_label=sub_page_label,
+                sample_id=sample_id,
                 path=path_,
                 orig_path=orig_path_,
                 dataset=BIGENOUGH,
-                trace_id=log_f,
+                trace_id=log_f_,
             )
 
             if save_np:
@@ -215,6 +179,7 @@ def _save_big_enough_to_standard(save_np: bool = True):
                 np.save(path_, trace)
 
             trace_dfs.append(trace_df)
+        cur_max_subpage_label = max(sub_pages) + 1
 
     _save_meta_df(trace_dfs, BIGENOUGH)
 
@@ -228,9 +193,10 @@ if __name__ == "__main__":
 
     args = argparser.parse_args()
 
-    if args.dataset == "ts5":
-        _save_ts5_to_standard()
-    elif args.dataset == "bigenough":
+    if args.dataset == "bigenough":
         _save_big_enough_to_standard(save_np=args.save_np)
-        generate_xv_splits(args.dataset, 10)
-        generate_xv_splits(args.dataset, 5)
+
+        generate_xv_splits(args.dataset, n_splits=10, label_asset=assets.PAGE_LABEL)
+
+    else:
+        raise NotImplementedError("Only 'bigenough' exits atm.")

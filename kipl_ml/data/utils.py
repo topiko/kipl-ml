@@ -1,28 +1,25 @@
 from __future__ import annotations
 
 import os
-from itertools import product
 from pathlib import Path
 
-import kipl_ml.data.assets as assets
 import numpy as np
 import pandas as pd
 import torch
 from kipl_ml.config import PROJECT_ROOT
+from kipl_ml.data import assets
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.trace.params import MAX_TRACE_LENGTH
-from omegaconf import DictConfig
 from mbnt import load_trace_to_numpy
-from sklearn.model_selection import StratifiedKFold
 
 logger = get_logger(__name__)
 
 METADF_FNAME = "metadf.h5"
 
 
-def _xv_splits_fname(dataset: str, n_splits: int) -> Path:
+def _xv_splits_fname(dataset: str, n_splits: int, label_asset: str) -> Path:
 
-    path = get_dataset_root(dataset).joinpath(f"xv_splits-{n_splits}.csv")
+    path = get_dataset_root(dataset).joinpath(f"xv_splits-{n_splits}-{label_asset}.csv")
 
     return path
 
@@ -47,12 +44,16 @@ def load_dataset_meta_df(dataset: str, include_xv_cols: bool = True) -> pd.DataF
 
     if include_xv_cols:
         for nxv in range(16):
-            try:
-                df_ = pd.read_csv(_xv_splits_fname(dataset, nxv), index_col=False)
-                meta_df = meta_df.merge(df_, on=assets.TRACE_ID)
+            for label in (assets.PAGE_LABEL, assets.SUB_PAGE_LABEL):
+                try:
+                    df_ = pd.read_csv(
+                        _xv_splits_fname(dataset, nxv, label_asset=label),
+                        index_col=False,
+                    )
+                    meta_df = meta_df.merge(df_, on=assets.TRACE_ID)
 
-            except FileNotFoundError:
-                pass
+                except FileNotFoundError:
+                    pass
 
     return meta_df
 
@@ -118,14 +119,20 @@ def get_std_trace_dict(
 def generate_xv_splits(
     dataset: str,
     n_splits: int,
+    label_asset: str,
     random_state: int = 42,
     overlap_policy: str = "warn",
 ):
 
-    logger.info("Generating %d splits for dataset %s...", n_splits, dataset)
+    logger.info(
+        "Generating %d splits for dataset %s on label %s...",
+        n_splits,
+        dataset,
+        label_asset,
+    )
     meta_df = load_dataset_meta_df(dataset, include_xv_cols=False)
     meta_df = meta_df.sort_values(assets.TRACE_ID).reset_index(drop=True)
-    n_labels = meta_df.loc[:, assets.PAGE_LABEL].value_counts()
+    n_labels = meta_df.loc[:, label_asset].value_counts()
 
     if n_labels.nunique() != 1:
         logger.warning("Different number of items per class --> checks omitted!")
@@ -141,24 +148,16 @@ def generate_xv_splits(
             else:
                 raise ValueError(f"Invalid overlap policy: {overlap_policy}")
 
-    xv_splits = []
-    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-    for i, (idxs_train, idxs_test) in enumerate(
-        skf.split(
-            meta_df.loc[:, [assets.TRACE_ID, assets.PAGE_LABEL]],
-            meta_df.loc[:, assets.PAGE_LABEL],
-        )
-    ):
-        test_trace_ids = meta_df.loc[idxs_test, assets.TRACE_ID]
-        xv_splits.append(test_trace_ids.values)
+    if label_asset != assets.PAGE_LABEL:
+        raise NotImplementedError()
 
-    # Verify the difference between all splits
-    for xv1, xv2 in product(xv_splits, xv_splits):
-        if xv1 is not xv2:
-            if len(set(xv1).intersection(set(xv2))) != 0:
-                raise ValueError("Overlapping xv splits!?")
+    xv_col = assets.XV_SPLIT(n_splits, label_asset)
+    if n_splits == 10:
+        meta_df.loc[:, xv_col] = meta_df.loc[:, assets.SAMPLE_ID] // 2
+    else:
+        raise NotImplementedError()
 
-    fname = _xv_splits_fname(dataset, n_splits)
+    fname = _xv_splits_fname(dataset, n_splits, label_asset)
 
     if not fname.parent.exists():
         os.makedirs(fname.parent, exist_ok=False)
@@ -169,16 +168,9 @@ def generate_xv_splits(
         )
         return
 
-    trace_ids = np.concatenate(xv_splits)
-    xv_split = np.concatenate(
-        [np.ones(len(split), dtype=int) * i for i, split in enumerate(xv_splits)]
+    meta_df.loc[:, [assets.TRACE_ID, xv_col]].sort_values(assets.TRACE_ID).to_csv(
+        fname, index=False
     )
-
-    pd.DataFrame(
-        data=np.vstack((trace_ids, xv_split)).T,
-        columns=[assets.TRACE_ID, assets.XV_SPLIT(n_splits)],
-        dtype=str,
-    ).sort_values(assets.TRACE_ID).to_csv(fname, index=False)
     logger.info("Saved xv splits (%s) to %s", n_splits, fname)
 
 
