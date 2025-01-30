@@ -125,7 +125,7 @@ def generate_xv_splits(
     logger.info("Generating %d splits for dataset %s...", n_splits, dataset)
     meta_df = load_dataset_meta_df(dataset, include_xv_cols=False)
     meta_df = meta_df.sort_values(assets.TRACE_ID).reset_index(drop=True)
-    n_labels = meta_df.loc[:, assets.LABEL].value_counts()
+    n_labels = meta_df.loc[:, assets.PAGE_LABEL].value_counts()
 
     if n_labels.nunique() != 1:
         logger.warning("Different number of items per class --> checks omitted!")
@@ -145,8 +145,8 @@ def generate_xv_splits(
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     for i, (idxs_train, idxs_test) in enumerate(
         skf.split(
-            meta_df.loc[:, [assets.TRACE_ID, assets.LABEL]],
-            meta_df.loc[:, assets.LABEL],
+            meta_df.loc[:, [assets.TRACE_ID, assets.PAGE_LABEL]],
+            meta_df.loc[:, assets.PAGE_LABEL],
         )
     ):
         test_trace_ids = meta_df.loc[idxs_test, assets.TRACE_ID]
@@ -194,12 +194,12 @@ def preserve_class_frac_sample(
 
     frac = n_samples / len(meta_df)
     sampled_meta_df = (
-        meta_df.groupby(assets.LABEL)
+        meta_df.groupby(assets.PAGE_LABEL)
         .apply(lambda x: x.sample(frac=frac, random_state=random_state))
         .reset_index(drop=True)
     )
 
-    if set(meta_df[assets.LABEL]) != set(sampled_meta_df[assets.LABEL]):
+    if set(meta_df[assets.PAGE_LABEL]) != set(sampled_meta_df[assets.PAGE_LABEL]):
         msg = "Sampled meta_df does not contain all classes."
         if missing_classes == "raise":
             raise ValueError(msg)

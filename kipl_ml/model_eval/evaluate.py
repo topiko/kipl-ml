@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 import pandas as pd
 import torch
-from kipl_ml.data.assets import LABEL, PRED, PRED_CLS_PROB
+from kipl_ml.data.assets import PAGE_LABEL, PRED, PRED_CLS_PROB
 from kipl_ml.data.wf_dataset import dict_to_device
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.metrics.clf_metrics import ClassMetric, GeneralMetric, PredType
@@ -29,7 +29,7 @@ def get_clf_df(model: nn.Module, dataloader: DataLoader) -> pd.DataFrame:
 
     df.loc[:, PRED] = pred_class.numpy()
     df.loc[:, PRED_CLS_PROB] = pred_probs.numpy()
-    df.loc[:, LABEL] = y_true.numpy()
+    df.loc[:, PAGE_LABEL] = y_true.numpy()
 
     return df
 

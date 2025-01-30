@@ -8,7 +8,7 @@ from typing import ClassVar
 
 import pandas as pd
 import torch
-from kipl_ml.data.assets import LABEL, PRED
+from kipl_ml.data.assets import PAGE_LABEL, PRED
 from torch import nn
 
 
@@ -104,6 +104,6 @@ class ClassRecall(ClassMetric):
 def metric_from_df(df: pd.DataFrame, metric: ClassMetric) -> float:
 
     preds = torch.tensor(df.loc[:, PRED].values, dtype=torch.int64)
-    labels = torch.tensor(df.loc[:, LABEL].values, dtype=torch.int64)
+    labels = torch.tensor(df.loc[:, PAGE_LABEL].values, dtype=torch.int64)
 
     return metric(preds, labels)

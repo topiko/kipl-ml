@@ -2,10 +2,10 @@ import argparse
 import os
 import pickle as pkl
 
-import kipl_ml.data.assets as assets
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+from kipl_ml.data import assets
 from kipl_ml.data.utils import METADF_FNAME, generate_xv_splits, get_dataset_root
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.trace.params import DOWNLOAD, UPLOAD
@@ -62,7 +62,7 @@ def _data_to_meta_row(
     row_df = (
         pd.Series(
             {
-                assets.LABEL: label,
+                assets.PAGE_LABEL: label,
                 "dataset": dataset,
                 "n_packets": _n_packets("up") + _n_packets("down"),
                 "time [ns]": _time(),
@@ -76,7 +76,7 @@ def _data_to_meta_row(
         .to_frame()
         .T.astype(
             {
-                "label": int,
+                assets.PAGE_LABEL: int,
                 "n_packets": int,
                 "time [ns]": float,
                 "trace_id": str,

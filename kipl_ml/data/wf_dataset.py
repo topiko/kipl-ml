@@ -84,7 +84,7 @@ class WFDataset(Dataset):
 
     @property
     def n_classes(self) -> int:
-        return self.meta_df[assets.LABEL].nunique()
+        return self.meta_df[assets.PAGE_LABEL].nunique()
 
     @property
     def output_sizes(self) -> dict[str, int]:
@@ -129,7 +129,7 @@ class WFDataset(Dataset):
 
     def _get_label(self, idx: int) -> torch.Tensor:
         idx = self._get_idx(idx)
-        return torch.tensor(self.meta_df.iloc[idx][assets.LABEL], dtype=torch.long)
+        return torch.tensor(self.meta_df.iloc[idx][assets.PAGE_LABEL], dtype=torch.long)
 
     def __len__(self) -> int:
         if self.defence_aug > 0:
