@@ -41,12 +41,12 @@ def list_runs(
     return runs.reset_index(drop=True)
 
 
-def log_dataset(ds: WFDataset, store_cols: list[str]):
+def log_dataset(ds: WFDataset, store_cols: list[str], target: str):
 
     ds_ = mlflow.data.from_pandas(
         ds.meta_df.loc[:, store_cols],
         name=ds.name,
-        targets="label",
+        targets=target,
     )
     mlflow.log_input(dataset=ds_, context=f"{ds.name}_df.json")
 

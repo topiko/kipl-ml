@@ -1,7 +1,7 @@
 import json
 import os
 
-import configs as lasereak_configs
+import laserbeak.model_configs as lasereak_configs
 
 
 def count_parameters(model) -> str:

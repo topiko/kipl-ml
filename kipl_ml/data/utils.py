@@ -43,7 +43,7 @@ def load_dataset_meta_df(dataset: str, include_xv_cols: bool = True) -> pd.DataF
         raise FileNotFoundError(err) from e
 
     if include_xv_cols:
-        for nxv in range(16):
+        for nxv in range(12):
             for label in (assets.PAGE_LABEL, assets.SUB_PAGE_LABEL):
                 try:
                     df_ = pd.read_csv(
@@ -135,6 +135,9 @@ def generate_xv_splits(
     random_state: int = 42,
     overlap_policy: str = "warn",
 ):
+
+    if dataset != "bigenough":
+        raise ValueError("Everythin is now for be..")
 
     logger.info(
         "Generating %d splits for dataset %s on label %s...",

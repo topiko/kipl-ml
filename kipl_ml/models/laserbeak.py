@@ -8,9 +8,10 @@ from kipl_ml.logging.logger import get_logger
 from kipl_ml.models.utils import count_parameters
 from mlflow.models import infer_signature
 from mlflow.models.signature import ModelSignature
-from src.cls_cvt import ConvolutionalVisionTransformer
-from src.transdfnet import DFNet
 from torch import nn
+
+from laserbeak.cls_cvt import ConvolutionalVisionTransformer
+from laserbeak.transdfnet import DFNet
 
 logger = get_logger(__name__)
 
@@ -63,7 +64,7 @@ def get_model(
         raise ValueError("Input size mismatch.")
 
     logger.info(f"Creating model {model_name}...")
-    logger.info(f"\tConfig:")
+    logger.info("\tConfig:")
     for k, v in model_config.items():
         logger.info(f"{k:>30}: {v}")
 

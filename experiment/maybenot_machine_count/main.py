@@ -5,6 +5,7 @@ import hydra
 import mlflow
 import numpy as np
 import torch
+from kipl_ml.data import assets
 from kipl_ml.data.wf_dataset import get_train_valid_test
 from kipl_ml.defences.base import NoDefence
 from kipl_ml.defences.maybenot import Deck, DeckStats, Maybenot
@@ -29,7 +30,6 @@ dotenv.load_dotenv()
 WORKING_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR_PATH = os.path.join(WORKING_DIR, "config")
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
-STORE_DATA_COLS = ["label", "trace_id"]
 
 assert MLFLOW_TRACKING_URI is not None, "MLFLOW_TRACKING_URI must be set in .env file."
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
@@ -85,6 +85,14 @@ def _get_dl(ds: Dataset, bs: int, shuffle: bool = False) -> DataLoader:
     )
 
 
+def _get_target(target: str) -> str:
+
+    if target in (assets.PAGE_LABEL, assets.SUB_PAGE_LABEL):
+        return target
+
+    raise KeyError(f"provided target '{target}' nno valid!")
+
+
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="test", version_base=None)
 def main(cfg: DictConfig):
     logger.info("Starting run w. config:")
@@ -94,6 +102,9 @@ def main(cfg: DictConfig):
     model_name = cfg.model.name
     n_packets = cfg.trace.n_packets
     experiment_name = cfg.mlflow.experiment_name + "->" + model_name + " vs. maybenot"
+    target = _get_target(cfg.dataset.target)
+
+    STORE_DATA_COLS = [target, assets.TRACE_ID]
 
     if run_id := hydra_run_exists(experiment_name, cfg):
         logger.info("Run ('%s') already exists and is finished for. Skipping.", run_id)
@@ -120,6 +131,7 @@ def main(cfg: DictConfig):
     ds_train, ds_valid, ds_test = get_train_valid_test(
         dataset=dataset_name,
         n_splits=cfg.dataset.n_splits,
+        label=target,
         test_xv=cfg.dataset.test_xv,
         random_state=cfg.dataset.random_state,
         feature_trs=feature_trs,
@@ -217,7 +229,7 @@ def main(cfg: DictConfig):
 
         # Log the datasets
         for ds in (ds_train, ds_valid, ds_test):
-            log_dataset(ds, STORE_DATA_COLS)
+            log_dataset(ds, STORE_DATA_COLS, target)
 
         # Log the config file as an artifact
         log_hydra_conf(cfg)
