@@ -1,1 +1,0 @@
-`uv init --lib PACKAGE`
