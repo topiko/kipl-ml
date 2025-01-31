@@ -66,7 +66,7 @@ def get_std_trace_array(
     The standard is given by:
 
     return:
-        - times: np.ndarray[float32]
+        - times [mus]: np.ndarray[float64]
         - dirs: np.ndarray[int8]
         - paddings: np.ndarray[bool]
     """
@@ -83,7 +83,18 @@ def parse_trace_to_tensor_dict(
     dirs: np.ndarray,
     paddings: np.ndarray,
     sizes: np.ndarray | None = None,
+    time_unit: str = "s",
 ) -> dict[str, torch.Tensor]:
+
+    match time_unit:
+        case "s":
+            times /= 1e6
+        case "ms":
+            times /= 1e3
+        case "mus":
+            pass
+        case _:
+            raise KeyError("Invalid time unit: {time_unit}")
 
     sizes = sizes or np.ones_like(times)
     np_trace = np.vstack(
@@ -113,6 +124,7 @@ def get_std_trace_dict(
     times, dirs, paddings = get_std_trace_array(
         path, network_delay_millis=network_delay_millis
     )
+
     return parse_trace_to_tensor_dict(times, dirs, paddings, None)
 
 

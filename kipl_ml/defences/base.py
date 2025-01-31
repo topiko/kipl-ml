@@ -43,7 +43,7 @@ def netwk_delay_fun(
 
 
 def parse_netwk_delay_fun(
-    netwk_delay_millis: int | tuple[int, int] | Callable[[], int]
+    netwk_delay_millis: int | tuple[int, int] | Callable[[], int],
 ) -> Callable[[], int]:
     if isinstance(netwk_delay_millis, int):
         return netwk_delay_fun(netwk_delay_millis, netwk_delay_millis, way="fixed")
