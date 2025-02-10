@@ -1,6 +1,5 @@
 import os
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 
 import numpy as np
 import torch
@@ -11,51 +10,66 @@ from kipl_ml.trace.params import MAX_TRACE_LENGTH
 from mbnt import sim_trace_from_file_advanced
 
 logger = get_logger(__name__)
+DEFENCE_TYPE_KW = "defence-type"
 
 
-def netwk_delay_fun(
-    min_delay: int, max_delay: int, way: str = "random"
-) -> Callable[[], int]:
-    def _cast_to_uint64(val: int) -> np.uint64:
+class NetwkDelay:
+    def __init__(self, min_delay_ms: int, max_delay_ms: int, way: str):
+        self.min_delay_ms = min_delay_ms
+        self.max_delay_ms = max_delay_ms
+        self.way = way
 
+    def __str__(self):
+        return (
+            f"Netwk delay fun: {self.way} [{self.min_delay_ms}, {self.max_delay_ms}]ms."
+        )
+
+    def __call__(self):
+        raise NotImplementedError()
+
+    def _cast_to_uint64(self, val: int) -> np.uint64:
         return np.uint64(val)
 
-    class _Rand:
+    def mlflow_log_params(self) -> dict[str, str]:
+        return {
+            "netwk_delay_type": self.way,
+            "netwk_delay_min_ms": str(self.min_delay_ms),
+            "netwk_delay_max_ms": str(self.max_delay_ms),
+        }
+
+
+def netwk_delay_fun(min_delay: int, max_delay: int, way: str = "random") -> NetwkDelay:
+
+    class _Rand(NetwkDelay):
         def __call__(self):
-            return _cast_to_uint64(np.random.randint(min_delay, max_delay + 1))
+            return self._cast_to_uint64(np.random.randint(min_delay, max_delay + 1))
 
-        def __str__(self):
-            return f"Netwk delay fun: random [{min_delay}, {max_delay}]ms."
-
-    class _Fixed:
+    class _Fixed(NetwkDelay):
         def __call__(self):
-            return _cast_to_uint64(min_delay)
-
-        def __str__(self):
-            return f"Netwk delay fun: fixed {min_delay}ms."
+            return self._cast_to_uint64(min_delay)
 
     if way == "random":
-        return _Rand()
+        return _Rand(min_delay_ms=min_delay, max_delay_ms=max_delay, way=way)
     if way == "fixed":
-        return _Fixed()
+        return _Fixed(min_delay_ms=min_delay, max_delay_ms=max_delay, way=way)
 
     raise NotImplementedError(f"Way {way} not implemented")
 
 
 def parse_netwk_delay_fun(
-    netwk_delay_millis: int | tuple[int, int] | Callable[[], int],
-) -> Callable[[], int]:
+    netwk_delay_millis: int | tuple[int, int] | NetwkDelay,
+) -> NetwkDelay:
     if isinstance(netwk_delay_millis, int):
         return netwk_delay_fun(netwk_delay_millis, netwk_delay_millis, way="fixed")
     if isinstance(netwk_delay_millis, tuple):
         if netwk_delay_millis[0] == netwk_delay_millis[1]:
             return netwk_delay_fun(*netwk_delay_millis, way="fixed")
         return netwk_delay_fun(*netwk_delay_millis)
-    if callable(netwk_delay_millis):
-        return netwk_delay_millis
+    if isinstance(netwk_delay_millis, NetwkDelay):
+        pass
 
     raise TypeError(
-        f"Expected network_delay_millis to be int, tuple or callable, got: {type(netwk_delay_millis)}"
+        f"Expected network_delay_millis to be int or tuple, got: {type(netwk_delay_millis)}"
     )
 
 
@@ -95,10 +109,22 @@ class _Def(ABC):
     def report(self, to_log: bool = True) -> str:
         raise NotImplementedError
 
+    @abstractmethod
+    def mlflow_log_params(self) -> dict[str, str]:
+        raise NotImplementedError
+
+    @property
+    def network_delay_millis(self) -> NetwkDelay:
+        return self._network_delay_millis
+
+    @network_delay_millis.setter
+    def network_delay_millis(self, netwk: NetwkDelay):
+        self._network_delay_millis = netwk
+
 
 class NoDefence(_Def):
 
-    def __init__(self, network_delay_millis: int | tuple[int, int] | Callable[[], int]):
+    def __init__(self, network_delay_millis: int | tuple[int, int] | NetwkDelay):
 
         self.network_delay_millis = parse_netwk_delay_fun(network_delay_millis)
 
@@ -124,3 +150,9 @@ class NoDefence(_Def):
         )
         trace_d = parse_trace_to_tensor_dict(times, dirs, paddings, None)
         return trace_d
+
+    def mlflow_log_params(self) -> dict[str, str]:
+        d = self.network_delay_millis.mlflow_log_params()
+        d[DEFENCE_TYPE_KW] = self.__class__.__name__.lower()
+
+        return d

@@ -1,15 +1,19 @@
 import os
-from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Self
 
-import kipl_ml.data.assets as assets
 import numpy as np
 import torch
 import yaml
+from kipl_ml.data import assets
 from kipl_ml.data.utils import parse_trace_to_tensor_dict
-from kipl_ml.defences.base import _Def, parse_netwk_delay_fun
+from kipl_ml.defences.base import (
+    DEFENCE_TYPE_KW,
+    NetwkDelay,
+    _Def,
+    parse_netwk_delay_fun,
+)
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt, log_multiline
 from kipl_ml.trace.params import MAX_TRACE_LENGTH
@@ -57,6 +61,14 @@ class DeckStats:
         with open(DeckStats.stats_path(self.deck_path), "w", encoding="utf-8") as fi:
             yaml.safe_dump(asdict(self), fi)
             logger.info(f"Saved deck stats to: {DeckStats.stats_path(self.deck_path)}")
+
+    def mlflow_log_params(self) -> dict[str, str]:
+        return {
+            "n_machines": str(self.n_machines),
+            "client_machines": str(self.n_client),
+            "server_machines": str(self.n_server),
+            "deck_path": str(self.deck_path),
+        }
 
 
 class Deck:
@@ -106,6 +118,9 @@ class Deck:
         self.stats.n_machines = len(self.machine_idxs)
         self.machines = load_machines(self.stats.deck_path, self.machine_idxs)
 
+    def mlflow_log_params(self) -> dict[str, str]:
+        return self.stats.mlflow_log_params()
+
 
 def load_machines(
     deck_path: os.PathLike, machine_idxs: list[int] | None = None
@@ -128,7 +143,7 @@ class Maybenot(_Def):
     def __init__(
         self,
         deck: Deck,
-        network_delay_millis: int | tuple[int, int] | Callable[[], int],
+        network_delay_millis: int | tuple[int, int] | NetwkDelay,
         padding_frac_client: str = "random",
         padding_frac_server: str = "random",
         blocking_frac_client: str = "no-blocking",
@@ -213,3 +228,17 @@ class Maybenot(_Def):
             logger.warning(f"machine_idx: {machine_idx}")
 
         return trace_d
+
+    def mlflow_log_params(self) -> dict[str, str]:
+
+        d = {}
+        d[DEFENCE_TYPE_KW] = self.__class__.__name__.lower()
+        d["padding_frac_client"] = self.padding_frac_client
+        d["padding_frac_server"] = self.padding_frac_server
+        d["blocking_frac_client"] = self.blocking_frac_client
+        d["blocking_frac_server"] = self.blocking_frac_server
+        d["max_padding_frac"] = str(self.max_padding_frac)
+        d["max_blocking_frac"] = str(self.max_blocking_frac)
+        d.update(self.deck.mlflow_log_params())
+
+        return d
