@@ -187,21 +187,12 @@ def main(cfg: DictConfig):
         ds.defence = def_
         ds.report(to_log=True)
 
-    build_model = True
-    if cfg.load_base_model:
-        try:
-            model = _fetch_base_model(model_name)
-            build_model = False
-        except Exception as e:
-            logger.error(f"Failed to fetch base model: {e}")
-
-    if build_model:
-        model = get_model(
-            model_name,
-            n_classes=ds_train.n_classes,
-            inputs=ds_train.output_sizes,
-            model_config=model_config,
-        )
+    model = get_model(
+        model_name,
+        n_classes=ds_train.n_classes,
+        inputs=ds_train.output_sizes,
+        model_config=model_config,
+    )
 
     train_loader = _get_dl(ds_train, cfg.train.batch_size, True)
     valid_loader = _get_dl(ds_valid, 128)

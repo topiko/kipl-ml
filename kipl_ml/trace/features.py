@@ -484,7 +484,7 @@ class FeatureTrs:
         return self
 
     @property
-    def output_sizes(self) -> dict[str, int]:
+    def output_sizes(self) -> dict[str, dict[str, int]]:
         return {tr.name: tr.output_sizes for tr in self._feature_trs}
 
     @property

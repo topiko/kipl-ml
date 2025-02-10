@@ -89,7 +89,7 @@ class WFDataset(Dataset):
         return self.meta_df[self.label].nunique()
 
     @property
-    def output_sizes(self) -> dict[str, int]:
+    def output_sizes(self) -> dict[str, dict[str, int]]:
         return self.feature_trs.output_sizes
 
     def get_feature_shapes(self) -> None:
