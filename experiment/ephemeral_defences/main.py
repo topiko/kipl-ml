@@ -242,8 +242,9 @@ def main(cfg: DictConfig):
     logger.info("Starting run w. config:")
     log_multiline(OmegaConf.to_yaml(cfg))
 
-    model_name = cfg.model.name
-    experiment_name = cfg.mlflow.experiment_name + "->" + model_name + " vs. maybenot"
+    experiment_name = (
+        f"{cfg.mlflow.experiment_name}->{cfg.model.name} vs. {cfg.defence.type}"
+    )
     if run_id := hydra_run_exists(experiment_name, cfg):
         logger.info("Run ('%s') already exists and is finished for. Skipping.", run_id)
         return

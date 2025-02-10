@@ -191,6 +191,7 @@ def get_train_valid_test(
         defence=defence_train,
         **kwargs,
     )
+    train_ds.report()
 
     valid_ds = WFDataset(
         dataset=f"{dataset}-valid",
@@ -199,6 +200,7 @@ def get_train_valid_test(
         defence=defence_valid,
         **kwargs,
     )
+    valid_ds.report()
 
     test_ds = WFDataset(
         dataset=f"{dataset}-test",
@@ -207,5 +209,6 @@ def get_train_valid_test(
         defence=defence_test,
         **kwargs,
     )
+    test_ds.report()
 
     return train_ds, valid_ds, test_ds
