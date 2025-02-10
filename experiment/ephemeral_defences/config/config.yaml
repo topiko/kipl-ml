@@ -1,0 +1,15 @@
+defaults:
+  - _self_
+  - features: default
+  - trace: medium
+  - model: df-multi
+  - dataset: bigenough
+  - train: cosine
+  - network: default
+  - defence: maybenot
+mlflow:
+  experiment_name: "Ephemeral"
+seed: 42
+
+
+

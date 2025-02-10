@@ -1,0 +1,4 @@
+patience: 10
+batch_size: 64
+label_smoothing: 0.1
+
