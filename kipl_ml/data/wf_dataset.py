@@ -71,11 +71,10 @@ class WFDataset(Dataset):
 
     @defence_aug.setter
     def defence_aug(self, aug_factor: int) -> None:
-        if aug_factor < 0:
-            raise ValueError("Defence augmentation must be non-negative")
-
         if not isinstance(aug_factor, int):
             raise TypeError("Defence augmentation must be an integer")
+        if aug_factor < 0:
+            raise ValueError("Defence augmentation must be non-negative")
         if aug_factor > 0:
             # With statement is unnecessary here as the tmp_dir will share
             # its lifecykle w. the parent class and the TempDir class
