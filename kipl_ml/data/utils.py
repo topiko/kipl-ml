@@ -73,7 +73,7 @@ def get_std_trace_array(
     The standard is given by:
 
     return:
-        - times [mus]: np.ndarray[float64]
+        - times [ns]: np.ndarray[float64]
         - dirs: np.ndarray[int8]
         - paddings: np.ndarray[bool]
     """
@@ -95,10 +95,12 @@ def parse_trace_to_tensor_dict(
 
     match time_unit:
         case "s":
-            times /= 1e6
+            times /= 1e9
         case "ms":
-            times /= 1e3
+            times /= 1e6
         case "mus":
+            times /= 1e3
+        case "ns":
             pass
         case _:
             raise KeyError("Invalid time unit: {time_unit}")
