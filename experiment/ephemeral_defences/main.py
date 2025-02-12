@@ -15,7 +15,12 @@ from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.laserbeak import get_model, get_signature
 from kipl_ml.models.utils import get_laserbeak_model_config
-from kipl_ml.tools.mlflow_utils import hydra_run_exists, log_dataset, log_hydra_conf
+from kipl_ml.tools.mlflow_utils import (
+    hydra_run_exists,
+    list_runs,
+    log_dataset,
+    log_hydra_conf,
+)
 from kipl_ml.trace.features import FEAT_NAME_MAP, FeatureTrs
 from kipl_ml.train.loops import train_model
 from omegaconf import DictConfig, OmegaConf
@@ -33,6 +38,21 @@ MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
 
 assert MLFLOW_TRACKING_URI is not None, "MLFLOW_TRACKING_URI must be set in .env file."
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+
+
+def _get_parent(
+    experiment_name: str, run_name: str, only_finished: bool = False
+) -> str | None:
+    df = list_runs(experiment_name, only_finished=only_finished)
+
+    mask = df.loc[:, "tags.mlflow.runName"] == run_name
+
+    if mask.sum() == 0:
+        return None
+
+    parent_run_id = df.loc[mask, "tags.mlflow.parentRunId"].iloc[0]
+
+    return parent_run_id
 
 
 def _get_lr_scheduler(
@@ -93,6 +113,11 @@ def _get_target(target: str) -> str:
     raise KeyError(f"provided target '{target}' is not valid!")
 
 
+def _parse_experiment_name(cfg: OmegaConf) -> str:
+
+    return f"{cfg.mlflow.experiment_name}->{cfg.model.name} vs. {cfg.defence.type}"
+
+
 def _parse_run_name(cfg: OmegaConf) -> str:
 
     def_type = cfg.defence.type
@@ -108,6 +133,18 @@ def _parse_run_name(cfg: OmegaConf) -> str:
 
 
 def _run_xv(cfg: OmegaConf, parent_run_name: str, test_xv: int):
+
+    df = list_runs(_parse_experiment_name(cfg), only_finished=True)
+
+    run_name = f"{parent_run_name}_xv={test_xv:02d}"
+    mask = run_name == df.loc[:, "tags.mlflow.runName"]
+
+    if mask.sum() > 0:
+        logger.info(f"Found finished run for: {run_name} -> exiting.")
+        return
+
+    logger.info("Starting run w. config:")
+    log_multiline(OmegaConf.to_yaml(cfg))
 
     dataset_name = cfg.dataset.name
     model_name = cfg.model.name
@@ -173,7 +210,7 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, test_xv: int):
 
     lr_scheduler = _get_lr_scheduler(cfg, optimizer, train_loader)
 
-    with mlflow.start_run(run_name=f"{parent_run_name}_xv={test_xv:02d}", nested=True):
+    with mlflow.start_run(run_name=run_name, nested=True):
 
         # Log the datasets
         for ds in (ds_train, ds_valid, ds_test):
@@ -239,12 +276,7 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, test_xv: int):
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="test", version_base=None)
 def main(cfg: DictConfig):
-    logger.info("Starting run w. config:")
-    log_multiline(OmegaConf.to_yaml(cfg))
-
-    experiment_name = (
-        f"{cfg.mlflow.experiment_name}->{cfg.model.name} vs. {cfg.defence.type}"
-    )
+    experiment_name = _parse_experiment_name(cfg)
     if run_id := hydra_run_exists(experiment_name, cfg):
         logger.info("Run ('%s') already exists and is finished for. Skipping.", run_id)
         return
@@ -257,6 +289,7 @@ def main(cfg: DictConfig):
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
     run_name = _parse_run_name(cfg)
+
     with mlflow.start_run(run_name=run_name):
         mlflow.set_tag("project", "ephemeral_defences")
         for test_xv in range(10):
