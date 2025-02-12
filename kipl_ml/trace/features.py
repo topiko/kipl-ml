@@ -4,6 +4,7 @@ from copy import deepcopy
 from enum import StrEnum
 
 import torch
+
 from kipl_ml.data import assets
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt, log_multiline
@@ -14,41 +15,41 @@ logger = get_logger(__name__)
 
 
 class Feats(StrEnum):
-    DIRS: str = assets.DIRS
-    SIZES: str = assets.SIZES
-    TIMES: str = assets.TIMES
-    PADDING: str = assets.PADDING
-    TIMES_NORMALIZED: str = f"normalized_{TIMES}"
-    TIMES_MAX_NORMALIZED: str = f"max_normalized_{TIMES}"
-    CUM_TIMES: str = f"cum_{TIMES}"
-    CUM_SIZES: str = f"cum_{SIZES}"
-    CUM_SIZES_NORMALIZED: str = f"normalized_{CUM_SIZES}"
-    LABEL: str = "label"
-    IATS: str = "iats"
-    IATS_NORMALIZED: str = f"normalized_{IATS}"
-    IATS_MAX_NORMALIZED: str = f"max_normalized_{IATS}"
-    UP_IATS: str = f"up_{IATS}"
-    UP_IATS_NORMALIZED: str = f"up_{IATS_NORMALIZED}"
-    DOWN_IATS: str = f"down_{IATS}"
-    DOWN_IATS_NORMALIZED: str = f"down_{IATS_NORMALIZED}"
-    UP_PACKETS: str = "up_packets"
-    DOWN_PACKETS: str = "down_packets"
-    TIME_DIRS: str = f"{TIMES}_dirs"
-    IAT_DIRS: str = f"{IATS}_dirs"
-    # FLOW_IAT_DIRS: str = f"flow_{IAT_DIRS}"
-    IAT_DIRS_NORMALIZED: str = f"{IATS_NORMALIZED}_dirs"
+    DIRS = assets.DIRS
+    SIZES = assets.SIZES
+    TIMES = assets.TIMES
+    PADDING = assets.PADDING
+    TIMES_NORMALIZED = f"normalized_{TIMES}"
+    TIMES_MAX_NORMALIZED = f"max_normalized_{TIMES}"
+    CUM_TIMES = f"cum_{TIMES}"
+    CUM_SIZES = f"cum_{SIZES}"
+    CUM_SIZES_NORMALIZED = f"normalized_{CUM_SIZES}"
+    LABEL = "label"
+    IATS = "iats"
+    IATS_NORMALIZED = f"normalized_{IATS}"
+    IATS_MAX_NORMALIZED = f"max_normalized_{IATS}"
+    UP_IATS = f"up_{IATS}"
+    UP_IATS_NORMALIZED = f"up_{IATS_NORMALIZED}"
+    DOWN_IATS = f"down_{IATS}"
+    DOWN_IATS_NORMALIZED = f"down_{IATS_NORMALIZED}"
+    UP_PACKETS = "up_packets"
+    DOWN_PACKETS = "down_packets"
+    TIME_DIRS = f"{TIMES}_dirs"
+    IAT_DIRS = f"{IATS}_dirs"
+    # FLOW_IAT_DIRS = f"flow_{IAT_DIRS}"
+    IAT_DIRS_NORMALIZED = f"{IATS_NORMALIZED}_dirs"
     CUM_SIZES_MAX_NORMALIZED = f"max_normalized_{CUM_SIZES}"
-    BURST_EDGES: str = "burst_edges"
-    FLOW_IATS: str = "flow_iats"
-    FLOW_IATS_NORMALIZED: str = f"normalized_{FLOW_IATS}"
-    LOG_INV_FLOW_IATS: str = f"log_inv_{FLOW_IATS}"
-    LOG_INV_FLOW_IATS_NORMALIZED: str = f"log_inv_{FLOW_IATS_NORMALIZED}"
-    LOG_INV_FLOW_IATS_NORMALIZED_DIRS: str = f"log_inv_{FLOW_IATS_NORMALIZED}_dirs"
-    LOG_INV_FLOW_IAT_DIRS: str = f"{LOG_INV_FLOW_IATS}_dirs"
-    RUNNING_RATE_SIZES: str = f"running_rate_{SIZES}"
-    SIZE_DIRS: str = f"{SIZES}_dirs"
-    CUM_SIZE_DIRS: str = f"cum_{SIZE_DIRS}"
-    CUM_SIZE_DIRS_MAX_NORMALIZED: str = f"max_normalized_{CUM_SIZE_DIRS}"
+    BURST_EDGES = "burst_edges"
+    FLOW_IATS = "flow_iats"
+    FLOW_IATS_NORMALIZED = f"normalized_{FLOW_IATS}"
+    LOG_INV_FLOW_IATS = f"log_inv_{FLOW_IATS}"
+    LOG_INV_FLOW_IATS_NORMALIZED = f"log_inv_{FLOW_IATS_NORMALIZED}"
+    LOG_INV_FLOW_IATS_NORMALIZED_DIRS = f"log_inv_{FLOW_IATS_NORMALIZED}_dirs"
+    LOG_INV_FLOW_IAT_DIRS = f"{LOG_INV_FLOW_IATS}_dirs"
+    RUNNING_RATE_SIZES = f"running_rate_{SIZES}"
+    SIZE_DIRS = f"{SIZES}_dirs"
+    CUM_SIZE_DIRS = f"cum_{SIZE_DIRS}"
+    CUM_SIZE_DIRS_MAX_NORMALIZED = f"max_normalized_{CUM_SIZE_DIRS}"
 
     def __str__(self) -> str:
         return self.value
