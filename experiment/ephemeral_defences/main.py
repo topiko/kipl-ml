@@ -132,16 +132,19 @@ def _parse_run_name(cfg: OmegaConf) -> str:
     raise KeyError(f"Defence : '{def_type}' is unavailable.")
 
 
-def _run_xv(cfg: OmegaConf, parent_run_name: str, test_xv: int):
+def _run_xv(
+    cfg: OmegaConf, parent_run_name: str, test_xv: int, nested_run: bool = True
+):
+
+    run_name = f"{parent_run_name}_xv={test_xv:02d}"
 
     df = list_runs(_parse_experiment_name(cfg), only_finished=True)
 
-    run_name = f"{parent_run_name}_xv={test_xv:02d}"
-    mask = run_name == df.loc[:, "tags.mlflow.runName"]
-
-    if mask.sum() > 0:
-        logger.info(f"Found finished run for: {run_name} -> exiting.")
-        return
+    if len(df) > 0:
+        mask = run_name == df.loc[:, "tags.mlflow.runName"]
+        if mask.sum() > 0:
+            logger.info(f"Found finished run for: {run_name} -> exiting.")
+            return
 
     logger.info("Starting run w. config:")
     log_multiline(OmegaConf.to_yaml(cfg))
@@ -210,7 +213,7 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, test_xv: int):
 
     lr_scheduler = _get_lr_scheduler(cfg, optimizer, train_loader)
 
-    with mlflow.start_run(run_name=run_name, nested=True):
+    with mlflow.start_run(run_name=run_name, nested=nested_run):
 
         # Log the datasets
         for ds in (ds_train, ds_valid, ds_test):
@@ -290,10 +293,14 @@ def main(cfg: DictConfig):
     mlflow.set_experiment(experiment_id=experiment_id)
     run_name = _parse_run_name(cfg)
 
-    with mlflow.start_run(run_name=run_name):
-        mlflow.set_tag("project", "ephemeral_defences")
-        for test_xv in range(10):
-            _run_xv(cfg, run_name, test_xv)
+    if cfg.dataset.test_xv == -1:
+        with mlflow.start_run(run_name=run_name):
+            mlflow.set_tag("project", "ephemeral_defences")
+            for test_xv in range(10):
+                _run_xv(cfg, run_name, test_xv)
+
+    else:
+        _run_xv(cfg, run_name, cfg.dataset.test_xv, nested_run=False)
 
 
 if __name__ == "__main__":
