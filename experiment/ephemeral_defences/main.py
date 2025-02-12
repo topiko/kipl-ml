@@ -59,7 +59,12 @@ def _get_lr_scheduler(
     cfg: OmegaConf, optimizer: torch.optim.Optimizer, train_loader: DataLoader
 ) -> ReduceLROnPlateau | LambdaLR | None:
 
-    if cfg.train.scheduler == "cosine":
+    try:
+        scheduler = cfg.train.scheduler
+    except AttributeError:
+        return None
+
+    if scheduler == "cosine":
         warmup_period = cfg.train.warmup_period
         epochs = cfg.train.epochs
         scheduler = get_cosine_schedule_with_warmup(
@@ -72,7 +77,7 @@ def _get_lr_scheduler(
 
         return scheduler
 
-    if cfg.train.scheduler == "plateau":
+    if scheduler == "plateau":
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", factor=0.2, patience=3 * len(train_loader)
         )
@@ -237,6 +242,7 @@ def _run_xv(
                 "scheduler": cfg.train.scheduler,
                 "lr": cfg.train.lr,
                 "defence_augmentation": cfg.dataset.defence_augmentation,
+                "n_epochs": cfg.train.n_epochs,
             }
         )
 
@@ -257,6 +263,7 @@ def _run_xv(
             early_stop_metric=early_stop_metric,
             lr_scheduler=lr_scheduler,
             patience=patience,
+            n_epochs=None if cfg.train.n_epochs == -1 else cfg.train.n_epochs,
         )
 
         # Evaluate on test set and log.

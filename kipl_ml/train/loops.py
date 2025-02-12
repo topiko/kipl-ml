@@ -115,7 +115,8 @@ def train_model(
     metrics: list[GeneralMetric | ClassMetric],
     lr_scheduler: ReduceLROnPlateau | LambdaLR | None = None,
     early_stop_metric: GeneralMetric | ClassMetric | str = "loss",
-    patience: int = 2,
+    patience: int = 5,
+    n_epochs: int | None = None,
 ) -> nn.Module:
     logger.info("Training model...")
     logger.info(key_val_fmt("model", model.name, suffix=""))
@@ -153,12 +154,12 @@ def train_model(
                 mlflow.log_metric(f"valid_{m}", mv, step=epoch)
 
         if objective == Objective.MIN:
-            if early_stop_m_val < best_early_stop_val:
+            if (early_stop_m_val < best_early_stop_val) or isinstance(n_epochs, int):
                 best_early_stop_val = early_stop_m_val
                 best_epoch = epoch
                 best_model_state = deepcopy(model.state_dict())
         elif objective == Objective.MAX:
-            if early_stop_m_val > best_early_stop_val:
+            if (early_stop_m_val > best_early_stop_val) or isinstance(n_epochs, int):
                 best_early_stop_val = early_stop_m_val
                 best_epoch = epoch
                 best_model_state = deepcopy(model.state_dict())
@@ -177,8 +178,14 @@ def train_model(
         )
 
         if epoch - best_epoch >= patience:
-            logger.info("Terminate; early stopping")
-            break
+            if n_epochs is None:
+                logger.info("Terminate; early stopping.")
+                break
+
+        if isinstance(n_epochs, int):
+            if epoch == n_epochs:
+                logger.info("Terminate; max epochs reached.")
+                break
 
         epoch += 1
         model, train_loss = _one_epoch(
