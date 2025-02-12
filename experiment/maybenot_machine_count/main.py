@@ -65,7 +65,7 @@ def _get_lr_scheduler(
         )
     elif cfg.train.scheduler == "plateau":
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.2, patience=3 * len(train_loader)
+            optimizer, mode="min", factor=0.2, patience=5 * len(train_loader)
         )
     else:
         scheduler = None

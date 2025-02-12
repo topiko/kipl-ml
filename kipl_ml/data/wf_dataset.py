@@ -7,14 +7,13 @@ from tempfile import TemporaryDirectory
 
 import pandas as pd
 import torch
-from torch.utils.data import Dataset
-
 from kipl_ml.data import assets
 from kipl_ml.data.utils import load_dataset_meta_df
 from kipl_ml.defences.base import NoDefence, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.trace.features import FeatureTrs
+from torch.utils.data import Dataset
 
 logger = get_logger(__name__)
 
@@ -215,6 +214,10 @@ def get_train_valid_test(
     )
     valid_ds.report()
 
+    try:
+        kwargs["defence_aug"] = 1
+    except KeyError:
+        pass
     test_ds = WFDataset(
         dataset=f"{dataset}-test",
         label=label,
