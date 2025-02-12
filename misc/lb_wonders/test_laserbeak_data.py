@@ -1,23 +1,29 @@
 import numpy as np
-from kipl_ml.data.utils import assets, get_std_trace_array, load_dataset_meta_df
 from mbnt import load_trace_to_str
 from src.data import load_full_dataset
+
+from kipl_ml.data.utils import (
+    Datasets,
+    assets,
+    get_std_trace_array,
+    load_dataset_meta_df,
+)
 
 
 def main():
 
     meta_df = (
-        load_dataset_meta_df("bigenough")
-        .loc[:, ["orig_path", assets.TRACE_ID, assets.PAGE_LABEL]]
+        load_dataset_meta_df(Datasets.BIGENOUGH)
+        .loc[:, [assets.TRACE_PATH, assets.TRACE_ID, assets.PAGE_LABEL]]
         .sort_values(assets.TRACE_ID)
     )
 
     def get_my_trace(idx) -> np.ndarray:
 
-        return get_std_trace_array(meta_df.loc[idx, "orig_path"])
+        return get_std_trace_array(meta_df.loc[idx, assets.TRACE_PATH])
 
     def get_my_trace_str(idx) -> str:
-        return load_trace_to_str(str(meta_df.loc[idx, "orig_path"]))
+        return load_trace_to_str(str(meta_df.loc[idx, assets.TRACE_PATH]))
 
     data, labels, IDs, class_names = load_full_dataset(
         data_dir="/home/topiko/Playground/KIPL/.data/laserbeak/wf-bigenough",

@@ -5,8 +5,14 @@ import pickle as pkl
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+
 from kipl_ml.data import assets
-from kipl_ml.data.utils import METADF_FNAME, generate_xv_splits, get_dataset_root
+from kipl_ml.data.utils import (
+    METADF_FNAME,
+    Datasets,
+    generate_xv_splits,
+    get_dataset_root,
+)
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.trace.params import DOWNLOAD, UPLOAD
 
@@ -34,7 +40,6 @@ def _data_to_meta_row(
     page_label: int,
     sub_page_label: int,
     sample_id: int,
-    path: os.PathLike,
     orig_path: str,
     dataset: str,
     trace_id: str,
@@ -56,11 +61,6 @@ def _data_to_meta_row(
             return 0
         return data[-1, 0] - data[0, 0]
 
-    def _path() -> str:
-        if len(data) == 0:
-            return ""
-        return str(path)
-
     row_df = (
         pd.Series(
             {
@@ -73,8 +73,7 @@ def _data_to_meta_row(
                 assets.SAMPLE_ID: sample_id,
                 "n_packets_up": _n_packets("up"),
                 "n_packets_down": _n_packets("down"),
-                "path": str(path),
-                "orig_path": orig_path,
+                assets.TRACE_F_PATH: orig_path,
             }
         )
         .to_frame()
@@ -86,8 +85,7 @@ def _data_to_meta_row(
                 "time [ns]": float,
                 assets.TRACE_ID: str,
                 assets.SAMPLE_ID: int,
-                "path": str,
-                "orig_path": str,
+                assets.TRACE_F_PATH: str,
                 "dataset": str,
                 "n_packets_up": int,
                 "n_packets_down": int,
@@ -115,13 +113,11 @@ def _save_big_enough_to_standard(save_np: bool = True):
     """
 
     root = os.path.join(DATA_DIR, "bigenough-95x10x20-standard-rngsubpages")
-    BIGENOUGH = "bigenough"
 
     def parse_row(row: str, idx: int) -> str:
         return row.split(",")[idx]
 
     trace_dfs = []
-    cur_max_subpage_label = 0
     for dir_ in sorted(os.listdir(root), key=int):
         if not os.path.isdir(os.path.join(root, dir_)):
             continue
@@ -150,9 +146,6 @@ def _save_big_enough_to_standard(save_np: bool = True):
             # Check kipl_ml.data.assets for the indices!
             trace = np.vstack([times, dirs, sizes]).T
             log_f_ = log_f.replace(".log", "")
-            path_ = get_dataset_root(BIGENOUGH).joinpath(
-                f"{page_label:04d}", f"{log_f_}.npy"
-            )
 
             sub_page = int(log_f_.split("-")[1])
             sub_page_label = sub_page + page_label * 10
@@ -166,34 +159,26 @@ def _save_big_enough_to_standard(save_np: bool = True):
                 page_label=page_label,
                 sub_page_label=sub_page_label,
                 sample_id=sample_id,
-                path=path_,
                 orig_path=orig_path_,
-                dataset=BIGENOUGH,
+                dataset=Datasets.BIGENOUGH,
                 trace_id=log_f_,
             )
 
-            if save_np:
-                if not path_.parent.exists():
-                    os.makedirs(path_.parent, exist_ok=True)
-
-                np.save(path_, trace)
-
             trace_dfs.append(trace_df)
-        cur_max_subpage_label = max(sub_pages) + 1
 
-    _save_meta_df(trace_dfs, BIGENOUGH)
+    _save_meta_df(trace_dfs, Datasets.BIGENOUGH)
 
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
     argparser.add_argument(
-        "--dataset", type=str, required=True, choices=["ts5", "bigenough"]
+        "--dataset", type=str, required=True, choices=["ts5", Datasets.BIGENOUGH]
     )
     argparser.add_argument("--save-np", action="store_true")
 
     args = argparser.parse_args()
 
-    if args.dataset == "bigenough":
+    if args.dataset == Datasets.BIGENOUGH:
         _save_big_enough_to_standard(save_np=args.save_np)
 
         generate_xv_splits(args.dataset, n_splits=10, label_asset=assets.PAGE_LABEL)

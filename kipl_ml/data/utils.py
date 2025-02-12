@@ -1,20 +1,27 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
+from mbnt import load_trace_to_numpy
+
 from kipl_ml.config import PROJECT_ROOT
 from kipl_ml.data import assets
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.trace.params import MAX_TRACE_LENGTH
-from mbnt import load_trace_to_numpy
 
 logger = get_logger(__name__)
 
 METADF_FNAME = "metadf.h5"
+
+
+@dataclass
+class Datasets:
+    BIGENOUGH: str = "bigenough"
 
 
 def _xv_splits_fname(dataset: str, n_splits: int, label_asset: str) -> Path:
@@ -136,7 +143,7 @@ def generate_xv_splits(
     overlap_policy: str = "warn",
 ):
 
-    if dataset != "bigenough":
+    if dataset != Datasets.BIGENOUGH:
         raise ValueError("Everythin is now for be..")
 
     logger.info(
@@ -224,4 +231,4 @@ def preserve_class_frac_sample(
 
 
 if __name__ == "__main__":
-    _xv_splits_fname("bigenough", 5)
+    _xv_splits_fname(Datasets.BIGENOUGH, 5)

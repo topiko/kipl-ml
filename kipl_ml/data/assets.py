@@ -13,6 +13,7 @@ ORIG_PACKETS: str = "orig_packets"
 TIMES_IDX: int = 0
 DIRS_IDX: int = 1
 SIZES_IDX: int = 2
+TRACE_F_PATH: str = "trace_path"
 
 
 def XV_SPLIT(n_splits: int, label: str) -> str:

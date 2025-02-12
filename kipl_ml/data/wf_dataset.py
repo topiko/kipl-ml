@@ -7,13 +7,14 @@ from tempfile import TemporaryDirectory
 
 import pandas as pd
 import torch
+from torch.utils.data import Dataset
+
 from kipl_ml.data import assets
 from kipl_ml.data.utils import load_dataset_meta_df
 from kipl_ml.defences.base import NoDefence, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.trace.features import FeatureTrs
-from torch.utils.data import Dataset
 
 logger = get_logger(__name__)
 
@@ -106,7 +107,7 @@ class WFDataset(Dataset):
 
         orig_idx, sub_idx = self._get_idx(idx)
 
-        orig_trace_path = Path(self.meta_df.iloc[orig_idx]["orig_path"])
+        orig_trace_path = Path(self.meta_df.iloc[orig_idx][assets.TRACE_F_PATH])
 
         if self.defence_aug == 0:
             return self.defence(orig_trace_path)
