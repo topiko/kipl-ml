@@ -100,7 +100,7 @@ def _get_defence(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, _Def
 
 def _get_dl(ds: Dataset, bs: int, shuffle: bool = False) -> DataLoader:
     pin_memory = True
-    num_workers = 16
+    num_workers = 24
     return DataLoader(
         ds,
         batch_size=bs,
