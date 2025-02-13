@@ -293,9 +293,10 @@ def main(cfg: DictConfig):
         return
 
     # Set seeds
-    torch.manual_seed(cfg.seed)
+    seed = cfg.seed + cfg.dataset.test_xv
+    torch.manual_seed(seed)
     # torch.use_deterministic_algorithms(True)
-    np.random.seed(cfg.seed)
+    np.random.seed(seed)
 
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)

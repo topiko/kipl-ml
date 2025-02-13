@@ -1,7 +1,7 @@
 defaults:
   - base
 patience: 10
-lr: 0.004
+lr: 0.002
 warmup_period: 10
 epochs: 100
 scheduler: cosine

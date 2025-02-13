@@ -205,6 +205,10 @@ def get_train_valid_test(
     )
     train_ds.report()
 
+    valid_aug = 5
+    logger.info("Setting %d fold augmentation for valid and test sets.", valid_aug)
+    kwargs["defence_aug"] = valid_aug
+
     valid_ds = WFDataset(
         dataset=f"{dataset}-valid",
         label=label,
@@ -214,10 +218,6 @@ def get_train_valid_test(
     )
     valid_ds.report()
 
-    try:
-        kwargs["defence_aug"] = 1
-    except KeyError:
-        pass
     test_ds = WFDataset(
         dataset=f"{dataset}-test",
         label=label,

@@ -100,6 +100,10 @@ class Deck:
         str_ = "Deck:\n"
         str_ += key_val_fmt("Deck path", self.stats.deck_path)
         str_ += key_val_fmt("N machines", self.stats.n_machines)
+        if len(self.machine_idxs) < 20:
+            str_ += key_val_fmt(
+                "machine_idxs", "|".join([str(i) for i in self.machine_idxs])
+            )
         str_ += key_val_fmt("N client machines", self.stats.n_client)
         str_ += key_val_fmt("N server machines", self.stats.n_server)
 
@@ -119,7 +123,9 @@ class Deck:
         self.machines = load_machines(self.stats.deck_path, self.machine_idxs)
 
     def mlflow_log_params(self) -> dict[str, str]:
-        return self.stats.mlflow_log_params()
+        d = self.stats.mlflow_log_params()
+        d["n_machines"] = str(len(self.machine_idxs))
+        return d
 
 
 def load_machines(
