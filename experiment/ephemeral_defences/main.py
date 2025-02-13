@@ -243,6 +243,7 @@ def _run_xv(
                 "lr": cfg.train.lr,
                 "defence_augmentation": cfg.dataset.defence_augmentation,
                 "n_epochs": cfg.train.n_epochs,
+                "test_xv": test_xv,
             }
         )
 
