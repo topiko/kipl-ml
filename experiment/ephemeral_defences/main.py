@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 
 import dotenv
@@ -58,34 +60,32 @@ def _get_parent(
 
 
 def _get_lr_scheduler(
-    cfg: OmegaConf, optimizer: torch.optim.Optimizer, train_loader: DataLoader
-) -> ReduceLROnPlateau | LambdaLR | None:
+    cfg: OmegaConf, optimizer: torch.optim.Optimizer
+) -> tuple[ReduceLROnPlateau | LambdaLR | None, dict]:
 
+    params = dict(cfg.train)
     try:
         scheduler = cfg.train.scheduler
     except AttributeError:
-        return None
+        return None, params
 
     if scheduler == "cosine":
         warmup_period = cfg.train.warmup_period
         epochs = cfg.train.epochs
         scheduler = get_cosine_schedule_with_warmup(
             optimizer,
-            num_warmup_steps=len(train_loader) * warmup_period,
-            num_training_steps=len(train_loader) * epochs,
+            num_warmup_steps=warmup_period,
+            num_training_steps=epochs,
             num_cycles=0.5,
             last_epoch=-1,
         )
 
-        return scheduler
-
-    if scheduler == "plateau":
+    elif scheduler == "plateau":
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.2, patience=3 * len(train_loader)
+            optimizer, mode="min", factor=0.8, patience=1
         )
-        return scheduler
 
-    return None
+    return scheduler, params
 
 
 def _get_defence(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, _Def]:
@@ -231,7 +231,7 @@ def _run_xv(
         weight_decay=opt_wd,
     )
 
-    lr_scheduler = _get_lr_scheduler(cfg, optimizer, train_loader)
+    lr_scheduler, scheduler_params = _get_lr_scheduler(cfg, optimizer)
 
     with mlflow.start_run(run_name=run_name, nested=nested_run):
 
@@ -267,6 +267,9 @@ def _run_xv(
 
         # Netwk params:
         mlflow.log_params(ds_train.defence.network_delay_millis.mlflow_log_params())
+
+        # scheduler params:
+        mlflow.log_params(scheduler_params)
 
         # Train model.
         trained_model = train_model(

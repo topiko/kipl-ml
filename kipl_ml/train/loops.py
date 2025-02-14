@@ -2,20 +2,23 @@
 The usual train loops...
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable
 from copy import deepcopy
 
 import mlflow
 import torch
+from torch import nn
+from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
+from tqdm import tqdm
+
 from kipl_ml.data.wf_dataset import dict_to_device
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.metrics.clf_metrics import ClassMetric, GeneralMetric, Objective
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.tools.cuda_tools import get_device
-from torch import nn
-from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
-from tqdm import tqdm
 
 logger = get_logger(__name__)
 
@@ -44,7 +47,6 @@ def _one_epoch(
     dataloader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
     loss_fn: Callable,
-    lr_scheduler: ReduceLROnPlateau | LambdaLR | None = None,
     n_epoch: int = 0,
 ) -> tuple[nn.Module, float]:
     """
@@ -65,11 +67,6 @@ def _one_epoch(
 
     logger.info(f"Running epoch {n_epoch: 03d}...")
 
-    if lr_scheduler and not isinstance(lr_scheduler, (ReduceLROnPlateau, LambdaLR)):
-        raise ValueError(
-            f"Invalid scheduler {lr_scheduler}, must be ReduceLROnPlateau or LambdaLR"
-        )
-
     model.train()
     model.to(get_device())
 
@@ -87,15 +84,7 @@ def _one_epoch(
             loss.backward()
             optimizer.step()
 
-            if isinstance(lr_scheduler, ReduceLROnPlateau):
-                lr_scheduler.step(loss.item())
-            elif isinstance(lr_scheduler, LambdaLR):
-                lr_scheduler.step()
-            else:
-                pass
-
-            lr = optimizer.param_groups[0]["lr"]
-            pbar.set_postfix({"loss": f"{loss.item():1.4f}", "lr": f"{lr:1.4e}"})
+            pbar.set_postfix({"loss": f"{loss.item():1.4f}"})
             # TODO: do this prpoerly, the last batch is smaller than the rest
             # however that effect should be insignificant.
             loss_val += loss.item() * dataloader.batch_size
@@ -187,13 +176,23 @@ def train_model(
                 logger.info("Terminate; max epochs reached.")
                 break
 
+        if isinstance(lr_scheduler, ReduceLROnPlateau):
+            lr_scheduler.step(metrics_vals["loss"])
+        elif isinstance(lr_scheduler, LambdaLR):
+            lr_scheduler.step()
+        elif lr_scheduler is None:
+            pass
+        else:
+            raise NotImplementedError(f"Scheduler {lr_scheduler} not impl.")
+
         epoch += 1
         model, train_loss = _one_epoch(
-            model, train_loader, optimizer, loss_fn, lr_scheduler, n_epoch=epoch
+            model, train_loader, optimizer, loss_fn, n_epoch=epoch
         )
         mlflow.log_metric("train_loss", train_loss, step=epoch)
 
         logger.info(key_val_fmt("Train loss", f"{train_loss:1.4f}", suffix=""))
+        logger.info(key_val_fmt("Cur lr", optimizer.param_groups[0]["lr"], suffix=""))
 
     if best_model_state is None:
         raise ValueError("No best model state found.")

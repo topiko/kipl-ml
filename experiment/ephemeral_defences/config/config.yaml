@@ -4,11 +4,11 @@ defaults:
   - trace: medium
   - model: df-multi
   - dataset: bigenough
-  - train: cosine
+  - train: plateau
   - network: default
   - defence: maybenot
 mlflow:
-  experiment_name: "Ephemeral v2."
+  experiment_name: "Ephemeral v3."
 seed: 42
 
 
