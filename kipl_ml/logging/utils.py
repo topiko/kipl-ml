@@ -35,7 +35,7 @@ def get_mlflow_expr(experiment_name: str) -> str:
     """
 
     if experiment := mlflow.get_experiment_by_name(experiment_name):
-        logger.info("Experiment '%s' already exists --> return.", experiment_name)
+        logger.info("Experiment '%s' already exists; using that.", experiment_name)
         return str(experiment.experiment_id)
 
     logger.info("Experiment '%s' does not exist --> create.", experiment_name)
