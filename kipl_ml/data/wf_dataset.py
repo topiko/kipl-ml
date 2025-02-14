@@ -7,13 +7,14 @@ from tempfile import TemporaryDirectory
 
 import pandas as pd
 import torch
+from torch.utils.data import Dataset
+
 from kipl_ml.data import assets
 from kipl_ml.data.utils import load_dataset_meta_df
 from kipl_ml.defences.base import NoDefence, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.trace.features import FeatureTrs
-from torch.utils.data import Dataset
 
 logger = get_logger(__name__)
 
@@ -177,16 +178,16 @@ def get_train_valid_test(
     defence_train: _Def | None = None,
     defence_valid: _Def | None = None,
     defence_test: _Def | None = None,
+    defence_aug_valid: int = 1,
     **kwargs,
 ) -> tuple[WFDataset, WFDataset, WFDataset]:
 
     meta_df = load_dataset_meta_df(dataset)
 
-    col = assets.XV_SPLIT(n_splits, label)
-
-    if col not in meta_df.columns:
+    if (col := assets.XV_SPLIT(n_splits, label)) not in meta_df.columns:
         raise KeyError(
-            f"Column '{col}' not found in meta_df, you can generate xv splits with kipl_ml.data.utils.generate_xv_splits"
+            f"Column '{col}' not found in meta_df, \
+            you can generate xv splits with kipl_ml.data.utils.generate_xv_splits"
         )
 
     valid_xv = test_xv - 1 if test_xv > 0 else n_splits - 1
@@ -205,9 +206,10 @@ def get_train_valid_test(
     )
     train_ds.report()
 
-    valid_aug = 5
-    logger.info("Setting %d fold augmentation for valid and test sets.", valid_aug)
-    kwargs["defence_aug"] = valid_aug
+    logger.info(
+        "Setting %d fold augmentation for valid and test sets.", defence_aug_valid
+    )
+    kwargs["defence_aug"] = defence_aug_valid
 
     valid_ds = WFDataset(
         dataset=f"{dataset}-valid",

@@ -5,6 +5,11 @@ import hydra
 import mlflow
 import numpy as np
 import torch
+from omegaconf import DictConfig, OmegaConf
+from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
+from torch.utils.data import DataLoader, Dataset
+from torchtune.training.lr_schedulers import get_cosine_schedule_with_warmup
+
 from experiment.ephemeral_defences import defence_builder
 from kipl_ml.data import assets
 from kipl_ml.data.wf_dataset import WFDataset, get_train_valid_test
@@ -22,11 +27,8 @@ from kipl_ml.tools.mlflow_utils import (
     log_hydra_conf,
 )
 from kipl_ml.trace.features import FEAT_NAME_MAP, FeatureTrs
+from kipl_ml.trace.params import MAX_TRACE_LENGTH
 from kipl_ml.train.loops import train_model
-from omegaconf import DictConfig, OmegaConf
-from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
-from torch.utils.data import DataLoader, Dataset
-from torchtune.training.lr_schedulers import get_cosine_schedule_with_warmup
 
 logger = get_logger(__name__)
 
@@ -137,6 +139,15 @@ def _parse_run_name(cfg: OmegaConf) -> str:
     raise KeyError(f"Defence : '{def_type}' is unavailable.")
 
 
+def _get_bw_overhead(cfg: OmegaConf) -> float:
+    if cfg.defence.type == "maybenot":
+        return float(1 / (1 - cfg.defence.max_padding_frac))
+    if cfg.defence.type == "no-defence":
+        return 1.0
+
+    raise NotImplementedError("Only maybenot and no-defence known.")
+
+
 def _run_xv(
     cfg: OmegaConf, parent_run_name: str, test_xv: int, nested_run: bool = True
 ):
@@ -159,7 +170,10 @@ def _run_xv(
     target = _get_target(cfg.dataset.target)
 
     model_config = get_laserbeak_model_config(model_name)
-    n_packets = model_config["input_size"]
+    model_config["input_size"] = int(model_config["input_size"] * _get_bw_overhead(cfg))
+
+    if (n_packets := model_config["input_size"]) > MAX_TRACE_LENGTH:
+        raise ValueError("Inpu len larger than MAX_TRACE_LENGTH...")
 
     feature_names = cfg.features.features
     if model_config.get("feature_list"):
@@ -182,6 +196,7 @@ def _run_xv(
             random_state=cfg.dataset.random_state,
             feature_trs=feature_trs,
             defence_aug=cfg.dataset.defence_augmentation,
+            defence_aug_valid=10,
             **_get_defence(cfg, netwk_delay),
         )
 

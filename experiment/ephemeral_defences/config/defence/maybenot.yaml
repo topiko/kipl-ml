@@ -1,5 +1,5 @@
 type: maybenot
 deck_path: "/home/topiko/Playground/KIPL/.maybenot-decks/deck0.yaml"
 n_machines: 10_000
-max_padding_frac: 0.66
+max_padding_frac: 0.5
 max_blocking_frac: 0.2

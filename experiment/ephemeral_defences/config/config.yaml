@@ -8,7 +8,7 @@ defaults:
   - network: default
   - defence: maybenot
 mlflow:
-  experiment_name: "Ephemeral"
+  experiment_name: "Ephemeral v2."
 seed: 42
 
 
