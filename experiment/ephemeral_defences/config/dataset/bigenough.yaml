@@ -3,4 +3,5 @@ n_splits: 10
 test_xv: -1
 random_state: 24
 defence_augmentation: 0
+defence_augmentation_valid: 10
 target: "page_label"

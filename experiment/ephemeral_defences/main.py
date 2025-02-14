@@ -196,7 +196,7 @@ def _run_xv(
             random_state=cfg.dataset.random_state,
             feature_trs=feature_trs,
             defence_aug=cfg.dataset.defence_augmentation,
-            defence_aug_valid=10,
+            defence_aug_valid=cfg.dataset.defence_augmentation_valid,
             **_get_defence(cfg, netwk_delay),
         )
 
