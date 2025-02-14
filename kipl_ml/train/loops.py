@@ -192,7 +192,9 @@ def train_model(
         mlflow.log_metric("train_loss", train_loss, step=epoch)
 
         logger.info(key_val_fmt("Train loss", f"{train_loss:1.4f}", suffix=""))
-        logger.info(key_val_fmt("Cur lr", optimizer.param_groups[0]["lr"], suffix=""))
+        logger.info(
+            key_val_fmt("Cur lr", f"{optimizer.param_groups[0]['lr']:.3e}", suffix="")
+        )
 
     if best_model_state is None:
         raise ValueError("No best model state found.")

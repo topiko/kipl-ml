@@ -23,7 +23,6 @@ from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.laserbeak import get_model, get_signature
 from kipl_ml.models.utils import get_laserbeak_model_config
 from kipl_ml.tools.mlflow_utils import (
-    hydra_run_exists,
     list_runs,
     log_dataset,
     log_hydra_conf,
@@ -82,7 +81,10 @@ def _get_lr_scheduler(
 
     elif scheduler == "plateau":
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.8, patience=1
+            optimizer,
+            mode="min",
+            factor=cfg.train.factor,
+            patience=cfg.train.lr_patience,
         )
 
     return scheduler, params
@@ -306,9 +308,6 @@ def _run_xv(
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="test", version_base=None)
 def main(cfg: DictConfig):
     experiment_name = _parse_experiment_name(cfg)
-    if run_id := hydra_run_exists(experiment_name, cfg):
-        logger.info("Run ('%s') already exists and is finished for. Skipping.", run_id)
-        return
 
     # Set seeds
     seed = cfg.seed + cfg.dataset.test_xv

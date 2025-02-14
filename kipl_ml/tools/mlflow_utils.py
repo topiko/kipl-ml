@@ -3,10 +3,11 @@ import os
 import dotenv
 import mlflow
 import pandas as pd
-from kipl_ml.data.wf_dataset import WFDataset
-from kipl_ml.logging.logger import get_logger
 from mlflow.entities import ViewType
 from omegaconf import OmegaConf
+
+from kipl_ml.data.wf_dataset import WFDataset
+from kipl_ml.logging.logger import get_logger
 
 dotenv.load_dotenv()
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
@@ -65,17 +66,3 @@ def load_hydra_conf(run_id: str) -> OmegaConf:
     d = mlflow.artifacts.load_dict(artifact_uri + "/hydra_config.json")
 
     return OmegaConf.create(d)
-
-
-def hydra_run_exists(experiment_name: str, cfg: OmegaConf) -> str | None:
-    runs = list_runs(experiment_name, only_finished=True)
-
-    logger.warning("run exists fun is broken")
-
-    return None
-    # for i, row in runs.iterrows():
-    #     d = load_hydra_conf(row["run_id"])
-    #     if OmegaConf.to_container(cfg) == d:
-    #         return row["run_id"]
-
-    # return None
