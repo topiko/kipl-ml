@@ -1,22 +1,47 @@
 import numpy as np
+from omegaconf import OmegaConf
+
 from kipl_ml.defences.base import NoDefence
+from kipl_ml.defences.front import FRONT
+from kipl_ml.defences.interspace import Interspace
 from kipl_ml.defences.maybenot import Deck, DeckStats, Maybenot
 from kipl_ml.logging.logger import get_logger
-from omegaconf import OmegaConf
 
 logger = get_logger(__name__)
 
 
 def no_def(netwk_delay: tuple[int, int]) -> dict[str, NoDefence]:
 
-    defence_train = NoDefence(network_delay_millis=netwk_delay)
-    defence_valid = defence_train
-    defence_test = defence_train
+    no_defence = NoDefence(network_delay_millis=netwk_delay)
 
     return {
-        "defence_train": defence_train,
-        "defence_valid": defence_valid,
-        "defence_test": defence_test,
+        "defence_train": no_defence,
+        "defence_valid": no_defence,
+        "defence_test": no_defence,
+    }
+
+
+def interspace(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, Interspace]:
+    d = dict(cfg.defence)
+    d.pop("type")
+    defence = Interspace(network_delay_millis=netwk_delay, **d)
+
+    return {
+        "defence_train": defence,
+        "defence_valid": defence,
+        "defence_test": defence,
+    }
+
+
+def front(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, FRONT]:
+    d = dict(cfg.defence)
+    d.pop("type")
+    defence = FRONT(network_delay_millis=netwk_delay, **d)
+
+    return {
+        "defence_train": defence,
+        "defence_valid": defence,
+        "defence_test": defence,
     }
 
 

@@ -5,8 +5,6 @@ from collections.abc import Callable
 
 from kipl_ml.defences.fixed_machines import _FixedMachine
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.trace.params import MAX_TRACE_LENGTH
-from mbnt import sim_trace_from_file_advanced
 
 logger = get_logger(__name__)
 
@@ -55,6 +53,7 @@ class FRONT(_FixedMachine):
         num_states_server: int,
         seed: int = 0,
     ) -> None:
+
         run = subprocess.run(
             [
                 self._rust_machination,

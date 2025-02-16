@@ -98,6 +98,10 @@ def _get_defence(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, _Def
         return defence_builder.no_def(netwk_delay)
     if def_type == "maybenot":
         return defence_builder.maybenot(cfg, netwk_delay)
+    if def_type == "front":
+        return defence_builder.front(cfg, netwk_delay)
+    if def_type == "interspace":
+        return defence_builder.interspace(cfg, netwk_delay)
 
     raise NotImplementedError("no builder for defence '{def_type}'")
 
@@ -137,15 +141,28 @@ def _parse_run_name(cfg: OmegaConf) -> str:
         return f"Maybenot w. {cfg.defence.n_machines:04d}, aug={aug}"
     if def_type == "front":
         return f"Front, aug={aug}"
+    if def_type == "interspace":
+        return f"Interspace, aug={aug}"
 
     raise KeyError(f"Defence : '{def_type}' is unavailable.")
 
 
-def _get_bw_overhead(cfg: OmegaConf) -> float:
+def _get_bw_overhead(cfg: OmegaConf, undefended_trace_len: int) -> int:
     if cfg.defence.type == "maybenot":
-        return float(1 / (1 - cfg.defence.max_padding_frac))
+        return undefended_trace_len * float(1 / (1 - cfg.defence.max_padding_frac))
     if cfg.defence.type == "no-defence":
-        return 1.0
+        return undefended_trace_len
+    if cfg.defence.type == "front":
+        max_extra_packets = (
+            cfg.defence.padding_budget_max_client
+            + cfg.defence.padding_budget_max_server
+        )
+
+        logger.warning("Waht is the bw overhead estimate for FRONT?")
+        return undefended_trace_len + max_extra_packets
+    if cfg.defence.type == "interspace":
+        logger.warning("Waht is the bw overhead estimate for Interspace?")
+        return undefended_trace_len * 2
 
     raise NotImplementedError("Only maybenot and no-defence known.")
 
@@ -172,7 +189,7 @@ def _run_xv(
     target = _get_target(cfg.dataset.target)
 
     model_config = get_laserbeak_model_config(model_name)
-    model_config["input_size"] = int(model_config["input_size"] * _get_bw_overhead(cfg))
+    model_config["input_size"] = _get_bw_overhead(cfg, int(model_config["input_size"]))
 
     if (n_packets := model_config["input_size"]) > MAX_TRACE_LENGTH:
         raise ValueError("Inpu len larger than MAX_TRACE_LENGTH...")

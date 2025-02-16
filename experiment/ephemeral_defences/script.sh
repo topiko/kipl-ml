@@ -7,7 +7,13 @@ do
 
 	for nmachines in 1 10 100 1000 10000
 	do
-		for defence_aug in 0 1 2 4 8 16
+		uv run python main.py --config-name=config \
+			defence=maybenot \
+			defence.n_machines=$nmachines \
+			dataset.test_xv=$test_xv \
+			train.n_epochs=150
+
+		for defence_aug in 1 2 4 8 16
 		do
 			echo "Running with $nmachines machines"
 			uv run python main.py --config-name=config \

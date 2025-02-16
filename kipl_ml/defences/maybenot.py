@@ -6,6 +6,8 @@ from typing import Self
 import numpy as np
 import torch
 import yaml
+from mbnt import sim_trace_from_file_advanced
+
 from kipl_ml.data import assets
 from kipl_ml.data.utils import parse_trace_to_tensor_dict
 from kipl_ml.defences.base import (
@@ -17,7 +19,6 @@ from kipl_ml.defences.base import (
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt, log_multiline
 from kipl_ml.trace.params import MAX_TRACE_LENGTH
-from mbnt import sim_trace_from_file_advanced
 
 logger = get_logger(__name__)
 
