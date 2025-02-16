@@ -2,6 +2,7 @@ import numpy as np
 from omegaconf import OmegaConf
 
 from kipl_ml.defences.base import NoDefence
+from kipl_ml.defences.breakpad import Breakpad
 from kipl_ml.defences.front import FRONT
 from kipl_ml.defences.interspace import Interspace
 from kipl_ml.defences.maybenot import Deck, DeckStats, Maybenot
@@ -18,6 +19,16 @@ def no_def(netwk_delay: tuple[int, int]) -> dict[str, NoDefence]:
         "defence_train": no_defence,
         "defence_valid": no_defence,
         "defence_test": no_defence,
+    }
+
+
+def breakpad(netwk_delay: tuple[int, int]) -> dict[str, Interspace]:
+    defence = Breakpad(network_delay_millis=netwk_delay)
+
+    return {
+        "defence_train": defence,
+        "defence_valid": defence,
+        "defence_test": defence,
     }
 
 

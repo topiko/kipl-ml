@@ -102,6 +102,8 @@ def _get_defence(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, _Def
         return defence_builder.front(cfg, netwk_delay)
     if def_type == "interspace":
         return defence_builder.interspace(cfg, netwk_delay)
+    if def_type == "breakpad":
+        return defence_builder.breakpad(netwk_delay)
 
     raise NotImplementedError("no builder for defence '{def_type}'")
 
@@ -143,6 +145,8 @@ def _parse_run_name(cfg: OmegaConf) -> str:
         return f"Front, aug={aug}"
     if def_type == "interspace":
         return f"Interspace, aug={aug}"
+    if def_type == "breakpad":
+        return f"Breakpad, aug={aug}"
 
     raise KeyError(f"Defence : '{def_type}' is unavailable.")
 
@@ -158,10 +162,12 @@ def _get_bw_overhead(cfg: OmegaConf, undefended_trace_len: int) -> int:
             + cfg.defence.padding_budget_max_server
         )
 
-        logger.warning("Waht is the bw overhead estimate for FRONT?")
         return undefended_trace_len + max_extra_packets
     if cfg.defence.type == "interspace":
-        logger.warning("Waht is the bw overhead estimate for Interspace?")
+        logger.warning("What is the bw overhead estimate for Interspace?")
+        return undefended_trace_len * 2
+    if cfg.defence.type == "breakpad":
+        logger.warning("What is the bw overhead estimate for Breakpad?")
         return undefended_trace_len * 2
 
     raise NotImplementedError("Only maybenot and no-defence known.")
