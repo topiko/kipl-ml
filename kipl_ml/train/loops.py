@@ -42,6 +42,33 @@ def _get_val_and_metric_str(
     return early_stop_metric_str, best_early_stop_val
 
 
+def _early_stop_logic(
+    objective: str,
+    early_stop_m_val: float,
+    best_early_stop_val: float,
+    epoch: int,
+    best_epoch: int,
+    model: nn.Module,
+    best_model_state: dict | None,
+    n_epochs: int | None,
+) -> tuple[int, float, dict]:
+    if objective == Objective.MIN:
+        if early_stop_m_val < best_early_stop_val:
+            best_early_stop_val = early_stop_m_val
+            best_epoch = epoch
+            best_model_state = deepcopy(model.state_dict())
+    elif objective == Objective.MAX:
+        if early_stop_m_val > best_early_stop_val:
+            best_early_stop_val = early_stop_m_val
+            best_epoch = epoch
+            best_model_state = deepcopy(model.state_dict())
+
+    if isinstance(n_epochs, int):
+        best_model_state = deepcopy(model.state_dict())
+
+    return best_epoch, best_early_stop_val, best_model_state
+
+
 def _one_epoch(
     model: nn.Module,
     dataloader: torch.utils.data.DataLoader,
@@ -142,16 +169,16 @@ def train_model(
             if isinstance(mv, float):
                 mlflow.log_metric(f"valid_{m}", mv, step=epoch)
 
-        if objective == Objective.MIN:
-            if (early_stop_m_val < best_early_stop_val) or isinstance(n_epochs, int):
-                best_early_stop_val = early_stop_m_val
-                best_epoch = epoch
-                best_model_state = deepcopy(model.state_dict())
-        elif objective == Objective.MAX:
-            if (early_stop_m_val > best_early_stop_val) or isinstance(n_epochs, int):
-                best_early_stop_val = early_stop_m_val
-                best_epoch = epoch
-                best_model_state = deepcopy(model.state_dict())
+        best_epoch, best_early_stop_val, best_model_state = _early_stop_logic(
+            objective,
+            early_stop_m_val,
+            best_early_stop_val,
+            epoch,
+            best_epoch,
+            model,
+            best_model_state,
+            n_epochs,
+        )
 
         logger.info("Valid metrics...")
         logger.info("Current epoch:")
