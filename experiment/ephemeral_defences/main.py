@@ -130,25 +130,16 @@ def _get_target(target: str) -> str:
 
 def _parse_experiment_name(cfg: OmegaConf) -> str:
 
-    return f"{cfg.mlflow.experiment_name}->{cfg.model.name} vs. {cfg.defence.type}"
+    return f"{cfg.mlflow.experiment_name}"
 
 
 def _parse_run_name(cfg: OmegaConf) -> str:
-
-    def_type = cfg.defence.type
     aug = cfg.dataset.defence_augmentation
-    if def_type == "no-defence":
-        return f"NoDefence, aug={aug}"
-    if def_type == "maybenot":
-        return f"Maybenot w. {cfg.defence.n_machines:04d}, aug={aug}"
-    if def_type == "front":
-        return f"Front, aug={aug}"
-    if def_type == "interspace":
-        return f"Interspace, aug={aug}"
-    if def_type == "breakpad":
-        return f"Breakpad, aug={aug}"
 
-    raise KeyError(f"Defence : '{def_type}' is unavailable.")
+    if (defence_str := cfg.defence.type) == "maybenot":
+        defence_str = "maybenot w. {cfg.defence.n_machines:04d}"
+
+    return f"{defence_str} vs. {cfg.model.name} | aug={aug}"
 
 
 def _get_bw_overhead(cfg: OmegaConf, undefended_trace_len: int) -> int:

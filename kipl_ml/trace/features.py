@@ -59,6 +59,7 @@ class Feats(StrEnum):
 
 
 FEAT_NAME_MAP = {
+    "dirs": Feats.DIRS,
     "flow_iats": Feats.FLOW_IATS,
     "time_dirs": Feats.TIME_DIRS,
     "size_dirs": Feats.SIZE_DIRS,
