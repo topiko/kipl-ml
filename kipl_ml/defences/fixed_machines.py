@@ -11,7 +11,7 @@ import torch
 from mbnt import sim_trace_from_file_advanced
 
 from kipl_ml.data.utils import parse_trace_to_tensor_dict
-from kipl_ml.defences.base import _Def, parse_netwk_delay_fun
+from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def, parse_netwk_delay_fun
 from kipl_ml.defences.maybenot import Deck, DeckStats
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
@@ -76,4 +76,7 @@ class _FixedMachine(_Def):
         raise NotImplementedError
 
     def mlflow_log_params(self) -> dict[str, str]:
-        return {k: str(v) for k, v in self.machination_kwargs.items()}
+        d = {k: str(v) for k, v in self.machination_kwargs.items()}
+        d[DEFENCE_TYPE_KW] = self.__class__.__name__.lower()
+
+        return d
