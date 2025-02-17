@@ -38,6 +38,9 @@ def main():
 
     print(res)
 
+    with open(f"{args.experiment_name}_table.txt", "w", encoding="utf-8") as f:
+        f.writelines(res.split("\n"))
+
     res.to_latex(f"{args.experiment_name}_table.tex")
 
 
