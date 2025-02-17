@@ -4,11 +4,11 @@ expr_name="Ephermeral-Aug1, cosine"
 nepochs=30
 defaug=1
 
-for model in df-dirs-only df-tiktok df-multi
+for model in df-dirs-only df-multi laserbeak
 do
 	common="dataset.defence_augmentation=$defaug train=cosine train.epochs=$nepochs mlflow.experiment_name=$expr_name model.name=$model"
 
-	for defence in front no_defence interspace breakpad
+	for defence in no_defence front interspace breakpad
 	do
 		uv run python main.py --config-name=config defence=$defence $common
 		uv run python xv_table.py -en $expr_name
