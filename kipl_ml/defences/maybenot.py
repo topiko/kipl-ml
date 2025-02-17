@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -231,15 +233,15 @@ class Maybenot(_Def):
         trace_d = parse_trace_to_tensor_dict(times, dirs, paddings, None)
 
         if trace_d[assets.TIMES].shape[0] == 0:
-            logger.warning(f"Empty trace for {trace_path}")
-            logger.warning(f"machine_idx: {machine_idx}")
+            raise ValueError("Empty trace!")
 
         return trace_d
 
     def mlflow_log_params(self) -> dict[str, str]:
 
+        n_machines = len(self.deck.machine_idxs)
         d = {}
-        d[DEFENCE_TYPE_KW] = self.__class__.__name__.lower()
+        d[DEFENCE_TYPE_KW] = f"{self.__class__.__name__.lower()} w. {n_machines}"
         d["padding_frac_client"] = self.padding_frac_client
         d["padding_frac_server"] = self.padding_frac_server
         d["blocking_frac_client"] = self.blocking_frac_client
