@@ -75,7 +75,7 @@ class _FixedMachine(_Def):
     def _machination(self, tmpfile_: str, **kwargs) -> None:
         raise NotImplementedError
 
-    def mlflow_log_params(self) -> dict[str, str]:
+    def _mlflow_log_params(self) -> dict[str, str]:
         d = {k: str(v) for k, v in self.machination_kwargs.items()}
         d[DEFENCE_TYPE_KW] = self.__class__.__name__.lower()
 

@@ -237,7 +237,7 @@ class Maybenot(_Def):
 
         return trace_d
 
-    def mlflow_log_params(self) -> dict[str, str]:
+    def _mlflow_log_params(self) -> dict[str, str]:
 
         n_machines = len(self.deck.machine_idxs)
         d = {}

@@ -62,7 +62,8 @@ def _get_lr_scheduler(
     cfg: OmegaConf, optimizer: torch.optim.Optimizer
 ) -> tuple[ReduceLROnPlateau | LambdaLR | None, dict]:
 
-    params = dict(cfg.train)
+    params = {f"train.{k}": v for k, v in dict(cfg.train).items()}
+
     try:
         scheduler = cfg.train.scheduler
     except AttributeError:
@@ -268,14 +269,9 @@ def _run_xv(
                 "model_name": model_name,
                 "dataset_name": dataset_name,
                 "n_train_traces": ds_train.n_orig_traces,
-                "batch_size": cfg.train.batch_size,
-                "patience": patience,
-                "early_stop_metric": early_stop_metric,
+                "train.early_stop_metric": early_stop_metric,
                 "data_random_state": cfg.dataset.random_state,
-                "scheduler": cfg.train.scheduler,
-                "lr": cfg.train.lr,
                 "defence_augmentation": cfg.dataset.defence_augmentation,
-                "n_epochs": cfg.train.n_epochs,
                 "test_xv": test_xv,
             }
         )

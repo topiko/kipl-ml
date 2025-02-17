@@ -7,7 +7,7 @@ expr_name="Ephermeral-Aug$defaug-$scheduler"
 
 for model in df-multi df-dirs-only laserbeak
 do
-	common="dataset.defence_augmentation=$defaug train=$scheduler train.epochs=$nepochs mlflow.experiment_name=$expr_name model=$model"
+	common="dataset.defence_augmentation=$defaug train=$scheduler train.epochs=$nepochs train.n_epochs=$nepochs mlflow.experiment_name=$expr_name model=$model"
 
 	for defence in no_defence front interspace breakpad
 	do

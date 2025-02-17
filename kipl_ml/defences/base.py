@@ -3,11 +3,12 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 import torch
+from mbnt import sim_trace_from_file_advanced
+
 from kipl_ml.data.utils import get_std_trace_dict, parse_trace_to_tensor_dict
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.trace.params import MAX_TRACE_LENGTH
-from mbnt import sim_trace_from_file_advanced
 
 logger = get_logger(__name__)
 DEFENCE_TYPE_KW = "defence-type"
@@ -109,8 +110,11 @@ class _Def(ABC):
     def report(self, to_log: bool = True) -> str:
         raise NotImplementedError
 
-    @abstractmethod
     def mlflow_log_params(self) -> dict[str, str]:
+        return {f"defence.{k}": v for k, v in self._mlflow_log_params().items()}
+
+    @abstractmethod
+    def _mlflow_log_params(self) -> dict[str, str]:
         raise NotImplementedError
 
     @property
@@ -151,7 +155,7 @@ class NoDefence(_Def):
         trace_d = parse_trace_to_tensor_dict(times, dirs, paddings, None)
         return trace_d
 
-    def mlflow_log_params(self) -> dict[str, str]:
+    def _mlflow_log_params(self) -> dict[str, str]:
         d = self.network_delay_millis.mlflow_log_params()
         d[DEFENCE_TYPE_KW] = self.__class__.__name__.lower()
 
