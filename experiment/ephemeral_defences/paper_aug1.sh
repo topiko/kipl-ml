@@ -1,12 +1,12 @@
 #!/bin/bash
 
-expr_name="Ephermeral-Aug1"
+expr_name="Ephermeral-Aug1, cosine"
 nepochs=30
 defaug=1
 
 for model in df-dirs-only df-tiktok df-multi
 do
-	common="dataset.defence_augmentation=$defaug train.n_epochs=$nepochs mlflow.experiment_name=$expr_name model.name=$model"
+	common="dataset.defence_augmentation=$defaug train=cosine train.epochs=$nepochs mlflow.experiment_name=$expr_name model.name=$model"
 
 	for defence in front no_defence interspace breakpad
 	do
