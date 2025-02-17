@@ -17,7 +17,11 @@ def main():
 
     df = list_runs(args.experiment_name)
 
-    groupby = ["params.dataset_name", "params.model_name", "params.defence-type"]
+    groupby = [
+        "params.dataset_name",
+        "params.model_name",
+        "params.defence.defence-type",
+    ]
 
     metric = "metrics.test_accuracy"
     res = (
@@ -29,7 +33,7 @@ def main():
         .to_frame()
         .reset_index()
         .pivot(
-            index="params.defence-type",
+            index="params.defence.defence-type",
             columns=["params.dataset_name", "params.model_name"],
             values=0,
         )
@@ -38,10 +42,11 @@ def main():
 
     print(res)
 
-    with open(f"{args.experiment_name}_table.txt", "w", encoding="utf-8") as f:
-        f.writelines(res.split("\n"))
+    with open(f"tables/{args.experiment_name}_table.txt", "w", encoding="utf-8") as f:
+        for line in str(res).split("\n"):
+            f.write(line + "\n")
 
-    res.to_latex(f"{args.experiment_name}_table.tex")
+    res.to_latex(f"tables/{args.experiment_name}_table.tex")
 
 
 if __name__ == "__main__":
