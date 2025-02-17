@@ -137,7 +137,7 @@ def _parse_run_name(cfg: OmegaConf) -> str:
     aug = cfg.dataset.defence_augmentation
 
     if (defence_str := cfg.defence.type) == "maybenot":
-        defence_str = "maybenot w. {cfg.defence.n_machines:04d}"
+        defence_str = f"maybenot w. {cfg.defence.n_machines:04d}"
 
     return f"{defence_str} vs. {cfg.model.name} | aug={aug}"
 
