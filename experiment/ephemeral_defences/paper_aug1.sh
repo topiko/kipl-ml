@@ -1,12 +1,13 @@
 #!/bin/bash
 
-expr_name="Ephermeral-Aug1, cosine"
 nepochs=30
 defaug=1
+scheduler=cosine
+expr_name="Ephermeral-Aug$defaug-$scheduler"
 
-for model in df-dirs-only df-multi laserbeak
+for model in df-multi df-dirs-only laserbeak
 do
-	common="dataset.defence_augmentation=$defaug train=cosine train.epochs=$nepochs mlflow.experiment_name=$expr_name model.name=$model"
+	common="dataset.defence_augmentation=$defaug train=$scheduler train.epochs=$nepochs mlflow.experiment_name=$expr_name model=$model"
 
 	for defence in no_defence front interspace breakpad
 	do
