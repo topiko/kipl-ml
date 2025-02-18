@@ -95,18 +95,19 @@ def _get_defence(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, _Def
 
     def_type = cfg.defence.type
 
-    if def_type == "no-defence":
-        return defence_builder.no_def(netwk_delay)
-    if def_type == "maybenot":
-        return defence_builder.maybenot(cfg, netwk_delay)
-    if def_type == "front":
-        return defence_builder.front(cfg, netwk_delay)
-    if def_type == "interspace":
-        return defence_builder.interspace(cfg, netwk_delay)
-    if def_type == "breakpad":
-        return defence_builder.breakpad(netwk_delay)
-
-    raise NotImplementedError("no builder for defence '{def_type}'")
+    match def_type:
+        case "no-defence":
+            return defence_builder.no_def(netwk_delay)
+        case "maybenot":
+            return defence_builder.maybenot(cfg, netwk_delay)
+        case "front":
+            return defence_builder.front(cfg, netwk_delay)
+        case "interspace":
+            return defence_builder.interspace(cfg, netwk_delay)
+        case "breakpad":
+            return defence_builder.breakpad(netwk_delay)
+        case _:
+            raise NotImplementedError("no builder for defence '{def_type}'")
 
 
 def _get_dl(ds: Dataset, bs: int, shuffle: bool = False) -> DataLoader:
