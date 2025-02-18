@@ -22,6 +22,7 @@ class FRONT(_FixedMachine):
         num_states_client: int,
         num_states_server: int,
         n_machines: int,
+        seed: int = 42,
     ):
 
         self.machination_kwargs = {
@@ -34,6 +35,7 @@ class FRONT(_FixedMachine):
             "num_states_client": num_states_client,
             "num_states_server": num_states_server,
             "n_machines": n_machines,
+            "seed": seed,
         }
         super().__init__(
             network_delay_millis=network_delay_millis,
@@ -52,6 +54,7 @@ class FRONT(_FixedMachine):
         num_states_client: int,
         num_states_server: int,
         n_machines: int,
+        seed: int,
     ) -> None:
 
         run = subprocess.run(
@@ -66,6 +69,8 @@ class FRONT(_FixedMachine):
                 str(n_machines),
                 "-o",
                 tmpfile_,
+                "--seed",
+                str(seed),
             ],
             check=False,
             capture_output=True,
