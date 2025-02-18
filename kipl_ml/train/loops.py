@@ -51,6 +51,7 @@ def _early_stop_logic(
     model: nn.Module,
     best_model_state: dict | None,
     n_epochs: int | None,
+    keep_best: bool = True,
 ) -> tuple[int, float, dict]:
     if objective == Objective.MIN:
         if early_stop_m_val < best_early_stop_val:
@@ -63,7 +64,8 @@ def _early_stop_logic(
             best_epoch = epoch
             best_model_state = deepcopy(model.state_dict())
 
-    if isinstance(n_epochs, int):
+    if isinstance(n_epochs, int) and not keep_best:
+        # If we want to force the last model state.
         best_model_state = deepcopy(model.state_dict())
 
     return best_epoch, best_early_stop_val, best_model_state

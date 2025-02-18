@@ -155,7 +155,6 @@ class Maybenot(_Def):
         blocking_frac_server: str = "no-blocking",
         max_padding_frac: float = 1.0,
         max_blocking_frac: float = 0.0,
-        machine_idxs: list[int] | None = None,
         fixed_per_trace: bool = False,
     ):
         self.deck = deck
