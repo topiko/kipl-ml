@@ -77,6 +77,7 @@ def parse_netwk_delay_fun(
 
 
 class _Def(ABC):
+    FIXED_PER_TRACE = False
 
     def _report(self, to_log: bool = True, **kwargs) -> str:
         str_ = f"{self.name}\n"

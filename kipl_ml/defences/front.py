@@ -23,6 +23,7 @@ class FRONT(_FixedMachine):
         num_states_server: int,
         n_machines: int,
         seed: int = 42,
+        fixed_per_trace: bool = True,
     ):
 
         self.machination_kwargs = {
@@ -40,6 +41,7 @@ class FRONT(_FixedMachine):
         super().__init__(
             network_delay_millis=network_delay_millis,
             machination_kwargs=self.machination_kwargs,
+            fixed_per_trace=fixed_per_trace,
         )
 
     def _machination(

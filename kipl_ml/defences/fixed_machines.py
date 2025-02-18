@@ -29,10 +29,12 @@ class _FixedMachine(_Def):
         self,
         network_delay_millis: int | tuple[int, int] | Callable[[], int],
         machination_kwargs: dict[str, int | float],
+        fixed_per_trace: bool = False,
     ):
         if (MACHINATION := os.getenv("MACHINATION")) is None:
             raise ValueError("machination not found in environment")
 
+        self.FIXED_PER_TRACE = fixed_per_trace
         self._rust_machination = MACHINATION
         tmpfile_ = tempfile.mktemp(suffix=".defence")
 

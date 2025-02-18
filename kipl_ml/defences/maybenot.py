@@ -144,6 +144,7 @@ def load_machines(
 
 
 class Maybenot(_Def):
+
     def __init__(
         self,
         deck: Deck,
@@ -155,9 +156,12 @@ class Maybenot(_Def):
         max_padding_frac: float = 1.0,
         max_blocking_frac: float = 0.0,
         machine_idxs: list[int] | None = None,
+        fixed_per_trace: bool = False,
     ):
         self.deck = deck
         self.network_delay_millis = parse_netwk_delay_fun(network_delay_millis)
+
+        self.FIXED_PER_TRACE = fixed_per_trace
 
         if not all(f == "random" for f in (padding_frac_client, padding_frac_server)):
             raise ValueError("Only random padding is supported for now")

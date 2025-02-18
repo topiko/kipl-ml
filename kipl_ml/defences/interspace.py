@@ -15,6 +15,7 @@ class Interspace(_FixedMachine):
         network_delay_millis: int | tuple[int, int] | Callable[[], int],
         n_machines: int,
         seed: int = 42,
+        fixed_per_trace: bool = True,
     ):
         self.machination_kwargs: dict[str, int | float] = {
             "n_machines": n_machines,
@@ -23,6 +24,7 @@ class Interspace(_FixedMachine):
         super().__init__(
             network_delay_millis=network_delay_millis,
             machination_kwargs=self.machination_kwargs,
+            fixed_per_trace=fixed_per_trace
         )
 
     def _machination(self, tmpfile_: str, n_machines: int, seed: int) -> None:

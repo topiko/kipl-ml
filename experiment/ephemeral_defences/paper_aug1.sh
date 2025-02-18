@@ -1,15 +1,15 @@
 #!/bin/bash
 
-nepochs=30
+nepochs=60
 defaug=1
 scheduler=cosine
-expr_name="Ephermeral-Aug$defaug-$scheduler"
+expr_name="Ephermeral-Aug$defaug-$scheduler-v2"
 
 for model in df-multi df-dirs-only laserbeak
 do
 	common="dataset.defence_augmentation=$defaug train=$scheduler train.epochs=$nepochs train.n_epochs=$nepochs mlflow.experiment_name=$expr_name model=$model"
 
-	for defence in no_defence front interspace breakpad
+	for defence in no_defence front interspace # breakpad
 	do
 		uv run python main.py --config-name=config defence=$defence $common
 		uv run python xv_table.py -en $expr_name
