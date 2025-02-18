@@ -14,7 +14,7 @@ from torchtune.training.lr_schedulers import get_cosine_schedule_with_warmup
 
 from experiment.ephemeral_defences import defence_builder
 from kipl_ml.data import assets
-from kipl_ml.data.wf_dataset import WFDataset, get_train_valid_test
+from kipl_ml.data.wf_dataset import get_train_valid_test
 from kipl_ml.defences.base import _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import get_mlflow_expr, key_val_fmt, log_multiline
@@ -167,11 +167,9 @@ def _get_bw_overhead(cfg: OmegaConf, undefended_trace_len: int) -> int:
             raise NotImplementedError("Defence type not implemented.")
 
 
-def _run_xv(
-    cfg: OmegaConf, parent_run_name: str, test_xv: int, nested_run: bool = True
-):
+def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
 
-    run_name = f"{parent_run_name}_xv={test_xv:02d}"
+    run_name = f"{parent_run_name}_xv={cfg.dataset.test_xv:02d}"
 
     df = list_runs(_parse_experiment_name(cfg), only_finished=True)
 
@@ -189,7 +187,8 @@ def _run_xv(
     target = _get_target(cfg.dataset.target)
 
     model_config = get_laserbeak_model_config(model_name)
-    model_config["input_size"] = _get_bw_overhead(cfg, int(model_config["input_size"]))
+    model_config["input_size"] = cfg.trace.n_packets
+    # _get_bw_overhead(cfg, int(model_config["input_size"]))
 
     if (n_packets := model_config["input_size"]) > MAX_TRACE_LENGTH:
         raise ValueError("Inpu len larger than MAX_TRACE_LENGTH...")
@@ -206,19 +205,6 @@ def _run_xv(
         cfg.network.network_delay_millis.max,
     )
 
-    def _get_datasets(test_xv: int) -> tuple[WFDataset, WFDataset, WFDataset]:
-        return get_train_valid_test(
-            dataset=dataset_name,
-            n_splits=cfg.dataset.n_splits,
-            label=target,
-            test_xv=test_xv,
-            random_state=cfg.dataset.random_state,
-            feature_trs=feature_trs,
-            defence_aug=cfg.dataset.defence_augmentation,
-            defence_aug_valid=cfg.dataset.defence_augmentation_valid,
-            **_get_defence(cfg, netwk_delay),
-        )
-
     STORE_DATA_COLS = [target, assets.TRACE_ID]
 
     loss_fn = torch.nn.CrossEntropyLoss(
@@ -228,7 +214,17 @@ def _run_xv(
     early_stop_metric = "loss"
     patience = cfg.train.patience
 
-    ds_train, ds_valid, ds_test = _get_datasets(test_xv)
+    ds_train, ds_valid, ds_test = get_train_valid_test(
+        dataset=dataset_name,
+        n_splits=cfg.dataset.n_splits,
+        label=target,
+        test_xv=cfg.dataset.test_xv,
+        random_state=cfg.dataset.random_state,
+        feature_trs=feature_trs,
+        defence_aug=cfg.dataset.defence_augmentation,
+        defence_aug_valid=cfg.dataset.defence_augmentation_valid,
+        **_get_defence(cfg, netwk_delay),
+    )
 
     model = get_model(
         model_name,
@@ -272,7 +268,7 @@ def _run_xv(
                 "train.early_stop_metric": early_stop_metric,
                 "data_random_state": cfg.dataset.random_state,
                 "defence_augmentation": cfg.dataset.defence_augmentation,
-                "test_xv": test_xv,
+                "test_xv": cfg.dataset.test_xv,
             }
         )
 
@@ -324,7 +320,7 @@ def main(cfg: DictConfig):
     # Set seeds
     seed = cfg.seed + cfg.dataset.test_xv
     torch.manual_seed(seed)
-    # torch.use_deterministic_algorithms(True)
+    torch.use_deterministic_algorithms(True)
     np.random.seed(seed)
 
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
@@ -335,10 +331,11 @@ def main(cfg: DictConfig):
         with mlflow.start_run(run_name=run_name):
             mlflow.set_tag("project", "ephemeral_defences")
             for test_xv in range(10):
-                _run_xv(cfg, run_name, test_xv)
+                cfg.dataset.test_xv = test_xv
+                _run_xv(cfg, run_name)
 
     else:
-        _run_xv(cfg, run_name, cfg.dataset.test_xv, nested_run=False)
+        _run_xv(cfg, run_name, nested_run=False)
 
 
 if __name__ == "__main__":

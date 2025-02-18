@@ -128,7 +128,7 @@ class WFDataset(Dataset):
             with open(orig_trace_path, "rb") as f:
                 fcntl.flock(f, fcntl.LOCK_EX)  # Acquire an exclusive lock
                 try:
-                    return self.defence(orig_trace_path)
+                    return self.defence(orig_trace_path, machine_idx=orig_idx)
                 finally:
                     fcntl.flock(f, fcntl.LOCK_UN)  # Release the lock
 

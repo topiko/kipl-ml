@@ -13,16 +13,15 @@ class Breakpad(_FixedMachine):
     def __init__(
         self,
         network_delay_millis: int | tuple[int, int] | Callable[[], int],
-        seed: int = 0,
     ):
 
-        self.machination_kwargs: dict[str, int | float] = {"seed": seed}
+        self.machination_kwargs: dict[str, int | float] = {}
         super().__init__(
             network_delay_millis=network_delay_millis,
             machination_kwargs=self.machination_kwargs,
         )
 
-    def _machination(self, tmpfile_: str, seed: int = 0) -> None:
+    def _machination(self, tmpfile_: str) -> None:
         run = subprocess.run(
             [
                 self._rust_machination,

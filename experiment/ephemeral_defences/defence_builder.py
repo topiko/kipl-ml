@@ -35,24 +35,34 @@ def breakpad(netwk_delay: tuple[int, int]) -> dict[str, Interspace]:
 def interspace(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, Interspace]:
     d = dict(cfg.defence)
     d.pop("type")
-    defence = Interspace(network_delay_millis=netwk_delay, **d)
+    n_train_machines = d.pop("n_train_machines")
+    n_valid_machines = d.pop("n_valid_machines")
+    n_test_machines = d.pop("n_test_machines")
+
+    def _interspace(n_machines):
+        return Interspace(network_delay_millis=netwk_delay, **d, n_machines=n_machines)
 
     return {
-        "defence_train": defence,
-        "defence_valid": defence,
-        "defence_test": defence,
+        "defence_train": _interspace(n_train_machines),
+        "defence_valid": _interspace(n_valid_machines),
+        "defence_test": _interspace(n_test_machines),
     }
 
 
 def front(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, FRONT]:
     d = dict(cfg.defence)
     d.pop("type")
-    defence = FRONT(network_delay_millis=netwk_delay, **d)
+    n_train_machines = d.pop("n_train_machines")
+    n_valid_machines = d.pop("n_valid_machines")
+    n_test_machines = d.pop("n_test_machines")
+
+    def _front(n_machines):
+        return FRONT(network_delay_millis=netwk_delay, **d, n_machines=n_machines)
 
     return {
-        "defence_train": defence,
-        "defence_valid": defence,
-        "defence_test": defence,
+        "defence_train": _front(n_train_machines),
+        "defence_valid": _front(n_valid_machines),
+        "defence_test": _front(n_test_machines),
     }
 
 

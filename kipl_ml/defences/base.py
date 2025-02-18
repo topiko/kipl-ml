@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from abc import ABC, abstractmethod
 
@@ -91,19 +93,23 @@ class _Def(ABC):
     def name(self) -> str:
         return self.__class__.__name__
 
-    def __call__(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
+    def __call__(
+        self, trace_path: os.PathLike, machine_idx: int | None = None
+    ) -> dict[str, torch.Tensor]:
         if not isinstance(trace_path, os.PathLike):
             raise TypeError(
                 f"Expected trace to be os.PathLike, got: {type(trace_path)}"
             )
 
-        return self._simulate(trace_path)
+        return self._simulate(trace_path, machine_idx)
 
     def load_data(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
         return get_std_trace_dict(trace_path)
 
     @abstractmethod
-    def _simulate(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
+    def _simulate(
+        self, trace_path: os.PathLike, machine_idx: int | None = None
+    ) -> dict[str, torch.Tensor]:
         raise NotImplementedError
 
     @abstractmethod
@@ -139,7 +145,9 @@ class NoDefence(_Def):
             logger.info(str_)
         return str_
 
-    def _simulate(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
+    def _simulate(
+        self, trace_path: os.PathLike, machine_idx: int | None = None
+    ) -> dict[str, torch.Tensor]:
 
         times, dirs, paddings = sim_trace_from_file_advanced(
             str(trace_path),
