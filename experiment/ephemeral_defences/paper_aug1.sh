@@ -3,7 +3,7 @@
 nepochs=60
 defaug=1
 scheduler=cosine
-expr_name="Ephermeral-Aug$defaug-$scheduler-v2"
+expr_name="Ephermeral-Aug$defaug-$scheduler-v3"
 
 for model in df-multi df-dirs-only laserbeak
 do

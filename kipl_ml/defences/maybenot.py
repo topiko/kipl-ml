@@ -155,10 +155,11 @@ class Maybenot(_Def):
         blocking_frac_server: str = "no-blocking",
         max_padding_frac: float = 1.0,
         max_blocking_frac: float = 0.0,
+        seed: int = 42,
         fixed_per_trace: bool = False,
     ):
         self.deck = deck
-        self.network_delay_millis = parse_netwk_delay_fun(network_delay_millis)
+        self.network_delay_millis = parse_netwk_delay_fun(network_delay_millis, seed)
 
         self.FIXED_PER_TRACE = fixed_per_trace
 
