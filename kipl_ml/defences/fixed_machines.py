@@ -66,10 +66,10 @@ class _FixedMachine(_Def):
             client_machines,
             server_machines,
             self.network_delay_millis(),
-            max_padding_frac_client=1,
-            max_padding_frac_server=1,
-            max_blocking_frac_client=1,
-            max_blocking_frac_server=1,
+            max_padding_frac_client=0,
+            max_padding_frac_server=0,
+            max_blocking_frac_client=0,
+            max_blocking_frac_server=0,
             max_trace_length=MAX_TRACE_LENGTH,
         )
 
