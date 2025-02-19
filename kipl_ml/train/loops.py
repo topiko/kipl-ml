@@ -205,15 +205,6 @@ def train_model(
                 logger.info("Terminate; max epochs reached.")
                 break
 
-        if isinstance(lr_scheduler, ReduceLROnPlateau):
-            lr_scheduler.step(metrics_vals["loss"])
-        elif isinstance(lr_scheduler, LambdaLR):
-            lr_scheduler.step()
-        elif lr_scheduler is None:
-            pass
-        else:
-            raise NotImplementedError(f"Scheduler {lr_scheduler} not impl.")
-
         epoch += 1
         model, train_loss = _one_epoch(
             model, train_loader, optimizer, loss_fn, n_epoch=epoch
@@ -224,6 +215,15 @@ def train_model(
         logger.info(
             key_val_fmt("Cur lr", f"{optimizer.param_groups[0]['lr']:.3e}", suffix="")
         )
+
+        if isinstance(lr_scheduler, ReduceLROnPlateau):
+            lr_scheduler.step(metrics_vals["loss"])
+        elif isinstance(lr_scheduler, LambdaLR):
+            lr_scheduler.step()
+        elif lr_scheduler is None:
+            pass
+        else:
+            raise NotImplementedError(f"Scheduler {lr_scheduler} not impl.")
 
     if best_model_state is None:
         raise ValueError("No best model state found.")
