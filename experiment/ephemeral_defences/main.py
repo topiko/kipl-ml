@@ -8,13 +8,14 @@ import mlflow
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
+from torch import nn
 from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader, Dataset
 from torchtune.training.lr_schedulers import get_cosine_schedule_with_warmup
 
 from experiment.ephemeral_defences import defence_builder
 from kipl_ml.data import assets
-from kipl_ml.data.wf_dataset import WFDataset, get_train_valid_test
+from kipl_ml.data.wf_dataset import get_train_valid_test
 from kipl_ml.defences.base import _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import get_mlflow_expr, key_val_fmt, log_multiline
@@ -28,7 +29,6 @@ from kipl_ml.tools.mlflow_utils import (
     log_hydra_conf,
 )
 from kipl_ml.trace.features import FEAT_NAME_MAP, FeatureTrs
-from kipl_ml.trace.params import MAX_TRACE_LENGTH
 from kipl_ml.train.loops import train_model
 
 logger = get_logger(__name__)
@@ -91,22 +91,40 @@ def _get_lr_scheduler(
     return scheduler, params
 
 
+def _get_optimizer(cfg: OmegaConf, model: nn.Module) -> torch.optim.Optimizer:
+    match cfg.optimizer.type:
+        case "adamw":
+            opt_betas = (0.9, 0.999)
+            opt_wd = 0.001
+            return torch.optim.AdamW(
+                model.parameters(),
+                lr=cfg.train.lr,
+                betas=opt_betas,
+                weight_decay=opt_wd,
+            )
+        case "adamax":
+            return torch.optim.Adamax(params=model.parameters())
+        case _:
+            raise NotImplementedError
+
+
 def _get_defence(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, _Def]:
 
     def_type = cfg.defence.type
 
-    if def_type == "no-defence":
-        return defence_builder.no_def(netwk_delay)
-    if def_type == "maybenot":
-        return defence_builder.maybenot(cfg, netwk_delay)
-    if def_type == "front":
-        return defence_builder.front(cfg, netwk_delay)
-    if def_type == "interspace":
-        return defence_builder.interspace(cfg, netwk_delay)
-    if def_type == "breakpad":
-        return defence_builder.breakpad(netwk_delay)
-
-    raise NotImplementedError("no builder for defence '{def_type}'")
+    match def_type:
+        case "no-defence":
+            return defence_builder.no_def(netwk_delay)
+        case "maybenot":
+            return defence_builder.maybenot(cfg, netwk_delay)
+        case "front":
+            return defence_builder.front(cfg, netwk_delay)
+        case "interspace":
+            return defence_builder.interspace(cfg, netwk_delay)
+        case "breakpad":
+            return defence_builder.breakpad(netwk_delay)
+        case _:
+            raise NotImplementedError("no builder for defence '{def_type}'")
 
 
 def _get_dl(ds: Dataset, bs: int, shuffle: bool = False) -> DataLoader:
@@ -135,7 +153,7 @@ def _parse_experiment_name(cfg: OmegaConf) -> str:
 
 
 def _parse_run_name(cfg: OmegaConf) -> str:
-    aug = cfg.dataset.defence_augmentation
+    aug = cfg.misc.defence_augmentation
 
     if (defence_str := cfg.defence.type) == "maybenot":
         defence_str = f"maybenot w. {cfg.defence.n_machines:04d}"
@@ -167,11 +185,9 @@ def _get_bw_overhead(cfg: OmegaConf, undefended_trace_len: int) -> int:
             raise NotImplementedError("Defence type not implemented.")
 
 
-def _run_xv(
-    cfg: OmegaConf, parent_run_name: str, test_xv: int, nested_run: bool = True
-):
+def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
 
-    run_name = f"{parent_run_name}_xv={test_xv:02d}"
+    run_name = f"{parent_run_name}_xv={cfg.dataset.test_xv:02d}"
 
     df = list_runs(_parse_experiment_name(cfg), only_finished=True)
 
@@ -181,56 +197,60 @@ def _run_xv(
             logger.info(f"Found finished run for: {run_name} -> exiting.")
             return
 
+    netwk_delay = (
+        cfg.network.network_delay_millis.min,
+        cfg.network.network_delay_millis.max,
+    )
+
     logger.info("Starting run w. config:")
     log_multiline(OmegaConf.to_yaml(cfg))
 
     dataset_name = cfg.dataset.name
     model_name = cfg.model.name
     target = _get_target(cfg.dataset.target)
-
-    model_config = get_laserbeak_model_config(model_name)
-    model_config["input_size"] = _get_bw_overhead(cfg, int(model_config["input_size"]))
-
-    if (n_packets := model_config["input_size"]) > MAX_TRACE_LENGTH:
-        raise ValueError("Inpu len larger than MAX_TRACE_LENGTH...")
-
-    feature_names = cfg.features.features
-    if model_config.get("feature_list"):
-        logger.warning("Feature list overwritten by model config")
-        feature_names = [FEAT_NAME_MAP[feat] for feat in model_config["feature_list"]]
-
-    feature_trs = FeatureTrs(feature_names=feature_names, n_packets=n_packets)
-
-    netwk_delay = (
-        cfg.network.network_delay_millis.min,
-        cfg.network.network_delay_millis.max,
-    )
-
-    def _get_datasets(test_xv: int) -> tuple[WFDataset, WFDataset, WFDataset]:
-        return get_train_valid_test(
-            dataset=dataset_name,
-            n_splits=cfg.dataset.n_splits,
-            label=target,
-            test_xv=test_xv,
-            random_state=cfg.dataset.random_state,
-            feature_trs=feature_trs,
-            defence_aug=cfg.dataset.defence_augmentation,
-            defence_aug_valid=cfg.dataset.defence_augmentation_valid,
-            **_get_defence(cfg, netwk_delay),
-        )
-
     STORE_DATA_COLS = [target, assets.TRACE_ID]
 
+    match cfg.model.source:
+        case "local":
+            feature_names = cfg.model.features
+            trace_len = cfg.model.trace_len
+            model_name = cfg.model.name
+            model_config = {}
+        case "lb":
+            model_config = get_laserbeak_model_config(model_name)
+            trace_len = cfg.model.trace_len
+            model_config["input_size"] = trace_len
+
+            if model_config.get("feature_list"):
+                logger.warning("Feature list overwritten by model config")
+                feature_names = [
+                    FEAT_NAME_MAP[feat] for feat in model_config["feature_list"]
+                ]
+        case _:
+            raise NotImplementedError
+    feature_trs = FeatureTrs(feature_names=feature_names, n_packets=trace_len)
+
     loss_fn = torch.nn.CrossEntropyLoss(
-        reduction="mean", label_smoothing=cfg.train.label_smoothing
+        reduction="mean"  # , label_smoothing=cfg.train.label_smoothing
     )
     metrics = [Accuracy(), ClassRecall(1)]
     early_stop_metric = "loss"
     patience = cfg.train.patience
 
-    ds_train, ds_valid, ds_test = _get_datasets(test_xv)
+    ds_train, ds_valid, ds_test = get_train_valid_test(
+        dataset=dataset_name,
+        n_splits=cfg.dataset.n_splits,
+        label=target,
+        test_xv=cfg.dataset.test_xv,
+        random_state=cfg.dataset.random_state,
+        feature_trs=feature_trs,
+        defence_aug=cfg.misc.defence_augmentation,
+        defence_aug_valid=cfg.misc.defence_augmentation_valid,
+        **_get_defence(cfg, netwk_delay),
+    )
 
     model = get_model(
+        cfg.model.source,
         model_name,
         n_classes=ds_train.n_classes,
         inputs=ds_train.output_sizes,
@@ -241,15 +261,7 @@ def _run_xv(
     valid_loader = _get_dl(ds_valid, 128)
     test_loader = _get_dl(ds_test, 128)
 
-    opt_betas = (0.9, 0.999)
-    opt_wd = 0.001
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=cfg.train.lr,
-        betas=opt_betas,
-        weight_decay=opt_wd,
-    )
-
+    optimizer = _get_optimizer(cfg, model)
     lr_scheduler, scheduler_params = _get_lr_scheduler(cfg, optimizer)
 
     with mlflow.start_run(run_name=run_name, nested=nested_run):
@@ -264,15 +276,14 @@ def _run_xv(
         # Log the most interesting hyp params.
         mlflow.log_params(
             {
-                "feature_names": cfg.features.features,
-                "n_packets": n_packets,
+                "n_packets": trace_len,
                 "model_name": model_name,
                 "dataset_name": dataset_name,
                 "n_train_traces": ds_train.n_orig_traces,
                 "train.early_stop_metric": early_stop_metric,
                 "data_random_state": cfg.dataset.random_state,
-                "defence_augmentation": cfg.dataset.defence_augmentation,
-                "test_xv": test_xv,
+                "defence_augmentation": cfg.misc.defence_augmentation,
+                "test_xv": cfg.dataset.test_xv,
             }
         )
 
@@ -314,7 +325,6 @@ def _run_xv(
         # log model.
         signature = get_signature(model=trained_model, ds=ds_train)
         mlflow.pytorch.log_model(trained_model, "model", signature=signature)
-        mlflow.log_table({"features": cfg.features.features}, "features.json")
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="test", version_base=None)
@@ -324,7 +334,7 @@ def main(cfg: DictConfig):
     # Set seeds
     seed = cfg.seed + cfg.dataset.test_xv
     torch.manual_seed(seed)
-    # torch.use_deterministic_algorithms(True)
+    torch.use_deterministic_algorithms(True)
     np.random.seed(seed)
 
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
@@ -335,10 +345,11 @@ def main(cfg: DictConfig):
         with mlflow.start_run(run_name=run_name):
             mlflow.set_tag("project", "ephemeral_defences")
             for test_xv in range(10):
-                _run_xv(cfg, run_name, test_xv)
+                cfg.dataset.test_xv = test_xv
+                _run_xv(cfg, run_name)
 
     else:
-        _run_xv(cfg, run_name, cfg.dataset.test_xv, nested_run=False)
+        _run_xv(cfg, run_name, nested_run=False)
 
 
 if __name__ == "__main__":

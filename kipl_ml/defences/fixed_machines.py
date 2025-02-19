@@ -29,10 +29,12 @@ class _FixedMachine(_Def):
         self,
         network_delay_millis: int | tuple[int, int] | Callable[[], int],
         machination_kwargs: dict[str, int | float],
+        fixed_per_trace: bool = False,
     ):
         if (MACHINATION := os.getenv("MACHINATION")) is None:
             raise ValueError("machination not found in environment")
 
+        self.FIXED_PER_TRACE = fixed_per_trace
         self._rust_machination = MACHINATION
         tmpfile_ = tempfile.mktemp(suffix=".defence")
 
@@ -53,17 +55,21 @@ class _FixedMachine(_Def):
 
         return str_
 
-    def _simulate(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
+    def _simulate(
+        self, trace_path: os.PathLike, machine_idx: int | None = None
+    ) -> dict[str, torch.Tensor]:
+
+        client_machines, server_machines = self.deck.get_machines(machine_idx)
 
         times, dirs, paddings = sim_trace_from_file_advanced(
             str(trace_path),
-            self.deck.get_client_machines(),
-            self.deck.get_server_machines(),
+            client_machines,
+            server_machines,
             self.network_delay_millis(),
-            max_padding_frac_client=1,
-            max_padding_frac_server=1,
-            max_blocking_frac_client=1,
-            max_blocking_frac_server=1,
+            max_padding_frac_client=0,
+            max_padding_frac_server=0,
+            max_blocking_frac_client=0,
+            max_blocking_frac_server=0,
             max_trace_length=MAX_TRACE_LENGTH,
         )
 

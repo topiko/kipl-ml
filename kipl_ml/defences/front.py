@@ -13,15 +13,17 @@ class FRONT(_FixedMachine):
     def __init__(
         self,
         network_delay_millis: int | tuple[int, int] | Callable[[], int],
-        padding_budget_max_client: int = 1500,
-        padding_budget_max_server: int = 1500,
-        window_min_client: float = 5.0,
-        window_min_server: float = 5.0,
-        window_max_client: float = 12.0,
-        window_max_server: float = 12.0,
-        num_states_client: int = 10,
-        num_states_server: int = 10,
-        seed: int = 0,
+        padding_budget_max_client: int,
+        padding_budget_max_server: int,
+        window_min_client: float,
+        window_min_server: float,
+        window_max_client: float,
+        window_max_server: float,
+        num_states_client: int,
+        num_states_server: int,
+        n_machines: int,
+        seed: int = 42,
+        fixed_per_trace: bool = True,
     ):
 
         self.machination_kwargs = {
@@ -33,11 +35,13 @@ class FRONT(_FixedMachine):
             "window_max_server": window_max_server,
             "num_states_client": num_states_client,
             "num_states_server": num_states_server,
+            "n_machines": n_machines,
             "seed": seed,
         }
         super().__init__(
             network_delay_millis=network_delay_millis,
             machination_kwargs=self.machination_kwargs,
+            fixed_per_trace=fixed_per_trace,
         )
 
     def _machination(
@@ -51,7 +55,8 @@ class FRONT(_FixedMachine):
         window_max_server: float,
         num_states_client: int,
         num_states_server: int,
-        seed: int = 0,
+        n_machines: int,
+        seed: int,
     ) -> None:
 
         run = subprocess.run(
@@ -62,8 +67,12 @@ class FRONT(_FixedMachine):
                 f"front {padding_budget_max_client} {window_min_client} {window_max_client} {num_states_client}",
                 "-s",
                 f"front {padding_budget_max_server} {window_min_server} {window_max_server} {num_states_server}",
+                "-n",
+                str(n_machines),
                 "-o",
                 tmpfile_,
+                "--seed",
+                str(seed),
             ],
             check=False,
             capture_output=True,

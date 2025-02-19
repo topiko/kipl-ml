@@ -56,13 +56,3 @@ def log_hydra_conf(cfg: OmegaConf):
 
     d = OmegaConf.to_container(cfg, resolve=True)
     mlflow.log_dict(d, artifact_file="hydra_config.json")
-
-
-def load_hydra_conf(run_id: str) -> OmegaConf:
-    run = mlflow.get_run(run_id)
-
-    artifact_uri = run.info.artifact_uri
-
-    d = mlflow.artifacts.load_dict(artifact_uri + "/hydra_config.json")
-
-    return OmegaConf.create(d)

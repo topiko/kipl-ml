@@ -1,3 +1,5 @@
 type: interspace
-n: 10_000
+n_train_machines: 17_000
+n_valid_machines: 2_000
+n_test_machines: 2_000
 

@@ -1,5 +1,0 @@
-name: "dirs_times"
-features:
-  - "dirs"
-  - "times_normalized"
-  - "iats_normalized"

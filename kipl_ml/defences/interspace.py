@@ -13,24 +13,21 @@ class Interspace(_FixedMachine):
     def __init__(
         self,
         network_delay_millis: int | tuple[int, int] | Callable[[], int],
-        n: int = 10000,
-        seed: int = 0,
+        n_machines: int,
+        seed: int = 42,
+        fixed_per_trace: bool = True,
     ):
-
-        logger.warning(
-            "Interspace produces plenty of machines, I do not know ow to use them during runtime. EXPERIMENTAL!!!"
-        )
-
         self.machination_kwargs: dict[str, int | float] = {
-            "n": n,
+            "n_machines": n_machines,
             "seed": seed,
         }
         super().__init__(
             network_delay_millis=network_delay_millis,
             machination_kwargs=self.machination_kwargs,
+            fixed_per_trace=fixed_per_trace
         )
 
-    def _machination(self, tmpfile_: str, n: int, seed: int = 0) -> None:
+    def _machination(self, tmpfile_: str, n_machines: int, seed: int) -> None:
         run = subprocess.run(
             [
                 self._rust_machination,
@@ -40,9 +37,11 @@ class Interspace(_FixedMachine):
                 "-s",
                 "interspace_server",
                 "-n",
-                str(n),
+                str(n_machines),
                 "-o",
                 tmpfile_,
+                "--seed",
+                str(seed),
             ],
             check=False,
             capture_output=True,

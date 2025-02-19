@@ -82,21 +82,16 @@ class Deck:
         # Note: machines are set when calling this:
         self.machine_idxs = machine_idxs or list(range(stats.n_machines))
 
-    def get_machines(self, location: str) -> list[str]:
+    def get_machines(self, idx: int | None = None) -> tuple[list[str], list[str]]:
 
-        idx = np.random.choice(len(self.machine_idxs))
-        if location == "client":
-            return self.machines[idx]["client"]
-        if location == "server":
-            return self.machines[idx]["server"]
-
-        raise ValueError(f"Invalid location: {location}")
-
-    def get_client_machines(self) -> list[str]:
-        return self.get_machines("client")
-
-    def get_server_machines(self) -> list[str]:
-        return self.get_machines("server")
+        idx = idx or np.random.choice(len(self.machine_idxs))
+        try:
+            return self.machines[idx]["client"], self.machines[idx]["server"]
+        except IndexError as e:
+            raise IndexError(
+                f"You provided machine {idx}, however there is only \
+                {len(self.machine_idxs)} machines available!"
+            ) from e
 
     def report(self, to_log: bool = False) -> str:
 
@@ -149,6 +144,7 @@ def load_machines(
 
 
 class Maybenot(_Def):
+
     def __init__(
         self,
         deck: Deck,
@@ -159,10 +155,13 @@ class Maybenot(_Def):
         blocking_frac_server: str = "no-blocking",
         max_padding_frac: float = 1.0,
         max_blocking_frac: float = 0.0,
-        machine_idxs: list[int] | None = None,
+        seed: int = 42,
+        fixed_per_trace: bool = False,
     ):
         self.deck = deck
-        self.network_delay_millis = parse_netwk_delay_fun(network_delay_millis)
+        self.network_delay_millis = parse_netwk_delay_fun(network_delay_millis, seed)
+
+        self.FIXED_PER_TRACE = fixed_per_trace
 
         if not all(f == "random" for f in (padding_frac_client, padding_frac_server)):
             raise ValueError("Only random padding is supported for now")
@@ -212,16 +211,19 @@ class Maybenot(_Def):
 
         return client_blocking, server_blocking
 
-    def _simulate(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
+    def _simulate(
+        self, trace_path: os.PathLike, machine_idx: int | None = None
+    ) -> dict[str, torch.Tensor]:
 
         max_padding_frac_client, max_padding_frac_server = self._get_paddings()
 
         max_blocking_frac_client, max_blocking_frac_server = self._get_blocking_fracs()
 
+        client_machines, server_machines = self.deck.get_machines(machine_idx)
         times, dirs, paddings = sim_trace_from_file_advanced(
             str(trace_path),
-            self.deck.get_client_machines(),
-            self.deck.get_server_machines(),
+            client_machines,
+            server_machines,
             self.network_delay_millis(),
             max_padding_frac_client=max_padding_frac_client,
             max_padding_frac_server=max_padding_frac_server,

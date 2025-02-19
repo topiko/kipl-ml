@@ -35,24 +35,40 @@ def breakpad(netwk_delay: tuple[int, int]) -> dict[str, Interspace]:
 def interspace(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, Interspace]:
     d = dict(cfg.defence)
     d.pop("type")
-    defence = Interspace(network_delay_millis=netwk_delay, **d)
+    seed = cfg.seed
+    n_train_machines = d.pop("n_train_machines")
+    n_valid_machines = d.pop("n_valid_machines")
+    n_test_machines = d.pop("n_test_machines")
+
+    def _interspace(n_machines: int, seed: int):
+        return Interspace(
+            network_delay_millis=netwk_delay, **d, n_machines=n_machines, seed=seed
+        )
 
     return {
-        "defence_train": defence,
-        "defence_valid": defence,
-        "defence_test": defence,
+        "defence_train": _interspace(n_train_machines, seed=seed + 1),
+        "defence_valid": _interspace(n_valid_machines, seed=seed + 2),
+        "defence_test": _interspace(n_test_machines, seed=seed + 3),
     }
 
 
 def front(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, FRONT]:
     d = dict(cfg.defence)
     d.pop("type")
-    defence = FRONT(network_delay_millis=netwk_delay, **d)
+    seed = cfg.seed
+    n_train_machines = d.pop("n_train_machines")
+    n_valid_machines = d.pop("n_valid_machines")
+    n_test_machines = d.pop("n_test_machines")
+
+    def _front(n_machines: int, seed: int):
+        return FRONT(
+            network_delay_millis=netwk_delay, **d, n_machines=n_machines, seed=seed
+        )
 
     return {
-        "defence_train": defence,
-        "defence_valid": defence,
-        "defence_test": defence,
+        "defence_train": _front(n_train_machines, seed + 1),
+        "defence_valid": _front(n_valid_machines, seed + 2),
+        "defence_test": _front(n_test_machines, seed + 3),
     }
 
 
@@ -73,7 +89,8 @@ def maybenot(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, Maybenot
 
     maybenot_config["deck"] = Deck(deck_stats, machine_idxs)
 
-    defence_train = Maybenot(**maybenot_config)
+    seed = cfg.seed
+    defence_train = Maybenot(**maybenot_config, seed=seed)
 
     if n_machines > 16000:
         logger.info("Setting separate state machines for train and test.")
@@ -86,11 +103,11 @@ def maybenot(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, Maybenot
             logger.warning("Small amount of machines available fro testing")
 
         maybenot_config["deck"] = Deck(deck_stats, test_machines)
-        defence_valid = Maybenot(**maybenot_config)
-        defence_test = Maybenot(**maybenot_config)
+        defence_valid = Maybenot(**maybenot_config, seed=seed + 1)
+        defence_test = Maybenot(**maybenot_config, seed=seed + 2)
     else:
-        defence_valid = defence_train
-        defence_test = defence_train
+        defence_valid = Maybenot(**maybenot_config, seed=seed + 2)
+        defence_test = Maybenot(**maybenot_config, seed=seed + 3)
 
     return {
         "defence_train": defence_train,

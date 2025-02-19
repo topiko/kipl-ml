@@ -3,15 +3,16 @@ Wrappers for laserbeak models.
 """
 
 import torch
-from kipl_ml.data.wf_dataset import WFDataset
-from kipl_ml.logging.logger import get_logger
-from kipl_ml.models.utils import count_parameters
+from laserbeak.cls_cvt import ConvolutionalVisionTransformer
+from laserbeak.transdfnet import DFNet
 from mlflow.models import infer_signature
 from mlflow.models.signature import ModelSignature
 from torch import nn
 
-from laserbeak.cls_cvt import ConvolutionalVisionTransformer
-from laserbeak.transdfnet import DFNet
+from kipl_ml.data.wf_dataset import WFDataset
+from kipl_ml.logging.logger import get_logger
+from kipl_ml.models.df import DF
+from kipl_ml.models.utils import count_parameters
 
 logger = get_logger(__name__)
 
@@ -45,6 +46,7 @@ class CNNVisTransformer(ConvolutionalVisionTransformer):
 
 
 def get_model(
+    source: str,
     model_name: str,
     n_classes: int,
     inputs: dict[str, dict[str, int]],
@@ -58,33 +60,34 @@ def get_model(
     if len(input_lens) != 1:
         raise ValueError("All inputs must have the same size.")
 
-    input_size = next(iter(input_lens))
-
-    if model_config["input_size"] != input_size:
-        raise ValueError("Input size mismatch.")
-
     logger.info(f"Creating model {model_name}...")
     logger.info("\tConfig:")
     for k, v in model_config.items():
         logger.info(f"{k:>30}: {v}")
 
-    if model_name.startswith("df") or model_name.startswith("laserbeak"):
-        net = WrapDFNet(
-            num_classes=n_classes, input_channels=len(inputs), **model_config
-        )
-        net.name = model_name
-        logger.info(f"\t-->{count_parameters(net)} parameters.")
+    def _get_lb_models():
+        if model_name.startswith("df") or model_name.startswith("laserbeak"):
+            net = WrapDFNet(
+                num_classes=n_classes, input_channels=len(inputs), **model_config
+            )
+            net.name = model_name
+            logger.info(f"\t-->{count_parameters(net)} parameters.")
 
-        return net
+            return net
 
-    if model_name == "cvt":
-        net = CNNVisTransformer(
-            num_classes=n_classes, in_chans=len(inputs), input_size=input_size
-        )
-        net.name = model_name
-        return net
+        raise NotImplementedError("Model not implemented yet.")
 
-    raise NotImplementedError("Model not implemented yet.")
+    def _get_local_models():
+        match model_name:
+            case "df":
+                return DF(n_classes, large_input=False)
+            case _:
+                raise NotImplementedError()
+
+    if source == "lb":
+        return _get_lb_models()
+    if source == "local":
+        return _get_local_models()
 
 
 def get_example_input(X: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:

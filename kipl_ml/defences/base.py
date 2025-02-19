@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from abc import ABC, abstractmethod
 
@@ -15,10 +17,13 @@ DEFENCE_TYPE_KW = "defence-type"
 
 
 class NetwkDelay:
-    def __init__(self, min_delay_ms: int, max_delay_ms: int, way: str):
+    def __init__(self, min_delay_ms: int, max_delay_ms: int, way: str, seed: int = 42):
         self.min_delay_ms = min_delay_ms
         self.max_delay_ms = max_delay_ms
         self.way = way
+
+        if way == "random":
+            self.rng = np.random.default_rng(seed)
 
     def __str__(self):
         return (
@@ -39,18 +44,20 @@ class NetwkDelay:
         }
 
 
-def netwk_delay_fun(min_delay: int, max_delay: int, way: str = "random") -> NetwkDelay:
+def netwk_delay_fun(
+    min_delay: int, max_delay: int, way: str = "random", seed: int = 42
+) -> NetwkDelay:
 
     class _Rand(NetwkDelay):
         def __call__(self):
-            return self._cast_to_uint64(np.random.randint(min_delay, max_delay + 1))
+            return self._cast_to_uint64(self.rng.integers(min_delay, max_delay + 1))
 
     class _Fixed(NetwkDelay):
         def __call__(self):
             return self._cast_to_uint64(min_delay)
 
     if way == "random":
-        return _Rand(min_delay_ms=min_delay, max_delay_ms=max_delay, way=way)
+        return _Rand(min_delay_ms=min_delay, max_delay_ms=max_delay, way=way, seed=seed)
     if way == "fixed":
         return _Fixed(min_delay_ms=min_delay, max_delay_ms=max_delay, way=way)
 
@@ -59,9 +66,12 @@ def netwk_delay_fun(min_delay: int, max_delay: int, way: str = "random") -> Netw
 
 def parse_netwk_delay_fun(
     netwk_delay_millis: int | tuple[int, int] | NetwkDelay,
+    seed: int = 42,
 ) -> NetwkDelay:
     if isinstance(netwk_delay_millis, int):
-        return netwk_delay_fun(netwk_delay_millis, netwk_delay_millis, way="fixed")
+        return netwk_delay_fun(
+            netwk_delay_millis, netwk_delay_millis, way="fixed", seed=seed
+        )
     if isinstance(netwk_delay_millis, tuple):
         if netwk_delay_millis[0] == netwk_delay_millis[1]:
             return netwk_delay_fun(*netwk_delay_millis, way="fixed")
@@ -75,6 +85,7 @@ def parse_netwk_delay_fun(
 
 
 class _Def(ABC):
+    FIXED_PER_TRACE = False
 
     def _report(self, to_log: bool = True, **kwargs) -> str:
         str_ = f"{self.name}\n"
@@ -91,19 +102,23 @@ class _Def(ABC):
     def name(self) -> str:
         return self.__class__.__name__
 
-    def __call__(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
+    def __call__(
+        self, trace_path: os.PathLike, machine_idx: int | None = None
+    ) -> dict[str, torch.Tensor]:
         if not isinstance(trace_path, os.PathLike):
             raise TypeError(
                 f"Expected trace to be os.PathLike, got: {type(trace_path)}"
             )
 
-        return self._simulate(trace_path)
+        return self._simulate(trace_path, machine_idx)
 
     def load_data(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
         return get_std_trace_dict(trace_path)
 
     @abstractmethod
-    def _simulate(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
+    def _simulate(
+        self, trace_path: os.PathLike, machine_idx: int | None = None
+    ) -> dict[str, torch.Tensor]:
         raise NotImplementedError
 
     @abstractmethod
@@ -139,7 +154,9 @@ class NoDefence(_Def):
             logger.info(str_)
         return str_
 
-    def _simulate(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
+    def _simulate(
+        self, trace_path: os.PathLike, machine_idx: int | None = None
+    ) -> dict[str, torch.Tensor]:
 
         times, dirs, paddings = sim_trace_from_file_advanced(
             str(trace_path),
