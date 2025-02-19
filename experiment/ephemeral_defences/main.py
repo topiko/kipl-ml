@@ -64,29 +64,33 @@ def _get_lr_scheduler(
 
     params = {f"lr_scheduler.{k}": v for k, v in dict(cfg.lr_scheduler).items()}
 
-    try:
-        scheduler = cfg.train.scheduler
-    except AttributeError:
-        return None, params
+    match cfg.lr_scheduler.scheduler:
+        case "cosine":
+            return (
+                get_cosine_schedule_with_warmup(
+                    optimizer,
+                    num_warmup_steps=cfg.lr_scheduler.warmup_period,
+                    num_training_steps=cfg.lr_scheduler.epochs,
+                    num_cycles=0.5,
+                    last_epoch=-1,
+                ),
+                params,
+            )
 
-    if scheduler == "cosine":
-        scheduler = get_cosine_schedule_with_warmup(
-            optimizer,
-            num_warmup_steps=cfg.lr_scheduler.warmup_period,
-            num_training_steps=cfg.lr_scheduler.epochs,
-            num_cycles=0.5,
-            last_epoch=-1,
-        )
-
-    elif scheduler == "plateau":
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            mode="min",
-            factor=cfg.lr_scheduler.factor,
-            patience=cfg.lr_scheduler.lr_patience,
-        )
-
-    return scheduler, params
+        case "plateau":
+            return (
+                torch.optim.lr_scheduler.ReduceLROnPlateau(
+                    optimizer,
+                    mode="min",
+                    factor=cfg.lr_scheduler.factor,
+                    patience=cfg.lr_scheduler.lr_patience,
+                ),
+                params,
+            )
+        case "none":
+            return None, params
+        case _:
+            raise NotImplementedError()
 
 
 def _get_optimizer(cfg: OmegaConf, model: nn.Module) -> torch.optim.Optimizer:
