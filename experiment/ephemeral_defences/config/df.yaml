@@ -1,5 +1,4 @@
 defaults:
-  - _self_
   - model: df-orig
   - dataset: bigenough
   - lr_scheduler : no-scheduling
@@ -8,6 +7,8 @@ defaults:
   - defence: no_defence
   - train: default
   - loss: crossentropy
+  - _self_
+
 mlflow:
   experiment_name: "Ephemeral v3."
 misc:

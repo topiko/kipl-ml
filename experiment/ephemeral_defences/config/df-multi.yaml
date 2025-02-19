@@ -1,15 +1,19 @@
+
+
 defaults:
-  - _self_
   - model: df-multi
   - dataset: bigenough
-  - lr_scheduler : cosine
+  - lr_scheduler: cosine
   - optimizer: adamw
   - network: bottleneck
   - defence: no_defence
   - train: default
   - loss: crossentropy
+  - _self_
+
 loss:
   label_smoothing: 0.1
+
 mlflow:
   experiment_name: "Ephemeral v3."
 misc:

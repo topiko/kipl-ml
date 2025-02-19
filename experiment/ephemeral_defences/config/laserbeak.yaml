@@ -1,5 +1,4 @@
 defaults:
-  - _self_
   - model: laserbeak
   - dataset: bigenough
   - lr_scheduler: cosine
@@ -8,6 +7,8 @@ defaults:
   - defence: no_defence
   - train: default
   - loss: crossentropy
+  - _self_
+
 loss:
   label_smoothing: 0.1
 mlflow:

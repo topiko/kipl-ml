@@ -1,3 +1,3 @@
 UPLOAD: int = 1
 DOWNLOAD: int = -1
-MAX_TRACE_LENGTH: int = 20_000
+MAX_TRACE_LENGTH: int = 60_000
