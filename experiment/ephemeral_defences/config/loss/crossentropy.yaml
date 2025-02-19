@@ -1,0 +1,2 @@
+type: "crossentropyloss"
+label_smoothing: 0

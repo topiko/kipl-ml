@@ -1,3 +1,4 @@
+type: bottleneck
 network_delay_millis:
   min: 25
   max: 250

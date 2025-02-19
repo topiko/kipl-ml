@@ -112,6 +112,16 @@ def _get_optimizer(cfg: OmegaConf, model: nn.Module) -> torch.optim.Optimizer:
             raise NotImplementedError
 
 
+def _get_loss(cfg: OmegaConf):
+    match cfg.loss.type:
+        case "crossentropyloss":
+            return torch.nn.CrossEntropyLoss(
+                reduction="mean", label_smoothing=cfg.loss.label_smoothing
+            )
+        case _:
+            raise NotImplementedError()
+
+
 def _get_defence(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, _Def]:
 
     def_type = cfg.defence.type
@@ -234,9 +244,7 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
             raise NotImplementedError
     feature_trs = FeatureTrs(feature_names=feature_names, n_packets=trace_len)
 
-    loss_fn = torch.nn.CrossEntropyLoss(
-        reduction="mean"  # , label_smoothing=cfg.train.label_smoothing
-    )
+    loss_fn = _get_loss(cfg)
     metrics = [Accuracy(), ClassRecall(1)]
     early_stop_metric = "loss"
     patience = cfg.train.patience
@@ -288,6 +296,7 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
                 "data_random_state": cfg.dataset.random_state,
                 "defence_augmentation": cfg.misc.defence_augmentation,
                 "test_xv": cfg.dataset.test_xv,
+                "network_state": cfg.network.type,
             }
         )
 

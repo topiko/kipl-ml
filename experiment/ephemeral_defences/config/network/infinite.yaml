@@ -1,4 +1,7 @@
+type: infinite
 network_delay_millis:
   min: 25
   max: 250
-df-multickets_per_sec: 40_000
+df-multickets_per_sec:
+  min: 40_000
+  max: 40_000

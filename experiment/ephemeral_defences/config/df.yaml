@@ -7,6 +7,7 @@ defaults:
   - network: bottleneck
   - defence: no_defence
   - train: default
+  - loss: crossentropy
 mlflow:
   experiment_name: "Ephemeral v3."
 misc:
