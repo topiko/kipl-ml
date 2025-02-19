@@ -62,7 +62,7 @@ def _get_lr_scheduler(
     cfg: OmegaConf, optimizer: torch.optim.Optimizer
 ) -> tuple[ReduceLROnPlateau | LambdaLR | None, dict]:
 
-    params = {f"train.{k}": v for k, v in dict(cfg.train).items()}
+    params = {f"lr_scheduler.{k}": v for k, v in dict(cfg.lr_scheduler).items()}
 
     try:
         scheduler = cfg.train.scheduler
@@ -70,12 +70,10 @@ def _get_lr_scheduler(
         return None, params
 
     if scheduler == "cosine":
-        warmup_period = cfg.train.warmup_period
-        epochs = cfg.train.epochs
         scheduler = get_cosine_schedule_with_warmup(
             optimizer,
-            num_warmup_steps=warmup_period,
-            num_training_steps=epochs,
+            num_warmup_steps=cfg.lr_scheduler.warmup_period,
+            num_training_steps=cfg.lr_scheduler.epochs,
             num_cycles=0.5,
             last_epoch=-1,
         )
@@ -84,8 +82,8 @@ def _get_lr_scheduler(
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             mode="min",
-            factor=cfg.train.factor,
-            patience=cfg.train.lr_patience,
+            factor=cfg.lr_scheduler.factor,
+            patience=cfg.lr_scheduler.lr_patience,
         )
 
     return scheduler, params
@@ -103,7 +101,7 @@ def _get_optimizer(cfg: OmegaConf, model: nn.Module) -> torch.optim.Optimizer:
                 weight_decay=opt_wd,
             )
         case "adamax":
-            return torch.optim.Adamax(params=model.parameters(), lr=cfg.train.lr)
+            return torch.optim.Adamax(params=model.parameters(), lr=cfg.optimizer.lr)
         case "adam":
             return torch.optim.Adam(
                 params=model.parameters(),

@@ -2,10 +2,10 @@
 
 nepochs=30
 defaug=1
-expr_name="Ephemeral-Aug$defaug-v3"
+expr_name="Ephemeral-Aug$defaug-v4"
 
 
-common="dataset.defence_augmentation=$defaug train.n_epochs=$nepochs mlflow.experiment_name=$expr_name"
+common="misc.defence_augmentation=$defaug train.n_epochs=$nepochs mlflow.experiment_name=$expr_name"
 
 for defence in no_defence front interspace breakpad
 do
