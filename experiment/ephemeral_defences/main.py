@@ -8,6 +8,7 @@ import mlflow
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
+from torch import nn
 from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader, Dataset
 from torchtune.training.lr_schedulers import get_cosine_schedule_with_warmup
@@ -28,7 +29,6 @@ from kipl_ml.tools.mlflow_utils import (
     log_hydra_conf,
 )
 from kipl_ml.trace.features import FEAT_NAME_MAP, FeatureTrs
-from kipl_ml.trace.params import MAX_TRACE_LENGTH
 from kipl_ml.train.loops import train_model
 
 logger = get_logger(__name__)
@@ -91,6 +91,21 @@ def _get_lr_scheduler(
     return scheduler, params
 
 
+def _get_optimizer(cfg: OmegaConf, model: nn.Module) -> torch.optim.Optimizer:
+    match cfg.optimizer.type:
+        case "adamw":
+            opt_betas = (0.9, 0.999)
+            opt_wd = 0.001
+            return torch.optim.AdamW(
+                model.parameters(),
+                lr=cfg.train.lr,
+                betas=opt_betas,
+                weight_decay=opt_wd,
+            )
+        case _:
+            raise NotImplementedError
+
+
 def _get_defence(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, _Def]:
 
     def_type = cfg.defence.type
@@ -136,7 +151,7 @@ def _parse_experiment_name(cfg: OmegaConf) -> str:
 
 
 def _parse_run_name(cfg: OmegaConf) -> str:
-    aug = cfg.dataset.defence_augmentation
+    aug = cfg.misc.defence_augmentation
 
     if (defence_str := cfg.defence.type) == "maybenot":
         defence_str = f"maybenot w. {cfg.defence.n_machines:04d}"
@@ -180,36 +195,41 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
             logger.info(f"Found finished run for: {run_name} -> exiting.")
             return
 
+    netwk_delay = (
+        cfg.network.network_delay_millis.min,
+        cfg.network.network_delay_millis.max,
+    )
+
     logger.info("Starting run w. config:")
     log_multiline(OmegaConf.to_yaml(cfg))
 
     dataset_name = cfg.dataset.name
     model_name = cfg.model.name
     target = _get_target(cfg.dataset.target)
-
-    model_config = get_laserbeak_model_config(model_name)
-    model_config["input_size"] = cfg.trace.n_packets
-    # _get_bw_overhead(cfg, int(model_config["input_size"]))
-
-    if (n_packets := model_config["input_size"]) > MAX_TRACE_LENGTH:
-        raise ValueError("Inpu len larger than MAX_TRACE_LENGTH...")
-
-    feature_names = cfg.features.features
-    if model_config.get("feature_list"):
-        logger.warning("Feature list overwritten by model config")
-        feature_names = [FEAT_NAME_MAP[feat] for feat in model_config["feature_list"]]
-
-    feature_trs = FeatureTrs(feature_names=feature_names, n_packets=n_packets)
-
-    netwk_delay = (
-        cfg.network.network_delay_millis.min,
-        cfg.network.network_delay_millis.max,
-    )
-
     STORE_DATA_COLS = [target, assets.TRACE_ID]
 
+    match cfg.model.source:
+        case "local":
+            feature_names = cfg.model.features
+            trace_len = cfg.model.trace_len
+            model_name = cfg.model.name
+            model_config = {}
+        case "lb":
+            model_config = get_laserbeak_model_config(model_name)
+            trace_len = cfg.model.trace_len
+            model_config["input_size"] = trace_len
+
+            if model_config.get("feature_list"):
+                logger.warning("Feature list overwritten by model config")
+                feature_names = [
+                    FEAT_NAME_MAP[feat] for feat in model_config["feature_list"]
+                ]
+        case _:
+            raise NotImplementedError
+    feature_trs = FeatureTrs(feature_names=feature_names, n_packets=trace_len)
+
     loss_fn = torch.nn.CrossEntropyLoss(
-        reduction="mean", label_smoothing=cfg.train.label_smoothing
+        reduction="mean"  # , label_smoothing=cfg.train.label_smoothing
     )
     metrics = [Accuracy(), ClassRecall(1)]
     early_stop_metric = "loss"
@@ -222,12 +242,13 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
         test_xv=cfg.dataset.test_xv,
         random_state=cfg.dataset.random_state,
         feature_trs=feature_trs,
-        defence_aug=cfg.dataset.defence_augmentation,
-        defence_aug_valid=cfg.dataset.defence_augmentation_valid,
+        defence_aug=cfg.misc.defence_augmentation,
+        defence_aug_valid=cfg.misc.defence_augmentation_valid,
         **_get_defence(cfg, netwk_delay),
     )
 
     model = get_model(
+        cfg.model.source,
         model_name,
         n_classes=ds_train.n_classes,
         inputs=ds_train.output_sizes,
@@ -238,15 +259,7 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
     valid_loader = _get_dl(ds_valid, 128)
     test_loader = _get_dl(ds_test, 128)
 
-    opt_betas = (0.9, 0.999)
-    opt_wd = 0.001
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=cfg.train.lr,
-        betas=opt_betas,
-        weight_decay=opt_wd,
-    )
-
+    optimizer = _get_optimizer(cfg, model)
     lr_scheduler, scheduler_params = _get_lr_scheduler(cfg, optimizer)
 
     with mlflow.start_run(run_name=run_name, nested=nested_run):
@@ -261,14 +274,13 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
         # Log the most interesting hyp params.
         mlflow.log_params(
             {
-                "feature_names": cfg.features.features,
-                "n_packets": n_packets,
+                "n_packets": trace_len,
                 "model_name": model_name,
                 "dataset_name": dataset_name,
                 "n_train_traces": ds_train.n_orig_traces,
                 "train.early_stop_metric": early_stop_metric,
                 "data_random_state": cfg.dataset.random_state,
-                "defence_augmentation": cfg.dataset.defence_augmentation,
+                "defence_augmentation": cfg.misc.defence_augmentation,
                 "test_xv": cfg.dataset.test_xv,
             }
         )
