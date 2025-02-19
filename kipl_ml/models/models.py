@@ -1,0 +1,56 @@
+from torch import nn
+
+from kipl_ml.logging.logger import get_logger
+from kipl_ml.models.df import DF
+from kipl_ml.models.laserbeak import WrapDFNet
+from kipl_ml.models.rf import RF
+from kipl_ml.models.utils import count_parameters
+
+logger = get_logger(__name__)
+
+
+def get_model(
+    source: str,
+    model_name: str,
+    n_classes: int,
+    inputs: dict[str, dict[str, int]],
+    model_config: dict,
+) -> nn.Module:
+
+    input_lens: set[int] = set()
+    for input_dict in inputs.values():
+        input_lens = input_lens.union(set(input_dict.values()))
+
+    if len(input_lens) != 1:
+        raise ValueError("All inputs must have the same size.")
+
+    logger.info(f"Creating model {model_name}...")
+    logger.info("\tConfig:")
+    for k, v in model_config.items():
+        logger.info(f"{k:>30}: {v}")
+
+    def _get_lb_models():
+        if model_name.startswith("df") or model_name.startswith("laserbeak"):
+            net = WrapDFNet(
+                num_classes=n_classes, input_channels=len(inputs), **model_config
+            )
+            net.name = model_name
+            logger.info(f"\t-->{count_parameters(net)} parameters.")
+
+            return net
+
+        raise NotImplementedError("Model not implemented yet.")
+
+    def _get_local_models():
+        match model_name:
+            case "df":
+                return DF(n_classes, large_input=False)
+            case "rf":
+                return RF(n_classes)
+            case _:
+                raise NotImplementedError()
+
+    if source == "lb":
+        return _get_lb_models()
+    if source == "local":
+        return _get_local_models()

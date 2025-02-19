@@ -5,14 +5,9 @@ Wrappers for laserbeak models.
 import torch
 from laserbeak.cls_cvt import ConvolutionalVisionTransformer
 from laserbeak.transdfnet import DFNet
-from mlflow.models import infer_signature
-from mlflow.models.signature import ModelSignature
-from torch import nn
 
-from kipl_ml.data.wf_dataset import WFDataset
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.models.df import DF
-from kipl_ml.models.utils import count_parameters
+from kipl_ml.models.utils import unsqueeze_batch
 
 logger = get_logger(__name__)
 
@@ -20,7 +15,7 @@ logger = get_logger(__name__)
 class WrapDFNet(DFNet):
 
     def example_input(self, X: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        return get_example_input(X)
+        return unsqueeze_batch(X)
 
     def forward(
         self,
@@ -38,72 +33,8 @@ class WrapDFNet(DFNet):
 class CNNVisTransformer(ConvolutionalVisionTransformer):
 
     def example_input(self, X: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        return get_example_input(X)
+        return unsqueeze_batch(X)
 
     def forward(self, x: torch.Tensor):
         x = torch.cat([x_.unsqueeze(1) for x_ in x.values()], dim=1)
         return super().forward(x)
-
-
-def get_model(
-    source: str,
-    model_name: str,
-    n_classes: int,
-    inputs: dict[str, dict[str, int]],
-    model_config: dict,
-) -> nn.Module:
-
-    input_lens: set[int] = set()
-    for input_dict in inputs.values():
-        input_lens = input_lens.union(set(input_dict.values()))
-
-    if len(input_lens) != 1:
-        raise ValueError("All inputs must have the same size.")
-
-    logger.info(f"Creating model {model_name}...")
-    logger.info("\tConfig:")
-    for k, v in model_config.items():
-        logger.info(f"{k:>30}: {v}")
-
-    def _get_lb_models():
-        if model_name.startswith("df") or model_name.startswith("laserbeak"):
-            net = WrapDFNet(
-                num_classes=n_classes, input_channels=len(inputs), **model_config
-            )
-            net.name = model_name
-            logger.info(f"\t-->{count_parameters(net)} parameters.")
-
-            return net
-
-        raise NotImplementedError("Model not implemented yet.")
-
-    def _get_local_models():
-        match model_name:
-            case "df":
-                return DF(n_classes, large_input=False)
-            case _:
-                raise NotImplementedError()
-
-    if source == "lb":
-        return _get_lb_models()
-    if source == "local":
-        return _get_local_models()
-
-
-def get_example_input(X: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-    X_ = {k: v.unsqueeze(0) for k, v in X.items()}
-    return X_
-
-
-def get_signature(
-    model: WrapDFNet | CNNVisTransformer, ds: WFDataset
-) -> ModelSignature:
-
-    model.eval()
-    with torch.no_grad():
-        X_ = model.example_input(ds[0][0])
-        y_ = model(X_).numpy()
-
-    signature = infer_signature({k: v.numpy() for k, v in X_.items()}, y_)
-
-    return signature
