@@ -1,0 +1,4 @@
+defaults:
+  - base
+type: "adam"
+weight_decay: 0.001

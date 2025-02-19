@@ -1,0 +1,4 @@
+network_delay_millis:
+  min: 25
+  max: 250
+df-multickets_per_sec: 40_000

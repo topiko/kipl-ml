@@ -1,0 +1,20 @@
+defaults:
+  - _self_
+  - model: rf
+  - dataset: bigenough
+  - lr_scheduler : no-scheduling
+  - optimizer: adam
+  - network: bottleneck
+  - defence: no_defence
+  - train: default
+mlflow:
+  experiment_name: "Ephemeral v3."
+misc:
+  defence_augmentation: 1
+  defence_augmentation_valid: 1
+
+optimizer:
+  lr: 0.005
+seed: 42
+
+

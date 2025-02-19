@@ -1,0 +1,18 @@
+defaults:
+  - _self_
+  - model: laserbeak
+  - dataset: bigenough
+  - lr_scheduler: cosine
+  - optimizer: adamw
+  - network: bottleneck
+  - defence: no_defence
+  - train: default
+mlflow:
+  experiment_name: "Ephemeral v3."
+misc:
+  defence_augmentation: 1
+  defence_augmentation_valid: 1
+
+seed: 42
+
+

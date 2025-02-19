@@ -21,8 +21,8 @@ from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import get_mlflow_expr, key_val_fmt, log_multiline
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall
 from kipl_ml.model_eval.evaluate import evaluate_model
-from kipl_ml.models.laserbeak import get_model, get_signature
-from kipl_ml.models.utils import get_laserbeak_model_config
+from kipl_ml.models.models import get_model
+from kipl_ml.models.utils import get_laserbeak_model_config, get_signature
 from kipl_ml.tools.mlflow_utils import (
     list_runs,
     log_dataset,
@@ -98,12 +98,18 @@ def _get_optimizer(cfg: OmegaConf, model: nn.Module) -> torch.optim.Optimizer:
             opt_wd = 0.001
             return torch.optim.AdamW(
                 model.parameters(),
-                lr=cfg.train.lr,
+                lr=cfg.optimizer.lr,
                 betas=opt_betas,
                 weight_decay=opt_wd,
             )
         case "adamax":
-            return torch.optim.Adamax(params=model.parameters())
+            return torch.optim.Adamax(params=model.parameters(), lr=cfg.train.lr)
+        case "adam":
+            return torch.optim.Adam(
+                params=model.parameters(),
+                lr=cfg.optimizer.lr,
+                weight_decay=cfg.optimizer.weight_decay,
+            )
         case _:
             raise NotImplementedError
 
@@ -327,7 +333,7 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
         mlflow.pytorch.log_model(trained_model, "model", signature=signature)
 
 
-@hydra.main(config_path=CONFIG_DIR_PATH, config_name="test", version_base=None)
+@hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
 def main(cfg: DictConfig):
     experiment_name = _parse_experiment_name(cfg)
 

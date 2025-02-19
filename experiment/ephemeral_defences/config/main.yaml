@@ -1,0 +1,18 @@
+defaults:
+  - _self_
+  - model: df-multi
+  - dataset: bigenough
+  - lr_scheduler : plateau
+  - optimizer: adamw
+  - network: default
+  - defence: maybenot
+  - train: default
+mlflow:
+  experiment_name: "Ephemeral v3."
+misc:
+  defence_augmentation: 1
+  defence_augmentation_valid: 1
+seed: 42
+
+
+

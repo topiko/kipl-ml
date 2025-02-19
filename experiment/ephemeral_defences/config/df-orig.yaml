@@ -1,0 +1,17 @@
+defaults:
+  - _self_
+  - model: df-orig
+  - dataset: bigenough
+  - lr_scheduler : no-scheduling
+  - optimizer: adamax
+  - network: bottleneck
+  - defence: no_defence
+  - train: default
+mlflow:
+  experiment_name: "Ephemeral v3."
+misc:
+  defence_augmentation: 1
+  defence_augmentation_valid: 1
+seed: 42
+
+

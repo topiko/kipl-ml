@@ -1,0 +1,4 @@
+patience: -1
+batch_size: 64
+n_epochs: 30
+
