@@ -50,6 +50,8 @@ class Feats(StrEnum):
     SIZE_DIRS = f"{SIZES}_dirs"
     CUM_SIZE_DIRS = f"cum_{SIZE_DIRS}"
     CUM_SIZE_DIRS_MAX_NORMALIZED = f"max_normalized_{CUM_SIZE_DIRS}"
+    TAM_UP = "tam_up"
+    TAM_DOWN = "tam_down"
 
     def __str__(self) -> str:
         return self.value
@@ -419,6 +421,57 @@ class RunningRate(_TR):
         return {self.name: running_rate}
 
 
+class _TAM(_TR):
+    NAME = "tam"
+    DIR: str
+
+    def __init__(
+        self,
+        max_matrix_len: int = 1800,
+        max_load_time_s: float = 80.0,
+    ):
+        self.max_matrix_len = max_matrix_len
+        self.max_load_time_s = max_load_time_s
+
+        self.bins = torch.linspace(0, self.max_load_time_s, self.max_matrix_len + 1)
+        # To ensure the capture of "outside bins values"
+        self.bins[0] = -1
+        self.bins[-1] = float("inf")
+
+    @property
+    def name(self) -> str:
+        return f"{self.NAME}-{self.DIR}_matr={self.max_matrix_len}_loads={self.max_load_time_s:.1f}"
+
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> RunningRate:
+        self._output_sizes = {self.name: self.max_matrix_len}
+        return self
+
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        times = trace[assets.TIMES]
+        dirs = trace[assets.DIRS]
+
+        match self.DIR:
+            case "upload":
+                mask = dirs == UPLOAD
+            case "download":
+                mask = dirs == DOWNLOAD
+            case _:
+                raise KeyError(f"Invalid dir {self.DIR}")
+
+        # NOTE: we expect the time to be in "s"!
+        counts = torch.histogram(times[mask], bins=self.bins)[0]
+
+        return {self.name: counts}
+
+
+class TAM_UP(_TAM):
+    DIR = "upload"
+
+
+class TAM_DOWN(_TAM):
+    DIR = "download"
+
+
 class Compose(_TR):
     NAME = "compose"
 
@@ -717,5 +770,9 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                     division="max",
                 ),
             )
+        case Feats.TAM_UP:
+            return TAM_UP()
+        case Feats.TAM_DOWN:
+            return TAM_DOWN()
         case _:
             raise ValueError(f"Unknown feature name: {feature_name}")

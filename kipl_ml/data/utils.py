@@ -93,6 +93,9 @@ def parse_trace_to_tensor_dict(
     time_unit: str = "s",
 ) -> dict[str, torch.Tensor]:
 
+    if time_unit != "s":
+        logger.warning("Some feature rely on time unit being 's' beware!")
+
     match time_unit:
         case "s":
             times /= 1e9
