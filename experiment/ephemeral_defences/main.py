@@ -102,6 +102,8 @@ def _get_optimizer(cfg: OmegaConf, model: nn.Module) -> torch.optim.Optimizer:
                 betas=opt_betas,
                 weight_decay=opt_wd,
             )
+        case "adamax":
+            return torch.optim.Adamax(params=model.parameters())
         case _:
             raise NotImplementedError
 
@@ -323,7 +325,6 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
         # log model.
         signature = get_signature(model=trained_model, ds=ds_train)
         mlflow.pytorch.log_model(trained_model, "model", signature=signature)
-        mlflow.log_table({"features": cfg.features.features}, "features.json")
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="test", version_base=None)
