@@ -1,24 +1,28 @@
 #!/bin/bash
 
-nepochs=60
+nepochs=30
 defaug=1
-scheduler=cosine
-expr_name="Ephermeral-Aug$defaug-$scheduler-v3"
+expr_name="Ephemeral-Aug$defaug-v3"
 
-for model in df-multi df-dirs-only laserbeak
+
+common="dataset.defence_augmentation=$defaug train.n_epochs=$nepochs mlflow.experiment_name=$expr_name"
+
+for defence in no_defence front interspace breakpad
 do
-	common="dataset.defence_augmentation=$defaug train=$scheduler train.epochs=$nepochs train.n_epochs=$nepochs mlflow.experiment_name=$expr_name model=$model"
+	uv run python main.py --config-name=df defence=$defence $common
+	uv run python main.py --config-name=rf defence=$defence $common
+	uv run python main.py --config-name=df-multi defence=$defence $common lr_sheduler.epochs=$nepochs
+	uv run python main.py --config-name=laserbeak defence=$defence $common lr_sheduler.epochs=$nepochs
 
-	for defence in no_defence front interspace # breakpad
-	do
-		uv run python main.py --config-name=config defence=$defence $common
-		uv run python xv_table.py -en $expr_name
-	done
+	uv run python xv_table.py -en $expr_name
+done
 
 
-	for nmachines in 1 10 100 1000 10000
-	do
-		uv run python main.py --config-name=config defence=maybenot defence.n_machines=$nmachines $common
-		uv run python xv_table.py -en $expr_name
-	done
+for nmachines in 1 10 100 1000 10000
+do
+	uv run python main.py --config-name=df defence=maybenot defence.n_machines=$nmachines $common
+	uv run python main.py --config-name=rf defence=maybenot defence.n_machines=$nmachines $common
+	uv run python main.py --config-name=df-multi defence=maybenot defence.n_machines=$nmachines $common lr_sheduler.epochs=$nepochs
+	uv run python main.py --config-name=laserbeak defence=maybenot defence.n_machines=$nmachines $common lr_sheduler.epochs=$nepochs
+	uv run python xv_table.py -en $expr_name
 done
