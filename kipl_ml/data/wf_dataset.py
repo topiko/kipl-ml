@@ -112,38 +112,38 @@ class WFDataset(Dataset):
         orig_trace_path = Path(self.meta_df.iloc[orig_idx][assets.TRACE_F_PATH])
 
         if self.defence_aug == 0:
-            return self.defence(orig_trace_path)
-
-        if self.tmp_dir is None:
-            raise ValueError("Temporary directory not initialized")
-
-        tmp_trace_path = os.path.join(
-            self.tmp_dir.name, f"{orig_trace_path.name}.{sub_idx:03d}"
-        )
-
-        def safe_load() -> dict[str, torch.tensor]:
-            """
-            When using dataloaders, several threads can call reading of the same
-            trace file. This can cause some issues, here is an attempt to protect
-            agains simultaneous access.
-            """
-            with open(orig_trace_path, "rb") as f:
-                fcntl.flock(f, fcntl.LOCK_EX)  # Acquire an exclusive lock
-                machine_idx = orig_idx if self.defence.FIXED_PER_TRACE else None
-                try:
-                    return self.defence(orig_trace_path, machine_idx=machine_idx)
-                finally:
-                    fcntl.flock(f, fcntl.LOCK_UN)  # Release the lock
-
-        if not os.path.exists(tmp_trace_path):
-            trace = safe_load()
-            with open(tmp_trace_path, "wb") as f:
-                torch.save(trace, f)
+            trace = self.defence(orig_trace_path)
         else:
-            with open(tmp_trace_path, "rb") as f:
-                trace = torch.load(f, weights_only=True)
+            if self.tmp_dir is None:
+                raise ValueError("Temporary directory not initialized")
 
-        return trace
+            tmp_trace_path = os.path.join(
+                self.tmp_dir.name, f"{orig_trace_path.name}.{sub_idx:03d}"
+            )
+
+            def safe_load() -> dict[str, torch.tensor]:
+                """
+                When using dataloaders, several threads can call reading of the same
+                trace file. This can cause some issues, here is an attempt to protect
+                agains simultaneous access.
+                """
+                with open(orig_trace_path, "rb") as f:
+                    fcntl.flock(f, fcntl.LOCK_EX)  # Acquire an exclusive lock
+                    machine_idx = orig_idx if self.defence.FIXED_PER_TRACE else None
+                    try:
+                        return self.defence(orig_trace_path, machine_idx=machine_idx)
+                    finally:
+                        fcntl.flock(f, fcntl.LOCK_UN)  # Release the lock
+
+            if not os.path.exists(tmp_trace_path):
+                trace = safe_load()
+                with open(tmp_trace_path, "wb") as f:
+                    torch.save(trace, f)
+            else:
+                with open(tmp_trace_path, "rb") as f:
+                    trace = torch.load(f, weights_only=True)
+
+        return {k: v.float() for k, v in trace.items()}
 
     def _get_label(self, idx: int) -> torch.Tensor:
         idx = self._get_idx(idx)[0]
@@ -157,7 +157,7 @@ class WFDataset(Dataset):
 
     def __getitem__(self, idx: int) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
 
-        trace_dict = {k: v.float() for k, v in self._get_trace(idx).items()}
+        trace_dict = self._get_trace(idx)
 
         trace_dict = self.feature_trs(trace_dict)
 
