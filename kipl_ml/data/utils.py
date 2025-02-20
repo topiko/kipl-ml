@@ -12,7 +12,7 @@ from mbnt import load_trace_to_numpy
 from kipl_ml.config import PROJECT_ROOT
 from kipl_ml.data import assets
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.trace.params import MAX_TRACE_LENGTH
+from kipl_ml.trace.params import DOWNLOAD, MAX_TRACE_LENGTH, UPLOAD
 
 logger = get_logger(__name__)
 
@@ -98,22 +98,23 @@ def parse_trace_to_tensor_dict(
 
     match time_unit:
         case "s":
-            times /= 1e9
+            times = times / 1e9
         case "ms":
-            times /= 1e6
+            times = times / 1e6
         case "mus":
-            times /= 1e3
+            times = times / 1e3
         case "ns":
             pass
         case _:
             raise KeyError("Invalid time unit: {time_unit}")
 
     sizes = sizes or np.ones_like(times)
+    # We make the cast to 32bit later in dataset.
     np_trace = np.vstack(
         [
-            times.astype(np.float32),
-            dirs.astype(np.float32),
-            sizes.astype(np.float32),
+            times.astype(np.float64),
+            dirs.astype(np.float64),
+            sizes.astype(np.float64),
         ]
     ).T
 
@@ -138,6 +139,23 @@ def get_std_trace_dict(
     )
 
     return parse_trace_to_tensor_dict(times, dirs, paddings, None)
+
+
+def tensor_dict_to_str(trace_d: dict[str, torch.tensor]) -> str:
+
+    times = (trace_d[assets.TIMES] * 1e9).detach().numpy().astype(int)
+    dirs = trace_d[assets.DIRS].detach().numpy().astype(int)
+    sizes = (trace_d[assets.SIZES].detach().numpy().astype(int) * 512).astype(str)
+
+    dirs_ = np.empty_like(dirs, dtype=str)
+    dirs_[dirs == UPLOAD] = "s"  # send
+    dirs_[dirs == DOWNLOAD] = "r"  # receive
+
+    arr = np.vstack((times, dirs_, sizes)).T
+
+    str_ = "\n".join([f"{row[0]},{row[1]},{row[2]}" for row in arr])
+
+    return str_
 
 
 def generate_xv_splits(

@@ -103,7 +103,7 @@ class WFDataset(Dataset):
 
         return (idx // self.defence_aug, idx % self.defence_aug)
 
-    def _get_trace(self, idx: int) -> dict[str, torch.Tensor]:
+    def _get_trace(self, idx: int) -> dict[str, torch.tensor]:
 
         orig_idx, sub_idx = self._get_idx(idx)
 
@@ -119,7 +119,7 @@ class WFDataset(Dataset):
             self.tmp_dir.name, f"{orig_trace_path.name}.{sub_idx:03d}"
         )
 
-        def safe_load() -> dict[str, torch.Tensor]:
+        def safe_load() -> dict[str, torch.tensor]:
             """
             When using dataloaders, several threads can call reading of the same
             trace file. This can cause some issues, here is an attempt to protect
@@ -155,7 +155,9 @@ class WFDataset(Dataset):
 
     def __getitem__(self, idx: int) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
 
-        trace_dict = self._get_trace(idx)
+        trace_dict = {
+            k: v.astype(torch.float32) for k, v in self._get_trace(idx).items()
+        }
 
         trace_dict = self.feature_trs(trace_dict)
 
