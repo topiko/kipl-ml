@@ -116,7 +116,7 @@ def maybenot(cfg: OmegaConf) -> dict[str, Maybenot]:
     seed = cfg.seed
     netwk_delay, netwk_pps = _parse_netwk(cfg)
     maybenot_config["network_delay_millis"] = netwk_delay
-    maybenot_config["netwk_pps"] = netwk_pps
+    maybenot_config["network_pps"] = netwk_pps
 
     defence_train = Maybenot(**maybenot_config, seed=seed)
 

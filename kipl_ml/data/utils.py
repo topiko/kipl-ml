@@ -91,7 +91,7 @@ def parse_trace_to_tensor_dict(
     paddings: np.ndarray,
     sizes: np.ndarray | None = None,
     time_unit: str = "s",
-) -> dict[str, torch.Tensor]:
+) -> dict[str, torch.tensor]:
 
     if time_unit != "s":
         logger.warning("Some feature rely on time unit being 's' beware!")
@@ -109,21 +109,12 @@ def parse_trace_to_tensor_dict(
             raise KeyError("Invalid time unit: {time_unit}")
 
     sizes = sizes or np.ones_like(times)
+
     # We make the cast to 32bit later in dataset.
-    np_trace = np.vstack(
-        [
-            times.astype(np.float64),
-            dirs.astype(np.float64),
-            sizes.astype(np.float64),
-        ]
-    ).T
-
-    trace_tensor = torch.as_tensor(np_trace)
-
     trace_dict = {
-        assets.TIMES: trace_tensor[:, 0],
-        assets.DIRS: trace_tensor[:, 1],
-        assets.SIZES: trace_tensor[:, 2],
+        assets.TIMES: torch.tensor(times, dtype=torch.float64),
+        assets.DIRS: torch.tensor(dirs, dtype=torch.int8),
+        assets.SIZES: torch.tensor(sizes, dtype=torch.int16),
         assets.PADDING: torch.tensor(paddings, dtype=torch.bool),
     }
 
@@ -132,7 +123,7 @@ def parse_trace_to_tensor_dict(
 
 def get_std_trace_dict(
     path: os.PathLike, network_delay_millis: int = 0
-) -> dict[str, torch.Tensor]:
+) -> dict[str, torch.tensor]:
 
     times, dirs, paddings = get_std_trace_array(
         path, network_delay_millis=network_delay_millis

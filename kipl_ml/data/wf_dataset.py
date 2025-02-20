@@ -157,9 +157,7 @@ class WFDataset(Dataset):
 
     def __getitem__(self, idx: int) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
 
-        trace_dict = {
-            k: v.astype(torch.float32) for k, v in self._get_trace(idx).items()
-        }
+        trace_dict = {k: v.float() for k, v in self._get_trace(idx).items()}
 
         trace_dict = self.feature_trs(trace_dict)
 
