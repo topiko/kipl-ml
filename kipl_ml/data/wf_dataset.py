@@ -39,7 +39,9 @@ class WFDataset(Dataset):
 
         self.feature_trs = feature_trs
 
-        self.defence = defence or NoDefence(network_delay_millis=0)
+        self.defence = defence or NoDefence(
+            network_delay_millis=(0, 0), network_pps=(0, 0)
+        )
         self.tmp_dir = None
         self.defence_aug = defence_aug
 
