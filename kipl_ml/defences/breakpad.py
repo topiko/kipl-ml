@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable
 
 from kipl_ml.defences.fixed_machines import _FixedMachine
 from kipl_ml.logging.logger import get_logger
@@ -12,13 +11,15 @@ logger = get_logger(__name__)
 class Breakpad(_FixedMachine):
     def __init__(
         self,
-        network_delay_millis: int | tuple[int, int] | Callable[[], int],
+        network_delay_millis: tuple[int, int],
+        network_pps: tuple[int, int],
         seed: int = 42,
     ):
 
         self.machination_kwargs: dict[str, int | float] = {"seed": seed}
         super().__init__(
             network_delay_millis=network_delay_millis,
+            network_pps=network_pps,
             machination_kwargs=self.machination_kwargs,
         )
 

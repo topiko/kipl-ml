@@ -21,6 +21,7 @@ def main():
         "params.dataset_name",
         "params.model_name",
         "params.defence.defence-type",
+        "params.network_state",
     ]
 
     metric = "metrics.test_accuracy"
@@ -34,10 +35,14 @@ def main():
         .reset_index()
         .pivot(
             index="params.defence.defence-type",
-            columns=["params.dataset_name", "params.model_name"],
+            columns=[
+                "params.network_state",
+                "params.dataset_name",
+                "params.model_name",
+            ],
             values=0,
         )
-        .rename_axis(index="", columns=["", ""])
+        .rename_axis(index="", columns=["", "", ""])
     )
 
     print(res)

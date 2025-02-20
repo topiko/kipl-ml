@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable
 
 from kipl_ml.defences.fixed_machines import _FixedMachine
 from kipl_ml.logging.logger import get_logger
@@ -12,7 +11,8 @@ logger = get_logger(__name__)
 class FRONT(_FixedMachine):
     def __init__(
         self,
-        network_delay_millis: int | tuple[int, int] | Callable[[], int],
+        network_delay_millis: tuple[int, int],
+        network_pps: tuple[int, int],
         padding_budget_max_client: int,
         padding_budget_max_server: int,
         window_min_client: float,
@@ -40,6 +40,7 @@ class FRONT(_FixedMachine):
         }
         super().__init__(
             network_delay_millis=network_delay_millis,
+            network_pps=network_pps,
             machination_kwargs=self.machination_kwargs,
             fixed_per_trace=fixed_per_trace,
         )

@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import tempfile
 from abc import abstractmethod
-from collections.abc import Callable
 from pathlib import Path
 
 import dotenv
@@ -11,11 +10,12 @@ import torch
 from mbnt import sim_trace_from_file_advanced
 
 from kipl_ml.data.utils import parse_trace_to_tensor_dict
-from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def, parse_netwk_delay_fun
+from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
 from kipl_ml.defences.maybenot import Deck, DeckStats
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
-from kipl_ml.trace.params import MAX_TRACE_LENGTH
+from kipl_ml.network.utils import NetwkDelay, NetwkPps
+from kipl_ml.trace.params import EVENTS_MULTIPLIER, MAX_TRACE_LENGTH
 
 dotenv.load_dotenv()
 
@@ -27,8 +27,10 @@ class _FixedMachine(_Def):
 
     def __init__(
         self,
-        network_delay_millis: int | tuple[int, int] | Callable[[], int],
+        network_delay_millis: tuple[int, int],
+        network_pps: tuple[int, int],
         machination_kwargs: dict[str, int | float],
+        seed: int | None = 42,
         fixed_per_trace: bool = False,
     ):
         if (MACHINATION := os.getenv("MACHINATION")) is None:
@@ -44,11 +46,14 @@ class _FixedMachine(_Def):
 
         os.remove(tmpfile_)
 
-        self.network_delay_millis = parse_netwk_delay_fun(network_delay_millis)
+        self.network_delay_millis = NetwkDelay(*network_delay_millis, seed=seed)
+        self.network_pps = NetwkPps(*network_pps, seed=seed)
 
     def report(self, to_log: bool = False) -> str:
         str_ = self.__class__.__name__ + "\n"
         str_ += "\t" + self.deck.report(to_log=False)
+        str_ += f"\t{self.network_delay_millis}\n"
+        str_ += f"\t{self.network_pps}\n"
 
         if to_log:
             log_multiline(str_)
@@ -66,11 +71,13 @@ class _FixedMachine(_Def):
             client_machines,
             server_machines,
             self.network_delay_millis(),
+            self.network_pps(),
             max_padding_frac_client=0,
             max_padding_frac_server=0,
             max_blocking_frac_client=0,
             max_blocking_frac_server=0,
             max_trace_length=MAX_TRACE_LENGTH,
+            events_multiplier=EVENTS_MULTIPLIER,
         )
 
         trace_d = parse_trace_to_tensor_dict(times, dirs, paddings, None)

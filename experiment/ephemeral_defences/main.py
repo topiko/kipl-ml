@@ -16,7 +16,11 @@ from torchtune.training.lr_schedulers import get_cosine_schedule_with_warmup
 from experiment.ephemeral_defences import defence_builder
 from kipl_ml.data import assets
 from kipl_ml.data.wf_dataset import get_train_valid_test
-from kipl_ml.defences.base import _Def
+from kipl_ml.defences.base import NoDefence
+from kipl_ml.defences.breakpad import Breakpad
+from kipl_ml.defences.front import FRONT
+from kipl_ml.defences.interspace import Interspace
+from kipl_ml.defences.maybenot import Maybenot
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import get_mlflow_expr, key_val_fmt, log_multiline
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall
@@ -126,21 +130,23 @@ def _get_loss(cfg: OmegaConf):
             raise NotImplementedError()
 
 
-def _get_defence(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, _Def]:
+def _get_defence(
+    cfg: OmegaConf,
+) -> dict[str, Maybenot | FRONT | Interspace | Breakpad | NoDefence]:
 
     def_type = cfg.defence.type
 
     match def_type:
         case "no-defence":
-            return defence_builder.no_def(netwk_delay)
+            return defence_builder.no_def(cfg)
         case "maybenot":
-            return defence_builder.maybenot(cfg, netwk_delay)
+            return defence_builder.maybenot(cfg)
         case "front":
-            return defence_builder.front(cfg, netwk_delay)
+            return defence_builder.front(cfg)
         case "interspace":
-            return defence_builder.interspace(cfg, netwk_delay)
+            return defence_builder.interspace(cfg)
         case "breakpad":
-            return defence_builder.breakpad(netwk_delay)
+            return defence_builder.breakpad(cfg)
         case _:
             raise NotImplementedError("no builder for defence '{def_type}'")
 
@@ -215,11 +221,6 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
             logger.info(f"Found finished run for: {run_name} -> exiting.")
             return
 
-    netwk_delay = (
-        cfg.network.network_delay_millis.min,
-        cfg.network.network_delay_millis.max,
-    )
-
     logger.info("Starting run w. config:")
     log_multiline(OmegaConf.to_yaml(cfg))
 
@@ -262,7 +263,7 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
         feature_trs=feature_trs,
         defence_aug=cfg.misc.defence_augmentation,
         defence_aug_valid=cfg.misc.defence_augmentation_valid,
-        **_get_defence(cfg, netwk_delay),
+        **_get_defence(cfg),
     )
 
     model = get_model(

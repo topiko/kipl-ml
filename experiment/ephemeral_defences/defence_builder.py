@@ -11,9 +11,19 @@ from kipl_ml.logging.logger import get_logger
 logger = get_logger(__name__)
 
 
-def no_def(netwk_delay: tuple[int, int]) -> dict[str, NoDefence]:
+def _parse_netwk(cfg: OmegaConf) -> tuple[tuple[int, int], tuple[int, int]]:
+    delay = (cfg.network.delay_millis.min, cfg.network.delay_millis.max)
+    pps = (cfg.network.pps.min, cfg.network.pps.max)
 
-    no_defence = NoDefence(network_delay_millis=netwk_delay)
+    return delay, pps
+
+
+def no_def(cfg: OmegaConf) -> dict[str, NoDefence]:
+
+    netwk_delay, netwk_pps = _parse_netwk(cfg)
+    no_defence = NoDefence(
+        network_delay_millis=netwk_delay, network_pps=netwk_pps, seed=cfg.seed
+    )
 
     return {
         "defence_train": no_defence,
@@ -22,8 +32,11 @@ def no_def(netwk_delay: tuple[int, int]) -> dict[str, NoDefence]:
     }
 
 
-def breakpad(netwk_delay: tuple[int, int]) -> dict[str, Interspace]:
-    defence = Breakpad(network_delay_millis=netwk_delay)
+def breakpad(cfg: OmegaConf) -> dict[str, Breakpad]:
+    netwk_delay, netwk_pps = _parse_netwk(cfg)
+    defence = Breakpad(
+        network_delay_millis=netwk_delay, network_pps=netwk_pps, seed=cfg.seed
+    )
 
     return {
         "defence_train": defence,
@@ -32,7 +45,7 @@ def breakpad(netwk_delay: tuple[int, int]) -> dict[str, Interspace]:
     }
 
 
-def interspace(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, Interspace]:
+def interspace(cfg: OmegaConf) -> dict[str, Interspace]:
     d = dict(cfg.defence)
     d.pop("type")
     seed = cfg.seed
@@ -40,9 +53,15 @@ def interspace(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, Inters
     n_valid_machines = d.pop("n_valid_machines")
     n_test_machines = d.pop("n_test_machines")
 
+    netwk_delay, netwk_pps = _parse_netwk(cfg)
+
     def _interspace(n_machines: int, seed: int):
         return Interspace(
-            network_delay_millis=netwk_delay, **d, n_machines=n_machines, seed=seed
+            network_delay_millis=netwk_delay,
+            network_pps=netwk_pps,
+            **d,
+            n_machines=n_machines,
+            seed=seed,
         )
 
     return {
@@ -52,7 +71,7 @@ def interspace(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, Inters
     }
 
 
-def front(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, FRONT]:
+def front(cfg: OmegaConf) -> dict[str, FRONT]:
     d = dict(cfg.defence)
     d.pop("type")
     seed = cfg.seed
@@ -60,9 +79,15 @@ def front(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, FRONT]:
     n_valid_machines = d.pop("n_valid_machines")
     n_test_machines = d.pop("n_test_machines")
 
+    netwk_delay, netwk_pps = _parse_netwk(cfg)
+
     def _front(n_machines: int, seed: int):
         return FRONT(
-            network_delay_millis=netwk_delay, **d, n_machines=n_machines, seed=seed
+            network_delay_millis=netwk_delay,
+            network_pps=netwk_pps,
+            **d,
+            n_machines=n_machines,
+            seed=seed,
         )
 
     return {
@@ -72,10 +97,9 @@ def front(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, FRONT]:
     }
 
 
-def maybenot(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, Maybenot]:
+def maybenot(cfg: OmegaConf) -> dict[str, Maybenot]:
 
     maybenot_config = dict(cfg.defence)
-    maybenot_config["network_delay_millis"] = netwk_delay
     deck_path = maybenot_config.pop("deck_path")
     maybenot_config.pop("type")
     n_machines = maybenot_config.pop("n_machines")
@@ -90,6 +114,10 @@ def maybenot(cfg: OmegaConf, netwk_delay: tuple[int, int]) -> dict[str, Maybenot
     maybenot_config["deck"] = Deck(deck_stats, machine_idxs)
 
     seed = cfg.seed
+    netwk_delay, netwk_pps = _parse_netwk(cfg)
+    maybenot_config["network_delay_millis"] = netwk_delay
+    maybenot_config["netwk_pps"] = netwk_pps
+
     defence_train = Maybenot(**maybenot_config, seed=seed)
 
     if n_machines > 16000:

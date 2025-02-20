@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable
 
 from kipl_ml.defences.fixed_machines import _FixedMachine
 from kipl_ml.logging.logger import get_logger
@@ -12,7 +11,8 @@ logger = get_logger(__name__)
 class Interspace(_FixedMachine):
     def __init__(
         self,
-        network_delay_millis: int | tuple[int, int] | Callable[[], int],
+        network_delay_millis: tuple[int, int],
+        network_pps: tuple[int, int],
         n_machines: int,
         seed: int = 42,
         fixed_per_trace: bool = True,
@@ -23,8 +23,9 @@ class Interspace(_FixedMachine):
         }
         super().__init__(
             network_delay_millis=network_delay_millis,
+            network_pps=network_pps,
             machination_kwargs=self.machination_kwargs,
-            fixed_per_trace=fixed_per_trace
+            fixed_per_trace=fixed_per_trace,
         )
 
     def _machination(self, tmpfile_: str, n_machines: int, seed: int) -> None:
