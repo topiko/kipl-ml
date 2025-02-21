@@ -14,6 +14,11 @@ mlflow:
 misc:
   defence_augmentation: 1
   defence_augmentation_valid: 1
+
+train:
+  batch_size: 256
+optimizer:
+  lr: 0.002
 seed: 42
 
 

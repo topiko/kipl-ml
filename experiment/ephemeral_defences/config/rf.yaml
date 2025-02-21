@@ -17,6 +17,10 @@ misc:
 
 optimizer:
   lr: 0.005
+  weight_decay: 0.001
+
+train:
+  batch_size: 200
 seed: 42
 
 
