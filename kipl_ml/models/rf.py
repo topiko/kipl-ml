@@ -2,6 +2,7 @@ import math
 
 import torch
 import torch.nn as nn
+from torch.optim.lr_scheduler import LRScheduler
 
 from kipl_ml.models.utils import unsqueeze_batch
 
@@ -166,3 +167,17 @@ class RF(nn.Module):
             elif isinstance(m, nn.Linear):
                 m.weight.data.normal_(0, 0.01)
                 m.bias.data.zero_()
+
+
+class RFLRScheduler(LRScheduler):
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        last_epoch: int = -1,
+        n_epochs: int = 100,
+    ):
+        self.n_epochs = n_epochs
+        super().__init__(optimizer=optimizer, last_epoch=last_epoch)
+
+    def get_lr(self) -> list[float]:
+        return [lr * (0.2 ** (self.last_epoch / self.n_epochs)) for lr in self.base_lrs]

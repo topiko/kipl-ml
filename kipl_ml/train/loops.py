@@ -18,6 +18,7 @@ from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.metrics.clf_metrics import ClassMetric, GeneralMetric, Objective
 from kipl_ml.model_eval.evaluate import evaluate_model
+from kipl_ml.models.rf import RFLRScheduler
 from kipl_ml.tools.cuda_tools import get_device
 
 logger = get_logger(__name__)
@@ -218,7 +219,7 @@ def train_model(
 
         if isinstance(lr_scheduler, ReduceLROnPlateau):
             lr_scheduler.step(metrics_vals["loss"])
-        elif isinstance(lr_scheduler, LambdaLR):
+        elif isinstance(lr_scheduler, LambdaLR | RFLRScheduler):
             lr_scheduler.step()
         elif lr_scheduler is None:
             pass

@@ -1,7 +1,7 @@
 defaults:
   - model: rf
   - dataset: bigenough
-  - lr_scheduler : no-scheduling
+  - lr_scheduler : rfscheduler
   - optimizer: adam
   - network: bottleneck
   - defence: no_defence

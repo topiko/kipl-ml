@@ -26,6 +26,7 @@ from kipl_ml.logging.utils import get_mlflow_expr, key_val_fmt, log_multiline
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.models import get_model
+from kipl_ml.models.rf import RFLRScheduler
 from kipl_ml.models.utils import get_laserbeak_model_config, get_signature
 from kipl_ml.tools.mlflow_utils import (
     list_runs,
@@ -91,6 +92,15 @@ def _get_lr_scheduler(
                 ),
                 params,
             )
+        case "rf-native":
+            return (
+                RFLRScheduler(
+                    optimizer=optimizer,
+                    n_epochs=cfg.lr_scheduler.epochs,
+                ),
+                params,
+            )
+
         case "none":
             return None, params
         case _:
