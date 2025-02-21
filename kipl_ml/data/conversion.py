@@ -66,7 +66,7 @@ def _data_to_meta_row(
             {
                 assets.PAGE_LABEL: page_label,
                 assets.SUB_PAGE_LABEL: sub_page_label,
-                "dataset": dataset,
+                assets.DATASET: dataset,
                 "n_packets": _n_packets("up") + _n_packets("down"),
                 "time [ns]": _time(),
                 assets.TRACE_ID: trace_id,
@@ -86,7 +86,7 @@ def _data_to_meta_row(
                 assets.TRACE_ID: str,
                 assets.SAMPLE_ID: int,
                 assets.TRACE_F_PATH: str,
-                "dataset": str,
+                assets.DATASET: str,
                 "n_packets_up": int,
                 "n_packets_down": int,
             }
