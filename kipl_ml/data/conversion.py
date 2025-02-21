@@ -112,7 +112,7 @@ def _save_big_enough_to_standard(save_np: bool = True):
         - 2: s = size
     """
 
-    root = os.path.join(DATA_DIR, "bigenough-95x10x20-standard-rngsubpages")
+    root = os.path.join(DATA_DIR, Datasets.BIGENOUGH)
 
     def parse_row(row: str, idx: int) -> str:
         return row.split(",")[idx]
