@@ -2,10 +2,10 @@
 
 nepochs=30
 defaug=1
-expr_name="Ephemeral-Aug$defaug-v4"
+expr_name="Ephemeral-Aug$defaug-infinite"
 
 
-common="misc.defence_augmentation=$defaug train.n_epochs=$nepochs mlflow.experiment_name=$expr_name"
+common="misc.defence_augmentation=$defaug train.n_epochs=$nepochs mlflow.experiment_name=$expr_name network=infinite"
 common_lb="$common lr_scheduler.epochs=$nepochs"
 
 for defence in no_defence front interspace breakpad

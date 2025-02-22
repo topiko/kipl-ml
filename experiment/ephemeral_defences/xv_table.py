@@ -9,8 +9,9 @@ def main():
         "-en",
         "--experiment-name",
         type=str,
+        nargs="+",
         required=True,
-        help="Which experiment to consider",
+        help="Which experiment(s) to consider",
     )
 
     args = parser.parse_args()
@@ -36,13 +37,14 @@ def main():
         .pivot(
             index="params.defence.defence-type",
             columns=[
-                "params.network_state",
                 "params.dataset_name",
+                "params.network_state",
                 "params.model_name",
             ],
             values=0,
         )
         .rename_axis(index="", columns=["", "", ""])
+        .sort_index(axis=1)
     )
 
     print(res)
