@@ -6,6 +6,8 @@ from kipl_ml.defences.breakpad import Breakpad
 from kipl_ml.defences.front import FRONT
 from kipl_ml.defences.interspace import Interspace
 from kipl_ml.defences.maybenot import Deck, DeckStats, Maybenot
+from kipl_ml.defences.regulator import Regulator
+from kipl_ml.defences.tamaraw import Tamaraw
 from kipl_ml.logging.logger import get_logger
 
 logger = get_logger(__name__)
@@ -54,8 +56,6 @@ def tamaraw(cfg: OmegaConf) -> dict[str, Breakpad]:
 
     seed = cfg.seed
 
-    from kipl_ml.defences.tamaraw import Tamaraw
-
     def _tamaraw(seed: int):
         return Tamaraw(
             network_delay_millis=netwk_delay,
@@ -70,6 +70,32 @@ def tamaraw(cfg: OmegaConf) -> dict[str, Breakpad]:
         "defence_train": _tamaraw(seed + 1),
         "defence_valid": _tamaraw(seed + 2),
         "defence_test": _tamaraw(seed + 3),
+    }
+
+
+def regulator(cfg: OmegaConf) -> dict[str, Breakpad]:
+    netwk_delay, netwk_pps = _parse_netwk(cfg)
+
+    seed = cfg.seed
+    def_params = cfg.defence
+
+    def _regulator(seed: int):
+        return Regulator(
+            network_delay_millis=netwk_delay,
+            network_pps=netwk_pps,
+            U=def_params.U,
+            C=def_params.C,
+            R=def_params.R,
+            D=def_params.D,
+            T=def_params.T,
+            padding_budget=def_params.padding_budget,
+            seed=seed,
+        )
+
+    return {
+        "defence_train": _regulator(seed + 1),
+        "defence_valid": _regulator(seed + 2),
+        "defence_test": _regulator(seed + 3),
     }
 
 

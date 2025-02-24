@@ -159,6 +159,8 @@ def _get_defence(
             return defence_builder.breakpad(cfg)
         case "tamaraw":
             return defence_builder.tamaraw(cfg)
+        case "regulator":
+            return defence_builder.regulator(cfg)
         case _:
             raise NotImplementedError("no builder for defence '{def_type}'")
 
