@@ -34,14 +34,42 @@ def no_def(cfg: OmegaConf) -> dict[str, NoDefence]:
 
 def breakpad(cfg: OmegaConf) -> dict[str, Breakpad]:
     netwk_delay, netwk_pps = _parse_netwk(cfg)
-    defence = Breakpad(
-        network_delay_millis=netwk_delay, network_pps=netwk_pps, seed=cfg.seed
-    )
+
+    seed = cfg.seed
+
+    def _breakpad(seed: int):
+        return Breakpad(
+            network_delay_millis=netwk_delay, network_pps=netwk_pps, seed=seed
+        )
 
     return {
-        "defence_train": defence,
-        "defence_valid": defence,
-        "defence_test": defence,
+        "defence_train": _breakpad(seed + 1),
+        "defence_valid": _breakpad(seed + 2),
+        "defence_test": _breakpad(seed + 3),
+    }
+
+
+def tamaraw(cfg: OmegaConf) -> dict[str, Breakpad]:
+    netwk_delay, netwk_pps = _parse_netwk(cfg)
+
+    seed = cfg.seed
+
+    from kipl_ml.defences.tamaraw import Tamaraw
+
+    def _tamaraw(seed: int):
+        return Tamaraw(
+            network_delay_millis=netwk_delay,
+            network_pps=netwk_pps,
+            pc=cfg.defence.pc,
+            ps=cfg.defence.ps,
+            window_val=cfg.defence.window_val,
+            seed=seed,
+        )
+
+    return {
+        "defence_train": _tamaraw(seed + 1),
+        "defence_valid": _tamaraw(seed + 2),
+        "defence_test": _tamaraw(seed + 3),
     }
 
 
