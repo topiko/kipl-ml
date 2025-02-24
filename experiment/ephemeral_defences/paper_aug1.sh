@@ -2,13 +2,15 @@
 
 nepochs=30
 defaug=1
-expr_name="Ephemeral-Aug$defaug-infinite"
+network_state="bottleneck"
+expr_name="Ephemeral-Aug$defaug-$network_state-v2"
 
 
-common="misc.defence_augmentation=$defaug train.n_epochs=$nepochs mlflow.experiment_name=$expr_name network=infinite"
+
+common="misc.defence_augmentation=$defaug train.n_epochs=$nepochs mlflow.experiment_name=$expr_name network=$network_state"
 common_lb="$common lr_scheduler.epochs=$nepochs"
 
-for defence in no_defence front interspace breakpad
+for defence in "tamaraw-$network_state" no_defence "front-$network_state" interspace breakpad
 do
 	uv run python main.py --config-name=df defence=$defence $common
 	uv run python main.py --config-name=rf defence=$defence $common

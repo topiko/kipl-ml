@@ -44,7 +44,7 @@ class Tamaraw(_FixedMachine):
                 "-c",
                 f"tamaraw {pc} {window_val}",
                 "-s",
-                f"tamaraw {ps} {window_val}" "-n",
+                f"tamaraw {ps} {window_val}",
                 "-o",
                 tmpfile_,
                 "--seed",
