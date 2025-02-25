@@ -13,6 +13,14 @@ def main():
         required=True,
         help="Which experiment(s) to consider",
     )
+    parser.add_argument(
+        "-m",
+        "--metric",
+        type=str,
+        default="accuracy",
+        choices=["accuracy", "def.delay", "def.bandwidth"],
+        help="Which metric?",
+    )
 
     args = parser.parse_args()
 
@@ -25,11 +33,11 @@ def main():
         "params.network_state",
     ]
 
-    metric = "metrics.test_accuracy"
+    metric = f"metrics.{args.metric}"
     res = (
         df.groupby(groupby)
         .apply(
-            lambda x: f"{x.loc[:, metric].mean():.3f} \u00b1 {x.loc[:, metric].std():.3f}",
+            lambda x: f"{x.loc[:, metric].mean():.3f}\u00b1{x.loc[:, metric].std():.3f}",
             include_groups=False,
         )
         .to_frame()
