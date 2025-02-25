@@ -1,0 +1,25 @@
+#!/bin/bash
+
+nepochs=30
+defaug=1
+
+
+for defence in no_defence "front-$network_state" interspace breakpad "tamaraw-$network_state"
+do
+	for netwk_state in bottleneck infinite
+	do
+		expr_name="Ephemeral-Related-Aug$defaug-$network_state"
+		common="misc.defence_augmentation=$defaug train.n_epochs=$nepochs mlflow.experiment_name=$expr_name network=$netwk_state"
+		common_lb="$common lr_scheduler.epochs=$nepochs"
+
+		uv run python main.py --config-name=df defence=$defence $common
+		uv run python main.py --config-name=rf defence=$defence $common
+		# uv run python main.py --config-name=df-multi defence=$defence $common_lb
+		# uv run python main.py --config-name=laserbeak defence=$defence $common_lb
+
+		uv run python xv_table.py -en $expr_name
+	done
+done
+
+
+
