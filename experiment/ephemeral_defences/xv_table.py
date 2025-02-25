@@ -35,16 +35,13 @@ def main():
         .to_frame()
         .reset_index()
         .pivot(
-            index="params.defence.defence-type",
-            columns=[
-                "params.dataset_name",
-                "params.network_state",
-                "params.model_name",
-            ],
+            index=["params.defence.defence-type", "params.network_state"],
+            columns=["params.dataset_name", "params.model_name"],
             values=0,
         )
-        .rename_axis(index="", columns=["", "", ""])
+        .rename_axis(index=["", ""], columns=["", "", ""])
         .sort_index(axis=1)
+        .sort_index(axis=0)
     )
 
     print(res)
