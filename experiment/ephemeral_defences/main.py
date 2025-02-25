@@ -354,6 +354,14 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
         metrics_vals = {f"test_{k}": v for k, v in metrics_vals.items()}
         mlflow.log_metrics(metrics_vals, step=None)
 
+        from kipl_ml.metrics.defence_netwk_metrics import get_overheads
+
+        defence_overheads = get_overheads(
+            test_loader.dataset.defence, test_loader.dataset.meta_df
+        )
+
+        mlflow.log_metrics(defence_overheads, step=None)
+
         # log model.
         signature = get_signature(model=trained_model, ds=ds_train)
         mlflow.pytorch.log_model(trained_model, "model", signature=signature)

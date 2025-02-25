@@ -2,14 +2,15 @@ from collections.abc import Callable
 
 import pandas as pd
 import torch
+from torch import nn
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
 from kipl_ml.data.assets import PAGE_LABEL, PRED, PRED_CLS_PROB
 from kipl_ml.data.wf_dataset import dict_to_device
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.metrics.clf_metrics import ClassMetric, GeneralMetric, PredType
 from kipl_ml.tools.cuda_tools import get_device
-from torch import nn
-from torch.utils.data import DataLoader
-from tqdm import tqdm
 
 logger = get_logger(__name__)
 

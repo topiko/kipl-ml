@@ -12,7 +12,7 @@ from mbnt import load_trace_to_numpy
 from kipl_ml.config import PROJECT_ROOT
 from kipl_ml.data import assets
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.trace.params import DOWNLOAD, MAX_TRACE_LENGTH, UPLOAD
+from kipl_ml.trace.params import DOWNLOAD, EVENTS_MULTIPLIER, MAX_TRACE_LENGTH, UPLOAD
 
 logger = get_logger(__name__)
 
@@ -66,7 +66,9 @@ def load_dataset_meta_df(dataset: str, include_xv_cols: bool = True) -> pd.DataF
 
 
 def get_std_trace_array(
-    path: os.PathLike, network_delay_millis: int = 0
+    path: os.PathLike,
+    network_delay_millis: int = 0,
+    network_packets_per_second: int = 0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Load a standard trace array from a file
@@ -81,7 +83,9 @@ def get_std_trace_array(
     return load_trace_to_numpy(
         str(path),
         network_delay_millis=network_delay_millis,
+        network_packets_per_second=network_packets_per_second,
         max_trace_length=MAX_TRACE_LENGTH,
+        events_multiplier=EVENTS_MULTIPLIER,
     )
 
 
@@ -122,11 +126,15 @@ def parse_trace_to_tensor_dict(
 
 
 def get_std_trace_dict(
-    path: os.PathLike, network_delay_millis: int = 0
+    path: os.PathLike,
+    network_delay_millis: int = 0,
+    network_packets_per_second: int = 0,
 ) -> dict[str, torch.tensor]:
 
     times, dirs, paddings = get_std_trace_array(
-        path, network_delay_millis=network_delay_millis
+        path,
+        network_delay_millis=network_delay_millis,
+        network_packets_per_second=network_packets_per_second,
     )
 
     return parse_trace_to_tensor_dict(times, dirs, paddings, None)
@@ -138,10 +146,17 @@ def tensor_dict_to_str(trace_d: dict[str, torch.tensor]) -> str:
     dirs = trace_d[assets.DIRS].detach().numpy().astype(int)
     sizes = (trace_d[assets.SIZES].detach().numpy().astype(int) * 512).astype(str)
 
-    dirs_ = np.empty_like(dirs, dtype=str)
-    dirs_[dirs == UPLOAD] = "s"  # send
-    dirs_[dirs == DOWNLOAD] = "r"  # receive
+    dirs_ = np.empty_like(dirs, dtype="<U2")
 
+    paddings = trace_d[assets.PADDING].detach().numpy().astype(bool)
+
+    dirs_[(dirs == UPLOAD) & ~paddings] = "sn"  # send normal
+    dirs_[(dirs == UPLOAD) & paddings] = "sp"  # send padding
+    dirs_[(dirs == DOWNLOAD) & ~paddings] = "rn"  # receive normal
+    dirs_[(dirs == DOWNLOAD) & paddings] = "rp"  # receive
+
+    if any(dirs_ == ""):
+        raise ValueError("Invalid dir detected")
     arr = np.vstack((times, dirs_, sizes)).T
 
     str_ = "\n".join([f"{row[0]},{row[1]},{row[2]}" for row in arr])
