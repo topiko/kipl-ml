@@ -43,7 +43,7 @@ class NetwkDelay(RandSampler):
         super().__init__(min_delay_ms, max_delay_ms, seed=seed)
 
     def __str__(self):
-        return f"Netwk delay fun: {self.way} [{self.low_lim}, {self.up_lim}]ms."
+        return f"Netwk delay fun: {self.way} [{self.low_lim}, {self.up_lim}] ms."
 
     def mlflow_log_params(self) -> dict[str, str]:
         return {
@@ -59,7 +59,7 @@ class NetwkPps(RandSampler):
         super().__init__(min_pps, max_pps, seed=seed)
 
     def __str__(self):
-        return f"Netwk pps fun: {self.way} [{self.low_lim}, {self.up_lim}]ms."
+        return f"Netwk pps fun: {self.way} [{self.low_lim}, {self.up_lim}] pps."
 
     def mlflow_log_params(self) -> dict[str, str]:
         return {

@@ -4,11 +4,11 @@ nepochs=30
 defaug=1
 
 
-for defence in no_defence "front-$network_state" interspace breakpad "tamaraw-$network_state"
+for netwk_state in infinite bottleneck
 do
-	for netwk_state in bottleneck infinite
+	for defence in no_defence "front-$netwk_state" interspace # breakpad "tamaraw-$network_state"
 	do
-		expr_name="Ephemeral-Related-Aug$defaug-$network_state"
+		expr_name="Ephemeral-Related-Aug$defaug-$netwk_state"
 		common="misc.defence_augmentation=$defaug train.n_epochs=$nepochs mlflow.experiment_name=$expr_name network=$netwk_state"
 		common_lb="$common lr_scheduler.epochs=$nepochs"
 
