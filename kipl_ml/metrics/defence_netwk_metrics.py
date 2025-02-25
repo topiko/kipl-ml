@@ -62,7 +62,7 @@ def get_overheads(
     real_world: bool = False,
 ) -> dict[str, float]:
 
-    logger.info("Compute overheads for:%s", defence.name)
+    logger.info("Compute overheads for: %s", defence.name)
     with ExitStack() as stack:
         dirs = [
             stack.enter_context(TemporaryDirectory(suffix=".traces", prefix=prefix))
@@ -73,11 +73,7 @@ def get_overheads(
 
         overheads = compute_overheads(dirs[0], dirs[1], max_len, real_world)
 
-    overheads_: dict[str, float] = {
-        "def." + k.replace(" ", "-"): v for k, v in overheads.items()
-    }
-
-    overheads_["def.bandwidth"] = (
-        overheads_["def.defended"] / overheads_["def.base"] - 1.0
-    )
-    return overheads_
+    overheads_fin: dict[str, float] = {}
+    overheads_fin["def.bandwidth"] = overheads["defended"] / overheads["base"] - 1.0
+    overheads_fin["def.delay"] = overheads["delay"]
+    return overheads_fin
