@@ -182,6 +182,7 @@ if __name__ == "__main__":
         _save_big_enough_to_standard(save_np=args.save_np)
 
         generate_xv_splits(args.dataset, n_splits=10, label_asset=assets.PAGE_LABEL)
+        generate_xv_splits(args.dataset, n_splits=5, label_asset=assets.PAGE_LABEL)
 
     else:
         raise NotImplementedError("Only 'bigenough' exits atm.")

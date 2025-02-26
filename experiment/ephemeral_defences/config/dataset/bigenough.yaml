@@ -1,5 +1,5 @@
 name: "bigenough"
-n_splits: 10
+n_splits: 5
 test_xv: -1
 random_state: 24
 target: "page_label"

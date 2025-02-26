@@ -173,7 +173,7 @@ def generate_xv_splits(
 ):
 
     if dataset != Datasets.BIGENOUGH:
-        raise ValueError("Everythin is now for be..")
+        raise ValueError("Everything is now for be..")
 
     logger.info(
         "Generating %d splits for dataset %s on label %s...",
@@ -205,6 +205,8 @@ def generate_xv_splits(
     xv_col = assets.XV_SPLIT(n_splits, label_asset)
     if n_splits == 10:
         meta_df.loc[:, xv_col] = meta_df.loc[:, assets.SAMPLE_ID] // 2
+    elif n_splits == 5:
+        meta_df.loc[:, xv_col] = meta_df.loc[:, assets.SAMPLE_ID] // 4
     else:
         raise NotImplementedError()
 

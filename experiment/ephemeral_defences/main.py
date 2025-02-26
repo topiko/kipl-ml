@@ -24,6 +24,7 @@ from kipl_ml.defences.maybenot import Maybenot
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import get_mlflow_expr, key_val_fmt, log_multiline
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall
+from kipl_ml.metrics.defence_netwk_metrics import get_overheads
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.models import get_model
 from kipl_ml.models.rf import RFLRScheduler
@@ -225,6 +226,13 @@ def _get_bw_overhead(cfg: OmegaConf, undefended_trace_len: int) -> int:
 
 def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
 
+    # Set seeds
+    seed = cfg.seed + cfg.dataset.test_xv
+    cfg.seed = seed
+    torch.manual_seed(seed)
+    torch.use_deterministic_algorithms(True)
+    np.random.seed(seed)
+
     run_name = f"{parent_run_name}_xv={cfg.dataset.test_xv:02d}"
 
     df = list_runs(_parse_experiment_name(cfg), only_finished=True)
@@ -354,8 +362,6 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
         metrics_vals = {f"test_{k}": v for k, v in metrics_vals.items()}
         mlflow.log_metrics(metrics_vals, step=None)
 
-        from kipl_ml.metrics.defence_netwk_metrics import get_overheads
-
         defence_overheads = get_overheads(
             test_loader.dataset.defence, test_loader.dataset.meta_df
         )
@@ -371,12 +377,6 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
 def main(cfg: DictConfig):
     experiment_name = _parse_experiment_name(cfg)
 
-    # Set seeds
-    seed = cfg.seed + cfg.dataset.test_xv
-    torch.manual_seed(seed)
-    torch.use_deterministic_algorithms(True)
-    np.random.seed(seed)
-
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
     run_name = _parse_run_name(cfg)
@@ -384,7 +384,7 @@ def main(cfg: DictConfig):
     if cfg.dataset.test_xv == -1:
         with mlflow.start_run(run_name=run_name):
             mlflow.set_tag("project", "ephemeral_defences")
-            for test_xv in range(10):
+            for test_xv in range(cfg.dataset.n_splits):
                 cfg.dataset.test_xv = test_xv
                 _run_xv(cfg, run_name)
 
