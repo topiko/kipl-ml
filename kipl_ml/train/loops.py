@@ -212,11 +212,6 @@ def train_model(
         )
         mlflow.log_metric("train_loss", train_loss, step=epoch)
 
-        logger.info(key_val_fmt("Train loss", f"{train_loss:1.4f}", suffix=""))
-        logger.info(
-            key_val_fmt("Cur lr", f"{optimizer.param_groups[0]['lr']:.3e}", suffix="")
-        )
-
         if isinstance(lr_scheduler, ReduceLROnPlateau):
             lr_scheduler.step(metrics_vals["loss"])
         elif isinstance(lr_scheduler, LambdaLR | RFLRScheduler):
@@ -225,6 +220,11 @@ def train_model(
             pass
         else:
             raise NotImplementedError(f"Scheduler {lr_scheduler} not impl.")
+
+        logger.info(key_val_fmt("Train loss", f"{train_loss:1.4f}", suffix=""))
+        logger.info(
+            key_val_fmt("Cur lr", f"{optimizer.param_groups[0]['lr']:.3e}", suffix="")
+        )
 
     if best_model_state is None:
         raise ValueError("No best model state found.")
