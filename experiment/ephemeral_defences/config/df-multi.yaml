@@ -15,7 +15,7 @@ loss:
   label_smoothing: 0.1
 
 mlflow:
-  experiment_name: "Ephemeral v3."
+  experiment_name: "Ephemeral"
 misc:
   defence_augmentation: 1
   defence_augmentation_valid: 1

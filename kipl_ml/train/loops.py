@@ -200,11 +200,17 @@ def train_model(
             if n_epochs is None:
                 logger.info("Terminate; early stopping.")
                 break
-
-        if isinstance(n_epochs, int):
-            if epoch == n_epochs:
-                logger.info("Terminate; max epochs reached.")
+            if epoch >= n_epochs:
+                logger.info(
+                    "Terminate; early stopping. Min epochs (%d) reached.",
+                    n_epochs,
+                )
                 break
+            if epoch < n_epochs:
+                logger.info(
+                    "Early stopping triggered, but min epochs (%d) not reached.",
+                    n_epochs,
+                )
 
         epoch += 1
         model, train_loss = _one_epoch(

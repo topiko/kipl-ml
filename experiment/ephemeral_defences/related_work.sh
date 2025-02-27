@@ -9,7 +9,7 @@ do
 	for defence in no_defence "front-$netwk_state" interspace breakpad "tamaraw-$netwk_state"
 	do
 		expr_name="Ephemeral-Related-Aug$defaug-$netwk_state"
-		common="misc.defence_augmentation=$defaug train.n_epochs=$nepochs mlflow.experiment_name=$expr_name network=$netwk_state"
+		common="misc.defence_augmentation=$defaug train=fixed-epochs train.n_epochs=$nepochs mlflow.experiment_name=$expr_name network=$netwk_state"
 		common_lb="$common lr_scheduler.epochs=$nepochs"
 
 		uv run python main.py --config-name=df defence=$defence $common

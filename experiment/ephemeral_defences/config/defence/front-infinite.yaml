@@ -8,6 +8,6 @@ window_max_server: 12.0
 num_states_client: 1
 num_states_server: 1
 n_train_machines: 17_000
-n_valid_machines: 2_000
-n_test_machines: 2_000
+n_valid_machines: 4_000
+n_test_machines: 4_000
 
