@@ -38,7 +38,7 @@ class _FixedMachine(_Def):
 
         self.FIXED_PER_TRACE = fixed_per_trace
         self._rust_machination = MACHINATION
-        tmpfile_ = tempfile.mktemp(suffix=".defence")
+        tmpfile_ = tempfile.mktemp(prefix=self.__class__.__name__, suffix=".defence")
 
         self._machination(tmpfile_, **machination_kwargs)
         deck_stats = DeckStats.load(Path(tmpfile_))
