@@ -26,5 +26,6 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-mbnt-rustbindings = { git = "ssh://git@github.com/topiko/mbnt-rustbindings.git", branch="main" }
+mbnt-rustbindings = { path = "../mbnt-rustbindings" }
+# mbnt-rustbindings = { git = "ssh://git@github.com/topiko/mbnt-rustbindings.git", branch="main" }
 laserbeak = { git = "ssh://git@github.com/topiko/laserbeak.git" }
