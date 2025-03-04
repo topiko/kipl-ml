@@ -24,7 +24,6 @@ class Interspace(_FixedMachine):
         super().__init__(
             network_delay_millis=network_delay_millis,
             network_pps=network_pps,
-            machination_kwargs=self.machination_kwargs,
             fixed_per_trace=fixed_per_trace,
         )
 

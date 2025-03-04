@@ -5,7 +5,7 @@ from kipl_ml.defences.base import NoDefence
 from kipl_ml.defences.breakpad import Breakpad
 from kipl_ml.defences.front import FRONT
 from kipl_ml.defences.interspace import Interspace
-from kipl_ml.defences.maybenot import Deck, DeckStats, Maybenot
+from kipl_ml.defences.maybenot import Maybenot
 from kipl_ml.defences.regulator import Regulator
 from kipl_ml.defences.tamaraw import Tamaraw
 from kipl_ml.logging.logger import get_logger

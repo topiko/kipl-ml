@@ -19,6 +19,18 @@ DEFENCE_TYPE_KW = "defence-type"
 class _Def(ABC):
     FIXED_PER_TRACE = False
 
+    def __init__(
+        self,
+        network_delay_millis: tuple[int, int],
+        network_pps: tuple[int, int],
+        seed: int | None = 42,
+        fixed_per_trace: bool = False,
+    ):
+
+        self.network_delay_millis = NetwkDelay(*network_delay_millis, seed=seed)
+        self.network_pps = NetwkPps(*network_pps, seed=seed)
+        self.FIXED_PER_TRACE = fixed_per_trace
+
     def _report(self, to_log: bool = True, **kwargs) -> str:
         str_ = f"{self.name}\n"
         for key, value in kwargs.items():

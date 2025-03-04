@@ -20,7 +20,6 @@ class Breakpad(_FixedMachine):
         super().__init__(
             network_delay_millis=network_delay_millis,
             network_pps=network_pps,
-            machination_kwargs=self.machination_kwargs,
         )
 
     def _machination(self, tmpfile_: str, seed: int) -> None:
