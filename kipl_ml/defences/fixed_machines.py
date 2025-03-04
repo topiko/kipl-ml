@@ -75,6 +75,7 @@ class _FixedMachine(_Def):
         str_ += f"\tN machines: {len(self.machines)}\n"
         str_ += f"\t{self.network_delay_millis}\n"
         str_ += f"\t{self.network_pps}\n"
+        str_ += f"\tFixed per trace: {self.FIXED_PER_TRACE}\n"
 
         if to_log:
             log_multiline(str_)

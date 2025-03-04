@@ -207,10 +207,13 @@ def train_model(
                 )
                 break
             if epoch < n_epochs:
-                logger.info(
-                    "Early stopping triggered, but min epochs (%d) not reached.",
-                    n_epochs,
-                )
+                if patience == 0:
+                    logger.info("Fixed epochs %d / %d.", epoch, n_epochs)
+                else:
+                    logger.info(
+                        "Early stopping triggered, but min epochs (%d) not reached.",
+                        n_epochs,
+                    )
 
         epoch += 1
         model, train_loss = _one_epoch(

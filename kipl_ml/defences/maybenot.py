@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 
+import numpy as np
 import torch
-from mbnt import sim_trace_from_file_advanced
+from mbnt import deal_machines, sim_trace_from_file_advanced
 
 from kipl_ml.data import assets
 from kipl_ml.data.utils import parse_trace_to_tensor_dict
@@ -22,6 +23,16 @@ class Maybenot(_Def):
         deck_path: os.PathLike,
         network_delay_millis: tuple[int, int],
         network_pps: tuple[int, int],
+        n_machines: int,
+        scale: float,
+        client_padding_budget: tuple[int, int],
+        client_blocking_budget: tuple[int, int],
+        client_padding_frac: tuple[float, float],
+        client_blocking_frac: tuple[float, float],
+        server_padding_budget: tuple[int, int],
+        server_blocking_budget: tuple[int, int],
+        server_padding_frac: tuple[float, float],
+        server_blocking_frac: tuple[float, float],
         seed: int | None = 42,
         fixed_per_trace: bool = False,
     ):
@@ -33,35 +44,71 @@ class Maybenot(_Def):
             fixed_per_trace=fixed_per_trace,
         )
 
+        self.limits = {
+            "client": {
+                "padding_budget": client_padding_budget,
+                "blocking_budget": client_blocking_budget,
+                "padding_frac": client_padding_frac,
+                "blocking_frac": client_blocking_frac,
+            },
+            "server": {
+                "padding_budget": server_padding_budget,
+                "blocking_budget": server_blocking_budget,
+                "padding_frac": server_padding_frac,
+                "blocking_frac": server_blocking_frac,
+            },
+        }
+
+        self.scale = scale
+        self.n_machines = n_machines
+        self.machines = deal_machines(
+            str(deck_path), self.limits, n_machines, scale, seed=seed
+        )
+
     def report(self, to_log: bool = True) -> str:
         str_ = "Maybenot Defence:\n"
-        str_ += "\t" + self.deck.report().replace("\n", "\n\t")
+        str_ += f"\tN machines: {len(self.machines)}\n"
+        str_ += f"\tScale: {self.scale}\n"
         str_ += f"\t{self.network_delay_millis}\n"
         str_ += f"\t{self.network_pps}\n"
+        str_ += f"\tFixed per trace: {self.FIXED_PER_TRACE}\n"
 
         if to_log:
             log_multiline(str_)
         return str_
 
+    def _get_machines(
+        self, idx: int | None = None
+    ) -> tuple[dict[str, float], tuple[list[str], list[str]]]:
+        idx = idx or np.random.choice(len(self.machines))
+
+        try:
+            d = self.machines[idx].copy()
+        except IndexError as e:
+            raise IndexError(
+                f"You provided machine {idx}, however there is only \
+                {len(self.machines)} machines available!"
+            ) from e
+
+        server_machines = d.pop("server_machines")
+        client_machines = d.pop("client_machines")
+
+        return d, (client_machines, server_machines)
+
     def _simulate(
         self, trace_path: os.PathLike, machine_idx: int | None = None
     ) -> dict[str, torch.Tensor]:
 
-        max_padding_frac_client, max_padding_frac_server = self._get_paddings()
-
-        max_blocking_frac_client, max_blocking_frac_server = self._get_blocking_fracs()
-
-        client_machines, server_machines = self.deck.get_machines(machine_idx)
+        pad_bloc_fracs, (client_machines, server_machines) = self._get_machines(
+            machine_idx
+        )
         times, dirs, paddings = sim_trace_from_file_advanced(
             str(trace_path),
             client_machines,
             server_machines,
             self.network_delay_millis(),
             self.network_pps(),
-            max_padding_frac_client=max_padding_frac_client,
-            max_padding_frac_server=max_padding_frac_server,
-            max_blocking_frac_client=max_blocking_frac_client,
-            max_blocking_frac_server=max_blocking_frac_server,
+            **pad_bloc_fracs,
             max_trace_length=MAX_TRACE_LENGTH,
             events_multiplier=EVENTS_MULTIPLIER,
         )

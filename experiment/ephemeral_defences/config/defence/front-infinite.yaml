@@ -10,4 +10,5 @@ num_states_server: 1
 n_train_machines: 17_000
 n_valid_machines: 4_000
 n_test_machines: 4_000
+fixed_per_trace: true
 
