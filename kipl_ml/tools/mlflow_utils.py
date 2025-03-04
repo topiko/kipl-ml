@@ -39,6 +39,9 @@ def list_runs(
         mask = runs.loc[:, "status"] == "FINISHED"
         runs = runs[mask]
 
+    if len(runs) == 0:
+        raise ValueError("Empty df.")
+
     return runs.reset_index(drop=True)
 
 
