@@ -194,10 +194,7 @@ def _parse_experiment_name(cfg: OmegaConf) -> str:
 def _parse_run_name(cfg: OmegaConf) -> str:
     aug = cfg.misc.defence_augmentation
 
-    if (defence_str := cfg.defence.type) == "maybenot":
-        defence_str = f"maybenot w. {cfg.defence.n_machines:04d}"
-
-    return f"{defence_str} vs. {cfg.model.name} | aug={aug}"
+    return f"{cfg.defence.type} vs. {cfg.model.name} | aug={aug}"
 
 
 def _get_bw_overhead(cfg: OmegaConf, undefended_trace_len: int) -> int:

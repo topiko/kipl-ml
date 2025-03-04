@@ -1,6 +1,5 @@
 type: maybenot
 deck_name: "2025-02-28-def-1k-34-c2"
-n_machines: 100
 scale: 0.5
 client_padding_budget: [1000, 2000]
 client_blocking_budget: [0, 0]

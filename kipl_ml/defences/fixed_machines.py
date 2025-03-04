@@ -124,5 +124,6 @@ class _FixedMachine(_Def):
     def _mlflow_log_params(self) -> dict[str, str]:
         d = {k: str(v) for k, v in self.machination_kwargs.items()}
         d[DEFENCE_TYPE_KW] = self.__class__.__name__.lower()
+        d["fixed_per_trace"] = str(self.FIXED_PER_TRACE)
 
         return d

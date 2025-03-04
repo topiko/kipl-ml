@@ -64,6 +64,7 @@ class Maybenot(_Def):
         self.machines = deal_machines(
             str(deck_path), self.limits, n_machines, scale, seed=seed
         )
+        self.deck_path = deck_path
 
     def report(self, to_log: bool = True) -> str:
         str_ = "Maybenot Defence:\n"
@@ -124,5 +125,9 @@ class Maybenot(_Def):
 
         d = {}
         d[DEFENCE_TYPE_KW] = f"{self.__class__.__name__.lower()}"
+        d["fixed_per_trace"] = str(self.FIXED_PER_TRACE)
+        d["scale"] = str(self.scale)
+        d["deck"] = str(self.deck_path).rsplit("/", maxsplit=1)[-1]
+        d["n_machines"] = str(len(self.machines))
 
         return d
