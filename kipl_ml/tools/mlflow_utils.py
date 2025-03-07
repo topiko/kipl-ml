@@ -17,7 +17,9 @@ logger = get_logger(__name__)
 
 
 def list_runs(
-    experiment_names: list[str] | str | None = None, only_finished: bool = True
+    experiment_names: list[str] | str | None = None,
+    only_finished: bool = True,
+    raise_on_empty: bool = True,
 ) -> pd.DataFrame:
 
     if experiment_names is None:
@@ -39,7 +41,7 @@ def list_runs(
         mask = runs.loc[:, "status"] == "FINISHED"
         runs = runs[mask]
 
-    if len(runs) == 0:
+    if raise_on_empty and (len(runs) == 0):
         raise ValueError("Empty df.")
 
     return runs.reset_index(drop=True)

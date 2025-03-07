@@ -194,7 +194,10 @@ def _parse_experiment_name(cfg: OmegaConf) -> str:
 def _parse_run_name(cfg: OmegaConf) -> str:
     aug = cfg.misc.defence_augmentation
 
-    return f"{cfg.defence.type} vs. {cfg.model.name} | aug={aug}"
+    if (defence_str := cfg.defence.type) == "maybenot":
+        defence_str = f"{defence_str} w. sc={cfg.defence.scale:.02f}"
+
+    return f"{defence_str} vs. {cfg.model.name} | aug={aug}"
 
 
 def _get_bw_overhead(cfg: OmegaConf, undefended_trace_len: int) -> int:
@@ -232,7 +235,9 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
 
     run_name = f"{parent_run_name}_xv={cfg.dataset.test_xv:02d}"
 
-    df = list_runs(_parse_experiment_name(cfg), only_finished=True)
+    df = list_runs(
+        _parse_experiment_name(cfg), only_finished=True, raise_on_empty=False
+    )
 
     if len(df) > 0:
         mask = run_name == df.loc[:, "tags.mlflow.runName"]
