@@ -150,8 +150,8 @@ def _get_defence(
     match def_type:
         case "no-defence":
             return defence_builder.no_def(cfg)
-        case "maybenot":
-            return defence_builder.maybenot(cfg)
+        case "ephemeral":
+            return defence_builder.ephemeral(cfg)
         case "front":
             return defence_builder.front(cfg)
         case "interspace":
@@ -194,15 +194,17 @@ def _parse_experiment_name(cfg: OmegaConf) -> str:
 def _parse_run_name(cfg: OmegaConf) -> str:
     aug = cfg.misc.defence_augmentation
 
-    if (defence_str := cfg.defence.type) == "maybenot":
-        defence_str = f"{defence_str} w. sc={cfg.defence.scale:.02f}"
+    if (defence_str := cfg.defence.type) == "ephemeral":
+        defence_str = (
+            f"{defence_str} | {cfg.defence.deck_name} | sc={cfg.defence.scale:.02f}"
+        )
 
     return f"{defence_str} vs. {cfg.model.name} | aug={aug}"
 
 
 def _get_bw_overhead(cfg: OmegaConf, undefended_trace_len: int) -> int:
     match cfg.defence.type:
-        case "maybenot":
+        case "ephemeral":
             return int(
                 undefended_trace_len * float(1 / (1 - cfg.defence.max_padding_frac))
             )

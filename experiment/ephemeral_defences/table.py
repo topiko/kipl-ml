@@ -9,9 +9,10 @@ from kipl_ml.tools.mlflow_utils import list_runs
 def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
 
     def_type = "params.defence.defence-type"
-    mbnt_mask = df.loc[:, def_type] == "maybenot"
+    mbnt_mask = df.loc[:, def_type].isin(["maybenot", "ephemeral"])
     df.loc[mbnt_mask, def_type] = df.loc[mbnt_mask, :].apply(
-        lambda x: f"{x.loc[def_type]} | sc.={x.loc['params.defence.scale']}", axis=1
+        lambda x: f"{x.loc[def_type]} | sc.={x.loc['params.defence.scale']} | {x.loc['params.defence.deck']}",
+        axis=1,
     )
 
     groupby = [

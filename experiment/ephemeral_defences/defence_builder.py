@@ -155,7 +155,7 @@ def front(cfg: OmegaConf) -> dict[str, FRONT]:
     }
 
 
-def maybenot(cfg: OmegaConf) -> dict[str, Maybenot]:
+def ephemeral(cfg: OmegaConf) -> dict[str, Maybenot]:
 
     mbnt_conf = dict(cfg.defence)
     mbnt_conf.pop("type")
@@ -181,7 +181,7 @@ def maybenot(cfg: OmegaConf) -> dict[str, Maybenot]:
     for key in keys:
         mbnt_conf[key] = tuple(mbnt_conf[key])
 
-    def _maybenot(n_machines: int, fixed_per_trace: bool, seed: int) -> Maybenot:
+    def _ephemeral(n_machines: int, fixed_per_trace: bool, seed: int) -> Maybenot:
         mbnt_conf["n_machines"] = n_machines
         return Maybenot(**mbnt_conf, seed=seed, fixed_per_trace=fixed_per_trace)
 
@@ -192,7 +192,7 @@ def maybenot(cfg: OmegaConf) -> dict[str, Maybenot]:
     fixed_per_trace = mbnt_conf.pop("fixed_per_trace")
 
     return {
-        "defence_train": _maybenot(n_train_machines, fixed_per_trace, seed + 1),
-        "defence_valid": _maybenot(n_valid_machines, True, seed + 2),
-        "defence_test": _maybenot(n_test_machines, True, seed + 3),
+        "defence_train": _ephemeral(n_train_machines, fixed_per_trace, seed + 1),
+        "defence_valid": _ephemeral(n_valid_machines, True, seed + 2),
+        "defence_test": _ephemeral(n_test_machines, True, seed + 3),
     }
