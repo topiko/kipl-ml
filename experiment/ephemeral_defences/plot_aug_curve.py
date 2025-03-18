@@ -21,23 +21,39 @@ def main():
 
     df = list_runs(args.experiment_name)
 
-    metric = "metrics.test_accuracy"
+    metric = "accuracy"
     df = df[~df.loc[:, "params.test_xv"].isnull()]
     df = df.infer_objects()
     df.loc[:, "params.defence_augmentation"] = df.loc[
         :, "params.defence_augmentation"
     ].astype(int)
 
-    sns.relplot(
+    df.rename(
+        columns={
+            "params.defence_augmentation": "def-aug",
+            "params.defence.defence-type": "def-type",
+            "params.model_name": "model",
+            "params.network_state": "netwk-state",
+            "metrics.test_accuracy": "accuracy",
+        },
+        inplace=True,
+    )
+    fgrid = sns.relplot(
         df,
-        x="params.defence_augmentation",
+        x="def-aug",
         y=metric,
-        hue="params.model_name",
-        row="params.defence.defence-type",
+        hue="model",
+        row="def-type",
+        col="netwk-state",
         kind="line",
         height=2,
         aspect=2,
+        legend="brief",
+        facet_kws={"margin_titles": True, "sharey": True, "sharex": True},
     )
+
+    fgrid.set_titles(row_template="{row_name}", col_template="{col_name}")
+    fgrid.set_ylabels(metric, clear_inner=False)
     plt.savefig("figs/aug_curve.png")
     plt.show()
 
