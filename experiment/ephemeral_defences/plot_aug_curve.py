@@ -35,15 +35,21 @@ def main():
             "params.model_name": "model",
             "params.network_state": "netwk-state",
             "metrics.test_accuracy": "accuracy",
+            "params.defence.fixed_per_trace": "fixed-per-trace",
         },
         inplace=True,
     )
+
+    df.loc[:, "model"] = df.loc[:, ["model", "fixed-per-trace"]].apply(
+        lambda x: f"{x.iloc[0]} | {'fixed-per-trace' if x.iloc[1] else 'no-fixing'}", axis=1
+    )
+
     fgrid = sns.relplot(
         df,
         x="def-aug",
         y=metric,
-        hue="model",
-        row="def-type",
+        row="model",
+        hue="def-type",
         col="netwk-state",
         kind="line",
         height=2,
