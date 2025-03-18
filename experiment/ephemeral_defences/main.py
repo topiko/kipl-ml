@@ -241,7 +241,7 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
         _parse_experiment_name(cfg), only_finished=True, raise_on_empty=False
     )
 
-    if len(df) > 0:
+    if (not cfg.ignore_existing) & (len(df) > 0):
         mask = run_name == df.loc[:, "tags.mlflow.runName"]
         if mask.sum() > 0:
             logger.info(f"Found finished run for: {run_name} -> exiting.")

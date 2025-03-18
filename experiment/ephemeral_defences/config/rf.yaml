@@ -21,6 +21,9 @@ optimizer:
 
 train:
   batch_size: 200
+
+
+ignore_existing: false
 seed: 42
 
 

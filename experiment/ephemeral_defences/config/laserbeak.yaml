@@ -17,6 +17,7 @@ misc:
   defence_augmentation: 1
   defence_augmentation_valid: 1
 
+ignore_existing: false
 seed: 42
 
 
