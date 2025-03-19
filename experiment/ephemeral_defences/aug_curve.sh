@@ -2,21 +2,22 @@
 
 nepochs=30
 expr_name="Ephemeral-Aug-Curve"
-ntwork="bottleneck"
+ntwork="infinite"
 
 
 for model in df-multi df rf
 do
-	for aug in 1 2 4 6 8 12 0
+	for fixed_per_trace in False True
 	do
-		for fixed_per_trace in False True
+		for aug in 1 2 4 6 8 12 0
 		do
-			common="misc.defence_augmentation=$aug lr_scheduler=plateau train.n_epochs=$nepochs mlflow.experiment_name=$expr_name network=$ntwork ignore_existing=True"
-	        	front_ephemeral="$common defence.fixed_per_trace=$fixed_per_trace"
+			common="misc.defence_augmentation=$aug lr_scheduler=plateau train.n_epochs=$nepochs mlflow.experiment_name=$expr_name network=$ntwork"
 
 			uv run python main.py --config-name=$model defence=no_defence $common
-			for defence in "front-$ntwork" "ephemeral-$ntwork"
+
+			for defence in "front-$ntwork" # "ephemeral-$ntwork"
 			do
+				front_ephemeral="$common defence.fixed_per_trace=$fixed_per_trace ignore_existing=True"
 				uv run python main.py --config-name=$model defence=$defence $front_ephemeral
 			done
 		done

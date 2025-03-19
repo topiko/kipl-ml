@@ -40,8 +40,12 @@ def main():
         inplace=True,
     )
 
+    df.loc[:, "fixed-per-trace"] = df.loc[:, "fixed-per-trace"].apply(
+        lambda x: x == "True"
+    )
     df.loc[:, "model"] = df.loc[:, ["model", "fixed-per-trace"]].apply(
-        lambda x: f"{x.iloc[0]} | {'fixed-per-trace' if x.iloc[1] else 'no-fixing'}", axis=1
+        lambda x: f"{x.iloc[0]} | {'fixed-per-trace' if x.iloc[1] == True else 'no-fixing'}",
+        axis=1,
     )
 
     fgrid = sns.relplot(
