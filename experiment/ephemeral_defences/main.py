@@ -274,9 +274,17 @@ def _run_xv(
 
             if model_config.get("feature_list"):
                 logger.warning("Feature list overwritten by model config")
-                feature_names = [
-                    FEAT_NAME_MAP[feat] for feat in model_config["feature_list"]
-                ]
+
+                feature_names = []
+                for feat in model_config["feature_list"]:
+                    if feat == "running_rates":
+                        logger.warning(
+                            "Replacing 'running_rates' with max normalized ones for stability."
+                        )
+                        feat = "max_normalized_running_rates"
+
+                    feature_names.append(FEAT_NAME_MAP[feat])
+
         case _:
             raise NotImplementedError
     feature_trs = FeatureTrs(feature_names=feature_names, n_packets=trace_len)

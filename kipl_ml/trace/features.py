@@ -47,6 +47,7 @@ class Feats(StrEnum):
     LOG_INV_FLOW_IATS_NORMALIZED_DIRS = f"log_inv_{FLOW_IATS_NORMALIZED}_dirs"
     LOG_INV_FLOW_IAT_DIRS = f"{LOG_INV_FLOW_IATS}_dirs"
     RUNNING_RATE_SIZES = f"running_rate_{SIZES}"
+    RUNNING_RATE_SIZES_MAX_NORMALIZED = f"max_normalized_running_rate_{SIZES}"
     SIZE_DIRS = f"{SIZES}_dirs"
     CUM_SIZE_DIRS = f"cum_{SIZE_DIRS}"
     CUM_SIZE_DIRS_MAX_NORMALIZED = f"max_normalized_{CUM_SIZE_DIRS}"
@@ -72,6 +73,7 @@ FEAT_NAME_MAP = {
     "inv_iat_log_dirs": Feats.LOG_INV_FLOW_IAT_DIRS,
     "inv_iat_logs": Feats.LOG_INV_FLOW_IATS,
     "running_rates": Feats.RUNNING_RATE_SIZES,
+    "max_normalized_running_rates": Feats.RUNNING_RATE_SIZES_MAX_NORMALIZED,
 }
 
 
@@ -202,6 +204,7 @@ class Normalize(_TR):
                 Feats.IATS: Feats.IATS_MAX_NORMALIZED,
                 Feats.CUM_SIZES: Feats.CUM_SIZES_MAX_NORMALIZED,
                 Feats.CUM_SIZE_DIRS: Feats.CUM_SIZE_DIRS_MAX_NORMALIZED,
+                Feats.RUNNING_RATE_SIZES: Feats.RUNNING_RATE_SIZES_MAX_NORMALIZED,
             }[self.normalized_asset]
         )
 
@@ -415,12 +418,13 @@ class RunningRate(_TR):
         times = trace[self.time_asset]
         values = trace[self.asset]
 
-        # Firs n times can be 0...
-        if (n_zeros := (times == 0).sum()) > 0:
-            values[:n_zeros] = 0.0
-            times[:n_zeros] = 1.0
+        # There can be time==0 in the beginning.
+        running_rate = torch.where(
+            times != 0,
+            torch.cumsum(values, dim=0) / torch.cumsum(times, dim=0),
+            torch.ones_like(times),
+        )
 
-        running_rate = torch.cumsum(values, dim=0) / times
         return {self.name: running_rate}
 
 
@@ -752,6 +756,16 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
             return Compose(
                 PadOrCutTrace(n_packets),
                 RunningRate(Feats.SIZES, Feats.TIMES),
+            )
+        case Feats.RUNNING_RATE_SIZES_MAX_NORMALIZED:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                RunningRate(Feats.SIZES, Feats.TIMES),
+                Normalize(
+                    normalized_asset=Feats.RUNNING_RATE_SIZES,
+                    input_asset=Feats.RUNNING_RATE_SIZES,
+                    division="max",
+                ),
             )
         case Feats.SIZE_DIRS:
             return Compose(

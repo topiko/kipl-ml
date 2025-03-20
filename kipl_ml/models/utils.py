@@ -27,6 +27,7 @@ def get_laserbeak_model_config(model_name: str) -> dict:
     config_path = os.path.join(list(lasereak_configs.__path__)[0], model_name + ".json")
     with open(config_path, "r") as fi:
         model_config = json.load(fi)
+
     return model_config
 
 
