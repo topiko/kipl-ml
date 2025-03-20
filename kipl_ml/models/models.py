@@ -24,6 +24,8 @@ def get_model(
     if len(input_lens) != 1:
         raise ValueError("All inputs must have the same size.")
 
+    input_len = input_lens.pop()
+
     logger.info(f"Creating model {model_name}...")
     logger.info("\tConfig:")
     for k, v in model_config.items():
@@ -44,7 +46,12 @@ def get_model(
     def _get_local_models():
         match model_name:
             case "df":
-                return DF(n_classes, large_input=False)
+                if input_len == 5000:
+                    return DF(n_classes, large_input=False)
+                if input_len == 10_000:
+                    return DF(n_classes, large_input=True)
+
+                raise ValueError("Invalid input len for DF")
             case "rf":
                 return RF(n_classes)
             case _:

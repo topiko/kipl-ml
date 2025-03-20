@@ -2,4 +2,4 @@ source: local
 name: df
 features:
   - dirs
-trace_len: 5_000
+trace_len: 10_000
