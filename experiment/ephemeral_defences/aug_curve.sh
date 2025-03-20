@@ -5,11 +5,11 @@ expr_name="Ephemeral-Aug-Curve"
 ntwork="infinite"
 
 
-for model in df-multi df rf
+for model in df df-multi rf
 do
 	for fixed_per_trace in False True
 	do
-		for aug in 1 2 4 6 8 12 0
+		for aug in 1 2 4 8 16 0
 		do
 			common="misc.defence_augmentation=$aug lr_scheduler=plateau train.n_epochs=$nepochs mlflow.experiment_name=$expr_name network=$ntwork"
 
