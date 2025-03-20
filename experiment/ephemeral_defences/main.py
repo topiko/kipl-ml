@@ -168,7 +168,11 @@ def _get_defence(
 
 def _get_dl(ds: Dataset, bs: int, shuffle: bool = False) -> DataLoader:
     pin_memory = True
-    num_workers = 24
+    ncpus = os.cpu_count() or 1
+    if ncpus == 1:
+        logger.warning("Using only 1 CPU for dataloading.")
+
+    num_workers = min(24, ncpus)
     return DataLoader(
         ds,
         batch_size=bs,
