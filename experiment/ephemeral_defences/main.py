@@ -265,11 +265,13 @@ def _run_xv(
         case "local":
             feature_names = cfg.model.features
             trace_len = cfg.model.trace_len
-            model_name = cfg.model.name
             model_config = {}
         case "lb":
             model_config = get_laserbeak_model_config(model_name)
-            trace_len = cfg.model.trace_len
+            if (trace_len := cfg.model.trace_len) != model_config["input_size"]:
+                logger.warning(
+                    f"Overriding input_size w. our local trace len for {model_name}"
+                )
             model_config["input_size"] = trace_len
 
             if model_config.get("feature_list"):
