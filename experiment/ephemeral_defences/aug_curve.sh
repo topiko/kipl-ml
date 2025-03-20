@@ -19,11 +19,11 @@ do
 		do
 			common="misc.defence_augmentation=$aug lr_scheduler=plateau train.n_epochs=$nepochs network=$ntwork"
 
-			uv run python main.py --config-name=$model defence=no_defence $common  mlflow.experiment_name="$expr_name-no_fixing" ignore_existing=False
+			uv run python main.py --config-name=$model defence=no_defence $common  misc.mlflow.experiment_name="$expr_name-no_fixing" misc.ignore_existing=False
 
 			for defence in "front-$ntwork" # "ephemeral-$ntwork"
 			do
-				front_ephemeral="$common defence.fixed_per_trace=$fixed_per_trace mlflow.experiment_name=$expr_name-$fixing_"
+				front_ephemeral="$common defence.fixed_per_trace=$fixed_per_trace misc.mlflow.experiment_name=$expr_name-$fixing_"
 				uv run python main.py --config-name=$model defence=$defence $front_ephemeral
 			done
 		done

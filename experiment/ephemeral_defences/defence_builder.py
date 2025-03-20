@@ -23,7 +23,7 @@ def no_def(cfg: OmegaConf) -> dict[str, NoDefence]:
 
     netwk_delay, netwk_pps = _parse_netwk(cfg)
     no_defence = NoDefence(
-        network_delay_millis=netwk_delay, network_pps=netwk_pps, seed=cfg.seed
+        network_delay_millis=netwk_delay, network_pps=netwk_pps, seed=cfg.misc.seed
     )
 
     return {
@@ -36,7 +36,7 @@ def no_def(cfg: OmegaConf) -> dict[str, NoDefence]:
 def breakpad(cfg: OmegaConf) -> dict[str, Breakpad]:
     netwk_delay, netwk_pps = _parse_netwk(cfg)
 
-    seed = cfg.seed
+    seed = cfg.misc.seed
 
     def _breakpad(seed: int):
         return Breakpad(
@@ -53,7 +53,7 @@ def breakpad(cfg: OmegaConf) -> dict[str, Breakpad]:
 def tamaraw(cfg: OmegaConf) -> dict[str, Breakpad]:
     netwk_delay, netwk_pps = _parse_netwk(cfg)
 
-    seed = cfg.seed
+    seed = cfg.misc.seed
 
     def _tamaraw(seed: int):
         return Tamaraw(
@@ -75,7 +75,7 @@ def tamaraw(cfg: OmegaConf) -> dict[str, Breakpad]:
 def regulator(cfg: OmegaConf) -> dict[str, Breakpad]:
     netwk_delay, netwk_pps = _parse_netwk(cfg)
 
-    seed = cfg.seed
+    seed = cfg.misc.seed
     def_params = cfg.defence
 
     def _regulator(seed: int):
@@ -101,7 +101,7 @@ def regulator(cfg: OmegaConf) -> dict[str, Breakpad]:
 def interspace(cfg: OmegaConf) -> dict[str, Interspace]:
     d = dict(cfg.defence)
     d.pop("type")
-    seed = cfg.seed
+    seed = cfg.misc.seed
     n_train_machines = d.pop("n_train_machines")
     n_valid_machines = d.pop("n_valid_machines")
     n_test_machines = d.pop("n_test_machines")
@@ -129,7 +129,7 @@ def interspace(cfg: OmegaConf) -> dict[str, Interspace]:
 def front(cfg: OmegaConf) -> dict[str, FRONT]:
     d = dict(cfg.defence)
     d.pop("type")
-    seed = cfg.seed
+    seed = cfg.misc.seed
     n_train_machines = d.pop("n_train_machines")
     n_valid_machines = d.pop("n_valid_machines")
     n_test_machines = d.pop("n_test_machines")
@@ -160,7 +160,7 @@ def ephemeral(cfg: OmegaConf) -> dict[str, Maybenot]:
     mbnt_conf = dict(cfg.defence)
     mbnt_conf.pop("type")
 
-    seed = cfg.seed
+    seed = cfg.misc.seed
     netwk_delay, netwk_pps = _parse_netwk(cfg)
     mbnt_conf["network_delay_millis"] = netwk_delay
     mbnt_conf["network_pps"] = netwk_pps

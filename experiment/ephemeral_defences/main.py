@@ -192,11 +192,11 @@ def _get_target(target: str) -> str:
 
 def _parse_experiment_name(cfg: OmegaConf) -> str:
 
-    return f"{cfg.mlflow.experiment_name}"
+    return f"{cfg.misc.mlflow.experiment_name}"
 
 
 def _parse_run_name(cfg: OmegaConf) -> str:
-    aug = cfg.misc.defence_augmentation
+    aug = cfg.train.defence_augmentation
 
     if (defence_str := cfg.defence.type) == "ephemeral":
         defence_str = (
@@ -235,8 +235,8 @@ def _run_xv(
 ):
 
     # Set seeds
-    seed = cfg.seed + test_xv
-    cfg.seed = seed
+    seed = cfg.misc.seed + test_xv
+    cfg.misc.seed = seed
     torch.manual_seed(seed)
     torch.use_deterministic_algorithms(True)
     np.random.seed(seed)
@@ -247,7 +247,7 @@ def _run_xv(
         _parse_experiment_name(cfg), only_finished=True, raise_on_empty=False
     )
 
-    if (not cfg.ignore_existing) & (len(df) > 0):
+    if (not cfg.misc.ignore_existing) & (len(df) > 0):
         mask = run_name == df.loc[:, "tags.mlflow.runName"]
         if mask.sum() > 0:
             logger.info(f"Found finished run for: {run_name} -> exiting.")
@@ -293,8 +293,8 @@ def _run_xv(
         test_xv=test_xv,
         random_state=cfg.dataset.random_state,
         feature_trs=feature_trs,
-        defence_aug=cfg.misc.defence_augmentation,
-        defence_aug_valid=cfg.misc.defence_augmentation_valid,
+        defence_aug=cfg.train.defence_augmentation,
+        defence_aug_valid=cfg.train.defence_augmentation_valid,
         **_get_defence(cfg),
     )
 
@@ -331,7 +331,8 @@ def _run_xv(
                 "n_train_traces": ds_train.n_orig_traces,
                 "train.early_stop_metric": early_stop_metric,
                 "data_random_state": cfg.dataset.random_state,
-                "defence_augmentation": cfg.misc.defence_augmentation,
+                "defence_augmentation": cfg.train.defence_augmentation,
+                "defence_augmentation_valid": cfg.train.defence_augmentation_valid,
                 "test_xv": test_xv,
                 "network_state": cfg.network.type,
             }
@@ -393,14 +394,14 @@ def main(cfg: DictConfig):
 
     test_splits = OmegaConf.to_object(cfg.dataset.test_splits)
 
-    orig_seed = cfg.seed
+    orig_seed = cfg.misc.seed
     with mlflow.start_run(run_name=run_name):
         mlflow.set_tag("project", "ephemeral_defences")
         for test_xv in test_splits:
             _run_xv(cfg, run_name, test_xv)
             # Seed is modified inside _run_xv for each xv split.
             # For consistency, we restore here the original seed.
-            cfg.seed = orig_seed
+            cfg.misc.seed = orig_seed
 
 
 if __name__ == "__main__":

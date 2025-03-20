@@ -1,3 +1,3 @@
 source: "lb"
 name: "df-multi"
-trace_len: 7_000
+trace_len: 10_000

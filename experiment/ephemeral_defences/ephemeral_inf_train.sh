@@ -10,7 +10,7 @@ do
 	for defence in "ephemeral-$netwk_state" # "front-$netwk_state" interspace breakpad "tamaraw-$netwk_state" no_defence
 	do
 		expr_name="EphemeralAll-inftrain-$netwk_state"
-		common="misc.defence_augmentation=$defaug lr_scheduler=plateau mlflow.experiment_name=$expr_name network=$netwk_state train.patience=$patience"
+		common="train.defence_augmentation=$defaug lr_scheduler=plateau misc.mlflow.experiment_name=$expr_name network=$netwk_state train.patience=$patience"
 
 
 		uv run python main.py --config-name=df defence=$defence $common

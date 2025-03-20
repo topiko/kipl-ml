@@ -7,13 +7,8 @@ defaults:
   - defence: no_defence
   - train: default
   - loss: crossentropy
+  - misc: default
   - _self_
-
-mlflow:
-  experiment_name: "Ephemeral"
-misc:
-  defence_augmentation: 1
-  defence_augmentation_valid: 1
 
 optimizer:
   lr: 0.005
@@ -23,7 +18,5 @@ train:
   batch_size: 200
 
 
-ignore_existing: false
-seed: 42
 
 
