@@ -214,15 +214,17 @@ class Normalize(_TR):
 
         if self.division == "std":
             if (div := trace_.std()) == 0:
-                logger.warning(f"Std zero when standardizing! {self.name}")
+                logger.warning("Std zero when standardizing! %s" % self.name)
                 if all(trace_ == 0):
                     return {self.name: trace_}
                 raise ValueError("Standard deviation is zero. Cannot normalize.")
         elif self.division == "max":
             if (div := torch.max(torch.abs(trace_))) == 0:
-                logger.warning(f"Max zero when max normalizing! {self.name}")
+                logger.warning("Max zero when max normalizing! %s" % self.name)
                 if all(trace_ == 0):
                     return {self.name: trace_}
+
+                raise ValueError("Absmax == 0, however, nonzero value encountered!?")
 
         trace_ = trace_ / div
         return {self.name: trace_}
@@ -284,6 +286,7 @@ class _DirWeight(_TR):
         return self
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+
         return {self.name: trace[self.dir_asset] * trace[self.w_asset]}
 
 
@@ -582,6 +585,8 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
             return Compose(PadOrCutTrace(n_packets), Select(Feats.SIZES))
         case Feats.TIMES:
             return Compose(PadOrCutTrace(n_packets), Select(Feats.TIMES))
+        case Feats.PADDING:
+            return Compose(PadOrCutTrace(n_packets), Select(Feats.PADDING))
         case Feats.UP_PACKETS:
             return Compose(
                 PadOrCutTrace(n_packets),
