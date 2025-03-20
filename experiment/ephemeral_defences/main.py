@@ -385,19 +385,22 @@ def main(cfg: DictConfig):
     mlflow.set_experiment(experiment_id=experiment_id)
     run_name = _parse_run_name(cfg)
 
-    orig_seed = cfg.seed
-    if cfg.dataset.test_xv == -1:
-        with mlflow.start_run(run_name=run_name):
-            mlflow.set_tag("project", "ephemeral_defences")
-            for test_xv in range(cfg.dataset.n_splits):
-                cfg.dataset.test_xv = test_xv
-                _run_xv(cfg, run_name)
-                # Seed is modified inside _run_xv for each xv split.
-                # For consistency, we restore here the original seed.
-                cfg.seed = orig_seed
-
+    if (test_splits := cfg.dataset.test_splits) == -1:
+        test_splits = list(range(cfg.datasets.n_splits))
+    elif isinstance(test_splits, int):
+        test_splits = [test_splits]
     else:
-        _run_xv(cfg, run_name, nested_run=False)
+        raise ValueError("test_splits must be an list of ints or int.")
+
+    orig_seed = cfg.seed
+    with mlflow.start_run(run_name=run_name):
+        mlflow.set_tag("project", "ephemeral_defences")
+        for test_xv in test_splits:
+            cfg.dataset.test_xv = test_xv
+            _run_xv(cfg, run_name)
+            # Seed is modified inside _run_xv for each xv split.
+            # For consistency, we restore here the original seed.
+            cfg.seed = orig_seed
 
 
 if __name__ == "__main__":
