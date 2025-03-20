@@ -226,16 +226,18 @@ def _get_bw_overhead(cfg: OmegaConf, undefended_trace_len: int) -> int:
             raise NotImplementedError("Defence type not implemented.")
 
 
-def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
+def _run_xv(
+    cfg: OmegaConf, parent_run_name: str, test_xv: int, nested_run: bool = True
+):
 
     # Set seeds
-    seed = cfg.seed + cfg.dataset.test_xv
+    seed = cfg.seed + test_xv
     cfg.seed = seed
     torch.manual_seed(seed)
     torch.use_deterministic_algorithms(True)
     np.random.seed(seed)
 
-    run_name = f"{parent_run_name}_xv={cfg.dataset.test_xv:02d}"
+    run_name = f"{parent_run_name}_xv={test_xv:02d}"
 
     df = list_runs(
         _parse_experiment_name(cfg), only_finished=True, raise_on_empty=False
@@ -284,7 +286,7 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
         dataset=dataset_name,
         n_splits=cfg.dataset.n_splits,
         label=target,
-        test_xv=cfg.dataset.test_xv,
+        test_xv=test_xv,
         random_state=cfg.dataset.random_state,
         feature_trs=feature_trs,
         defence_aug=cfg.misc.defence_augmentation,
@@ -326,7 +328,7 @@ def _run_xv(cfg: OmegaConf, parent_run_name: str, nested_run: bool = True):
                 "train.early_stop_metric": early_stop_metric,
                 "data_random_state": cfg.dataset.random_state,
                 "defence_augmentation": cfg.misc.defence_augmentation,
-                "test_xv": cfg.dataset.test_xv,
+                "test_xv": test_xv,
                 "network_state": cfg.network.type,
             }
         )
@@ -385,19 +387,13 @@ def main(cfg: DictConfig):
     mlflow.set_experiment(experiment_id=experiment_id)
     run_name = _parse_run_name(cfg)
 
-    if (test_splits := cfg.dataset.test_splits) == -1:
-        test_splits = list(range(cfg.datasets.n_splits))
-    elif isinstance(test_splits, int):
-        test_splits = [test_splits]
-    else:
-        raise ValueError("test_splits must be an list of ints or int.")
+    test_splits = OmegaConf.to_object(cfg.dataset.test_splits)
 
     orig_seed = cfg.seed
     with mlflow.start_run(run_name=run_name):
         mlflow.set_tag("project", "ephemeral_defences")
         for test_xv in test_splits:
-            cfg.dataset.test_xv = test_xv
-            _run_xv(cfg, run_name)
+            _run_xv(cfg, run_name, test_xv)
             # Seed is modified inside _run_xv for each xv split.
             # For consistency, we restore here the original seed.
             cfg.seed = orig_seed

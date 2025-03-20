@@ -9,15 +9,21 @@ for model in df df-multi rf
 do
 	for fixed_per_trace in False True
 	do
-		for aug in 1 2 4 8 16 0
-		do
-			common="misc.defence_augmentation=$aug lr_scheduler=plateau train.n_epochs=$nepochs mlflow.experiment_name=$expr_name network=$ntwork"
+		if [ "$bool_" = true ]; then
+			fixing_="fixed_per_trace"
+		else
+			fixing_="no_fixing"
+		fi
 
-			uv run python main.py --config-name=$model defence=no_defence $common
+		for aug in 1 2 4 8 16 32 0
+		do
+			common="misc.defence_augmentation=$aug lr_scheduler=plateau train.n_epochs=$nepochs network=$ntwork"
+
+			uv run python main.py --config-name=$model defence=no_defence $common  mlflow.experiment_name="$expr_name-no_fixing" ignore_existing=False
 
 			for defence in "front-$ntwork" # "ephemeral-$ntwork"
 			do
-				front_ephemeral="$common defence.fixed_per_trace=$fixed_per_trace ignore_existing=True"
+				front_ephemeral="$common defence.fixed_per_trace=$fixed_per_trace mlflow.experiment_name=$expr_name-$fixing_"
 				uv run python main.py --config-name=$model defence=$defence $front_ephemeral
 			done
 		done
