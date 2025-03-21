@@ -25,7 +25,7 @@ do
 		for aug in 0 1 2 4 8 16 32
 		do
 			patience=$(div 32 $aug)
-			common="train.defence_augmentation=$aug lr_scheduler=plateau network=$ntwork train.patience=$patience dataset.test_splits=[1,2]"
+			common="train.defence_augmentation=$aug lr_scheduler=plateau network=$ntwork train.patience=$patience dataset.test_splits=[1,2] train.n_epochs=0"
 
 			uv run python main.py --config-name=$model defence=no_defence $common  misc.mlflow.experiment_name="$expr_name-no_fixing" misc.ignore_existing=False
 
