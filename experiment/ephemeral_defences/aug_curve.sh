@@ -25,13 +25,13 @@ do
 		for aug in 0 1 2 4 8 16 32
 		do
 			patience=$(div 32 $aug)
-			common="train.defence_augmentation=$aug lr_scheduler=plateau network=$ntwork train.patience=$patience dataset.test_splits=[1,2] train.n_epochs=0"
+			common="train.defence_augmentation=$aug lr_scheduler=plateau network=$ntwork train.patience=$patience dataset.test_splits=[1,2,3] train.n_epochs=0"
 
 			uv run python main.py --config-name=$model defence=no_defence $common  misc.mlflow.experiment_name="$expr_name-no_fixing" misc.ignore_existing=False
 
 			for defence in "front-$ntwork" #
 			do
-				front_ephemeral="$common defence.fixed_per_trace=$fixed_per_trace misc.mlflow.experiment_name=$expr_name-$fixing_"
+				front_ephemeral="$common defence.fixed_per_trace=$fixed_per_trace misc.mlflow.experiment_name=$expr_name-$fixing_ defence.n_train_machines=50000"
 				uv run python main.py --config-name=$model defence=$defence $front_ephemeral
 			done
 		done
