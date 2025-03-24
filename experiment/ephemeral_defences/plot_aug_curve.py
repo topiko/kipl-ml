@@ -43,18 +43,14 @@ def main():
     df.loc[:, "fixed-per-trace"] = df.loc[:, "fixed-per-trace"].apply(
         lambda x: x == "True"
     )
-    df.loc[:, "model"] = df.loc[:, ["model", "fixed-per-trace"]].apply(
-        lambda x: f"{x.iloc[0]} | {'fixed-per-trace' if x.iloc[1] == True else 'no-fixing'}",
-        axis=1,
-    )
 
     fgrid = sns.relplot(
         df,
         x="def-aug",
         y=metric,
-        row="model",
-        hue="def-type",
-        col="netwk-state",
+        hue="model",
+        row="def-type",
+        col="fixed-per-trace",
         kind="line",
         height=2,
         aspect=2,
@@ -62,7 +58,7 @@ def main():
         facet_kws={"margin_titles": True, "sharey": True, "sharex": True},
     )
 
-    fgrid.set_titles(row_template="{row_name}", col_template="{col_name}")
+    fgrid.set_titles(row_template="{row_name}", col_template="{col_var}={col_name}")
     fgrid.set_ylabels(metric, clear_inner=False)
     plt.savefig("figs/aug_curve.png")
     plt.show()
