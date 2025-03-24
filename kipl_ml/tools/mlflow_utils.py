@@ -97,7 +97,6 @@ def run_exists(
 
     df = list_runs(experiment_name, only_finished=False, raise_on_empty=False)
 
-    print("asking run")
     if len(df) == 0:
         return False
 
