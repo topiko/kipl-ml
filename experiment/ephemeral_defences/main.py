@@ -30,6 +30,7 @@ from kipl_ml.models.models import get_model
 from kipl_ml.models.rf import RFLRScheduler
 from kipl_ml.models.utils import get_laserbeak_model_config, get_signature
 from kipl_ml.tools.mlflow_utils import (
+    get_parent_run_id,
     list_runs,
     log_dataset,
     log_hydra_conf,
@@ -248,7 +249,9 @@ def _run_xv(
 
     run_name = f"{parent_run_name}_xv={test_xv:02d}"
 
-    if run_exists(experiment_name, run_name) and (not cfg.misc.ignore_existing):
+    if run_exists(experiment_name, run_name, parent_run_name=parent_run_name) and (
+        not cfg.misc.ignore_existing
+    ):
         logger.info(f"Found finished run for: {run_name} -> exiting.")
         return
 
@@ -393,6 +396,17 @@ def _run_xv(
         mlflow.pytorch.log_model(trained_model, "model", signature=signature)
 
 
+def _run_xvs(experiment_name: str, run_name: str, cfg: OmegaConf):
+
+    test_splits = OmegaConf.to_object(cfg.dataset.test_splits)
+    orig_seed = cfg.misc.seed
+    for test_xv in test_splits:
+        _run_xv(cfg, experiment_name, run_name, test_xv)
+        # Seed is modified inside _run_xv for each xv split.
+        # For consistency, we restore here the original seed.
+        cfg.misc.seed = orig_seed
+
+
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
 def main(cfg: DictConfig):
     experiment_name = _parse_experiment_name(cfg)
@@ -401,18 +415,19 @@ def main(cfg: DictConfig):
     mlflow.set_experiment(experiment_id=experiment_id)
     run_name = _parse_run_name(cfg)
 
-    test_splits = OmegaConf.to_object(cfg.dataset.test_splits)
+    if run_exists(experiment_name, parent_run_name=run_name):
+        runids = get_parent_run_id(experiment_name, None, parent_run_name=run_name)
+        if (runids is None) or (len(runids) != 1):
+            raise ValueError(
+                f"Several runids found (for {run_name}) - cannot initiate."
+            )
 
-    run_exists(experiment_name, "dummy")
-
-    orig_seed = cfg.misc.seed
-    with mlflow.start_run(run_name=run_name):
-        mlflow.set_tag("project", "ephemeral_defences")
-        for test_xv in test_splits:
-            _run_xv(cfg, experiment_name, run_name, test_xv)
-            # Seed is modified inside _run_xv for each xv split.
-            # For consistency, we restore here the original seed.
-            cfg.misc.seed = orig_seed
+        with mlflow.start_run(run_id=runids[0]):
+            _run_xvs(experiment_name, run_name, cfg)
+    else:
+        with mlflow.start_run(run_name=run_name):
+            mlflow.set_tag("project", "ephemeral_defences")
+            _run_xvs(experiment_name, run_name, cfg)
 
 
 if __name__ == "__main__":

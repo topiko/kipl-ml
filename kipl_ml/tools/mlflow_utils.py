@@ -2,6 +2,7 @@ import os
 
 import dotenv
 import mlflow
+import numpy as np
 import pandas as pd
 from mlflow.entities import ViewType
 from omegaconf import OmegaConf
@@ -20,6 +21,7 @@ def list_runs(
     experiment_names: list[str] | str | None = None,
     only_finished: bool = True,
     raise_on_empty: bool = True,
+    parents: bool = True,
 ) -> pd.DataFrame:
 
     if experiment_names is None:
@@ -38,7 +40,6 @@ def list_runs(
 
     assert isinstance(runs, pd.DataFrame)
 
-    # runs = runs[runs.loc[:, "status"] != "FAILED"]
     if only_finished:
         mask = runs.loc[:, "status"] == "FINISHED"
         runs = runs[mask]
@@ -65,16 +66,77 @@ def log_hydra_conf(cfg: OmegaConf):
     mlflow.log_dict(d, artifact_file="hydra_config.json")
 
 
+def get_parent_run_id(
+    experiment_name: str, run_name: str | None, parent_run_name: str | None
+) -> list[str] | None:
+    df = list_runs(experiment_name, only_finished=False, raise_on_empty=False)
+
+    if run_name is not None:
+        mask = df.loc[:, "tags.mlflow.runName"] == run_name
+    else:
+        mask = np.ones(len(df), dtype=bool)
+
+    parents = df.loc[mask, "tags.mlflow.parentRunId"].unique()
+    parents = parents[parents != None]
+
+    if parent_run_name is not None:
+        mask = df.loc[:, "tags.mlflow.runName"] == parent_run_name
+        parents = df.loc[mask, "run_id"]
+
+    if len(parents) == 0:
+        return None
+
+    return list(parents)
+
+
 def run_exists(
-    experiment_name: str, run_name: str, parent_run_name: str | None = None
+    experiment_name: str,
+    run_name: str | None = None,
+    parent_run_name: str | None = None,
 ) -> bool:
 
     df = list_runs(experiment_name, only_finished=False, raise_on_empty=False)
 
-    breakpoint()
-    if len(df) > 0:
-        mask = run_name == df.loc[:, "tags.mlflow.runName"]
-        if mask.sum() > 0:
-            return True
+    print("asking run")
+    if len(df) == 0:
+        return False
 
-    return False
+    if run_name is not None:
+        mask = run_name == df.loc[:, "tags.mlflow.runName"]
+        if mask.sum() == 0:
+            return False
+
+        if parent_run_name is None:
+            if mask.sum() == 1:
+                return True
+            if mask.sum() > 1:
+                raise ValueError(f"Several runs found for name: {run_name}")
+            return False
+
+        if (
+            parents := get_parent_run_id(experiment_name, run_name, parent_run_name)
+        ) is None:
+            return False
+        if (len(parents) == 1) and (mask.sum() == 1):
+            return True
+        if (len(parents) == 1) and (mask.sum() > 1):
+            raise ValueError("Same run several time for single parent")
+
+        logger.warning(
+            "Run %s has several parents in experiment: %s", run_name, experiment_name
+        )
+        return True
+
+    if run_name is None:
+        if parent_run_name is None:
+            raise ValueError("Both run_name and parent_run_name are None")
+
+        if (
+            parents := get_parent_run_id(experiment_name, run_name, parent_run_name)
+        ) is None:
+            return False
+
+        parent_names = (
+            df[df.loc[:, "run_id"].isin(parents)].loc[:, "tags.mlflow.runName"].values
+        )
+        return parent_run_name in parent_names
