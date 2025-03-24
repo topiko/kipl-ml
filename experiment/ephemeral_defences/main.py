@@ -33,6 +33,7 @@ from kipl_ml.tools.mlflow_utils import (
     list_runs,
     log_dataset,
     log_hydra_conf,
+    run_exists,
 )
 from kipl_ml.trace.features import FEAT_NAME_MAP, FeatureTrs
 from kipl_ml.train.loops import train_model
@@ -231,7 +232,11 @@ def _get_bw_overhead(cfg: OmegaConf, undefended_trace_len: int) -> int:
 
 
 def _run_xv(
-    cfg: OmegaConf, parent_run_name: str, test_xv: int, nested_run: bool = True
+    cfg: OmegaConf,
+    experiment_name: str,
+    parent_run_name: str,
+    test_xv: int,
+    nested_run: bool = True,
 ):
 
     # Set seeds
@@ -243,15 +248,9 @@ def _run_xv(
 
     run_name = f"{parent_run_name}_xv={test_xv:02d}"
 
-    df = list_runs(
-        _parse_experiment_name(cfg), only_finished=True, raise_on_empty=False
-    )
-
-    if (not cfg.misc.ignore_existing) & (len(df) > 0):
-        mask = run_name == df.loc[:, "tags.mlflow.runName"]
-        if mask.sum() > 0:
-            logger.info(f"Found finished run for: {run_name} -> exiting.")
-            return
+    if run_exists(experiment_name, run_name) and (not cfg.misc.ignore_existing):
+        logger.info(f"Found finished run for: {run_name} -> exiting.")
+        return
 
     logger.info("Starting run w. config:")
     log_multiline(OmegaConf.to_yaml(cfg))
@@ -408,7 +407,7 @@ def main(cfg: DictConfig):
     with mlflow.start_run(run_name=run_name):
         mlflow.set_tag("project", "ephemeral_defences")
         for test_xv in test_splits:
-            _run_xv(cfg, run_name, test_xv)
+            _run_xv(cfg, experiment_name, run_name, test_xv)
             # Seed is modified inside _run_xv for each xv split.
             # For consistency, we restore here the original seed.
             cfg.misc.seed = orig_seed

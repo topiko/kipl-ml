@@ -61,3 +61,18 @@ def log_hydra_conf(cfg: OmegaConf):
 
     d = OmegaConf.to_container(cfg, resolve=True)
     mlflow.log_dict(d, artifact_file="hydra_config.json")
+
+
+def run_exists(
+    experiment_name: str, run_name: str, parent_run_name: str | None = None
+) -> bool:
+
+    df = list_runs(experiment_name, only_finished=True, raise_on_empty=False)
+
+    breakpoint()
+    if len(df) > 0:
+        mask = run_name == df.loc[:, "tags.mlflow.runName"]
+        if mask.sum() > 0:
+            return True
+
+    return False
