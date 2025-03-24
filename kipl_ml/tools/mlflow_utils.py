@@ -30,7 +30,6 @@ def list_runs(
     elif isinstance(experiment_names, str):
         experiment_names = [experiment_names]
 
-    logger.info(f"Searching for runs in experiments: {experiment_names}")
     runs = mlflow.search_runs(
         search_all_experiments=True,
         run_view_type=ViewType.ACTIVE_ONLY,

@@ -2,12 +2,18 @@
 
 ntwork="infinite"
 expr_name="Ephemeral-Aug-Curve-$ntwork"
+min_patience=4
 
 div() {
   if [[ $2 -eq 0 ]]; then
     echo "$1"
   else
-    echo $(( $1 / $2 ))
+    result=$(( $1 / $2 ))
+    if [[ $result -lt $min_patience ]]; then
+      echo $min_patience
+    else
+      echo "$result"
+    fi
   fi
 }
 
