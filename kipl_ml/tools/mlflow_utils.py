@@ -37,6 +37,8 @@ def list_runs(
     )
 
     assert isinstance(runs, pd.DataFrame)
+
+    # runs = runs[runs.loc[:, "status"] != "FAILED"]
     if only_finished:
         mask = runs.loc[:, "status"] == "FINISHED"
         runs = runs[mask]
@@ -67,7 +69,7 @@ def run_exists(
     experiment_name: str, run_name: str, parent_run_name: str | None = None
 ) -> bool:
 
-    df = list_runs(experiment_name, only_finished=True, raise_on_empty=False)
+    df = list_runs(experiment_name, only_finished=False, raise_on_empty=False)
 
     breakpoint()
     if len(df) > 0:

@@ -29,7 +29,7 @@ do
 
 			uv run python main.py --config-name=$model defence=no_defence $common  misc.mlflow.experiment_name="$expr_name-no_fixing" misc.ignore_existing=False
 
-			for defence in "front-$ntwork" #
+			for defence in "front-$ntwork" "ephemeral-$ntwork"
 			do
 				front_ephemeral="$common defence.fixed_per_trace=$fixed_per_trace misc.mlflow.experiment_name=$expr_name-$fixing_ defence.n_train_machines=50000"
 				uv run python main.py --config-name=$model defence=$defence $front_ephemeral

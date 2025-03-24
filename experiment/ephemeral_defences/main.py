@@ -403,6 +403,8 @@ def main(cfg: DictConfig):
 
     test_splits = OmegaConf.to_object(cfg.dataset.test_splits)
 
+    run_exists(experiment_name, "dummy")
+
     orig_seed = cfg.misc.seed
     with mlflow.start_run(run_name=run_name):
         mlflow.set_tag("project", "ephemeral_defences")
