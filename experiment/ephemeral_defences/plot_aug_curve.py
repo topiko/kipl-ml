@@ -49,16 +49,16 @@ def main():
         x="def-aug",
         y=metric,
         hue="model",
-        row="def-type",
-        col="fixed-per-trace",
+        col="def-type",
+        row="fixed-per-trace",
         kind="line",
-        height=2,
-        aspect=2,
+        height=3,
+        aspect=1.3,
         legend="brief",
         facet_kws={"margin_titles": True, "sharey": True, "sharex": True},
     )
 
-    fgrid.set_titles(row_template="{row_name}", col_template="{col_var}={col_name}")
+    fgrid.set_titles(col_template="{col_name}", row_template="{row_var}={row_name}")
     fgrid.set_ylabels(metric, clear_inner=False)
     plt.savefig("figs/aug_curve.png")
     plt.show()
