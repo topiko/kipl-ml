@@ -111,8 +111,10 @@ class WFDataset(Dataset):
 
         orig_trace_path = Path(self.meta_df.iloc[orig_idx][assets.TRACE_F_PATH])
 
+        machine_idx = orig_idx if self.defence.FIXED_PER_TRACE else None
+
         if self.defence_aug == 0:
-            trace = self.defence(orig_trace_path)
+            trace = self.defence(orig_trace_path, machine_idx=machine_idx)
         else:
             if self.tmp_dir is None:
                 raise ValueError("Temporary directory not initialized")
@@ -125,11 +127,10 @@ class WFDataset(Dataset):
                 """
                 When using dataloaders, several threads can call reading of the same
                 trace file. This can cause some issues, here is an attempt to protect
-                agains simultaneous access.
+                against simultaneous access.
                 """
                 with open(orig_trace_path, "rb") as f:
                     fcntl.flock(f, fcntl.LOCK_EX)  # Acquire an exclusive lock
-                    machine_idx = orig_idx if self.defence.FIXED_PER_TRACE else None
                     try:
                         return self.defence(orig_trace_path, machine_idx=machine_idx)
                     finally:
