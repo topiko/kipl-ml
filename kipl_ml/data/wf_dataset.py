@@ -45,6 +45,14 @@ class WFDataset(Dataset):
         self.tmp_dir = None
         self.defence_aug = defence_aug
 
+        if self.defence.FIXED_PER_TRACE and self.defence_aug == 0:
+            logger.warning(
+                "Def. augmentation is 0, i.e., infinite, however, you fix each defence to a trace."
+            )
+            logger.warning(
+                "Infinite augmentation does not really make sense when you used fixed machines per trace."
+            )
+
         self.get_feature_shapes()
 
     def report(self, to_log: bool = True) -> str:
