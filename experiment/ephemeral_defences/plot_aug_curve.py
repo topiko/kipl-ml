@@ -1,9 +1,12 @@
 import argparse
 
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
 
 from kipl_ml.tools.mlflow_utils import list_runs
+
+pd.set_option("future.no_silent_downcasting", True)
 
 
 def main():
@@ -24,9 +27,6 @@ def main():
     metric = "accuracy"
     df = df[~df.loc[:, "params.test_xv"].isnull()]
     df = df.infer_objects()
-    df.loc[:, "params.defence_augmentation"] = df.loc[
-        :, "params.defence_augmentation"
-    ].astype(int)
 
     df.rename(
         columns={
@@ -40,6 +40,7 @@ def main():
         inplace=True,
     )
 
+    df.loc[:, "def-aug"] = df.loc[:, "def-aug"].astype(int)
     augs = df.loc[:, "def-aug"].unique()
     max_aug = max(augs)
     df.loc[:, "def-aug"] = df.loc[:, "def-aug"].replace(0, 2 * max_aug)
