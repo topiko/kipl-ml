@@ -415,6 +415,8 @@ def main(cfg: DictConfig):
     mlflow.set_experiment(experiment_id=experiment_id)
     run_name = _parse_run_name(cfg)
 
+    logger.info("Run: %s", run_name)
+
     if run_exists(experiment_name, parent_run_name=run_name):
         runids = get_parent_run_id(experiment_name, None, parent_run_name=run_name)
         if (runids is None) or (len(runids) != 1):
