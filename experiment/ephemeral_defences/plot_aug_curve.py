@@ -1,7 +1,6 @@
 import argparse
 
 import matplotlib.pyplot as plt
-import numpy as np
 import seaborn as sns
 
 from kipl_ml.tools.mlflow_utils import list_runs
@@ -71,7 +70,6 @@ def main():
         ax.set_xscale("log", base=2)
         ax.set_yscale("log", base=10)
         ticks = augs
-        print(ticks)
         ax.set_xticks(ticks)
         labels = [str(t) for t in ticks]
         labels[-1] = "∞"
