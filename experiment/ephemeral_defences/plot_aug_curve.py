@@ -59,13 +59,14 @@ def main():
         row="fixed-per-trace",
         kind="line",
         height=3,
-        aspect=1.3,
+        aspect=0.8,
         legend="brief",
         facet_kws={"margin_titles": True, "sharey": True, "sharex": True},
     )
 
     fgrid.set_titles(col_template="{col_name}", row_template="{row_var}={row_name}")
     fgrid.set_ylabels(metric, clear_inner=False)
+    sns.move_legend(fgrid, "upper left", bbox_to_anchor=(0.25, 0.55))
 
     for ax in fgrid.axes.flatten():
         ax.set_xscale("log", base=2)
@@ -76,6 +77,7 @@ def main():
         labels[-1] = "∞"
         ax.set_xticklabels(labels)
 
+    plt.tight_layout()
     plt.savefig("figs/aug_curve.png")
     plt.show()
 
