@@ -252,7 +252,7 @@ def _run_xv(
     if run_exists(experiment_name, run_name, parent_run_name=parent_run_name) and (
         not cfg.misc.ignore_existing
     ):
-        logger.info(f"Found finished run for: {run_name} -> exiting.")
+        logger.info("Found finished run for: %s -> exiting.", run_name)
         return
 
     logger.info("Starting run w. config:")
