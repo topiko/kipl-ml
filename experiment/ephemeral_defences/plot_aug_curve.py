@@ -1,6 +1,7 @@
 import argparse
 
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
 
 from kipl_ml.tools.mlflow_utils import list_runs
@@ -40,6 +41,11 @@ def main():
         inplace=True,
     )
 
+    augs = df.loc[:, "def-aug"].unique()
+    max_aug = max(augs)
+    df.loc[:, "def-aug"] = df.loc[:, "def-aug"].replace(0, 2 * max_aug)
+    augs = sorted(df.loc[:, "def-aug"].unique())
+
     df.loc[:, "fixed-per-trace"] = df.loc[:, "fixed-per-trace"].apply(
         lambda x: x == "True"
     )
@@ -60,6 +66,17 @@ def main():
 
     fgrid.set_titles(col_template="{col_name}", row_template="{row_var}={row_name}")
     fgrid.set_ylabels(metric, clear_inner=False)
+
+    for ax in fgrid.axes.flatten():
+        ax.set_xscale("log", base=2)
+        ax.set_yscale("log", base=10)
+        ticks = augs
+        print(ticks)
+        ax.set_xticks(ticks)
+        labels = [str(t) for t in ticks]
+        labels[-1] = "∞"
+        ax.set_xticklabels(labels)
+
     plt.savefig("figs/aug_curve.png")
     plt.show()
 
