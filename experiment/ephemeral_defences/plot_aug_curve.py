@@ -19,6 +19,12 @@ def main():
         required=True,
         help="Which experiment(s) to consider",
     )
+    parser.add_argument(
+        "--defence-type",
+        type=str,
+        nargs="+",
+        default=["front", "maybenot", "interspace"],
+    )
 
     args = parser.parse_args()
 
@@ -39,6 +45,7 @@ def main():
         },
         inplace=True,
     )
+    df = df[df.loc[:, "def-type"].isin(args.defence_type)]
 
     df.loc[:, "def-aug"] = df.loc[:, "def-aug"].astype(int)
     augs = df.loc[:, "def-aug"].unique()
