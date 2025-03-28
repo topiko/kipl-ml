@@ -15,16 +15,15 @@ class TrMarchBlock(nn.Module):
         seq_len: int,
         in_channels: int,
         embed_dim: int = 64,
-        n_enc_layers: int = 1,
         tr_kwargs: dict | None = None,
     ):
 
         super().__init__()
 
         tr_kwargs = tr_kwargs or {}
-
         self.pos_embedding = nn.Embedding(seq_len, in_channels)
 
+        n_enc_layers = tr_kwargs.get("n_enc_layers", 1)
         trs_ = OrderedDict()
         for i in range(n_enc_layers):
             trs_[f"enc_{i}"] = nn.TransformerEncoderLayer(
@@ -91,7 +90,7 @@ class March(nn.Module):
         input_len: int,
         step_len: int,
         step_stride: int,
-        embed_dim: int = 64,
+        embed_dim: int,
         tr_kwargs: dict | None = None,
         rnn_kwargs: dict | None = None,
         verify_inputs: bool = False,
@@ -100,6 +99,7 @@ class March(nn.Module):
         super().__init__()
 
         self.use_vmap = vmap
+        self.normalize_dirs = False
         self.march_block = TrMarchBlock(
             seq_len=step_len,
             in_channels=in_channels,
@@ -122,7 +122,7 @@ class March(nn.Module):
             batch_first=True,
             bidirectional=bidir,
             hidden_size=h_size,
-            num_layers=rnn_kwargs.get("num_layers", 2),
+            num_layers=rnn_kwargs.get("num_layers", 1),
             dropout=rnn_kwargs.get("dropout", 0.1),
         )
 
@@ -142,13 +142,14 @@ class March(nn.Module):
         # dirs shape (batch_size, input_len / stride, step_len)
 
         # "normalize" dirs
-        dir_means = dirs.mean(dim=2).unsqueeze(2)
-        dir_stds = dirs.std(dim=2).unsqueeze(2)
+        if self.normalize_dirs:
+            dir_means = dirs.mean(dim=2).unsqueeze(2)
+            dir_stds = dirs.std(dim=2).unsqueeze(2)
 
-        dirs = torch.where(
-            dir_stds != 0, (dirs - dir_means) / dir_stds, torch.zeros_like(dirs)
-        )
-        # dirs shape (batch_size, input_len / stride, step_len)
+            dirs = torch.where(
+                dir_stds != 0, (dirs - dir_means) / dir_stds, torch.zeros_like(dirs)
+            )
+            # dirs shape (batch_size, input_len / stride, step_len)
 
         # Times
         times = x[Feats.TIMES].unfold(1, size=self.step_len, step=self.stride)
