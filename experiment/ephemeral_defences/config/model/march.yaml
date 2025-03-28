@@ -7,12 +7,12 @@ embed_dim: 256
 vmap: True
 rnn:
   hidden_size: 1024
-  num_layers: 2
-  dropout: 0.1
+  num_layers: 1
+  dropout: 0.5
 tr_encoder:
   dim_feedforward: 512
   dropout: 0.1
-  n_enc_layers: 2
+  n_enc_layers: 1 # max is 1 --> out of memory
 
 features:
   - times
