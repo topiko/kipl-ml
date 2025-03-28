@@ -38,7 +38,6 @@ def get_model(
                 num_classes=n_classes, input_channels=len(inputs), **model_config
             )
             net.name = model_name
-            logger.info(f"\t-->{count_parameters(net)} parameters.")
 
             return net
 
@@ -63,6 +62,12 @@ def get_model(
                 raise NotImplementedError()
 
     if source == "lb":
-        return _get_lb_models()
-    if source == "local":
-        return _get_local_models()
+        model = _get_lb_models()
+    elif source == "local":
+        model = _get_local_models()
+    else:
+        raise KeyError("Invalid source for model.")
+
+    logger.info(f"\t-->{count_parameters(model)} parameters.")
+
+    return model
