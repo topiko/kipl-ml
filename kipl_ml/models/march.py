@@ -87,7 +87,7 @@ class March(nn.Module):
 
         rnn_kwargs = rnn_kwargs or {}
         bidir = False
-        h_size = rnn_kwargs.get("hidden_size", 256)
+        h_size = rnn_kwargs.get("hidden_size", 512)
         self.rnn = nn.LSTM(
             input_size=embed_dim,
             batch_first=True,
