@@ -277,6 +277,7 @@ def _run_xv(
                     "rnn_kwargs": {
                         "hidden_size": cfg.model.rnn.hidden_size,
                         "num_layers": cfg.model.rnn.num_layers,
+                        "dropout": cfg.model.rnn.dropout,
                     },
                 }
         case "lb":
