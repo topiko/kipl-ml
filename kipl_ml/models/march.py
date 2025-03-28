@@ -144,7 +144,7 @@ class March(nn.Module):
         x_ = self.linear(x_)
         # x_ shape: (batch_size, input_len / stride, n_classes)
 
-        x_ = x_[torch.arange(len(seq_lens)), seq_lens, :]
+        x_ = x_[torch.arange(x_.shape[0]), seq_lens, :]
         # x_ shape: (batch_size, n_classes)
 
         return x_
