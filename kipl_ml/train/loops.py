@@ -219,7 +219,10 @@ def train_model(
         model, train_loss = _one_epoch(
             model, train_loader, optimizer, loss_fn, n_epoch=epoch
         )
-        mlflow.log_metric("train_loss", train_loss, step=epoch)
+        mlflow.log_metrics(
+            {"train_loss": train_loss, "lr": optimizer.param_groups[0]["lr"]},
+            step=epoch,
+        )
 
         if isinstance(lr_scheduler, ReduceLROnPlateau):
             lr_scheduler.step(metrics_vals["loss"])
