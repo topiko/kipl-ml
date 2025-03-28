@@ -274,6 +274,7 @@ def _run_xv(
                     "step_len": cfg.model.step_len,
                     "step_stride": cfg.model.step_stride,
                     "embed_dim": cfg.model.embed_dim,
+                    "vmap": cfg.model.vmap,
                     "rnn_kwargs": {
                         "hidden_size": cfg.model.rnn.hidden_size,
                         "num_layers": cfg.model.rnn.num_layers,

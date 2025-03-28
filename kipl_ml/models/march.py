@@ -30,6 +30,7 @@ class TrMarchBlock(nn.Module):
         )
 
         self.lin_layer = nn.Linear(seq_len * in_channels, embed_dim)
+        self.layer_norm = nn.LayerNorm(embed_dim)
 
     def forward(self, x: torch.tensor) -> torch.tensor:
         # x shape: (batch_size, seq_len, in_channels)
@@ -39,6 +40,8 @@ class TrMarchBlock(nn.Module):
         x = self.encoder_layer(x)
         x = x.flatten(1)
         x = self.lin_layer(x)
+        x = self.layer_norm(x)
+
         # out shape: (batch_size, embed_dim)
         return x
 
@@ -68,10 +71,11 @@ class March(nn.Module):
         tr_kwargs: dict | None = None,
         rnn_kwargs: dict | None = None,
         verify_inputs: bool = False,
+        vmap: bool = False,
     ):
         super().__init__()
 
-        self.use_vmap = False
+        self.use_vmap = vmap
         self.march_block = TrMarchBlock(
             seq_len=step_len,
             in_channels=in_channels,
@@ -127,7 +131,7 @@ class March(nn.Module):
 
         if self.use_vmap:
             embeds = torch.vmap(
-                self.march_block, in_dims=1, out_dims=1, randomness="same"
+                self.march_block, in_dims=1, out_dims=1, randomness="different"
             )(x_)
             # embeds shape: (batch_size, input_len / stride, embed_dim)
 
