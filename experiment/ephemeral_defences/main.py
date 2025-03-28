@@ -175,7 +175,6 @@ def _get_dl(ds: Dataset, bs: int, shuffle: bool = False) -> DataLoader:
         logger.warning("Using only 1 CPU for dataloading.")
 
     num_workers = min(24, ncpus)
-    num_workers = 0
     return DataLoader(
         ds,
         batch_size=bs,
