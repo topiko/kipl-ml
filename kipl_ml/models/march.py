@@ -91,6 +91,7 @@ class March(nn.Module):
     def forward(self, x: dict[str, torch.tensor]) -> torch.tensor:
 
         dirs = x[Feats.DIRS]
+        # dir == 0 marks the point where the packets ended.
         seq_lens = (dirs == 0).int().argmax(dim=1) // self.stride + 1
         seq_lens = torch.clip(seq_lens, 1, self.input_len // self.stride - 2)
 
