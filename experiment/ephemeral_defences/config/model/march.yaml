@@ -1,0 +1,11 @@
+source: "local"
+name: "march"
+trace_len: 10_000
+step_len: 500
+step_stride: 490
+embed_dim: 12
+features:
+  - times
+  - dirs
+
+

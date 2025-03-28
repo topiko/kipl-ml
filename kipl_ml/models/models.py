@@ -3,6 +3,7 @@ from torch import nn
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.models.df import DF
 from kipl_ml.models.laserbeak import WrapDFNet
+from kipl_ml.models.march import March
 from kipl_ml.models.rf import RF
 from kipl_ml.models.utils import count_parameters
 
@@ -54,6 +55,10 @@ def get_model(
                 raise ValueError("Invalid input len for DF")
             case "rf":
                 return RF(n_classes)
+            case "march":
+                return March(
+                    n_classes=n_classes, in_channels=len(inputs), **model_config
+                )
             case _:
                 raise NotImplementedError()
 
