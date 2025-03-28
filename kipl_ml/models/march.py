@@ -86,14 +86,14 @@ class March(nn.Module):
             raise ValueError("Expected input_len to be divisible by stride")
 
         rnn_kwargs = rnn_kwargs or {}
-        bidir = True
-        h_size = rnn_kwargs.get("hidden_size", 128)
+        bidir = False
+        h_size = rnn_kwargs.get("hidden_size", 256)
         self.rnn = nn.LSTM(
             input_size=embed_dim,
             batch_first=True,
             bidirectional=bidir,
             hidden_size=h_size,
-            num_layers=rnn_kwargs.get("num_layers", 1),
+            num_layers=rnn_kwargs.get("num_layers", 2),
         )
 
         self.rnn_out_dim = h_size * 2 if bidir else h_size
