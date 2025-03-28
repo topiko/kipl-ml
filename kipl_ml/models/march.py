@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 
+from kipl_ml.models.utils import unsqueeze_batch
 from kipl_ml.trace.features import Feats
 
 
@@ -147,3 +148,6 @@ class March(nn.Module):
         # x_ shape: (batch_size, n_classes)
 
         return x_
+
+    def example_input(self, x: dict[str, torch.tesnor]) -> dict[str, torch.tensor]:
+        return unsqueeze_batch(x)
