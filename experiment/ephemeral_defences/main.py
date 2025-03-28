@@ -279,6 +279,10 @@ def _run_xv(
                         "num_layers": cfg.model.rnn.num_layers,
                         "dropout": cfg.model.rnn.dropout,
                     },
+                    "tr_kwargs": {
+                        "dim_feedforward": cfg.model.tr_encoder.dim_feedforward,
+                        "dropout": cfg.model.tr_encoder.dropout,
+                    },
                 }
         case "lb":
             model_config = get_laserbeak_model_config(model_name)
