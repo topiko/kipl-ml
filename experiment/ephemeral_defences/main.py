@@ -283,6 +283,7 @@ def _run_xv(
                     "tr_kwargs": {
                         "dim_feedforward": cfg.model.tr_encoder.dim_feedforward,
                         "dropout": cfg.model.tr_encoder.dropout,
+                        "n_enc_layers": cfg.model.tr_encoder.n_enc_layers,
                     },
                 }
         case "lb":

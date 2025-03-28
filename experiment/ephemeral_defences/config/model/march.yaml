@@ -12,6 +12,7 @@ rnn:
 tr_encoder:
   dim_feedforward: 512
   dropout: 0.1
+  n_enc_layers: 2
 
 features:
   - times

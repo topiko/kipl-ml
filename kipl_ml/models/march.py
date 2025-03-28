@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections import OrderedDict
+
 import torch
 from torch import nn
 
@@ -13,6 +15,7 @@ class TrMarchBlock(nn.Module):
         seq_len: int,
         in_channels: int,
         embed_dim: int = 64,
+        n_enc_layers: int = 1,
         tr_kwargs: dict | None = None,
     ):
 
@@ -21,14 +24,17 @@ class TrMarchBlock(nn.Module):
         tr_kwargs = tr_kwargs or {}
 
         self.pos_embedding = nn.Embedding(seq_len, in_channels)
-        self.encoder_layer = nn.TransformerEncoderLayer(
-            d_model=in_channels,
-            nhead=in_channels,
-            dim_feedforward=tr_kwargs.get("dim_feedforward", 256),
-            dropout=tr_kwargs.get("dropout", 0.1),
-            batch_first=True,
-        )
 
+        trs_ = OrderedDict()
+        for i in range(n_enc_layers):
+            trs_[f"enc_{i}"] = nn.TransformerEncoderLayer(
+                d_model=in_channels,
+                nhead=in_channels,
+                dim_feedforward=tr_kwargs.get("dim_feedforward", 256),
+                dropout=tr_kwargs.get("dropout", 0.1),
+                batch_first=True,
+            )
+        self.encoder_layers = nn.Sequential(trs_)
         self.lin_layer = nn.Linear(seq_len * in_channels, embed_dim)
         self.layer_norm = nn.LayerNorm(embed_dim)
 
@@ -37,7 +43,8 @@ class TrMarchBlock(nn.Module):
         x = x + self.pos_embedding(torch.arange(x.shape[1], device=x.device)).unsqueeze(
             0
         )
-        x = self.encoder_layer(x)
+        x = self.encoder_layers(x)
+
         x = x.flatten(1)
         x = self.lin_layer(x)
         x = self.layer_norm(x)
@@ -113,18 +120,32 @@ class March(nn.Module):
         seq_lens = (dirs == 0).int().argmax(dim=1) // self.stride
         seq_lens = torch.clip(seq_lens, 1, self.input_len // self.stride - 2)
 
+        # Dirs
         dirs = dirs.unfold(1, size=self.step_len, step=self.stride)
+        # dirs shape (batch_size, input_len / stride, step_len)
+
+        # "normalize" dirs
+        dir_means = dirs.mean(dim=2).unsqueeze(2)
+        dir_stds = dirs.std(dim=2).unsqueeze(2)
+
+        dirs = torch.where(
+            dir_stds != 0, (dirs - dir_means) / dir_stds, torch.zeros_like(dirs)
+        )
+        # dirs shape (batch_size, input_len / stride, step_len)
+
+        # Times
         times = x[Feats.TIMES].unfold(1, size=self.step_len, step=self.stride)
-        # times/dirs shape (batch_size, input_len / stride, step_len)
+        # times shape (batch_size, input_len / stride, step_len)
 
         # Normalize times:
-        t_means = times.mean(axis=2).unsqueeze(2)
-        t_stds = times.std(axis=2).unsqueeze(2)
+        t_means = times.mean(dim=2).unsqueeze(2)
+        t_stds = times.std(dim=2).unsqueeze(2)
         # shape (batch_size, input_len / stride, 1)
 
         times = torch.where(
             t_stds != 0, (times - t_means) / t_stds, torch.zeros_like(times)
         )
+        # times shape (batch_size, input_len / stride, step_len)
 
         x_ = torch.cat((dirs.unsqueeze(3), times.unsqueeze(3)), dim=3)
         # x shape: (batch_size, input_len / stride, step_len, in_channels)
