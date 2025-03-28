@@ -1,8 +1,8 @@
 source: "local"
 name: "march"
-trace_len: 10_000
+trace_len: 30_000
 step_len: 500
-step_stride: 490
+step_stride: 400
 embed_dim: 12
 features:
   - times

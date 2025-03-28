@@ -175,6 +175,7 @@ def _get_dl(ds: Dataset, bs: int, shuffle: bool = False) -> DataLoader:
         logger.warning("Using only 1 CPU for dataloading.")
 
     num_workers = min(24, ncpus)
+    num_workers = 0
     return DataLoader(
         ds,
         batch_size=bs,
@@ -270,6 +271,7 @@ def _run_xv(
             model_config = {}
             if model_name == "march":
                 model_config = {
+                    "input_len": cfg.model.trace_len,
                     "step_len": cfg.model.step_len,
                     "step_stride": cfg.model.step_stride,
                     "embed_dim": cfg.model.embed_dim,
