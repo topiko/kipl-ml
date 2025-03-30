@@ -35,7 +35,21 @@ class TrMarchBlock(nn.Module):
                 batch_first=True,
             )
         self.encoder_layers = nn.Sequential(trs_)
-        self.lin_layer = nn.Linear(seq_len * in_channels, embed_dim)
+
+        ks = 32
+        st = 16
+
+        if ks > seq_len:
+            raise ValueError("Kernel size must be smaller than sequence length")
+
+        n_filters = tr_kwargs.get("n_conv_filters", 64)
+        self.conv1d = nn.Conv1d(
+            in_channels, out_channels=n_filters, kernel_size=ks, stride=st
+        )
+
+        linear_in = (seq_len - ks) // st + 1
+
+        self.lin_layer = nn.Linear(linear_in * n_filters, embed_dim)
         self.layer_norm = nn.LayerNorm(embed_dim)
 
     def forward(self, x: torch.tensor) -> torch.tensor:
@@ -44,6 +58,9 @@ class TrMarchBlock(nn.Module):
             0
         )
         x = self.encoder_layers(x)
+        # x shape: (batch_size, seq_len, in_channels)
+        x = self.conv1d(x.permute(0, 2, 1))
+        # x shape: (batch_size, n_filters, linear_in)
 
         x = x.flatten(1)
         x = self.lin_layer(x)
