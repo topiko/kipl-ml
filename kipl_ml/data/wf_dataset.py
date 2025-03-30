@@ -191,10 +191,15 @@ def get_train_valid_test(
     defence_valid: _Def | None = None,
     defence_test: _Def | None = None,
     defence_aug_valid: int = 1,
+    n_min_packets: int | None = None,
     **kwargs,
 ) -> tuple[WFDataset, WFDataset, WFDataset]:
 
     meta_df = load_dataset_meta_df(dataset)
+
+    if (n_min_packets := n_min_packets or 0) > 0:
+        meta_df = meta_df[meta_df.loc[:, "n_packets"] >= n_min_packets]
+        logger.warning("Short (<%d packets) flows removed!", n_min_packets)
 
     if (col := assets.XV_SPLIT(n_splits, label)) not in meta_df.columns:
         raise KeyError(

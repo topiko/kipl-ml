@@ -35,13 +35,13 @@ class TrMarchBlock(nn.Module):
             )
         self.encoder_layers = nn.Sequential(trs_)
 
-        ks = 32
-        st = 16
+        ks = 30
+        st = 15
 
         if ks > seq_len:
             raise ValueError("Kernel size must be smaller than sequence length")
 
-        n_filters = tr_kwargs.get("n_conv_filters", 64)
+        n_filters = tr_kwargs.get("n_conv_filters", 128)
         self.conv1d = nn.Conv1d(
             in_channels, out_channels=n_filters, kernel_size=ks, stride=st
         )
@@ -53,10 +53,10 @@ class TrMarchBlock(nn.Module):
 
     def forward(self, x: torch.tensor) -> torch.tensor:
         # x shape: (batch_size, seq_len, in_channels)
-        x = x + self.pos_embedding(torch.arange(x.shape[1], device=x.device)).unsqueeze(
-            0
-        )
-        x = self.encoder_layers(x)
+        # x = x + self.pos_embedding(torch.arange(x.shape[1], device=x.device)).unsqueeze(
+        #    0
+        # )
+        # x = self.encoder_layers(x)
         # x shape: (batch_size, seq_len, in_channels)
         x = self.conv1d(x.permute(0, 2, 1))
         # x shape: (batch_size, n_filters, linear_in)
@@ -135,7 +135,7 @@ class March(nn.Module):
         dirs = x[Feats.DIRS]
         # dir == 0 marks the point where the packets ended.
         seq_lens = (dirs == 0).int().argmax(dim=1) // self.stride
-        seq_lens = torch.clip(seq_lens, 1, self.input_len // self.stride - 2)
+        seq_lens = torch.clip(seq_lens, 0, self.input_len // self.stride - 2)
 
         # Dirs
         dirs = dirs.unfold(1, size=self.step_len, step=self.stride)
@@ -170,7 +170,7 @@ class March(nn.Module):
 
         if self.use_vmap:
             embeds = torch.vmap(
-                self.march_block, in_dims=1, out_dims=1, randomness="different"
+                self.march_block, in_dims=1, out_dims=1, randomness="same"
             )(x_)
             # embeds shape: (batch_size, input_len / stride, embed_dim)
 

@@ -325,6 +325,7 @@ def _run_xv(
         feature_trs=feature_trs,
         defence_aug=cfg.train.defence_augmentation,
         defence_aug_valid=cfg.train.defence_augmentation_valid,
+        n_min_packets=cfg.dataset.n_min_packets,
         **_get_defence(cfg),
     )
 

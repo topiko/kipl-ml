@@ -18,7 +18,7 @@ div() {
 }
 
 
-for model in df df-multi rf
+for model in march rf df df-multi
 do
 	for fixed_per_trace in False # True
 	do
