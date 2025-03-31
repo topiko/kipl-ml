@@ -48,11 +48,12 @@ def run_inference(
         with tqdm(dataloader, ncols=TQDM_W) as pbar:
             for X, y in pbar:
                 X_ = dict_to_device(X, get_device())
-                logits.append(model(X_).to("cpu"))
+                logits_ = model(X_)
+                logits.append(logits_)
                 labels.append(y)
 
-    logits = torch.cat(logits)
-    y_true = torch.cat(labels)
+    logits = torch.cat(logits).to("cpu")
+    y_true = torch.cat(labels).to("cpu")
 
     model.to("cpu")
     return logits, y_true
