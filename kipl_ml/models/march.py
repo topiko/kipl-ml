@@ -52,7 +52,10 @@ class CNNMarchBlock(nn.Module):
         logger.info("Time steps for lin layer %d", t_len)
 
         if (linear_in := t_len * n_filters[-1]) < embed_dim:
-            raise ValueError("Embed dim is larger than linear in --> bottleneck in nn.")
+            raise ValueError(
+                f"Embed dim {embed_dim} is larger than linear in {linear_in} \
+                             --> bottleneck in nn."
+            )
         self.conv1d = nn.Sequential(d)
 
         self.clf = nn.Sequential(
