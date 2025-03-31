@@ -5,8 +5,11 @@ from collections import OrderedDict
 import torch
 from torch import nn
 
+from kipl_ml.logging.logger import get_logger
 from kipl_ml.models.utils import unsqueeze_batch
 from kipl_ml.trace.features import Feats
+
+logger = get_logger(__name__)
 
 
 class CNNMarchBlock(nn.Module):
@@ -21,13 +24,13 @@ class CNNMarchBlock(nn.Module):
         super().__init__()
 
         cnn_kwargs = cnn_kwargs or {}
-        ks = 50
+        ks = 30
         st = 10
 
         if ks > seq_len:
             raise ValueError("Kernel size must be smaller than sequence length")
 
-        n_filters = cnn_kwargs.get("n_conv_filters", [128, 256])
+        n_filters = cnn_kwargs.get("n_conv_filters", [32])
         n_filters.insert(0, in_channels)
         d = OrderedDict()
         t_len = seq_len
@@ -43,8 +46,10 @@ class CNNMarchBlock(nn.Module):
                 ),
                 nn.LayerNorm([n_filters[i], t_len]),
                 nn.ReLU(),
-                nn.Dropout(0.1),
+                nn.Dropout(0.5),
             )
+
+        logger.info("Time steps for lin layer %d", t_len)
 
         if (linear_in := t_len * n_filters[-1]) < embed_dim:
             raise ValueError("Embed dim is larger than linear in --> bottleneck in nn.")
@@ -85,6 +90,7 @@ class March(nn.Module):
         step_len: int,
         step_stride: int,
         embed_dim: int,
+        rand_start: bool = True,
         cnn_kwargs: dict | None = None,
         rnn_kwargs: dict | None = None,
         verify_inputs: bool = False,
@@ -94,6 +100,7 @@ class March(nn.Module):
 
         self.use_vmap = vmap
         self.normalize_dirs = False
+        self.rand_start = rand_start
         self.march_block = CNNMarchBlock(
             seq_len=step_len,
             in_channels=in_channels,
@@ -124,7 +131,18 @@ class March(nn.Module):
 
         self.linear = nn.Linear(self.rnn_out_dim, n_classes)
 
+    def train(self, mode: bool = True):
+        if self.rand_start and mode:
+            self._rand_start = True
+        else:
+            self._rand_start = False
+        super().train(mode)
+
     def forward(self, x: dict[str, torch.tensor]) -> torch.tensor:
+
+        if self._rand_start:
+            start = torch.randint(0, self.stride, size=(1,))[0]
+            x = {k: v[:, start : -(self.stride - start)] for k, v in x.items()}
 
         dirs = x[Feats.DIRS]
         # dir == 0 marks the point where the packets ended.
