@@ -111,9 +111,13 @@ class March(nn.Module):
         self.step_len = step_len
         self.input_len = input_len
         self.verify_inputs = verify_inputs
+        self.max_w_seq_len = (self.input_len - self.step_len) // self.stride + 1
 
-        if self.input_len % self.stride != 0:
-            raise ValueError("Expected input_len to be divisible by stride")
+        if (self.input_len - self.step_len) % self.stride != 0:
+            raise ValueError(
+                "Expected (input_len ({input_len}) - step_len ({step_len})) \
+                             % stride ({step_stride}) == 0"
+            )
 
         rnn_kwargs = rnn_kwargs or {}
         bidir = False
@@ -140,14 +144,16 @@ class March(nn.Module):
 
     def forward(self, x: dict[str, torch.tensor]) -> torch.tensor:
 
+        max_w_seq_len = self.max_w_seq_len
         if self._rand_start:
             start = torch.randint(0, self.stride, size=(1,))[0]
             x = {k: v[:, start : -(self.stride - start)] for k, v in x.items()}
+            max_w_seq_len -= 1
 
         dirs = x[Feats.DIRS]
         # dir == 0 marks the point where the packets ended.
         seq_lens = (dirs == 0).int().argmax(dim=1) // self.stride
-        seq_lens = torch.clip(seq_lens, 0, self.input_len // self.stride - 2)
+        seq_lens = torch.clip(seq_lens, 0, max_w_seq_len - 1)
 
         # Dirs
         dirs = dirs.unfold(1, size=self.step_len, step=self.stride)
