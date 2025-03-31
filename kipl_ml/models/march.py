@@ -9,44 +9,46 @@ from kipl_ml.models.utils import unsqueeze_batch
 from kipl_ml.trace.features import Feats
 
 
-class TrMarchBlock(nn.Module):
+class CNNMarchBlock(nn.Module):
     def __init__(
         self,
         seq_len: int,
         in_channels: int,
         embed_dim: int = 64,
-        tr_kwargs: dict | None = None,
+        cnn_kwargs: dict | None = None,
     ):
 
         super().__init__()
 
-        tr_kwargs = tr_kwargs or {}
-        self.pos_embedding = nn.Embedding(seq_len, in_channels)
-
-        n_enc_layers = tr_kwargs.get("n_enc_layers", 1)
-        trs_ = OrderedDict()
-        for i in range(n_enc_layers):
-            trs_[f"enc_{i}"] = nn.TransformerEncoderLayer(
-                d_model=in_channels,
-                nhead=in_channels,
-                dim_feedforward=tr_kwargs.get("dim_feedforward", 256),
-                dropout=tr_kwargs.get("dropout", 0.1),
-                batch_first=True,
-            )
-        self.encoder_layers = nn.Sequential(trs_)
-
+        cnn_kwargs = cnn_kwargs or {}
         ks = 50
-        st = 25
+        st = 10
 
         if ks > seq_len:
             raise ValueError("Kernel size must be smaller than sequence length")
 
-        n_filters = tr_kwargs.get("n_conv_filters", 128)
-        self.conv1d = nn.Conv1d(
-            in_channels, out_channels=n_filters, kernel_size=ks, stride=st
-        )
+        n_filters = cnn_kwargs.get("n_conv_filters", [128, 256])
+        n_filters.insert(0, in_channels)
+        d = OrderedDict()
+        t_len = seq_len
+        for i in range(1, len(n_filters)):
+            if (t_len := (t_len - ks) // st + 1) <= 0:
+                raise ValueError("Invalid feat extr pipe.")
+            d[f"conv_{i}"] = nn.Sequential(
+                nn.Conv1d(
+                    n_filters[i - 1],
+                    out_channels=n_filters[i],
+                    kernel_size=ks,
+                    stride=st,
+                ),
+                nn.LayerNorm([n_filters[i], t_len]),
+                nn.ReLU(),
+                nn.Dropout(0.1),
+            )
 
-        linear_in = ((seq_len - ks) // st + 1) * n_filters
+        if (linear_in := t_len * n_filters[-1]) < embed_dim:
+            raise ValueError("Embed dim is larger than linear in --> bottleneck in nn.")
+        self.conv1d = nn.Sequential(d)
 
         self.clf = nn.Sequential(
             nn.Linear(linear_in, linear_in),
@@ -59,34 +61,17 @@ class TrMarchBlock(nn.Module):
             nn.Dropout(),
             nn.Linear(linear_in, embed_dim),
             nn.ReLU(),
-            nn.Dropout(p=0.1),
         )
 
     def forward(self, x: torch.tensor) -> torch.tensor:
         # x shape: (batch_size, seq_len, in_channels)
-        # x = x + self.pos_embedding(torch.arange(x.shape[1], device=x.device)).unsqueeze(
-        #    0
-        # )
-        # x = self.encoder_layers(x)
-        # x shape: (batch_size, seq_len, in_channels)
         x = self.conv1d(x.permute(0, 2, 1)).flatten(1)
-        # x shape: (batch_size, n_filters * linear_in)
+        # x shape: (batch_size, linear_in)
 
         x = self.clf(x)
-
         # out shape: (batch_size, embed_dim)
+
         return x
-
-
-class CNNMarchBlock(nn.Module):
-    def __init__(
-        self,
-        seq_len: int,
-        in_channels: int,
-        embed_dim: int,
-    ):
-
-        super().__init__()
 
 
 class March(nn.Module):
@@ -100,7 +85,7 @@ class March(nn.Module):
         step_len: int,
         step_stride: int,
         embed_dim: int,
-        tr_kwargs: dict | None = None,
+        cnn_kwargs: dict | None = None,
         rnn_kwargs: dict | None = None,
         verify_inputs: bool = False,
         vmap: bool = False,
@@ -109,11 +94,11 @@ class March(nn.Module):
 
         self.use_vmap = vmap
         self.normalize_dirs = False
-        self.march_block = TrMarchBlock(
+        self.march_block = CNNMarchBlock(
             seq_len=step_len,
             in_channels=in_channels,
             embed_dim=embed_dim,
-            tr_kwargs=tr_kwargs,
+            cnn_kwargs=cnn_kwargs,
         )
         self.stride = step_stride
         self.step_len = step_len
@@ -179,7 +164,7 @@ class March(nn.Module):
 
         if self.use_vmap:
             embeds = torch.vmap(
-                self.march_block, in_dims=1, out_dims=1, randomness="same"
+                self.march_block, in_dims=1, out_dims=1, randomness="different"
             )(x_)
             # embeds shape: (batch_size, input_len / stride, embed_dim)
 

@@ -1,18 +1,16 @@
 source: "local"
 name: "march"
-trace_len: 20_000
-step_len: 150
-step_stride: 100
+trace_len: 18_000
+step_len: 800
+step_stride: 600
 embed_dim: 1024
 vmap: True
 rnn:
   hidden_size: 512
   num_layers: 2
-  dropout: 0.6
-tr_encoder:
-  dim_feedforward: 512
-  dropout: 0.3
-  n_enc_layers: 1 # max is 1 --> out of memory
+  dropout: 0.5
+cnn:
+  dropout: 0.2
 
 features:
   - times

@@ -280,10 +280,8 @@ def _run_xv(
                         "num_layers": cfg.model.rnn.num_layers,
                         "dropout": cfg.model.rnn.dropout,
                     },
-                    "tr_kwargs": {
-                        "dim_feedforward": cfg.model.tr_encoder.dim_feedforward,
-                        "dropout": cfg.model.tr_encoder.dropout,
-                        "n_enc_layers": cfg.model.tr_encoder.n_enc_layers,
+                    "cnn_kwargs": {
+                        "dropout": cfg.model.cnn.dropout,
                     },
                 }
         case "lb":

@@ -58,14 +58,15 @@ def log_dataset(
 
     df = ds.meta_df.loc[:, store_cols]
 
+    pred_col = "predictions" if predictions is not None else None
     if predictions is not None:
-        df.loc[:, "predictions"] = predictions
+        df.loc[:, pred_col] = predictions
 
     ds_ = mlflow.data.from_pandas(
         df,
         name=ds.name,
         targets=target,
-        predictions="predictions",
+        predictions=pred_col,
     )
     mlflow.log_input(dataset=ds_, context=f"{ds.name}_df.json")
 
