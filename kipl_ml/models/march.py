@@ -46,10 +46,21 @@ class TrMarchBlock(nn.Module):
             in_channels, out_channels=n_filters, kernel_size=ks, stride=st
         )
 
-        linear_in = (seq_len - ks) // st + 1
+        linear_in = ((seq_len - ks) // st + 1) * n_filters
 
-        self.lin_layer = nn.Linear(linear_in * n_filters, embed_dim)
-        self.layer_norm = nn.LayerNorm(embed_dim)
+        self.clf = nn.Sequential(
+            nn.Linear(linear_in, linear_in),
+            nn.LayerNorm(linear_in),
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.Linear(linear_in, linear_in),
+            nn.LayerNorm(linear_in),
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.Linear(linear_in, embed_dim),
+            nn.ReLU(),
+            nn.Dropout(p=0.1),
+        )
 
     def forward(self, x: torch.tensor) -> torch.tensor:
         # x shape: (batch_size, seq_len, in_channels)
@@ -58,12 +69,10 @@ class TrMarchBlock(nn.Module):
         # )
         # x = self.encoder_layers(x)
         # x shape: (batch_size, seq_len, in_channels)
-        x = self.conv1d(x.permute(0, 2, 1))
-        # x shape: (batch_size, n_filters, linear_in)
+        x = self.conv1d(x.permute(0, 2, 1)).flatten(1)
+        # x shape: (batch_size, n_filters * linear_in)
 
-        x = x.flatten(1)
-        x = self.lin_layer(x)
-        x = self.layer_norm(x)
+        x = self.clf(x)
 
         # out shape: (batch_size, embed_dim)
         return x
