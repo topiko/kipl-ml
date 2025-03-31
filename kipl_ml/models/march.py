@@ -35,8 +35,8 @@ class TrMarchBlock(nn.Module):
             )
         self.encoder_layers = nn.Sequential(trs_)
 
-        ks = 30
-        st = 15
+        ks = 50
+        st = 25
 
         if ks > seq_len:
             raise ValueError("Kernel size must be smaller than sequence length")

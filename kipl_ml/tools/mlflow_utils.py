@@ -49,12 +49,23 @@ def list_runs(
     return runs.reset_index(drop=True)
 
 
-def log_dataset(ds: WFDataset, store_cols: list[str], target: str):
+def log_dataset(
+    ds: WFDataset,
+    store_cols: list[str],
+    target: str,
+    predictions: np.ndarray | None = None,
+):
+
+    df = ds.meta_df.loc[:, store_cols]
+
+    if predictions is not None:
+        df.loc[:, "predictions"] = predictions
 
     ds_ = mlflow.data.from_pandas(
-        ds.meta_df.loc[:, store_cols],
+        df,
         name=ds.name,
         targets=target,
+        predictions="predictions",
     )
     mlflow.log_input(dataset=ds_, context=f"{ds.name}_df.json")
 

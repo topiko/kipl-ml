@@ -25,7 +25,7 @@ from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import get_mlflow_expr, key_val_fmt, log_multiline
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall
 from kipl_ml.metrics.defence_netwk_metrics import get_overheads
-from kipl_ml.model_eval.evaluate import evaluate_model
+from kipl_ml.model_eval.evaluate import evaluate_model, run_inference
 from kipl_ml.models.models import get_model
 from kipl_ml.models.rf import RFLRScheduler
 from kipl_ml.models.utils import get_laserbeak_model_config, get_signature
@@ -346,10 +346,6 @@ def _run_xv(
 
     with mlflow.start_run(run_name=run_name, nested=nested_run):
 
-        # Log the datasets
-        for ds in (ds_train, ds_valid, ds_test):
-            log_dataset(ds, STORE_DATA_COLS, target)
-
         # Log the config file as an artifact
         log_hydra_conf(cfg)
 
@@ -413,6 +409,13 @@ def _run_xv(
         # log model.
         signature = get_signature(model=trained_model, ds=ds_train)
         mlflow.pytorch.log_model(trained_model, "model", signature=signature)
+
+        # Log the datasets
+        for ds in (ds_train, ds_valid, ds_test):
+            dl = _get_dl(ds, 64, shuffle=False)
+            logits, _ = run_inference(train_model, dl)
+            preds = logits.amax(dim=1).numpy()
+            log_dataset(dl.dataset, STORE_DATA_COLS, target, preds)
 
 
 def _run_xvs(experiment_name: str, run_name: str, cfg: OmegaConf):

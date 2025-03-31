@@ -1,14 +1,14 @@
 source: "local"
 name: "march"
 trace_len: 20_000
-step_len: 300
-step_stride: 200
-embed_dim: 512
+step_len: 150
+step_stride: 100
+embed_dim: 1024
 vmap: True
 rnn:
   hidden_size: 512
   num_layers: 2
-  dropout: 0.4
+  dropout: 0.6
 tr_encoder:
   dim_feedforward: 512
   dropout: 0.3
