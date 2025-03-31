@@ -117,7 +117,7 @@ class March(nn.Module):
             bidirectional=bidir,
             hidden_size=h_size,
             num_layers=rnn_kwargs.get("num_layers", 1),
-            dropout=rnn_kwargs.get("dropout", 0.1),
+            dropout=rnn_kwargs.get("dropout", 0.5),
         )
 
         self.rnn_out_dim = h_size * 2 if bidir else h_size
