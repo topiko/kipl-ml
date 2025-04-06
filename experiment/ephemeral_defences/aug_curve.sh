@@ -2,7 +2,7 @@
 
 ntwork="infinite"
 expr_name="Ephemeral-Aug-Curve-$ntwork"
-min_patience=4
+min_patience=6
 
 div() {
   if [[ $2 -eq 0 ]]; then
@@ -18,7 +18,7 @@ div() {
 }
 
 
-for model in march rf df df-multi
+for model in rf march df df-multi
 do
 	for fixed_per_trace in False # True
 	do

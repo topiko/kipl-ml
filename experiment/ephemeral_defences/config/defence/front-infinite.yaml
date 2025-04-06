@@ -7,8 +7,8 @@ window_max_client: 12.0
 window_max_server: 12.0
 num_states_client: 1
 num_states_server: 1
-n_train_machines: 17_000
+n_train_machines: 50_000
 n_valid_machines: 4_000
 n_test_machines: 4_000
-fixed_per_trace: true
+fixed_per_trace: false
 

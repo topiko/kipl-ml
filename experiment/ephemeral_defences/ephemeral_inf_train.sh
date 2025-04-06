@@ -7,9 +7,9 @@ fixed_per_trace=false
 
 for netwk_state in infinite bottleneck
 do
-	for defence in "ephemeral-$netwk_state" # "front-$netwk_state" interspace breakpad "tamaraw-$netwk_state" no_defence
+	for defence in "ephemeral-$netwk_state" "front-$netwk_state" interspace breakpad "tamaraw-$netwk_state" no_defence
 	do
-		expr_name="EphemeralAll-inftrain-$netwk_state"
+		expr_name="EphemeralOFFICIAL-inftrain-$netwk_state"
 		common="train.defence_augmentation=$defaug lr_scheduler=plateau misc.mlflow.experiment_name=$expr_name network=$netwk_state train.patience=$patience"
 
 
