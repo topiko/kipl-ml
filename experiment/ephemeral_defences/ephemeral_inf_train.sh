@@ -5,9 +5,12 @@ patience=32
 lr_patience=8
 fixed_per_trace=false
 
+source defence_lists.sh
+
 
 for netwk_state in infinite bottleneck
 do
+
 
 	if [[ $netwk_state == "infinite" ]]; then
 		list_="defences_inf"
@@ -17,9 +20,11 @@ do
 
 	eval "lst=(\"\${${list_}[@]}\")"
 
+
 	for defence in "${lst[@]}"
 	do
 
+		echo $defence
 		expr_name="EphemeralOFFICIAL-inftrain-$netwk_state"
 
 
