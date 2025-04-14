@@ -23,12 +23,14 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
     ]
 
     metric = f"metrics.{metric}"
+    df.loc[:, metric] *= 100
+
     infty = unicodedata.lookup("Rocket")
     bottleneck = unicodedata.lookup("Hourglass")
     res = (
         df.groupby(groupby)
         .apply(
-            lambda x: f"{x.loc[:, metric].mean():.3f}\u00b1{x.loc[:, metric].std():.3f}",
+            lambda x: f"{x.loc[:, metric].mean():.1f}\u00b1{x.loc[:, metric].std():.1f}",
             include_groups=False,
         )
         .to_frame()
@@ -50,8 +52,12 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
         res = res.loc[:, (slice(None), "df")].rename(
             columns={"df": metric.replace("metrics.def.", "")}, level=1
         )
+    elif metric.startswith("metrics.sim."):
+        res = res.loc[:, (slice(None), "df")].rename(
+            columns={"df": metric.replace("metrics.", "")}, level=1
+        )
     elif metric == "metrics.test_accuracy":
-        res = res.rename(columns=lambda x: f"acc-{x}", level=1)
+        res = res.rename(columns=lambda x: f"acc-{x} %", level=1)
 
     return res
 
@@ -75,8 +81,9 @@ def main():
     res_acc = _parse_df(df, "test_accuracy")
     res_bw = _parse_df(df, "def.bandwidth")
     res_delay = _parse_df(df, "def.delay")
+    res_missing = _parse_df(df, "sim.missing")
 
-    res = pd.concat((res_acc, res_bw, res_delay), axis=1)
+    res = pd.concat((res_acc, res_bw, res_delay, res_missing), axis=1)
 
     print(res)
     with open(f"tables/{args.experiment_name}_table.txt", "w", encoding="utf-8") as f:

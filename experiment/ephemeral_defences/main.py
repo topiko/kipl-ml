@@ -407,7 +407,7 @@ def _run_xv(
             test_loader.dataset.defence, test_loader.dataset.meta_df
         )
 
-        if defence_overheads["sim.missing"] > 0.02:
+        if defence_overheads["sim.missing"] > 0.002:
             logger.warning("Missing packets in simulation!")
 
         mlflow.log_metrics(defence_overheads, step=None)
