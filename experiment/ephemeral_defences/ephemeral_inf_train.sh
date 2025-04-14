@@ -1,17 +1,29 @@
 #!/bin/bash
 
-nepochs=30
 defaug=0
-patience=15
+patience=32
+lr_patience=8
 fixed_per_trace=false
+
 
 for netwk_state in infinite bottleneck
 do
-	for defence in "ephemeral-$netwk_state" "front-$netwk_state" interspace breakpad "tamaraw-$netwk_state" no_defence
-	do
-		expr_name="EphemeralOFFICIAL-inftrain-$netwk_state"
-		common="train.defence_augmentation=$defaug lr_scheduler=plateau misc.mlflow.experiment_name=$expr_name network=$netwk_state train.patience=$patience"
 
+	if [[ $netwk_state == "infinite" ]]; then
+		list_="defences_inf"
+	elif [[ $netwk_state == "bottleneck" ]]; then
+		list_="defences_bottle"
+	fi
+
+	eval "lst=(\"\${${list_}[@]}\")"
+
+	for defence in "${lst[@]}"
+	do
+
+		expr_name="EphemeralOFFICIAL-inftrain-$netwk_state"
+
+
+		common="train.defence_augmentation=$defaug lr_scheduler=plateau lr_scheduler.lr_patience=$lr_patience misc.mlflow.experiment_name=$expr_name network=$netwk_state train.patience=$patience train.n_epochs=0"
 
 		uv run python main.py --config-name=df defence=$defence $common
 		uv run python main.py --config-name=rf defence=$defence $common
