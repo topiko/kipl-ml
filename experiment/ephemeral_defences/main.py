@@ -255,6 +255,7 @@ def _run_xv(
         logger.info("Found finished run for: %s -> exiting.", run_name)
         return
 
+    logger.info(run_name)
     logger.info("Starting run w. config:")
     log_multiline(OmegaConf.to_yaml(cfg))
 
@@ -405,6 +406,9 @@ def _run_xv(
         defence_overheads = get_overheads(
             test_loader.dataset.defence, test_loader.dataset.meta_df
         )
+
+        if defence_overheads["sim.missing"] > 0.02:
+            logger.warning("Missing packets in simulation!")
 
         mlflow.log_metrics(defence_overheads, step=None)
 
