@@ -1,5 +1,4 @@
 import argparse
-import unicodedata
 
 import pandas as pd
 
@@ -25,12 +24,12 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
     metric = f"metrics.{metric}"
     df.loc[:, metric] *= 100
 
-    infty = unicodedata.lookup("Rocket")
-    bottleneck = unicodedata.lookup("Hourglass")
+    infty = ""  # "\\infinity"  # unicodedata.lookup("Rocket")
+    bottleneck = "\\bottleneck"  # unicodedata.lookup("Hourglass")
     res = (
         df.groupby(groupby)
         .apply(
-            lambda x: f"{x.loc[:, metric].mean():.1f}\u00b1{x.loc[:, metric].std():.1f}",
+            lambda x: f"{x.loc[:, metric].mean():.1f}\u00b1{x.loc[:, metric].std():.1f}\\%",
             include_groups=False,
         )
         .to_frame()
@@ -48,6 +47,24 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
         )
     )
 
+    idx = res.index
+
+    defence_name_map = {
+        "breakpad": "Break-Pad",
+        "front": "FRONT",
+        "interspace": "Interspace",
+        "regulator": "RegulaTor",
+        "maybenot | sc.=0.5 | eph-padding-bottle-1k-c2-100k-april13-use-scale0.5": "Ephemeral padding-only | sc.=0.5",
+        "maybenot | sc.=0.75 | eph-padding-1k-c2-100k-april8-use-scale0.75": "Ephemeral padding-only | sc.=0.75",
+        "maybenot | sc.=0.75 | eph-padding-bottle-1k-c2-100k-april13-use-scale0.5": "Ephemeral blocking-only | sc.=0.75",
+        "maybenot | sc.=0.75 | eph-blocking-1k-c2-100k-april8-use-scale0.75": "Ephemeral blocking | sc.=0.75",
+        "maybenot | sc.=0.5 | def-padding-only-bottleneck-100k-2025-03-03": "Ephemeral padding-only 3.3. 100k | sc.=0.5",
+        "maybenot | sc.=0.5 | def-padding-only-infinite-100k-2025-03-03": "Ephemeral padding-only 3.3. 100k | sc.=0.5",
+        "nodefence": "Undefended",
+        "tamaraw": "Tamaraw",
+    }
+    res.index = [defence_name_map[id_[0]] + id_[1] for id_ in idx]
+
     if metric.startswith("metrics.def."):
         res = res.loc[:, (slice(None), "df")].rename(
             columns={"df": metric.replace("metrics.def.", "")}, level=1
@@ -57,7 +74,29 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
             columns={"df": metric.replace("metrics.", "")}, level=1
         )
     elif metric == "metrics.test_accuracy":
-        res = res.rename(columns=lambda x: f"acc-{x} %", level=1)
+        res = res.rename(columns=lambda x: f"acc-{x}", level=1)
+
+    index = [
+        "Break-Pad\\bottleneck",
+        "Break-Pad",
+        "FRONT\\bottleneck",
+        "FRONT",
+        "Interspace\\bottleneck",
+        "Interspace",
+        "Ephemeral padding-only | sc.=0.5\\bottleneck",
+        "Ephemeral padding-only | sc.=0.75",
+        "Undefended\\bottleneck",
+        "Undefended",
+        "Tamaraw\\bottleneck",
+        "Tamaraw",
+        "RegulaTor\\bottleneck",
+        "RegulaTor",
+        "Ephemeral blocking | sc.=0.75\\bottleneck",
+        "Ephemeral blocking | sc.=0.75",
+    ]
+
+    index = [idx for idx in index if idx in res.index]
+    res = res.loc[index]
 
     return res
 
@@ -72,6 +111,7 @@ def main():
         required=True,
         help="Which experiment(s) to consider",
     )
+    parser.add_argument("--missing", action="store_true")
 
     args = parser.parse_args()
 
@@ -83,7 +123,10 @@ def main():
     res_delay = _parse_df(df, "def.delay")
     res_missing = _parse_df(df, "sim.missing")
 
-    res = pd.concat((res_acc, res_bw, res_delay, res_missing), axis=1)
+    res = pd.concat((res_acc, res_bw, res_delay), axis=1)
+
+    if args.missing:
+        res = pd.concat((res, res_missing), axis=1)
 
     print(res)
     with open(f"tables/{args.experiment_name}_table.txt", "w", encoding="utf-8") as f:
