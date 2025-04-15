@@ -88,6 +88,7 @@ def regulator(cfg: OmegaConf) -> dict[str, Breakpad]:
             D=def_params.D,
             T=def_params.T,
             padding_budget=def_params.padding_budget,
+            B=def_params.B,
             seed=seed,
         )
 

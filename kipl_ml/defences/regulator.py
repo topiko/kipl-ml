@@ -19,6 +19,7 @@ class Regulator(_FixedMachine):
         D: float,
         T: int,
         padding_budget: int,
+        B: int,
         seed: int = 42,
         fixed_per_trace: bool = False,
     ):
@@ -30,6 +31,7 @@ class Regulator(_FixedMachine):
             "D": D,
             "T": T,
             "padding_budget": padding_budget,
+            "B": B,
             "seed": seed,
         }
         super().__init__(
@@ -47,6 +49,7 @@ class Regulator(_FixedMachine):
         D: float,
         T: float,
         padding_budget: int,
+        B: int,
         seed: int,
     ) -> None:
 
@@ -57,7 +60,7 @@ class Regulator(_FixedMachine):
                 "-c",
                 f"regulator_client {U} {C}",
                 "-s",
-                f"regulator_server {R} {D} {T} {padding_budget}",
+                f"regulator_server {R} {D} {T} {padding_budget} {B}",
                 "-o",
                 tmpfile_,
                 "--seed",
