@@ -118,6 +118,7 @@ class _FixedMachine(_Def):
             max_blocking_frac_server=0,
             max_trace_length=MAX_TRACE_LENGTH,
             events_multiplier=EVENTS_MULTIPLIER,
+            random_state=self.simul_rng(),
         )
 
         trace_d = parse_trace_to_tensor_dict(times, dirs, paddings, None)

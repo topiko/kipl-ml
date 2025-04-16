@@ -9,7 +9,7 @@ from mbnt import sim_trace_from_file_advanced
 from kipl_ml.data.utils import get_std_trace_dict, parse_trace_to_tensor_dict
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
-from kipl_ml.network.utils import NetwkDelay, NetwkPps
+from kipl_ml.network.utils import NetwkDelay, NetwkPps, TraceSimulRng
 from kipl_ml.trace.params import EVENTS_MULTIPLIER, MAX_TRACE_LENGTH
 
 logger = get_logger(__name__)
@@ -29,6 +29,7 @@ class _Def(ABC):
 
         self.network_delay_millis = NetwkDelay(*network_delay_millis, seed=seed)
         self.network_pps = NetwkPps(*network_pps, seed=seed)
+        self.simul_rng = TraceSimulRng(seed=seed)
         self.FIXED_PER_TRACE = fixed_per_trace
 
     def _report(self, to_log: bool = True, **kwargs) -> str:
