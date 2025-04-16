@@ -17,11 +17,10 @@ class Regulator(_FixedMachine):
         C: float,
         R: float,
         D: float,
-        T: int,
+        T: float,
         padding_budget: int,
         B: int,
         seed: int = 42,
-        fixed_per_trace: bool = False,
     ):
 
         self.machination_kwargs = {
@@ -37,7 +36,7 @@ class Regulator(_FixedMachine):
         super().__init__(
             network_delay_millis=network_delay_millis,
             network_pps=network_pps,
-            fixed_per_trace=fixed_per_trace,
+            fixed_per_trace=False,
         )
 
     def _machination(
