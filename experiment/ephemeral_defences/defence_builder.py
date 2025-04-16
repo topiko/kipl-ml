@@ -109,7 +109,9 @@ def interspace(cfg: OmegaConf) -> dict[str, Interspace]:
 
     netwk_delay, netwk_pps = _parse_netwk(cfg)
 
-    def _interspace(n_machines: int, fixed_per_trace: bool, seed: int):
+    fixed_per_trace = d.pop("fixed_per_trace")
+
+    def _interspace(n_machines: int, seed: int):
         return Interspace(
             network_delay_millis=netwk_delay,
             network_pps=netwk_pps,
@@ -119,11 +121,10 @@ def interspace(cfg: OmegaConf) -> dict[str, Interspace]:
             fixed_per_trace=fixed_per_trace,
         )
 
-    fixed_per_trace = d.pop("fixed_per_trace")
     return {
-        "defence_train": _interspace(n_train_machines, fixed_per_trace, seed=seed + 1),
-        "defence_valid": _interspace(n_valid_machines, True, seed=seed + 2),
-        "defence_test": _interspace(n_test_machines, True, seed=seed + 3),
+        "defence_train": _interspace(n_train_machines, seed=seed + 1),
+        "defence_valid": _interspace(n_valid_machines, seed=seed + 2),
+        "defence_test": _interspace(n_test_machines, seed=seed + 3),
     }
 
 
@@ -136,8 +137,9 @@ def front(cfg: OmegaConf) -> dict[str, FRONT]:
     n_test_machines = d.pop("n_test_machines")
 
     netwk_delay, netwk_pps = _parse_netwk(cfg)
+    fixed_per_trace = d.pop("fixed_per_trace")
 
-    def _front(n_machines: int, fixed_per_trace: bool, seed: int):
+    def _front(n_machines: int, seed: int):
         return FRONT(
             network_delay_millis=netwk_delay,
             network_pps=netwk_pps,
@@ -147,12 +149,10 @@ def front(cfg: OmegaConf) -> dict[str, FRONT]:
             fixed_per_trace=fixed_per_trace,
         )
 
-    fixed_per_trace = d.pop("fixed_per_trace")
-
     return {
-        "defence_train": _front(n_train_machines, fixed_per_trace, seed + 1),
-        "defence_valid": _front(n_valid_machines, True, seed + 2),
-        "defence_test": _front(n_test_machines, True, seed + 3),
+        "defence_train": _front(n_train_machines, seed + 1),
+        "defence_valid": _front(n_valid_machines, seed + 2),
+        "defence_test": _front(n_test_machines, seed + 3),
     }
 
 
@@ -182,7 +182,9 @@ def ephemeral(cfg: OmegaConf) -> dict[str, Maybenot]:
     for key in keys:
         mbnt_conf[key] = tuple(mbnt_conf[key])
 
-    def _ephemeral(n_machines: int, fixed_per_trace: bool, seed: int) -> Maybenot:
+    fixed_per_trace = mbnt_conf.pop("fixed_per_trace")
+
+    def _ephemeral(n_machines: int, seed: int) -> Maybenot:
         mbnt_conf["n_machines"] = n_machines
         return Maybenot(**mbnt_conf, seed=seed, fixed_per_trace=fixed_per_trace)
 
@@ -190,10 +192,8 @@ def ephemeral(cfg: OmegaConf) -> dict[str, Maybenot]:
     n_valid_machines = mbnt_conf.pop("n_valid_machines")
     n_test_machines = mbnt_conf.pop("n_test_machines")
 
-    fixed_per_trace = mbnt_conf.pop("fixed_per_trace")
-
     return {
-        "defence_train": _ephemeral(n_train_machines, fixed_per_trace, seed + 1),
-        "defence_valid": _ephemeral(n_valid_machines, True, seed + 2),
-        "defence_test": _ephemeral(n_test_machines, True, seed + 3),
+        "defence_train": _ephemeral(n_train_machines, seed + 1),
+        "defence_valid": _ephemeral(n_valid_machines, seed + 2),
+        "defence_test": _ephemeral(n_test_machines, seed + 3),
     }
