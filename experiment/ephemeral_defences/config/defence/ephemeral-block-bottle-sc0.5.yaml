@@ -1,6 +1,6 @@
 type: ephemeral
 deck_name: "eph-blocking-bottle-1k-c2-100k-april13-use-scale0.75"
-scale: 0.75
+scale: 0.5
 client_padding_budget: [1000, 2000]
 client_blocking_budget: [100_000, 200_000]
 client_padding_frac: [0.95, 0.95]

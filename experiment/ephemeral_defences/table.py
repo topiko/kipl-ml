@@ -54,15 +54,22 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
         "front": "FRONT",
         "interspace": "Interspace",
         "regulator": "RegulaTor",
+        "maybenot | sc.=0.5 | eph-blocking-bottle-1k-c2-100k-april13-use-scale0.75": "Ephemeral blocking | sc.=0.5",
+        "maybenot | sc.=0.75 | eph-blocking-bottle-1k-c2-100k-april13-use-scale0.75": "Ephemeral blocking | sc.=0.75",
+        "maybenot | sc.=0.75 | eph-blocking-1k-c2-100k-april8-use-scale0.75": "Ephemeral blocking | sc.=0.75",
         "maybenot | sc.=0.5 | eph-padding-bottle-1k-c2-100k-april13-use-scale0.5": "Ephemeral padding-only | sc.=0.5",
         "maybenot | sc.=0.75 | eph-padding-1k-c2-100k-april8-use-scale0.75": "Ephemeral padding-only | sc.=0.75",
-        "maybenot | sc.=0.75 | eph-padding-bottle-1k-c2-100k-april13-use-scale0.5": "Ephemeral blocking-only | sc.=0.75",
-        "maybenot | sc.=0.75 | eph-blocking-1k-c2-100k-april8-use-scale0.75": "Ephemeral blocking | sc.=0.75",
         "maybenot | sc.=0.5 | def-padding-only-bottleneck-100k-2025-03-03": "Ephemeral padding-only 3.3. 100k | sc.=0.5",
         "maybenot | sc.=0.5 | def-padding-only-infinite-100k-2025-03-03": "Ephemeral padding-only 3.3. 100k | sc.=0.5",
         "nodefence": "Undefended",
         "tamaraw": "Tamaraw",
     }
+
+    # Apr  8 17:04 eph-blocking-1k-c2-100k-april8-use-scale0.75
+    # Apr 13 23:14 eph-blocking-bottle-1k-c2-100k-april13-use-scale0.75
+    # Apr  8 16:46 eph-padding-1k-c2-100k-april8-use-scale0.75
+    # Apr 13 23:16 eph-padding-bottle-1k-c2-100k-april13-use-scale0.5
+
     res.index = [defence_name_map[id_[0]] + id_[1] for id_ in idx]
 
     if metric.startswith("metrics.def."):
@@ -92,11 +99,13 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
         "RegulaTor\\bottleneck",
         "RegulaTor",
         "Ephemeral blocking | sc.=0.75\\bottleneck",
+        "Ephemeral blocking | sc.=0.5\\bottleneck",
         "Ephemeral blocking | sc.=0.75",
     ]
 
     index = [idx for idx in index if idx in res.index]
     res = res.loc[index]
+    res.index = [idx.replace("|", "\\vert") for idx in res.index]
 
     return res
 
@@ -121,11 +130,11 @@ def main():
     res_acc = _parse_df(df, "test_accuracy")
     res_bw = _parse_df(df, "def.bandwidth")
     res_delay = _parse_df(df, "def.delay")
-    res_missing = _parse_df(df, "sim.missing")
 
     res = pd.concat((res_acc, res_bw, res_delay), axis=1)
 
     if args.missing:
+        res_missing = _parse_df(df, "sim.missing")
         res = pd.concat((res, res_missing), axis=1)
 
     print(res)
@@ -133,7 +142,7 @@ def main():
         for line in str(res).split("\n"):
             f.write(line + "\n")
 
-    res.to_latex(f"tables/{args.experiment_name}_table.tex")
+    res.to_latex("tables/table.tex")
 
 
 if __name__ == "__main__":
