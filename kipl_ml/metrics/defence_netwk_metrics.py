@@ -60,6 +60,7 @@ def get_overheads(
     meta_df: pd.DataFrame,
     max_len: int = MAX_TRACE_LENGTH,
     real_world: bool = False,
+    full_output: bool = False,
 ) -> dict[str, float]:
 
     logger.info("Compute overheads for: %s", defence.name)
@@ -77,4 +78,10 @@ def get_overheads(
     overheads_fin["def.bandwidth"] = overheads["defended"] / overheads["base"] - 1.0
     overheads_fin["def.delay"] = overheads["delay"]
     overheads_fin["sim.missing"] = overheads["missing"]
+
+    if full_output:
+        for k, v in overheads.items():
+            if k in {"delay", "missing"}:
+                continue
+            overheads_fin[k] = v
     return overheads_fin
