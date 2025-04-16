@@ -111,6 +111,7 @@ class Maybenot(_Def):
             self.network_pps(),
             **pad_bloc_fracs,
             max_trace_length=MAX_TRACE_LENGTH,
+            random_state=self.simul_rng(),
             events_multiplier=EVENTS_MULTIPLIER,
         )
 
