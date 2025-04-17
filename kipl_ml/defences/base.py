@@ -95,10 +95,12 @@ class NoDefence(_Def):
         seed: int | None = 42,
     ):
 
-        self.network_delay_millis = NetwkDelay(
-            network_delay_millis[0], network_delay_millis[1], seed=seed
+        super().__init__(
+            network_delay_millis=network_delay_millis,
+            network_pps=network_pps,
+            seed=seed,
+            fixed_per_trace=False,
         )
-        self.network_pps = NetwkPps(network_pps[0], network_pps[1], seed=seed)
 
     def report(self, to_log: bool = True) -> str:
         str_ = "No defence applied\n"
@@ -123,6 +125,7 @@ class NoDefence(_Def):
             max_blocking_frac_client=0,
             max_blocking_frac_server=0,
             max_trace_length=MAX_TRACE_LENGTH,
+            random_state=self.simul_rng(),
             events_multiplier=EVENTS_MULTIPLIER,
         )
         trace_d = parse_trace_to_tensor_dict(times, dirs, paddings, None)
