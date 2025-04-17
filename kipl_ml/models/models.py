@@ -52,7 +52,7 @@ def get_model(
                     return DF(n_classes, large_input=True)
 
                 raise ValueError("Invalid input len for DF")
-            case "rf":
+            case "rf" | "rf*":
                 return RF(n_classes)
             case "march":
                 return March(

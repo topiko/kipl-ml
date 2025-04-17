@@ -51,8 +51,10 @@ class Feats(StrEnum):
     SIZE_DIRS = f"{SIZES}_dirs"
     CUM_SIZE_DIRS = f"cum_{SIZE_DIRS}"
     CUM_SIZE_DIRS_MAX_NORMALIZED = f"max_normalized_{CUM_SIZE_DIRS}"
-    TAM_UP = "tam_up"
-    TAM_DOWN = "tam_down"
+    TAM_UP = "tam-upload"
+    TAM_UP_MAX_NORMALIZED = f"{TAM_UP}_max_normalized"
+    TAM_DOWN = "tam-download"
+    TAM_DOWN_MAX_NORMALIZED = f"{TAM_DOWN}_max_normalized"
 
     def __str__(self) -> str:
         return self.value
@@ -205,6 +207,8 @@ class Normalize(_TR):
                 Feats.CUM_SIZES: Feats.CUM_SIZES_MAX_NORMALIZED,
                 Feats.CUM_SIZE_DIRS: Feats.CUM_SIZE_DIRS_MAX_NORMALIZED,
                 Feats.RUNNING_RATE_SIZES: Feats.RUNNING_RATE_SIZES_MAX_NORMALIZED,
+                Feats.TAM_UP: Feats.TAM_UP_MAX_NORMALIZED,
+                Feats.TAM_DOWN: Feats.TAM_DOWN_MAX_NORMALIZED,
             }[self.normalized_asset]
         )
 
@@ -447,7 +451,7 @@ class _TAM(_TR):
 
     @property
     def name(self) -> str:
-        return f"{self.NAME}-{self.DIR}_matr={self.max_matrix_len}_loads={self.max_load_time_s:.1f}"
+        return f"{self.NAME}-{self.DIR}"  # _matr={self.max_matrix_len}_loads={self.max_load_time_s:.1f}"
 
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> RunningRate:
         self._output_sizes = {self.name: self.max_matrix_len}
@@ -791,7 +795,25 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
             )
         case Feats.TAM_UP:
             return TAM_UP()
+        case Feats.TAM_UP_MAX_NORMALIZED:
+            return Compose(
+                TAM_UP(),
+                Normalize(
+                    normalized_asset=Feats.TAM_UP,
+                    input_asset=Feats.TAM_UP,
+                    division="max",
+                ),
+            )
         case Feats.TAM_DOWN:
             return TAM_DOWN()
+        case Feats.TAM_DOWN_MAX_NORMALIZED:
+            return Compose(
+                TAM_DOWN(),
+                Normalize(
+                    normalized_asset=Feats.TAM_DOWN,
+                    input_asset=Feats.TAM_DOWN,
+                    division="max",
+                ),
+            )
         case _:
             raise ValueError(f"Unknown feature name: {feature_name}")

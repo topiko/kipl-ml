@@ -1,8 +1,8 @@
 source: local
 name: rf
 features:
-  - tam_up
-  - tam_down
+  - tam-upload
+  - tam-download
 max_matrix_len: 1800
 max_load_time_s: 80
 trace_len: 100_000
