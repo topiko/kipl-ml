@@ -105,7 +105,7 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
 
     index = [idx for idx in index if idx in res.index]
     res = res.loc[index]
-    res.index = [idx.replace("|", "\\vert") for idx in res.index]
+    res.index = [idx.replace("|", "$\\vert$") for idx in res.index]
 
     return res
 
