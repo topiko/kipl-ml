@@ -19,14 +19,14 @@ do
 	for defence in "${lst[@]}"
 	do
 		echo $defence
-		expr_name="TMP10.EphemeralMORE-OFFICIAL-Aug$defaug-$netwk_state"
-		common="train.defence_augmentation=$defaug train=fixed-epochs train.n_epochs=$nepochs dataset.n_splits=10 misc.mlflow.experiment_name=$expr_name network=$netwk_state"
+		expr_name="EphemeralMORE-OFFICIAL-Aug$defaug-$netwk_state"
+		common="train.defence_augmentation=$defaug train=fixed-epochs train.n_epochs=$nepochs misc.mlflow.experiment_name=$expr_name network=$netwk_state"
 		common_lb="$common lr_scheduler.epochs=$nepochs"
 
-		uv run python main.py --config-name=rf_star defence=$defence $common
 		uv run python main.py --config-name=df defence=$defence $common
 		uv run python main.py --config-name=rf defence=$defence $common
-		# uv run python main.py --config-name=df-multi defence=$defence $common_lb
+		uv run python main.py --config-name=df-multi defence=$defence $common_lb
+		#uv run python main.py --config-name=rf_star defence=$defence $common
 		# uv run python main.py --config-name=laserbeak defence=$defence $common_lb
 
 	done
