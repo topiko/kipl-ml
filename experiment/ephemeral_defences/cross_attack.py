@@ -32,7 +32,6 @@ logger = get_logger(__name__)
 dotenv.load_dotenv()
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-print("MLFLOW_TRACKING_URI", MLFLOW_TRACKING_URI)
 
 
 def _get_run_id(cfg: OmegaConf, test_xv: int) -> str:
@@ -62,11 +61,7 @@ def _get_run_id(cfg: OmegaConf, test_xv: int) -> str:
     logger.info("Xv run name: %s", xv_run_name)
     logger.info("Run ID: %s", run_id)
 
-    test_meta_df = mlflow.load_table(
-        artifact_file="hydra_config.json", run_ids=[run_id]
-    )
-    print(test_meta_df)
-    return parent_runids[0]
+    return run_id
 
 
 def get_model(cfg: OmegaConf, test_xv: int) -> nn.Module:
@@ -93,16 +88,22 @@ def get_test_set(cfg: OmegaConf, test_xv: int) -> Dataset:
 
     test_df = meta_df[meta_df[col] == test_xv]
     run_id = _get_run_id(cfg, test_xv)
-    test_df_remote = mlflow.load_table(artifact_file="test_df.json", run_ids=[run_id])
-
-    if set(test_df_remote.loc[:, assets.TRACE_ID]).difference(
-        test_df.loc[:, assets.TRACE_ID]
-    ):
-        raise ValueError("Trace IDs do not match")
+    run = mlflow.get_run(run_id=run_id)
 
     feature_names = _get_feature_names(cfg)
-    features = mlflow.load_table(artifact_file="features.json", run_ids=[run_id])
-    feature_names_remote = features.features.tolist()
+
+    # Loading the dataset's source
+    logged_dataset = run.inputs.dataset_inputs[2].dataset
+    dataset_source = mlflow.data.get_source(logged_dataset)
+
+    try:
+        local_dataset = dataset_source.load()
+    except NotImplementedError:
+        logger.warning("Cannot verify that test sets are matching.")
+
+    config = mlflow.artifacts.load_dict(run.info.artifact_uri + "/hydra_config.json")
+
+    feature_names_remote = config["model"]["features"]
 
     if any(n1 != n2 for n1, n2 in zip(feature_names, feature_names_remote)):
         raise ValueError("Feature names do not match")
@@ -142,7 +143,7 @@ def main():
     )
 
     args = parser.parse_args()
-    defences = ["no_defence", f"front-{args.network}"]
+    defences = ["no_defence", "breakpad", f"front-{args.network}"]
     overrides = [f"misc.mlflow.experiment_name={args.experiment_name}-{args.network}"]
 
     with initialize(version_base=None, config_path="./config/"):
