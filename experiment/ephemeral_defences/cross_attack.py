@@ -161,7 +161,7 @@ def get_metrics_for_xv(
         run = mlflow.get_run(run_id=run_id)
         recorded_acc = run.data.metrics["test_accuracy"]
         current_acc = metrics_vals["accuracy"]
-        print(rf"DIAG acc = {recorded_acc:.5f} \~ {current_acc:.5f}")
+        print(rf"recorded acc = {recorded_acc:.5f} ~ {current_acc:.5f} = current acc ?")
         print()
     return metrics_vals
 
