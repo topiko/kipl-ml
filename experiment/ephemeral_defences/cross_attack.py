@@ -148,7 +148,7 @@ def get_metrics_for_xv(
         )
 
     test_ds = get_test_set(cfg_defence, test_xv=test_xv)
-    test_loader = DataLoader(test_ds, batch_size=128, shuffle=False)
+    test_loader = DataLoader(test_ds, num_workers=8, batch_size=128, shuffle=False)
 
     metrics = [Accuracy()]
     metrics_vals = evaluate_model(
@@ -204,10 +204,14 @@ def main():
         ]
 
     overrides = [f"misc.mlflow.experiment_name={args.experiment_name}-{args.network}"]
+    if "inftrain" in args.experiment_name:
+        overrides += ["train.defence_augmentation=0"]
 
     dfs = []
 
-    table_name = f"tables/cross_attack_{args.experiment_name}-{args.network}.csv"
+    table_name = (
+        f"tables/cross_attack_{args.experiment_name}-{args.model}-{args.network}.csv"
+    )
     try:
         df = pd.read_csv(table_name)
     except FileNotFoundError:
@@ -261,6 +265,9 @@ def main():
                 print(acc_mean)
 
                 df.to_csv(table_name, index=False)
+
+    print("==============================")
+    print(acc_mean.loc[defences, defences])
 
 
 if __name__ == "__main__":
