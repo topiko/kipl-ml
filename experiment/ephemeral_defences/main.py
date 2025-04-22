@@ -232,38 +232,8 @@ def _get_bw_overhead(cfg: OmegaConf, undefended_trace_len: int) -> int:
             raise NotImplementedError("Defence type not implemented.")
 
 
-def _run_xv(
-    cfg: OmegaConf,
-    experiment_name: str,
-    parent_run_name: str,
-    test_xv: int,
-    nested_run: bool = True,
-):
-
-    # Set seeds
-    seed = cfg.misc.seed + test_xv
-    cfg.misc.seed = seed
-    torch.manual_seed(seed)
-    torch.use_deterministic_algorithms(True)
-    np.random.seed(seed)
-
-    run_name = f"{parent_run_name}_xv={test_xv:02d}"
-
-    if run_exists(experiment_name, run_name, parent_run_name=parent_run_name) and (
-        not cfg.misc.ignore_existing
-    ):
-        logger.info("Found finished run for: %s -> exiting.", run_name)
-        return
-
-    logger.info(run_name)
-    logger.info("Starting run w. config:")
-    log_multiline(OmegaConf.to_yaml(cfg))
-
-    dataset_name = cfg.dataset.name
+def _get_model_config(cfg: OmegaConf, feature_names: bool = False) -> dict | list[str]:
     model_name = cfg.model.name
-    target = _get_target(cfg.dataset.target)
-    STORE_DATA_COLS = [target, assets.TRACE_ID]
-
     match cfg.model.source:
         case "local":
             feature_names = cfg.model.features
@@ -308,6 +278,51 @@ def _run_xv(
 
         case _:
             raise NotImplementedError
+
+    if feature_names:
+        return feature_names
+
+    return model_config
+
+
+def _get_feature_names(cfg: OmegaConf) -> list[str]:
+    return _get_model_config(cfg, feature_names=True)
+
+
+def _run_xv(
+    cfg: OmegaConf,
+    experiment_name: str,
+    parent_run_name: str,
+    test_xv: int,
+    nested_run: bool = True,
+):
+
+    # Set seeds
+    seed = cfg.misc.seed + test_xv
+    cfg.misc.seed = seed
+    torch.manual_seed(seed)
+    torch.use_deterministic_algorithms(True)
+    np.random.seed(seed)
+
+    run_name = f"{parent_run_name}_xv={test_xv:02d}"
+
+    if run_exists(experiment_name, run_name, parent_run_name=parent_run_name) and (
+        not cfg.misc.ignore_existing
+    ):
+        logger.info("Found finished run for: %s -> exiting.", run_name)
+        return
+
+    logger.info(run_name)
+    logger.info("Starting run w. config:")
+    log_multiline(OmegaConf.to_yaml(cfg))
+
+    dataset_name = cfg.dataset.name
+    model_name = cfg.model.name
+    target = _get_target(cfg.dataset.target)
+    STORE_DATA_COLS = [target, assets.TRACE_ID]
+
+    feature_names = _get_feature_names(cfg)
+    trace_len = cfg.model.trace_len
     feature_trs = FeatureTrs(feature_names=feature_names, n_packets=trace_len)
 
     loss_fn = _get_loss(cfg)
@@ -328,6 +343,7 @@ def _run_xv(
         **_get_defence(cfg),
     )
 
+    model_config = _get_model_config(cfg)
     model = get_model(
         cfg.model.source,
         model_name,
