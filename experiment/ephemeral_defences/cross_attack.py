@@ -156,6 +156,13 @@ def get_metrics_for_xv(
         dataloader=test_loader,
         metrics=metrics,
     )
+    if trained_defence == test_defence:
+        run_id = _get_run_id(cfg_attack, test_xv=test_xv)
+        run = mlflow.get_run(run_id=run_id)
+        recorded_acc = run.data.metrics["test_accuracy"]
+        current_acc = metrics_vals["accuracy"]
+        print(rf"DIAG acc = {recorded_acc:.5f} \~ {current_acc:.5f}")
+        print()
     return metrics_vals
 
 
