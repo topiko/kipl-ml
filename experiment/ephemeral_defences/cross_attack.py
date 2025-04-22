@@ -49,6 +49,8 @@ def _get_run_id(cfg: OmegaConf, test_xv: int) -> str:
         experiment_name, xv_run_name, parent_run_name=run_name
     )
 
+    logger.info("Run name: %s", run_name)
+    logger.info("Xv run name: %s", xv_run_name)
     if (parent_runids is None) or (len(parent_runids) == 0):
         raise ValueError("No run found!")
 
@@ -60,8 +62,6 @@ def _get_run_id(cfg: OmegaConf, test_xv: int) -> str:
 
     run_id = df.loc[mask, "run_id"].values[0]
 
-    logger.info("Run name: %s -> %s", run_name, parent_runids[0])
-    logger.info("Xv run name: %s", xv_run_name)
     logger.info("Run ID: %s", run_id)
 
     return run_id
@@ -189,7 +189,6 @@ def main():
             "no_defence",
             "tamaraw-bottleneck",
             "regulator-bottleneck",
-            "ephemeral-block-bottle-sc0.5",
             "ephemeral-block-bottle-sc0.75",
         ]
     elif args.network == "infinite":
@@ -204,12 +203,11 @@ def main():
             "ephemeral-block-inf-sc0.75",
         ]
 
-    defences = ["no_defence", "breakpad"]
     overrides = [f"misc.mlflow.experiment_name={args.experiment_name}-{args.network}"]
 
     dfs = []
 
-    table_name = f"tables/cross_attack_{args.network}.csv"
+    table_name = f"tables/cross_attack_{args.experiment_name}-{args.network}.csv"
     try:
         df = pd.read_csv(table_name)
     except FileNotFoundError:
@@ -225,7 +223,7 @@ def main():
                         & (df["xv"] == xv)
                     )
                     if mask.sum() > 0:
-                        logger.info("Already computed for %s", mask.sum())
+                        logger.info("Already computed")
                         continue
 
                 logger.info("Evaluating %s for xv=%d", defence, xv)
@@ -244,16 +242,25 @@ def main():
 
                 dfs.append(df_)
 
-                df = pd.concat(dfs, axis=0)
+                if df is None:
+                    df = pd.concat(dfs, axis=0)
+                else:
+                    df = pd.concat([df, df_], axis=0)
 
-                print(
-                    df.groupby(["trained_defence", "test_defence"]).agg(
-                        {"accuracy": ["mean", "std"]}
-                    )
+                acc_mean = df.groupby(["trained_defence", "test_defence"]).agg(
+                    {"accuracy": ["mean", "std"]}
                 )
+                acc_mean.columns = [c[0] + " " + c[1] for c in acc_mean.columns]
+                acc_mean = acc_mean.reset_index()
+
+                acc_mean = acc_mean.pivot_table(
+                    index="trained_defence",
+                    columns="test_defence",
+                    values="accuracy mean",
+                )
+                print(acc_mean)
 
                 df.to_csv(table_name, index=False)
-                print(df)
 
 
 if __name__ == "__main__":
