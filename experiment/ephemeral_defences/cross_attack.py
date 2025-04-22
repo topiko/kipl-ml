@@ -178,24 +178,56 @@ def main():
         choices=["df", "df-multi", "rf"],
         help="Model type",
     )
-    parser.add_argument(
-        "--defences",
-        nargs="+",
-        type=str,
-        required=False,
-        default=["no_defence", "breakpad"],
-        choices=["no_defence", "breakpad", "front", "interspace", "ephemeral"],
-        help="Defences to use",
-    )
 
     args = parser.parse_args()
+    if args.network == "bottleneck":
+        defences = [
+            "breakpad",
+            "front-bottleneck",
+            "interspace",
+            "ephemeral-pad-bottle-sc0.5",
+            "no_defence",
+            "tamaraw-bottleneck",
+            "regulator-bottleneck",
+            "ephemeral-block-bottle-sc0.5",
+            "ephemeral-block-bottle-sc0.75",
+        ]
+    elif args.network == "infinite":
+        defences = [
+            "breakpad",
+            "front-infinite",
+            "interspace",
+            "ephemeral-pad-inf-sc0.75",
+            "no_defence",
+            "tamaraw-infinite",
+            "regulator-infinite",
+            "ephemeral-block-inf-sc0.75",
+        ]
+
     defences = ["no_defence", "breakpad"]
     overrides = [f"misc.mlflow.experiment_name={args.experiment_name}-{args.network}"]
 
     dfs = []
+
+    table_name = f"tables/cross_attack_{args.network}.csv"
+    try:
+        df = pd.read_csv(table_name)
+    except FileNotFoundError:
+        df = None
+
     for xv in range(5):
         for trained_defence in defences:
             for defence in defences:
+                if df is not None:
+                    mask = (
+                        (df["trained_defence"] == trained_defence)
+                        & (df["test_defence"] == defence)
+                        & (df["xv"] == xv)
+                    )
+                    if mask.sum() > 0:
+                        logger.info("Already computed for %s", mask.sum())
+                        continue
+
                 logger.info("Evaluating %s for xv=%d", defence, xv)
                 metrics_vals = get_metrics_for_xv(
                     model_name=args.model,
@@ -206,18 +238,21 @@ def main():
                 )
 
                 df_ = pd.Series(metrics_vals).to_frame().T
-                df_[:, "xv"] = xv
-                df_[:, "trained_defence"] = trained_defence
-                df_[:, "test_defence"] = defence
+                df_.loc[:, "xv"] = xv
+                df_.loc[:, "trained_defence"] = trained_defence
+                df_.loc[:, "test_defence"] = defence
 
                 dfs.append(df_)
 
                 df = pd.concat(dfs, axis=0)
 
-                print(df)
-                df = df.groupby(["trained_defence", "test_defence"]).agg(
-                    {"accuracy": ["mean", "std"]}
+                print(
+                    df.groupby(["trained_defence", "test_defence"]).agg(
+                        {"accuracy": ["mean", "std"]}
+                    )
                 )
+
+                df.to_csv(table_name, index=False)
                 print(df)
 
 
