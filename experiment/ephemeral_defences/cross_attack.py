@@ -9,7 +9,7 @@ import pandas as pd
 from hydra import compose, initialize
 from omegaconf import OmegaConf
 from torch import nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 
 from experiment.ephemeral_defences.main import (
     _get_defence,
@@ -80,7 +80,7 @@ def get_model(cfg: OmegaConf, test_xv: int) -> nn.Module:
     return model
 
 
-def get_test_set(cfg: OmegaConf, test_xv: int) -> Dataset:
+def get_test_set(cfg: OmegaConf, test_xv: int) -> WFDataset:
 
     dataset = cfg.dataset.name
     meta_df = load_dataset_meta_df(dataset)
@@ -122,6 +122,7 @@ def get_test_set(cfg: OmegaConf, test_xv: int) -> Dataset:
         meta_df=test_df,
         defence=defence_test,
         feature_trs=feature_trs,
+        defence_aug=cfg.train.defence_augmentation_valid,
     )
 
     return test_ds
@@ -147,7 +148,12 @@ def get_metrics_for_xv(
             overrides=overrides + [f"defence={test_defence}"],
         )
 
+    # In the original scripts the seed is modified per xv.
+    cfg_defence.misc.seed += test_xv
+
     test_ds = get_test_set(cfg_defence, test_xv=test_xv)
+
+    test_ds.report()
     test_loader = DataLoader(test_ds, num_workers=8, batch_size=128, shuffle=False)
 
     metrics = [Accuracy()]
@@ -210,7 +216,10 @@ def main():
             "ephemeral-block-inf-sc0.75",
         ]
 
-    overrides = [f"misc.mlflow.experiment_name={args.experiment_name}-{args.network}"]
+    overrides = [
+        f"misc.mlflow.experiment_name={args.experiment_name}-{args.network}",
+        f"network={args.network}",
+    ]
     if "inftrain" in args.experiment_name:
         overrides += ["train.defence_augmentation=0"]
 
