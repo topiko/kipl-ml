@@ -5,10 +5,11 @@ import os
 
 import dotenv
 import mlflow
+import pandas as pd
 from hydra import compose, initialize
 from omegaconf import OmegaConf
 from torch import nn
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset
 
 from experiment.ephemeral_defences.main import (
     _get_defence,
@@ -21,6 +22,8 @@ from kipl_ml.data.utils import load_dataset_meta_df
 from kipl_ml.data.wf_dataset import WFDataset
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import get_mlflow_expr
+from kipl_ml.metrics.clf_metrics import Accuracy
+from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.tools.mlflow_utils import (
     get_parent_run_id,
     list_runs,
@@ -98,6 +101,8 @@ def get_test_set(cfg: OmegaConf, test_xv: int) -> Dataset:
 
     try:
         local_dataset = dataset_source.load()
+        print(local_dataset)
+        # Work w. this local dataset to expose the original asset.TRACE_ID s
     except NotImplementedError:
         logger.warning("Cannot verify that test sets are matching.")
 
@@ -122,6 +127,38 @@ def get_test_set(cfg: OmegaConf, test_xv: int) -> Dataset:
     return test_ds
 
 
+def get_metrics_for_xv(
+    model_name: str,
+    trained_defence: str,
+    test_defence: str,
+    overrides: list[str],
+    test_xv: int,
+) -> dict:
+
+    with initialize(version_base=None, config_path="./config/"):
+        cfg_attack = compose(
+            config_name=model_name, overrides=overrides + [f"defence={trained_defence}"]
+        )
+    trained_model = get_model(cfg_attack, test_xv=test_xv)
+
+    with initialize(version_base=None, config_path="./config/"):
+        cfg_defence = compose(
+            config_name=model_name,
+            overrides=overrides + [f"defence={test_defence}"],
+        )
+
+    test_ds = get_test_set(cfg_defence, test_xv=test_xv)
+    test_loader = DataLoader(test_ds, batch_size=128, shuffle=False)
+
+    metrics = [Accuracy()]
+    metrics_vals = evaluate_model(
+        model=trained_model,
+        dataloader=test_loader,
+        metrics=metrics,
+    )
+    return metrics_vals
+
+
 def main():
     parser = argparse.ArgumentParser(description="Cross Attack Script")
     parser.add_argument(
@@ -141,25 +178,47 @@ def main():
         choices=["df", "df-multi", "rf"],
         help="Model type",
     )
+    parser.add_argument(
+        "--defences",
+        nargs="+",
+        type=str,
+        required=False,
+        default=["no_defence", "breakpad"],
+        choices=["no_defence", "breakpad", "front", "interspace", "ephemeral"],
+        help="Defences to use",
+    )
 
     args = parser.parse_args()
-    defences = ["no_defence", "breakpad", f"front-{args.network}"]
+    defences = ["no_defence", "breakpad"]
     overrides = [f"misc.mlflow.experiment_name={args.experiment_name}-{args.network}"]
 
-    with initialize(version_base=None, config_path="./config/"):
-        cfg_attack = compose(config_name=args.model, overrides=overrides)
+    dfs = []
+    for xv in range(5):
+        for trained_defence in defences:
+            for defence in defences:
+                logger.info("Evaluating %s for xv=%d", defence, xv)
+                metrics_vals = get_metrics_for_xv(
+                    model_name=args.model,
+                    trained_defence=trained_defence,
+                    test_defence=defence,
+                    overrides=overrides,
+                    test_xv=xv,
+                )
 
-    model = get_model(cfg_attack, test_xv=0)
+                df_ = pd.Series(metrics_vals).to_frame().T
+                df_[:, "xv"] = xv
+                df_[:, "trained_defence"] = trained_defence
+                df_[:, "test_defence"] = defence
 
-    for defence in defences:
+                dfs.append(df_)
 
-        with initialize(version_base=None, config_path="./config/"):
-            cfg_defence = compose(
-                config_name=args.model,
-                overrides=overrides + [f"defence={defence}"],
-            )
+                df = pd.concat(dfs, axis=0)
 
-        test_ds = get_test_set(cfg_defence, test_xv=0)
+                print(df)
+                df = df.groupby(["trained_defence", "test_defence"]).agg(
+                    {"accuracy": ["mean", "std"]}
+                )
+                print(df)
 
 
 if __name__ == "__main__":
