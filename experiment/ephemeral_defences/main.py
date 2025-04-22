@@ -232,7 +232,9 @@ def _get_bw_overhead(cfg: OmegaConf, undefended_trace_len: int) -> int:
             raise NotImplementedError("Defence type not implemented.")
 
 
-def _get_model_config(cfg: OmegaConf, feature_names: bool = False) -> dict | list[str]:
+def _get_model_config(
+    cfg: OmegaConf, ret_feature_names: bool = False
+) -> dict | list[str]:
     model_name = cfg.model.name
     match cfg.model.source:
         case "local":
@@ -279,14 +281,14 @@ def _get_model_config(cfg: OmegaConf, feature_names: bool = False) -> dict | lis
         case _:
             raise NotImplementedError
 
-    if feature_names:
+    if ret_feature_names:
         return feature_names
 
     return model_config
 
 
 def _get_feature_names(cfg: OmegaConf) -> list[str]:
-    return _get_model_config(cfg, feature_names=True)
+    return _get_model_config(cfg, ret_feature_names=True)
 
 
 def _run_xv(
