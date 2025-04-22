@@ -5,7 +5,9 @@ import os
 
 import dotenv
 import mlflow
+import numpy as np
 import pandas as pd
+import torch
 from hydra import compose, initialize
 from omegaconf import OmegaConf
 from torch import nn
@@ -150,6 +152,10 @@ def get_metrics_for_xv(
 
     # In the original scripts the seed is modified per xv.
     cfg_defence.misc.seed += test_xv
+
+    torch.manual_seed(cfg_defence.misc.seed)
+    torch.use_deterministic_algorithms(True)
+    np.random.seed(cfg_defence.misc.seed)
 
     test_ds = get_test_set(cfg_defence, test_xv=test_xv)
 
