@@ -259,10 +259,15 @@ def _get_model_config(
                 }
         case "lb":
             model_config = get_laserbeak_model_config(model_name)
+
             if (trace_len := cfg.model.trace_len) != model_config["input_size"]:
-                logger.warning(
-                    f"Overriding input_size w. our local trace len for {model_name}"
-                )
+                if model_name == "laserbeak":
+                    trace_len = model_config["input_size"]
+                    logger.warning("Ignoring 'trace_len' for laserbeak model.")
+                else:
+                    logger.warning(
+                        f"Overriding input_size w. our local trace len for {model_name}"
+                    )
             model_config["input_size"] = trace_len
 
             if model_config.get("feature_list"):

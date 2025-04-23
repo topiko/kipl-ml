@@ -27,7 +27,7 @@ do
 		uv run python main.py --config-name=rf defence=$defence $common
 		uv run python main.py --config-name=df-multi defence=$defence $common_lb
 		#uv run python main.py --config-name=rf_star defence=$defence $common
-		# uv run python main.py --config-name=laserbeak defence=$defence $common_lb
+		uv run python main.py --config-name=laserbeak defence=$defence $common_lb
 
 	done
 done
