@@ -80,8 +80,10 @@ class _FixedMachine(_Def):
         os.remove(tmpfile_)
 
     def report(self, to_log: bool = False) -> str:
+
         str_ = self.__class__.__name__ + "\n"
-        str_ += f"\tmachination: {self.machination_args}\n"
+        if self.machination_args is not None:
+            str_ += f"\tcmd: machination {' '.join(self.machination_args[1:])}\n"
         str_ += f"\tN machines: {len(self.machines)}\n"
         str_ += f"\t{self.network_delay_millis}\n"
         str_ += f"\t{self.network_pps}\n"
