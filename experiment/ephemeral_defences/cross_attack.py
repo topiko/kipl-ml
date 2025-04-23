@@ -253,8 +253,6 @@ def main():
     if "inftrain" in args.experiment_name:
         overrides += ["train.defence_augmentation=0"]
 
-    dfs = []
-
     table_name = f"cross_attack_{args.experiment_name}-{args.model}-{args.network}.csv"
     try:
         df = pd.read_csv("tables/" + table_name)
@@ -290,10 +288,8 @@ def main():
                 df_.loc[:, "trained_defence"] = trained_defence
                 df_.loc[:, "test_defence"] = defence
 
-                dfs.append(df_)
-
                 if df is None:
-                    df = pd.concat(dfs, axis=0)
+                    df = df_
                 else:
                     df = pd.concat([df, df_], axis=0)
 
