@@ -6,7 +6,6 @@ from abc import abstractmethod
 from pathlib import Path
 
 import dotenv
-import numpy as np
 import torch
 import yaml
 from mbnt import sim_trace_from_file_advanced
@@ -15,6 +14,7 @@ from kipl_ml.data.utils import parse_trace_to_tensor_dict
 from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
+from kipl_ml.network.utils import MachineRng
 from kipl_ml.trace.params import EVENTS_MULTIPLIER, MAX_TRACE_LENGTH
 
 dotenv.load_dotenv()
@@ -74,6 +74,7 @@ class _FixedMachine(_Def):
             )
         self._machination(tmpfile_, **self.machination_kwargs)
         self.machines = load_machines(Path(tmpfile_))
+        self.machine_rng = MachineRng(len(self.machines))
 
         os.remove(tmpfile_)
 
@@ -90,7 +91,7 @@ class _FixedMachine(_Def):
         return str_
 
     def _get_machines(self, idx: int | None) -> tuple[list[str], list[str]]:
-        idx = idx or np.random.choice(len(self.machines))
+        idx = idx or self.machine_rng()
 
         try:
             return self.machines[idx]["client"], self.machines[idx]["server"]

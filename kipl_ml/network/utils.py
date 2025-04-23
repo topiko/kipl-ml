@@ -45,6 +45,14 @@ class TraceSimulRng(RandSampler):
         return f"Trace simul rng: {self.way} [{self.low_lim}, {self.up_lim}]."
 
 
+class MachineRng(RandSampler):
+    def __init__(self, n_machines: int, seed: int | None = 42):
+        super().__init__(0, n_machines - 1, seed=seed)
+
+    def __str__(self):
+        return f"Machine rng: {self.way} [{self.low_lim}, {self.up_lim}]."
+
+
 class NetwkDelay(RandSampler):
     def __init__(self, min_delay_ms: int, max_delay_ms: int, seed: int | None = 42):
 
