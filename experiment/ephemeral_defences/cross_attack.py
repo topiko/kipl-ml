@@ -13,10 +13,10 @@ import torch
 from hydra import compose, initialize
 from omegaconf import OmegaConf
 from torch import nn
-from torch.utils.data import DataLoader
 
 from experiment.ephemeral_defences.main import (
     _get_defence,
+    _get_dl,
     _get_feature_names,
     _get_target,
     _parse_run_name,
@@ -166,9 +166,8 @@ def get_metrics_for_xv(
 
     test_ds = get_test_set(cfg_defence, test_xv=test_xv)
 
-    print(test_ds.meta_df.head())
     test_ds.report()
-    test_loader = DataLoader(test_ds, num_workers=8, batch_size=128, shuffle=False)
+    test_loader = _get_dl(test_ds, 128)
 
     metrics = [Accuracy()]
     metrics_vals = evaluate_model(
@@ -270,7 +269,6 @@ def main():
                         & (df["xv"] == xv)
                     )
                     if mask.sum() > 0:
-                        logger.info("Already computed")
                         continue
 
                 logger.info("Evaluating %s for xv=%d", defence, xv)
