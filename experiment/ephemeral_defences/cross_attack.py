@@ -61,8 +61,10 @@ def _get_run_id(cfg: OmegaConf, test_xv: int) -> str:
     df = list_runs(experiment_name, only_finished=False, raise_on_empty=False)
     mask = df.loc[:, "tags.mlflow.runName"] == xv_run_name
 
+    if mask.sum() == 0:
+        raise ValueError(f"No runs found for name: {xv_run_name}")
     if mask.sum() != 1:
-        raise ValueError(f"Several or no runs found for name: {xv_run_name}")
+        raise ValueError(f"Several runs found for name: {xv_run_name}")
 
     run_id = df.loc[mask, "run_id"].values[0]
 
@@ -272,13 +274,16 @@ def main():
                         continue
 
                 logger.info("Evaluating %s for xv=%d", defence, xv)
-                metrics_vals = get_metrics_for_xv(
-                    model_name=args.model,
-                    trained_defence=trained_defence,
-                    test_defence=defence,
-                    overrides=overrides,
-                    test_xv=xv,
-                )
+                try:
+                    metrics_vals = get_metrics_for_xv(
+                        model_name=args.model,
+                        trained_defence=trained_defence,
+                        test_defence=defence,
+                        overrides=overrides,
+                        test_xv=xv,
+                    )
+                except ValueError:
+                    continue
 
                 df_ = pd.Series(metrics_vals).to_frame().T
                 df_.loc[:, "xv"] = xv
@@ -297,12 +302,14 @@ def main():
 
                 df.to_csv("tables/" + table_name, index=False)
 
-    acc_mean = _to_pivotet(df).loc[defences, defences]
+    tr_def = [d for d in defences if d in df.trained_defence.unique()]
+    test_def = [d for d in defences if d in df.test_defence.unique()]
+    acc_mean = _to_pivotet(df).loc[tr_def, test_def]
     print("==============================")
     print(acc_mean)
 
-    sns.heatmap(acc_mean)
-    plt.suptitle(args.model)
+    sns.heatmap(acc_mean, annot=True)
+    plt.suptitle(f"ntwk={args.network} | model={args.model}")
     plt.tight_layout()
     plt.savefig(f"figs/{table_name.replace('.csv', '.png')}")
 
