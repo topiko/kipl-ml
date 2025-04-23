@@ -309,7 +309,7 @@ def main():
     print(acc_mean)
 
     sns.heatmap(acc_mean, annot=True)
-    plt.suptitle(f"ntwk={args.network} | model={args.model}")
+    plt.suptitle(f"{args.experiment_name}\nntwk={args.network} | model={args.model}")
     plt.tight_layout()
     plt.savefig(f"figs/{table_name.replace('.csv', '.png')}")
 
