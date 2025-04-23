@@ -52,6 +52,7 @@ class Tamaraw(_FixedMachine):
             check=False,
             capture_output=True,
         )
+        self.machination_args = run.args
 
         if run.returncode != 0:
             raise RuntimeError(

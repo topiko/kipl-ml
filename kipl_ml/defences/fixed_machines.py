@@ -72,6 +72,7 @@ class _FixedMachine(_Def):
             raise AttributeError(
                 "Subclass must define 'machination_kwargs' before calling super().__init__()"
             )
+        self.machination_args = None
         self._machination(tmpfile_, **self.machination_kwargs)
         self.machines = load_machines(Path(tmpfile_))
         self.machine_rng = MachineRng(len(self.machines))
@@ -80,6 +81,7 @@ class _FixedMachine(_Def):
 
     def report(self, to_log: bool = False) -> str:
         str_ = self.__class__.__name__ + "\n"
+        str_ += f"\tmachination: {self.machination_args}\n"
         str_ += f"\tN machines: {len(self.machines)}\n"
         str_ += f"\t{self.network_delay_millis}\n"
         str_ += f"\t{self.network_pps}\n"

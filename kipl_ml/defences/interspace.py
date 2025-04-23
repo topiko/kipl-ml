@@ -46,6 +46,7 @@ class Interspace(_FixedMachine):
             check=False,
             capture_output=True,
         )
+        self.machination_args = run.args
 
         if run.returncode != 0:
             raise RuntimeError(f"Interspace machination failed!! --> {run.stderr!r}")
