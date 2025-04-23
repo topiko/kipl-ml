@@ -10,7 +10,7 @@ from kipl_ml.data.utils import parse_trace_to_tensor_dict
 from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
-from kipl_ml.network.utils import MachineRng
+from kipl_ml.tools.rng_samplers import MachineRng
 from kipl_ml.trace.params import EVENTS_MULTIPLIER, MAX_TRACE_LENGTH
 
 logger = get_logger(__name__)
@@ -69,6 +69,7 @@ class Maybenot(_Def):
 
     def report(self, to_log: bool = True) -> str:
         str_ = "Maybenot Defence:\n"
+        str_ += f"\tDeck: {self.deck_path}\n"
         str_ += f"\tN machines: {len(self.machines)}\n"
         str_ += f"\tScale: {self.scale}\n"
         str_ += f"\t{self.network_delay_millis}\n"

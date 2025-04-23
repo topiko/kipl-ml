@@ -9,7 +9,7 @@ from mbnt import sim_trace_from_file_advanced
 from kipl_ml.data.utils import get_std_trace_dict, parse_trace_to_tensor_dict
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
-from kipl_ml.network.utils import NetwkDelay, NetwkPps, TraceSimulRng
+from kipl_ml.tools.rng_samplers import NetwkDelay, NetwkPps, TraceSimulRng
 from kipl_ml.trace.params import EVENTS_MULTIPLIER, MAX_TRACE_LENGTH
 
 logger = get_logger(__name__)
