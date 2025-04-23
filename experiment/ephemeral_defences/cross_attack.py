@@ -4,9 +4,11 @@ import argparse
 import os
 
 import dotenv
+import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import torch
 from hydra import compose, initialize
 from omegaconf import OmegaConf
@@ -110,10 +112,15 @@ def get_test_set(cfg: OmegaConf, test_xv: int) -> WFDataset:
 
     config = mlflow.artifacts.load_dict(run.info.artifact_uri + "/hydra_config.json")
 
-    feature_names_remote = config["model"]["features"]
+    try:
+        feature_names_remote = config["model"]["features"]
 
-    if any(n1 != n2 for n1, n2 in zip(feature_names, feature_names_remote)):
-        raise ValueError("Feature names do not match")
+        if any(n1 != n2 for n1, n2 in zip(feature_names, feature_names_remote)):
+            logger.warning("Feature names do not match")
+            logger.warning("\t" + feature_names)
+            logger.warning("\t" + feature_names_remote)
+    except KeyError:
+        pass
 
     trace_len = cfg.model.trace_len
     feature_trs = FeatureTrs(feature_names=feature_names, n_packets=trace_len)
@@ -159,6 +166,7 @@ def get_metrics_for_xv(
 
     test_ds = get_test_set(cfg_defence, test_xv=test_xv)
 
+    print(test_ds.meta_df.head())
     test_ds.report()
     test_loader = DataLoader(test_ds, num_workers=8, batch_size=128, shuffle=False)
 
@@ -176,6 +184,21 @@ def get_metrics_for_xv(
         print(rf"recorded acc = {recorded_acc:.5f} ~ {current_acc:.5f} = current acc ?")
         print()
     return metrics_vals
+
+
+def _to_pivotet(df: pd.DataFrame) -> pd.DataFrame:
+    acc_mean = df.groupby(["trained_defence", "test_defence"]).agg(
+        {"accuracy": ["mean", "std"]}
+    )
+    acc_mean.columns = [c[0] + " " + c[1] for c in acc_mean.columns]
+    acc_mean = acc_mean.reset_index()
+
+    acc_mean = acc_mean.pivot_table(
+        index="trained_defence",
+        columns="test_defence",
+        values="accuracy mean",
+    )
+    return acc_mean
 
 
 def main():
@@ -201,22 +224,22 @@ def main():
     args = parser.parse_args()
     if args.network == "bottleneck":
         defences = [
+            "no_defence",
             "breakpad",
             "front-bottleneck",
             "interspace",
             "ephemeral-pad-bottle-sc0.5",
-            "no_defence",
             "tamaraw-bottleneck",
             "regulator-bottleneck",
             "ephemeral-block-bottle-sc0.75",
         ]
     elif args.network == "infinite":
         defences = [
+            "no_defence",
             "breakpad",
             "front-infinite",
             "interspace",
             "ephemeral-pad-inf-sc0.75",
-            "no_defence",
             "tamaraw-infinite",
             "regulator-infinite",
             "ephemeral-block-inf-sc0.75",
@@ -231,11 +254,9 @@ def main():
 
     dfs = []
 
-    table_name = (
-        f"tables/cross_attack_{args.experiment_name}-{args.model}-{args.network}.csv"
-    )
+    table_name = f"cross_attack_{args.experiment_name}-{args.model}-{args.network}.csv"
     try:
-        df = pd.read_csv(table_name)
+        df = pd.read_csv("tables/" + table_name)
     except FileNotFoundError:
         df = None
 
@@ -273,23 +294,19 @@ def main():
                 else:
                     df = pd.concat([df, df_], axis=0)
 
-                acc_mean = df.groupby(["trained_defence", "test_defence"]).agg(
-                    {"accuracy": ["mean", "std"]}
-                )
-                acc_mean.columns = [c[0] + " " + c[1] for c in acc_mean.columns]
-                acc_mean = acc_mean.reset_index()
-
-                acc_mean = acc_mean.pivot_table(
-                    index="trained_defence",
-                    columns="test_defence",
-                    values="accuracy mean",
-                )
+                acc_mean = _to_pivotet(df)
                 print(acc_mean)
 
-                df.to_csv(table_name, index=False)
+                df.to_csv("tables/" + table_name, index=False)
 
+    acc_mean = _to_pivotet(df).loc[defences, defences]
     print("==============================")
-    print(acc_mean.loc[defences, defences])
+    print(acc_mean)
+
+    sns.heatmap(acc_mean)
+    plt.suptitle(args.model)
+    plt.tight_layout()
+    plt.savefig(f"figs/{table_name.replace('.csv', '.png')}")
 
 
 if __name__ == "__main__":
