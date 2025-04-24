@@ -57,9 +57,10 @@ class WFDataset(Dataset):
 
     def report(self, to_log: bool = True) -> str:
         str_ = f"Dataset {self.name} w. {self.label}s:\n"
-        str_ += key_val_fmt("n_traces", len(self))
-        str_ += key_val_fmt("n_classes", self.n_classes)
+        str_ += key_val_fmt("n_traces", self.n_orig_traces)
         str_ += key_val_fmt("defence augmentation", self.defence_aug)
+        str_ += key_val_fmt("n_traces (aug)", len(self))
+        str_ += key_val_fmt("n_classes", self.n_classes)
         str_ += self.feature_trs.report(to_log=False)
         str_ += self.defence.report(to_log=False)
 
