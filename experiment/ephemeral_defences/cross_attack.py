@@ -119,8 +119,8 @@ def get_test_set(cfg: OmegaConf, test_xv: int) -> WFDataset:
 
         if any(n1 != n2 for n1, n2 in zip(feature_names, feature_names_remote)):
             logger.warning("Feature names do not match")
-            logger.warning("\t" + feature_names)
-            logger.warning("\t" + feature_names_remote)
+            logger.warning("\t" + str(feature_names))
+            logger.warning("\t" + str(feature_names_remote))
     except KeyError:
         pass
 
@@ -280,7 +280,8 @@ def main():
                         overrides=overrides,
                         test_xv=xv,
                     )
-                except ValueError:
+                except ValueError as e:
+                    logger.warning(e)
                     continue
 
                 df_ = pd.Series(metrics_vals).to_frame().T
