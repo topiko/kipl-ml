@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from itertools import product
 
 import dotenv
 import matplotlib.pyplot as plt
@@ -142,22 +143,33 @@ def get_test_set(cfg: OmegaConf, test_xv: int) -> WFDataset:
 def get_metrics_for_xv(
     model_name: str,
     trained_defence: str,
+    trained_netwk: str,
     test_defence: str,
+    test_netwk: str,
     overrides: list[str],
     test_xv: int,
+    experiment_name: str,
 ) -> dict:
 
+    expr_name = "{}-{}"
     with initialize(version_base=None, config_path="./config/"):
-        cfg_attack = compose(
-            config_name=model_name, overrides=overrides + [f"defence={trained_defence}"]
-        )
+        overrides_ = overrides + [
+            f"defence={trained_defence}",
+            f"misc.mlflow.experiment_name={experiment_name}-{trained_netwk}",
+            f"network={trained_netwk}",
+        ]
+        cfg_attack = compose(config_name=model_name, overrides=overrides_)
+
     trained_model = get_model(cfg_attack, test_xv=test_xv)
 
     with initialize(version_base=None, config_path="./config/"):
-        cfg_defence = compose(
-            config_name=model_name,
-            overrides=overrides + [f"defence={test_defence}"],
-        )
+        expr_name = expr_name.format(experiment_name, test_defence)
+        overrides_ = overrides + [
+            f"defence={test_defence}",
+            f"misc.mlflow.experiment_name={experiment_name}-{test_netwk}",
+            f"network={test_netwk}",
+        ]
+        cfg_defence = compose(config_name=model_name, overrides=overrides_)
 
     # In the original scripts the seed is modified per xv.
     cfg_defence.misc.seed += test_xv
@@ -177,7 +189,7 @@ def get_metrics_for_xv(
         dataloader=test_loader,
         metrics=metrics,
     )
-    if trained_defence == test_defence:
+    if (trained_defence == test_defence) and (trained_netwk == test_netwk):
         run_id = _get_run_id(cfg_attack, test_xv=test_xv)
         run = mlflow.get_run(run_id=run_id)
         recorded_acc = run.data.metrics["test_accuracy"]
@@ -188,15 +200,24 @@ def get_metrics_for_xv(
 
 
 def _to_pivotet(df: pd.DataFrame) -> pd.DataFrame:
-    acc_mean = df.groupby(["trained_defence", "test_defence"]).agg(
-        {"accuracy": ["mean", "std"]}
-    )
+    acc_mean = df.groupby(
+        ["trained_defence", "trained_netwk", "test_defence", "test_netwk"]
+    ).agg({"accuracy": ["mean", "std"]})
     acc_mean.columns = [c[0] + " " + c[1] for c in acc_mean.columns]
     acc_mean = acc_mean.reset_index()
 
+    print(acc_mean)
+
+    acc_mean.loc[:, "tr-def-netwk"] = acc_mean.loc[
+        :, ["trained_defence", "trained_netwk"]
+    ].apply(lambda x: f"{x.iloc[0]}-{x.iloc[1]}", axis=1)
+    acc_mean.loc[:, "ts-def-netwk"] = acc_mean.loc[
+        :, ["test_defence", "test_netwk"]
+    ].apply(lambda x: f"{x.iloc[0]}-{x.iloc[1]}", axis=1)
+
     acc_mean = acc_mean.pivot_table(
-        index="trained_defence",
-        columns="test_defence",
+        index="tr-def-netwk",
+        columns="ts-def-netwk",
         values="accuracy mean",
     )
     return acc_mean
@@ -208,7 +229,7 @@ def main():
         "--network",
         type=str,
         required=False,
-        choices=["infinite", "bottleneck"],
+        choices=["infinite", "bottleneck", "both"],
         default="bottleneck",
         help="Network type",
     )
@@ -218,40 +239,57 @@ def main():
         type=str,
         required=False,
         default="df",
-        choices=["df", "df-multi", "rf"],
+        choices=["df", "df-multi", "rf", "laserbeak"],
         help="Model type",
     )
 
     args = parser.parse_args()
-    if args.network == "bottleneck":
-        defences = [
-            "no_defence",
-            "breakpad",
-            "front-bottleneck",
-            "interspace",
-            "ephemeral-pad-bottle-sc0.5",
-            "tamaraw-bottleneck",
-            "regulator-bottleneck",
-            "ephemeral-block-bottle-sc0.75",
-        ]
-    elif args.network == "infinite":
-        defences = [
-            "no_defence",
-            "breakpad",
-            "front-infinite",
-            "interspace",
-            "ephemeral-pad-inf-sc0.75",
-            "tamaraw-infinite",
-            "regulator-infinite",
-            "ephemeral-block-inf-sc0.75",
-        ]
 
-    overrides = [
-        f"misc.mlflow.experiment_name={args.experiment_name}-{args.network}",
-        f"network={args.network}",
+    defences = [
+        "no_defence",
+        "breakpad",
+        "front",
+        "interspace",
+        "ephemeral-pad",
+        "tamaraw",
+        "regulator",
+        "ephemeral-block",
     ]
+
+    networks = [args.network] if args.network != "both" else ["infinite", "bottleneck"]
+
+    overrides = []
     if "inftrain" in args.experiment_name:
         overrides += ["train.defence_augmentation=0"]
+
+    def _defence_name_map(defence: str, network: str) -> str:
+        match network:
+            case "infinite":
+                match defence:
+                    case "no_defence" | "breakpad" | "interspace":
+                        return defence
+                    case "front" | "tamaraw" | "regulator":
+                        return f"{defence}-infinite"
+                    case "ephemeral-pad":
+                        return "ephemeral-pad-inf-sc0.75"
+                    case "ephemeral-block":
+                        return "ephemeral-block-inf-sc0.75"
+                    case _:
+                        raise ValueError(f"Invalid defence {defence}")
+            case "bottleneck":
+                match defence:
+                    case "no_defence" | "breakpad" | "interspace":
+                        return defence
+                    case "front" | "tamaraw" | "regulator":
+                        return f"{defence}-bottleneck"
+                    case "ephemeral-pad":
+                        return "ephemeral-pad-bottle-sc0.5"
+                    case "ephemeral-block":
+                        return "ephemeral-block-bottle-sc0.75"
+                    case _:
+                        raise ValueError(f"Invalid defence {defence}")
+            case _:
+                raise ValueError("invalid network")
 
     table_name = f"cross_attack_{args.experiment_name}-{args.model}-{args.network}.csv"
     try:
@@ -260,25 +298,33 @@ def main():
         df = None
 
     for xv in range(5):
-        for trained_defence in defences:
-            for defence in defences:
+        for trained_defence, trained_netwk in product(defences, networks):
+            for test_defence, test_netwk in product(defences, networks):
+                trained_defence = _defence_name_map(trained_defence, trained_netwk)
+                test_defence = _defence_name_map(test_defence, test_netwk)
+
                 if df is not None:
                     mask = (
                         (df["trained_defence"] == trained_defence)
-                        & (df["test_defence"] == defence)
+                        & (df["trained_netwk"] == trained_netwk)
+                        & (df["test_defence"] == test_defence)
+                        & (df["test_netwk"] == test_netwk)
                         & (df["xv"] == xv)
                     )
                     if mask.sum() > 0:
                         continue
 
-                logger.info("Evaluating %s for xv=%d", defence, xv)
+                logger.info("Evaluating %s for xv=%d", test_defence, xv)
                 try:
                     metrics_vals = get_metrics_for_xv(
                         model_name=args.model,
                         trained_defence=trained_defence,
-                        test_defence=defence,
+                        trained_netwk=trained_netwk,
+                        test_defence=test_defence,
+                        test_netwk=test_netwk,
                         overrides=overrides,
                         test_xv=xv,
+                        experiment_name=args.experiment_name,
                     )
                 except ValueError as e:
                     logger.warning(e)
@@ -287,7 +333,9 @@ def main():
                 df_ = pd.Series(metrics_vals).to_frame().T
                 df_.loc[:, "xv"] = xv
                 df_.loc[:, "trained_defence"] = trained_defence
-                df_.loc[:, "test_defence"] = defence
+                df_.loc[:, "trained_netwk"] = trained_netwk
+                df_.loc[:, "test_defence"] = test_defence
+                df_.loc[:, "test_netwk"] = test_netwk
 
                 if df is None:
                     df = df_
