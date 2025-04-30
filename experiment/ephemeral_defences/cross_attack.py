@@ -298,11 +298,14 @@ def main():
         df = None
 
     for xv in range(5):
-        for trained_defence, trained_netwk in product(defences, networks):
+        for trained_defence_, trained_netwk in product(defences, networks):
             for test_defence, test_netwk in product(defences, networks):
-                trained_defence = _defence_name_map(trained_defence, trained_netwk)
+                trained_defence = _defence_name_map(trained_defence_, trained_netwk)
                 test_defence = _defence_name_map(test_defence, test_netwk)
 
+                logger.info(
+                    f"Now running: {trained_defence} - {trained_netwk} | {test_defence} - {test_netwk}"
+                )
                 if df is not None:
                     mask = (
                         (df["trained_defence"] == trained_defence)
