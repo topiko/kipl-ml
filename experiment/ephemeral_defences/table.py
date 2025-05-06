@@ -21,15 +21,30 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
         "params.network_state",
     ]
 
-    metric = f"metrics.{metric}"
-    df.loc[:, metric] *= 100
+    if metric in {"sim.missing", "def.bandwidth", "def.delay", "test_accuracy"}:
+        metric = f"metrics.{metric}"
+        df.loc[:, metric] *= 100
+        unit = "\\%"
+    elif metric == "timings":
+        df.loc[:, metric] = (
+            df.loc[:, ["end_time", "start_time"]].apply(
+                lambda x: (x.end_time - x.start_time).total_seconds(), axis=1
+            )
+            / 60
+        )
+        unit = "min"
+    else:
+        print("Available cols")
+        for c in df.columns:
+            print(c)
+        raise NotImplementedError(f"{metric}")
 
     infty = ""  # "\\infinity"  # unicodedata.lookup("Rocket")
     bottleneck = "\\bottleneck"  # unicodedata.lookup("Hourglass")
     res = (
         df.groupby(groupby)
         .apply(
-            lambda x: f"{x.loc[:, metric].mean():.1f}\u00b1{x.loc[:, metric].std():.1f}\\%",
+            lambda x: f"{x.loc[:, metric].mean():.1f}\u00b1{x.loc[:, metric].std():.1f}{unit}",
             include_groups=False,
         )
         .to_frame()
@@ -80,6 +95,8 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
         res = res.loc[:, (slice(None), "df")].rename(
             columns={"df": metric.replace("metrics.", "")}, level=1
         )
+    elif metric == "timings":
+        res = res.rename(columns=lambda x: f"timings-{x}", level=1)
     elif metric == "metrics.test_accuracy":
         res = res.rename(columns=lambda x: f"acc-{x}", level=1)
 
@@ -121,6 +138,7 @@ def main():
         help="Which experiment(s) to consider",
     )
     parser.add_argument("--missing", action="store_true")
+    parser.add_argument("--timings", action="store_true")
 
     args = parser.parse_args()
 
@@ -136,6 +154,9 @@ def main():
     if args.missing:
         res_missing = _parse_df(df, "sim.missing")
         res = pd.concat((res, res_missing), axis=1)
+    if args.timings:
+        res_timings = _parse_df(df, "timings")
+        res = res_timings
 
     print(res)
     with open(f"tables/{args.experiment_name}_table.txt", "w", encoding="utf-8") as f:

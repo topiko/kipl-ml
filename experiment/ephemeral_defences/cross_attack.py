@@ -350,13 +350,12 @@ def main():
 
                 df.to_csv("tables/" + table_name, index=False)
 
-    tr_def = [d for d in defences if d in df.trained_defence.unique()]
-    test_def = [d for d in defences if d in df.test_defence.unique()]
-    acc_mean = _to_pivotet(df).loc[tr_def, test_def]
+    acc_mean = _to_pivotet(df)
     print("==============================")
     print(acc_mean)
 
-    sns.heatmap(acc_mean, annot=True)
+    _, ax = plt.subplots(figsize=(12, 12))
+    sns.heatmap(acc_mean, annot=True, ax=ax, annot_kws={"fontsize": 8})
     plt.suptitle(f"{args.experiment_name}\nntwk={args.network} | model={args.model}")
     plt.tight_layout()
     plt.savefig(f"figs/{table_name.replace('.csv', '.png')}")
