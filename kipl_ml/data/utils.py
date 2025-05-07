@@ -22,6 +22,7 @@ METADF_FNAME = "metadf.h5"
 @dataclass
 class Datasets:
     BIGENOUGH: str = "bigenough"
+    GONG_SURAKAV: str = "gong-surakav"
 
 
 def _xv_splits_fname(dataset: str, n_splits: int, label_asset: str) -> Path:
@@ -172,9 +173,6 @@ def generate_xv_splits(
     overlap_policy: str = "warn",
 ):
 
-    if dataset != Datasets.BIGENOUGH:
-        raise ValueError("Everything is now for be..")
-
     logger.info(
         "Generating %d splits for dataset %s on label %s...",
         n_splits,
@@ -203,12 +201,28 @@ def generate_xv_splits(
         raise NotImplementedError()
 
     xv_col = assets.XV_SPLIT(n_splits, label_asset)
-    if n_splits == 10:
-        meta_df.loc[:, xv_col] = meta_df.loc[:, assets.SAMPLE_ID] // 2
-    elif n_splits == 5:
-        meta_df.loc[:, xv_col] = meta_df.loc[:, assets.SAMPLE_ID] // 4
-    else:
-        raise NotImplementedError()
+
+    if dataset == Datasets.BIGENOUGH:
+        if n_splits == 10:
+            meta_df.loc[:, xv_col] = meta_df.loc[:, assets.SAMPLE_ID] // 2
+        elif n_splits == 5:
+            meta_df.loc[:, xv_col] = meta_df.loc[:, assets.SAMPLE_ID] // 4
+        else:
+            raise NotImplementedError()
+    elif dataset == Datasets.GONG_SURAKAV:
+        for lbl in meta_df.loc[:, label_asset].unique():
+            mask = meta_df.loc[:, label_asset] == lbl
+
+            if mask.sum() % n_splits != 0:
+                raise ValueError("Class cannot be split by nsplits")
+
+            n_ = mask.sum() // n_splits
+            split_idx = np.repeat(np.arange(n_splits), n_)
+            np.random.shuffle(split_idx)
+
+            meta_df.loc[mask, xv_col] = split_idx
+
+        meta_df.loc[:, xv_col] = meta_df.loc[:, xv_col].astype(int)
 
     fname = _xv_splits_fname(dataset, n_splits, label_asset)
 
