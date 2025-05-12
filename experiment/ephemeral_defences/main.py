@@ -402,7 +402,7 @@ def _run_xv(
 
         # Log the overheads
         defence_overheads = get_overheads(
-            test_loader.dataset.defence, test_loader.dataset.meta_df.sample(200)
+            test_loader.dataset.defence, test_loader.dataset.meta_df
         )
 
         if (missing := defence_overheads["sim.missing"]) > 0.0001:
