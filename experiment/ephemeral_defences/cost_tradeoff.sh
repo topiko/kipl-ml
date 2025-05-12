@@ -6,13 +6,13 @@ lr_patience=8
 fixed_per_trace=false
 
 
-defences=(ephemeral-block-bottle-default ephemeral-block-bottle-padding-heavy ephemeral-block-bottle-blocking-heavy)
-
+defences=(ephemeral-block-bottle-padding-heavy
+	ephemeral-block-bottle-default
+	ephemeral-block-bottle-blocking-heavy
+)
 
 netwk_state=bottleneck
 events_mltp=16
-
-
 
 
 for defence in $defences
@@ -28,7 +28,7 @@ do
 	do
 		echo $defence
 
-		for sc in 0.95 0.8 0.75 0.5 0.25 0.99 1.0
+		for sc in 0.25 0.95 0.8 0.75 0.5 0.25 0.99 1.0
 
 		do
 			expr_name="Eph-COSTCURVE-$netwk_state"

@@ -200,7 +200,14 @@ def _parse_experiment_name(cfg: OmegaConf) -> str:
 def _parse_run_name(cfg: OmegaConf) -> str:
     aug = cfg.train.defence_augmentation
 
-    if (defence_str := cfg.defence.type) == "ephemeral":
+    defence_str = cfg.defence.type
+
+    try:
+        defence_str += f"_{cfg.defence.flavor}"
+    except AttributeError:
+        pass
+
+    if cfg.defence.type == "ephemeral":
         defence_str = (
             f"{defence_str} | {cfg.defence.deck_name} | sc={cfg.defence.scale:.02f}"
         )
@@ -386,6 +393,11 @@ def _run_xv(
                 "network_state": cfg.network.type,
             }
         )
+
+        try:
+            mlflow.log_param("defence.flavor", cfg.defence.flavor)
+        except AttributeError:
+            pass
 
         # Log the defence params:
         mlflow.log_params(ds_train.defence.mlflow_log_params())

@@ -178,6 +178,11 @@ def ephemeral(cfg: OmegaConf) -> dict[str, Maybenot]:
     mbnt_conf = dict(cfg.defence)
     mbnt_conf.pop("type")
 
+    try:
+        mbnt_conf.pop("flavor")
+    except KeyError:
+        pass
+
     seed = cfg.misc.seed
     netwk_delay, netwk_pps = _parse_netwk(cfg)
     mbnt_conf["network_delay_millis"] = netwk_delay
