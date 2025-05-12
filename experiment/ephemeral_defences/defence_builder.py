@@ -19,11 +19,21 @@ def _parse_netwk(cfg: OmegaConf) -> tuple[tuple[int, int], tuple[int, int]]:
     return delay, pps
 
 
+def _get_simul_kwargs(cfg: OmegaConf) -> dict:
+    return {
+        "max_trace_length": cfg.misc.simul_args.max_trace_length,
+        "events_multiplier": cfg.misc.simul_args.events_multiplier,
+    }
+
+
 def no_def(cfg: OmegaConf) -> dict[str, NoDefence]:
 
     netwk_delay, netwk_pps = _parse_netwk(cfg)
     no_defence = NoDefence(
-        network_delay_millis=netwk_delay, network_pps=netwk_pps, seed=cfg.misc.seed
+        network_delay_millis=netwk_delay,
+        network_pps=netwk_pps,
+        seed=cfg.misc.seed,
+        simul_kwargs=_get_simul_kwargs(cfg),
     )
 
     return {
@@ -40,7 +50,10 @@ def breakpad(cfg: OmegaConf) -> dict[str, Breakpad]:
 
     def _breakpad(seed: int):
         return Breakpad(
-            network_delay_millis=netwk_delay, network_pps=netwk_pps, seed=seed
+            network_delay_millis=netwk_delay,
+            network_pps=netwk_pps,
+            seed=seed,
+            simul_kwargs=_get_simul_kwargs(cfg),
         )
 
     return {
@@ -63,6 +76,7 @@ def tamaraw(cfg: OmegaConf) -> dict[str, Breakpad]:
             ps=cfg.defence.ps,
             window_val=cfg.defence.window_val,
             seed=seed,
+            simul_kwargs=_get_simul_kwargs(cfg),
         )
 
     return {
@@ -90,6 +104,7 @@ def regulator(cfg: OmegaConf) -> dict[str, Breakpad]:
             padding_budget=def_params.padding_budget,
             B=def_params.B,
             seed=seed,
+            simul_kwargs=_get_simul_kwargs(cfg),
         )
 
     return {
@@ -119,6 +134,7 @@ def interspace(cfg: OmegaConf) -> dict[str, Interspace]:
             n_machines=n_machines,
             seed=seed,
             fixed_per_trace=fixed_per_trace,
+            simul_kwargs=_get_simul_kwargs(cfg),
         )
 
     return {
@@ -147,6 +163,7 @@ def front(cfg: OmegaConf) -> dict[str, FRONT]:
             n_machines=n_machines,
             seed=seed,
             fixed_per_trace=fixed_per_trace,
+            simul_kwargs=_get_simul_kwargs(cfg),
         )
 
     return {
@@ -179,6 +196,7 @@ def ephemeral(cfg: OmegaConf) -> dict[str, Maybenot]:
         "server_padding_frac",
         "server_blocking_frac",
     )
+
     for key in keys:
         mbnt_conf[key] = tuple(mbnt_conf[key])
 
@@ -186,7 +204,12 @@ def ephemeral(cfg: OmegaConf) -> dict[str, Maybenot]:
 
     def _ephemeral(n_machines: int, seed: int) -> Maybenot:
         mbnt_conf["n_machines"] = n_machines
-        return Maybenot(**mbnt_conf, seed=seed, fixed_per_trace=fixed_per_trace)
+        return Maybenot(
+            **mbnt_conf,
+            seed=seed,
+            fixed_per_trace=fixed_per_trace,
+            simul_kwargs=_get_simul_kwargs(cfg),
+        )
 
     n_train_machines = mbnt_conf.pop("n_train_machines")
     n_valid_machines = mbnt_conf.pop("n_valid_machines")

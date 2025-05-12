@@ -93,6 +93,7 @@ class NoDefence(_Def):
         network_delay_millis: tuple[int, int],
         network_pps: tuple[int, int],
         seed: int | None = 42,
+        simul_kwargs: dict | None = None,
     ):
 
         super().__init__(
@@ -101,11 +102,18 @@ class NoDefence(_Def):
             seed=seed,
             fixed_per_trace=False,
         )
+        self.simul_kwargs = {} or simul_kwargs
 
     def report(self, to_log: bool = True) -> str:
         str_ = "No defence applied\n"
         str_ += f"\t{self.network_delay_millis}\n"
         str_ += f"\t{self.network_pps}\n"
+
+        if self.simul_kwargs:
+            str_ += "Simul. args\n"
+            for k, v in self.simul_kwargs.items():
+                str_ += f"\t{k} : {v}\n"
+
         if to_log:
             logger.info(str_)
         return str_
@@ -124,9 +132,13 @@ class NoDefence(_Def):
             max_padding_frac_server=0,
             max_blocking_frac_client=0,
             max_blocking_frac_server=0,
-            max_trace_length=MAX_TRACE_LENGTH,
+            max_trace_length=self.simul_kwargs.get(
+                "max_trace_length", MAX_TRACE_LENGTH
+            ),
             random_state=self.simul_rng(),
-            events_multiplier=EVENTS_MULTIPLIER,
+            events_multiplier=self.simul_kwargs.get(
+                "events_multiplier", EVENTS_MULTIPLIER
+            ),
         )
         trace_d = parse_trace_to_tensor_dict(times, dirs, paddings, None)
         return trace_d

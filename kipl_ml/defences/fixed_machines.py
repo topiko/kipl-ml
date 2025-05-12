@@ -54,6 +54,7 @@ class _FixedMachine(_Def):
         network_pps: tuple[int, int],
         seed: int | None = 42,
         fixed_per_trace: bool = False,
+        simul_kwargs: dict | None = None,
     ):
         if (MACHINATION := os.getenv("MACHINATION")) is None:
             raise ValueError("machination not found in environment")
@@ -79,6 +80,8 @@ class _FixedMachine(_Def):
 
         os.remove(tmpfile_)
 
+        self.simul_kwargs = {} or simul_kwargs
+
     def report(self, to_log: bool = False) -> str:
 
         str_ = self.__class__.__name__ + "\n"
@@ -88,6 +91,11 @@ class _FixedMachine(_Def):
         str_ += f"\t{self.network_delay_millis}\n"
         str_ += f"\t{self.network_pps}\n"
         str_ += f"\tFixed per trace: {self.FIXED_PER_TRACE}\n"
+
+        if self.simul_kwargs:
+            str_ += "Simul. args\n"
+            for k, v in self.simul_kwargs.items():
+                str_ += f"\t{k} : {v}\n"
 
         if to_log:
             log_multiline(str_)
@@ -121,8 +129,12 @@ class _FixedMachine(_Def):
             max_padding_frac_server=0,
             max_blocking_frac_client=0,
             max_blocking_frac_server=0,
-            max_trace_length=MAX_TRACE_LENGTH,
-            events_multiplier=EVENTS_MULTIPLIER,
+            max_trace_length=self.simul_kwargs.get(
+                "max_trace_length", MAX_TRACE_LENGTH
+            ),
+            events_multiplier=self.simul_kwargs.get(
+                "events_multiplier", EVENTS_MULTIPLIER
+            ),
             random_state=self.simul_rng(),
         )
 

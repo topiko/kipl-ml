@@ -1,0 +1,15 @@
+type: ephemeral
+deck_name: "eph-blocking-1k-c2-100k-april8-use-scale0.75"
+scale: 0.75
+client_padding_budget: [500, 1000]
+client_blocking_budget: [200_000, 400_000]
+client_padding_frac: [0.8, 0.8]
+client_blocking_frac: [0.8, 0.8]
+server_padding_budget: [500, 1500]
+server_blocking_budget: [200_000, 400_000]
+server_padding_frac: [0.8, 0.8]
+server_blocking_frac: [0.8, 0.8]
+n_train_machines: 50_000
+n_valid_machines: 5_000
+n_test_machines: 5_000
+fixed_per_trace: false

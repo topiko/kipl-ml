@@ -35,6 +35,7 @@ class Maybenot(_Def):
         server_blocking_frac: tuple[float, float],
         seed: int | None = 42,
         fixed_per_trace: bool = False,
+        simul_kwargs: dict | None = None,
     ):
 
         super().__init__(
@@ -66,6 +67,7 @@ class Maybenot(_Def):
         )
         self.machine_rng = MachineRng(len(self.machines))
         self.deck_path = deck_path
+        self.simul_kwargs = {} or simul_kwargs
 
     def report(self, to_log: bool = True) -> str:
         str_ = "Maybenot Defence:\n"
@@ -75,6 +77,11 @@ class Maybenot(_Def):
         str_ += f"\t{self.network_delay_millis}\n"
         str_ += f"\t{self.network_pps}\n"
         str_ += f"\tFixed per trace: {self.FIXED_PER_TRACE}\n"
+
+        if self.simul_kwargs:
+            str_ += "Simul. args\n"
+            for k, v in self.simul_kwargs.items():
+                str_ += f"\t{k} : {v}\n"
 
         if to_log:
             log_multiline(str_)
@@ -112,9 +119,13 @@ class Maybenot(_Def):
             self.network_delay_millis(),
             self.network_pps(),
             **pad_bloc_fracs,
-            max_trace_length=MAX_TRACE_LENGTH,
+            max_trace_length=self.simul_kwargs.get(
+                "max_trace_length", MAX_TRACE_LENGTH
+            ),
             random_state=self.simul_rng(),
-            events_multiplier=EVENTS_MULTIPLIER,
+            events_multiplier=self.simul_kwargs.get(
+                "events_multiplier", EVENTS_MULTIPLIER
+            ),
         )
 
         trace_d = parse_trace_to_tensor_dict(times, dirs, paddings, None)
