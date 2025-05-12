@@ -400,6 +400,16 @@ def _run_xv(
         for ds in (ds_train, ds_valid, ds_test):
             log_dataset(ds, STORE_DATA_COLS, target)
 
+        # Log the overheads
+        defence_overheads = get_overheads(
+            test_loader.dataset.defence, test_loader.dataset.meta_df.sample(200)
+        )
+
+        if (missing := defence_overheads["sim.missing"]) > 0.0001:
+            logger.warning(f"Missing packets ({missing}) in simulation!")
+
+        mlflow.log_metrics(defence_overheads, step=None)
+
         # Train model.
         trained_model = train_model(
             model=model,
@@ -425,15 +435,6 @@ def _run_xv(
             logger.info(key_val_fmt(k, f"{v:1.4f}", suffix=""))
         metrics_vals = {f"test_{k}": v for k, v in metrics_vals.items()}
         mlflow.log_metrics(metrics_vals, step=None)
-
-        defence_overheads = get_overheads(
-            test_loader.dataset.defence, test_loader.dataset.meta_df
-        )
-
-        if defence_overheads["sim.missing"] > 0.002:
-            logger.warning("Missing packets in simulation!")
-
-        mlflow.log_metrics(defence_overheads, step=None)
 
         # log model.
         signature = get_signature(model=trained_model, ds=ds_train)
