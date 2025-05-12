@@ -14,12 +14,14 @@ class Breakpad(_FixedMachine):
         network_delay_millis: tuple[int, int],
         network_pps: tuple[int, int],
         seed: int = 42,
+        simul_kwargs: dict | None = None,
     ):
 
         self.machination_kwargs: dict[str, int | float] = {"seed": seed}
         super().__init__(
             network_delay_millis=network_delay_millis,
             network_pps=network_pps,
+            simul_kwargs=simul_kwargs,
         )
 
     def _machination(self, tmpfile_: str, seed: int) -> None:

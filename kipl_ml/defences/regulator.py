@@ -21,6 +21,7 @@ class Regulator(_FixedMachine):
         padding_budget: int,
         B: int,
         seed: int = 42,
+        simul_kwargs: dict | None = None,
     ):
 
         self.machination_kwargs = {
@@ -37,6 +38,7 @@ class Regulator(_FixedMachine):
             network_delay_millis=network_delay_millis,
             network_pps=network_pps,
             fixed_per_trace=False,
+            simul_kwargs=simul_kwargs,
         )
 
     def _machination(

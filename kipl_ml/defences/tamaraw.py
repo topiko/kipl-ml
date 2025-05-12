@@ -18,6 +18,7 @@ class Tamaraw(_FixedMachine):
         window_val: int,
         seed: int = 42,
         fixed_per_trace: bool = False,
+        simul_kwargs: dict | None = None,
     ):
 
         self.machination_kwargs = {
@@ -30,6 +31,7 @@ class Tamaraw(_FixedMachine):
             network_delay_millis=network_delay_millis,
             network_pps=network_pps,
             fixed_per_trace=fixed_per_trace,
+            simul_kwargs=simul_kwargs,
         )
 
     def _machination(

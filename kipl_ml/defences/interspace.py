@@ -16,6 +16,7 @@ class Interspace(_FixedMachine):
         n_machines: int,
         seed: int = 42,
         fixed_per_trace: bool = True,
+        simul_kwargs: dict | None = None,
     ):
         self.machination_kwargs: dict[str, int | float] = {
             "n_machines": n_machines,
@@ -25,6 +26,7 @@ class Interspace(_FixedMachine):
             network_delay_millis=network_delay_millis,
             network_pps=network_pps,
             fixed_per_trace=fixed_per_trace,
+            simul_kwargs=simul_kwargs,
         )
 
     def _machination(self, tmpfile_: str, n_machines: int, seed: int) -> None:
