@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source defense_lists.sh
+source scripts/defense_lists.sh
 nepochs=30
 dataset="gong-surakav"
 defaug=1

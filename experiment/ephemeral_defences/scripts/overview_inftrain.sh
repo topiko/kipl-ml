@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source defense_lists.sh
+source scripts/defense_lists.sh
 defaug=0
 patience=32
 lr_patience=8
