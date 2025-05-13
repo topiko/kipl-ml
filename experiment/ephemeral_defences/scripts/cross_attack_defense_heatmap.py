@@ -164,7 +164,7 @@ def get_metrics_for_xv(
 ) -> dict:
 
     expr_name = "{}-{}"
-    with initialize(version_base=None, config_path="./config/"):
+    with initialize(version_base=None, config_path="../config/"):
         overrides_ = overrides + [
             f"defence={trained_defence}",
             f"misc.mlflow.experiment_name={experiment_name}-{trained_netwk}",
@@ -174,7 +174,7 @@ def get_metrics_for_xv(
 
     trained_model = get_model(cfg_attack, test_xv=test_xv)
 
-    with initialize(version_base=None, config_path="./config/"):
+    with initialize(version_base=None, config_path="../config/"):
         expr_name = expr_name.format(experiment_name, test_defence)
         overrides_ = overrides + [
             f"defence={test_defence}",
@@ -306,7 +306,9 @@ def main():
     table_name = f"cross_attack_{args.experiment_name}-{args.model}-{args.network}.csv"
     try:
         df = pd.read_csv("tables/" + table_name)
-    except FileNotFoundError:
+    except FileNotFoundError as e:
+        logger.info("No previous results found, starting fresh.")
+        logger.warning(e)
         df = None
 
     for xv in range(5):
