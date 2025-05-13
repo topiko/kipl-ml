@@ -74,6 +74,41 @@ def _get_run_id(cfg: OmegaConf, test_xv: int) -> str:
     return run_id
 
 
+def _checks(cfg: OmegaConf, test_xv: int, feature_names: list[str]):
+    # Loading the dataset's source
+
+    try:
+        run_id = _get_run_id(cfg, test_xv)
+    except ValueError as e:
+        logger.warning("For test set generation cannot verify orig. conf params.")
+        logger.warning(e)
+
+        return
+
+    run = mlflow.get_run(run_id=run_id)
+    logged_dataset = run.inputs.dataset_inputs[2].dataset
+
+    try:
+        dataset_source = mlflow.data.get_source(logged_dataset)
+        local_dataset = dataset_source.load()
+        print(local_dataset)
+        # Work w. this local dataset to expose the original asset.TRACE_ID s
+    except NotImplementedError:
+        logger.warning("Cannot verify that test sets are matching.")
+
+    config = mlflow.artifacts.load_dict(run.info.artifact_uri + "/hydra_config.json")
+
+    try:
+        feature_names_remote = config["model"]["features"]
+
+        if any(n1 != n2 for n1, n2 in zip(feature_names, feature_names_remote)):
+            logger.warning("Feature names do not match")
+            logger.warning("\t" + str(feature_names))
+            logger.warning("\t" + str(feature_names_remote))
+    except KeyError:
+        pass
+
+
 def get_model(cfg: OmegaConf, test_xv: int) -> nn.Module:
 
     run_id = _get_run_id(cfg, test_xv)
@@ -97,33 +132,10 @@ def get_test_set(cfg: OmegaConf, test_xv: int) -> WFDataset:
     col = assets.XV_SPLIT(n_splits, label)
 
     test_df = meta_df[meta_df[col] == test_xv]
-    run_id = _get_run_id(cfg, test_xv)
-    run = mlflow.get_run(run_id=run_id)
 
     feature_names = _get_feature_names(cfg)
 
-    # Loading the dataset's source
-    logged_dataset = run.inputs.dataset_inputs[2].dataset
-    dataset_source = mlflow.data.get_source(logged_dataset)
-
-    try:
-        local_dataset = dataset_source.load()
-        print(local_dataset)
-        # Work w. this local dataset to expose the original asset.TRACE_ID s
-    except NotImplementedError:
-        logger.warning("Cannot verify that test sets are matching.")
-
-    config = mlflow.artifacts.load_dict(run.info.artifact_uri + "/hydra_config.json")
-
-    try:
-        feature_names_remote = config["model"]["features"]
-
-        if any(n1 != n2 for n1, n2 in zip(feature_names, feature_names_remote)):
-            logger.warning("Feature names do not match")
-            logger.warning("\t" + str(feature_names))
-            logger.warning("\t" + str(feature_names_remote))
-    except KeyError:
-        pass
+    _checks(cfg, test_xv, feature_names)
 
     trace_len = cfg.model.trace_len
     feature_trs = FeatureTrs(feature_names=feature_names, n_packets=trace_len)
@@ -315,9 +327,11 @@ def main():
                         & (df["xv"] == xv)
                     )
                     if mask.sum() > 0:
+                        logger.info("Already done!")
                         continue
 
                 logger.info("Evaluating %s for xv=%d", test_defence, xv)
+
                 try:
                     metrics_vals = get_metrics_for_xv(
                         model_name=args.model,

@@ -6,18 +6,17 @@ lr_patience=8
 fixed_per_trace=false
 
 
-defences=(ephemeral-block-bottle-padding-heavy
-	ephemeral-block-bottle-default
-	ephemeral-block-bottle-blocking-heavy
+defences=("ephemeral-block-bottle-default"
+	  "ephemeral-block-bottle-padding-heavy"
+	  "ephemeral-block-bottle-blocking-heavy"
 )
 
-netwk_state=bottleneck
+netwk_state=infinite
 events_mltp=16
 
 
 for defence in $defences
 do
-
 	if [ "$defence" == "ephemeral-block-bottle-padding-heavy" ]; then
 		max_trace_length=300000
 	else
