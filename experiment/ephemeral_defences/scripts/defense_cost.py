@@ -36,6 +36,9 @@ def main():
     df = list_runs(args.experiment_name)
     df = df[~df.loc[:, "params.test_xv"].isnull()]
 
+    if "params.defence.flavor" not in df.columns:
+        df[FLAVOR_COL] = None
+
     df = df.rename(
         columns={
             "params.defence.flavor": FLAVOR_COL,
@@ -50,7 +53,7 @@ def main():
     df.loc[df.loc[:, FLAVOR_COL].isnull(), FLAVOR_COL] = "default"
 
     sns.scatterplot(df, x=COST, y=METRIC, hue=FLAVOR_COL)
-    plt.semilogx()
+    # plt.semilogx()
     plt.show()
 
 
