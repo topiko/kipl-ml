@@ -50,6 +50,7 @@ def main():
     df.loc[df.loc[:, FLAVOR_COL].isnull(), FLAVOR_COL] = "default"
 
     sns.scatterplot(df, x=COST, y=METRIC, hue=FLAVOR_COL)
+    plt.semilogx()
     plt.show()
 
 

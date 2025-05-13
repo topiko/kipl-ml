@@ -4,6 +4,7 @@ defaug=0
 patience=32
 lr_patience=8
 fixed_per_trace=false
+dataset="bigenough"
 
 
 defences=("ephemeral-block-bottle-default"
@@ -30,7 +31,7 @@ do
 		for sc in 0.25 0.95 0.8 0.75 0.5 0.25 0.99 1.0
 
 		do
-			expr_name="Eph-COSTCURVE-$netwk_state"
+			expr_name="Ephemeral-$dataset-COSTCURVE-$netwk_state"
 
 
 			common=("train.defence_augmentation=$defaug"
@@ -44,6 +45,7 @@ do
 				"defence.scale=$sc"
 				"misc.simul_args.events_multiplier=$events_mltp"
 				"misc.simul_args.max_trace_length=$max_trace_length"
+				"dataset=$dataset"
 			)
 
 			# uv run python main.py --config-name=df defence=$defence $common
