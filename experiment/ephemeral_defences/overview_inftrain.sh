@@ -4,6 +4,7 @@ defaug=0
 patience=32
 lr_patience=8
 fixed_per_trace=false
+dataset="bigenough"
 
 source defence_lists.sh
 
