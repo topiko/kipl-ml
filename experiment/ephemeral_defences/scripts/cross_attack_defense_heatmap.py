@@ -227,8 +227,8 @@ def _to_pivotet(df: pd.DataFrame) -> pd.DataFrame:
         if "ephemeral" in def_:
             def_ = (
                 def_.replace("ephemeral", "Eph")
-                .replace("pad", "Pad")
-                .replace("block", "Block")
+                .replace("-pad", " Pad")
+                .replace("-block", " Block")
                 .replace("-bottle", "")
                 .replace("-inf", "")
                 .replace("-sc0.75", "")
@@ -399,14 +399,14 @@ def main():
         "Undefended",
         "Break-Pad$\\bigtriangledown$",
         "Break-Pad",
-        "Eph-Pad$\\bigtriangledown$",
-        "Eph-Pad",
+        "Eph Pad$\\bigtriangledown$",
+        "Eph Pad",
         "FRONT$\\bigtriangledown$",
         "FRONT",
         "Interspace$\\bigtriangledown$",
         "Interspace",
-        "Eph-Block$\\bigtriangledown$",
-        "Eph-Block",
+        "Eph Block$\\bigtriangledown$",
+        "Eph Block",
         "RegulaTor$\\bigtriangledown$",
         "RegulaTor",
         "Tamaraw$\\bigtriangledown$",
