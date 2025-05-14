@@ -2,8 +2,13 @@
 
 source scripts/defense_lists.sh
 nepochs=30
-dataset="gong-surakav"
+dataset="bigenough"
 defaug=1
+
+
+if [ -n "$1" ]; then
+    dataset="$1"
+fi
 
 for netwk_state in infinite bottleneck
 do

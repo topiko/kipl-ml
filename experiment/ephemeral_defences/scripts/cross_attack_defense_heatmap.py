@@ -428,7 +428,7 @@ def main():
     plt.xlabel("")
     plt.ylabel("")
     plt.tight_layout()
-    plt.savefig(f"figs/{table_name.replace('.csv', '.png')}")
+    plt.savefig(f"figs/{table_name.replace('.csv', '.png')}", dpi=300)
     plt.show()
 
 

@@ -7,6 +7,9 @@ lr_patience=8
 fixed_per_trace=false
 dataset="bigenough"
 
+if [ -n "$1" ]; then
+    dataset="$1"
+fi
 
 
 for xv in "[0,1]" "[2]" "[3]" "[4]"

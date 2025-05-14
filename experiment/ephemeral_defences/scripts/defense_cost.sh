@@ -6,6 +6,9 @@ lr_patience=8
 fixed_per_trace=false
 dataset="bigenough"
 
+if [ -n "$1" ]; then
+    dataset="$1"
+fi
 
 defences=("ephemeral-block-bottle-default"
 	  "ephemeral-block-bottle-padding-heavy"
