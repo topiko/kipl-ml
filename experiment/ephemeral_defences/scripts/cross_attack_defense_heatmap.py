@@ -227,8 +227,8 @@ def _to_pivotet(df: pd.DataFrame) -> pd.DataFrame:
         if "ephemeral" in def_:
             def_ = (
                 def_.replace("ephemeral", "Eph")
-                .replace("pad", "PAD")
-                .replace("block", "BLOCK")
+                .replace("pad", "Pad")
+                .replace("block", "Block")
                 .replace("-bottle", "")
                 .replace("-inf", "")
                 .replace("-sc0.75", "")

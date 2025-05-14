@@ -6,8 +6,8 @@ import seaborn as sns
 from kipl_ml.tools.mlflow_utils import list_runs
 
 FLAVOR_COL = "def-flavor"
-COST = "bw+delay"
-METRIC = "accuracy"
+COST = "Cost (load+delay)"
+METRIC = "Accuracy"
 COLS = [
     FLAVOR_COL,
     "params.defence.scale",
@@ -42,7 +42,7 @@ def main():
     df = df.rename(
         columns={
             "params.defence.flavor": FLAVOR_COL,
-            "metrics.test_accuracy": "accuracy",
+            "metrics.test_accuracy": "Accuracy",
             "metrics.def.bandwidth": "bw",
             "metrics.def.delay": "delay",
             "params.defence.scale": "def-scale",
