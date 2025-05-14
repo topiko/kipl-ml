@@ -24,6 +24,10 @@ def unsqueeze_batch(x: dict[str, torch.tensor]) -> dict[str, torch.tensor]:
 
 
 def get_laserbeak_model_config(model_name: str) -> dict:
+    if model_name == "lb_wo_attention":
+        model_name = "tuned-multi"
+        logger.info("Mapped name 'lb_wo_attention' into 'tuned-multi'")
+
     config_path = os.path.join(list(lasereak_configs.__path__)[0], model_name + ".json")
     with open(config_path, "r") as fi:
         model_config = json.load(fi)

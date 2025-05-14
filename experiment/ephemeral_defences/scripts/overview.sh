@@ -25,6 +25,7 @@ do
 		common="train.defence_augmentation=$defaug train=fixed-epochs train.n_epochs=$nepochs misc.mlflow.experiment_name=$expr_name network=$netwk_state dataset=$dataset"
 		common_lb="$common lr_scheduler.epochs=$nepochs"
 
+		uv run python main.py --config-name=laserbeak_wo_attention defence=$defence $common_lb
 		uv run python main.py --config-name=df defence=$defence $common
 		uv run python main.py --config-name=rf defence=$defence $common
 		uv run python main.py --config-name=df-multi defence=$defence $common_lb
