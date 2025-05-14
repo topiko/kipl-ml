@@ -40,12 +40,18 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
             print(c)
         raise NotImplementedError(f"{metric}")
 
-    infty = ""  # "\\infinity"  # unicodedata.lookup("Rocket")
-    bottleneck = "\\bottleneck"  # unicodedata.lookup("Hourglass")
+    dataset = df.loc[:, "params.dataset_name"].unique()
+    if len(dataset) != 1:
+        raise ValueError(f"Multiple datasets detected: {dataset}")
+
+    dataset = dataset[0]
+
+    infty = ""
+    bottleneck = "\\bottleneck"
     res = (
         df.groupby(groupby)
         .apply(
-            lambda x: f"{x.loc[:, metric].mean():.1f}\u00b1{x.loc[:, metric].std():.1f}{unit}",
+            lambda x: rf"${x.loc[:, metric].mean():.1f}^{{\pm {x.loc[:, metric].std():.1f}}}$",
             include_groups=False,
         )
         .to_frame()
@@ -64,45 +70,42 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
     )
 
     idx = res.index
-
-    # Apr  8 17:04 eph-blocking-1k-c2-100k-april8-use-scale0.75
-    # Apr 13 23:14 eph-blocking-bottle-1k-c2-100k-april13-use-scale0.75
-    # Apr  8 16:46 eph-padding-1k-c2-100k-april8-use-scale0.75
-    # Apr 13 23:16 eph-padding-bottle-1k-c2-100k-april13-use-scale0.5
-
     res.index = [DEFENCE_NAME_MAP[id_[0]] + id_[1] for id_ in idx]
+    res.index.name = dataset
 
     if metric.startswith("metrics.def."):
-        res = res.loc[:, (slice(None), "df")].rename(
-            columns={"df": metric.replace("metrics.def.", "")}, level=1
+        res = (
+            res.loc[:, (slice(None), "df")]
+            .rename(columns={"df": f"{metric.split(".")[-1]}"}, level=1)
+            .rename(columns={dataset: f"overhead {unit}"}, level=0)
         )
     elif metric.startswith("metrics.sim."):
-        res = res.loc[:, (slice(None), "df")].rename(
-            columns={"df": metric.replace("metrics.", "")}, level=1
+        res = (
+            res.loc[:, (slice(None), "df")]
+            .rename(columns={"df": metric.split(".")[-1]}, level=1)
+            .rename(columns={dataset: f"sim {unit}"}, level=0)
         )
     elif metric == "timings":
-        res = res.rename(columns=lambda x: f"timings-{x}", level=1)
+        res = res.rename(columns={dataset: f"timing {unit}"}, level=0)
     elif metric == "metrics.test_accuracy":
-        res = res.rename(columns=lambda x: f"acc-{x}", level=1)
+        res = res.rename(columns={dataset: f"accuracy {unit}"}, level=0)
 
     index = [
+        "Undefended",
         "Break-Pad\\bottleneck",
         "Break-Pad",
+        "Ephemeral padding-only | sc.=0.5\\bottleneck",
+        "Ephemeral padding-only | sc.=0.75",
         "FRONT\\bottleneck",
         "FRONT",
         "Interspace\\bottleneck",
         "Interspace",
-        "Ephemeral padding-only | sc.=0.5\\bottleneck",
-        "Ephemeral padding-only | sc.=0.75",
-        "Undefended\\bottleneck",
-        "Undefended",
-        "Tamaraw\\bottleneck",
-        "Tamaraw",
+        "Ephemeral blocking | sc.=0.75\\bottleneck",
+        "Ephemeral blocking | sc.=0.75",
         "RegulaTor\\bottleneck",
         "RegulaTor",
-        "Ephemeral blocking | sc.=0.75\\bottleneck",
-        "Ephemeral blocking | sc.=0.5\\bottleneck",
-        "Ephemeral blocking | sc.=0.75",
+        "Tamaraw\\bottleneck",
+        "Tamaraw",
     ]
 
     index = [idx for idx in index if idx in res.index]
