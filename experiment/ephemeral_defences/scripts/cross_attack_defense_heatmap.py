@@ -22,6 +22,7 @@ from experiment.ephemeral_defences.main import (
     _get_target,
     _parse_run_name,
 )
+from experiment.ephemeral_defences.scripts.name_maps import DEFENCE_NAME_MAP
 from kipl_ml.data import assets
 from kipl_ml.data.utils import load_dataset_meta_df
 from kipl_ml.data.wf_dataset import WFDataset
@@ -220,12 +221,36 @@ def _to_pivotet(df: pd.DataFrame) -> pd.DataFrame:
 
     print(acc_mean)
 
+    def _format_label(x: pd.Series) -> str:
+        def_ = x.iloc[0].replace("-infinite", "").replace("-bottleneck", "")
+
+        if "ephemeral" in def_:
+            def_ = (
+                def_.replace("ephemeral", "Eph")
+                .replace("pad", "PAD")
+                .replace("block", "BLOCK")
+                .replace("-bottle", "")
+                .replace("-inf", "")
+                .replace("-sc0.75", "")
+                .replace("-sc0.5", "")
+            )
+
+        else:
+            def_ = DEFENCE_NAME_MAP[def_]
+        netwk = (
+            x.iloc[1]
+            .replace("infinite", "")
+            .replace("bottleneck", "$\\bigtriangledown$")
+        )
+        return rf"{def_}{netwk}"
+
     acc_mean.loc[:, "tr-def-netwk"] = acc_mean.loc[
         :, ["trained_defence", "trained_netwk"]
-    ].apply(lambda x: f"{x.iloc[0]}-{x.iloc[1]}", axis=1)
+    ].apply(_format_label, axis=1)
+
     acc_mean.loc[:, "ts-def-netwk"] = acc_mean.loc[
         :, ["test_defence", "test_netwk"]
-    ].apply(lambda x: f"{x.iloc[0]}-{x.iloc[1]}", axis=1)
+    ].apply(_format_label, axis=1)
 
     acc_mean = acc_mean.pivot_table(
         index="tr-def-netwk",
@@ -370,11 +395,41 @@ def main():
     print("==============================")
     print(acc_mean)
 
-    _, ax = plt.subplots(figsize=(12, 12))
-    sns.heatmap(acc_mean, annot=True, ax=ax, annot_kws={"fontsize": 8})
-    plt.suptitle(f"{args.experiment_name}\nntwk={args.network} | model={args.model}")
+    cols = [
+        "Undefended",
+        "Break-Pad$\\bigtriangledown$",
+        "Break-Pad",
+        "Eph-PAD$\\bigtriangledown$",
+        "Eph-PAD",
+        "FRONT$\\bigtriangledown$",
+        "FRONT",
+        "Interspace$\\bigtriangledown$",
+        "Interspace",
+        "Eph-BLOCK$\\bigtriangledown$",
+        "Eph-BLOCK",
+        "RegulaTor$\\bigtriangledown$",
+        "RegulaTor",
+        "Tamaraw$\\bigtriangledown$",
+        "Tamaraw",
+    ]
+
+    cols = [col for col in cols if col in acc_mean.index]
+
+    _, ax = plt.subplots(figsize=(5, 5))
+    sns.heatmap(
+        acc_mean.loc[cols, cols] * 100,
+        annot=True,
+        ax=ax,
+        annot_kws={"fontsize": 8},
+        cbar=False,
+        fmt=".0f",
+    )
+    # plt.suptitle(f"{args.experiment_name}\nntwk={args.network} | model={args.model}")
+    plt.xlabel("")
+    plt.ylabel("")
     plt.tight_layout()
     plt.savefig(f"figs/{table_name.replace('.csv', '.png')}")
+    plt.show()
 
 
 if __name__ == "__main__":

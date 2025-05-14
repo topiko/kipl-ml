@@ -2,6 +2,7 @@ import argparse
 
 import pandas as pd
 
+from experiment.ephemeral_defences.scripts.name_maps import DEFENCE_NAME_MAP
 from kipl_ml.tools.mlflow_utils import list_runs
 
 
@@ -64,28 +65,12 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
 
     idx = res.index
 
-    defence_name_map = {
-        "breakpad": "Break-Pad",
-        "front": "FRONT",
-        "interspace": "Interspace",
-        "regulator": "RegulaTor",
-        "maybenot | sc.=0.5 | eph-blocking-bottle-1k-c2-100k-april13-use-scale0.75": "Ephemeral blocking | sc.=0.5",
-        "maybenot | sc.=0.75 | eph-blocking-bottle-1k-c2-100k-april13-use-scale0.75": "Ephemeral blocking | sc.=0.75",
-        "maybenot | sc.=0.75 | eph-blocking-1k-c2-100k-april8-use-scale0.75": "Ephemeral blocking | sc.=0.75",
-        "maybenot | sc.=0.5 | eph-padding-bottle-1k-c2-100k-april13-use-scale0.5": "Ephemeral padding-only | sc.=0.5",
-        "maybenot | sc.=0.75 | eph-padding-1k-c2-100k-april8-use-scale0.75": "Ephemeral padding-only | sc.=0.75",
-        "maybenot | sc.=0.5 | def-padding-only-bottleneck-100k-2025-03-03": "Ephemeral padding-only 3.3. 100k | sc.=0.5",
-        "maybenot | sc.=0.5 | def-padding-only-infinite-100k-2025-03-03": "Ephemeral padding-only 3.3. 100k | sc.=0.5",
-        "nodefence": "Undefended",
-        "tamaraw": "Tamaraw",
-    }
-
     # Apr  8 17:04 eph-blocking-1k-c2-100k-april8-use-scale0.75
     # Apr 13 23:14 eph-blocking-bottle-1k-c2-100k-april13-use-scale0.75
     # Apr  8 16:46 eph-padding-1k-c2-100k-april8-use-scale0.75
     # Apr 13 23:16 eph-padding-bottle-1k-c2-100k-april13-use-scale0.5
 
-    res.index = [defence_name_map[id_[0]] + id_[1] for id_ in idx]
+    res.index = [DEFENCE_NAME_MAP[id_[0]] + id_[1] for id_ in idx]
 
     if metric.startswith("metrics.def."):
         res = res.loc[:, (slice(None), "df")].rename(
