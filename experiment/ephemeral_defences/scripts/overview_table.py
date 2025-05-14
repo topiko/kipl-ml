@@ -46,6 +46,13 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
 
     dataset = dataset[0]
 
+    if len(
+        df.drop_duplicates(
+            [col for col in df.columns if col.split(".")[0] in {"params", "mlflow"}]
+        )
+    ) != len(df):
+        raise ValueError("Duplicates in df!")
+
     infty = ""
     bottleneck = "\\bottleneck"
     res = (
