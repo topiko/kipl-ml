@@ -405,7 +405,7 @@ def main():
         "FRONT",
         "Interspace$\\bigtriangledown$",
         "Interspace",
-        "Eph-Block\bigtriangledown$",
+        "Eph-Block$\\bigtriangledown$",
         "Eph-Block",
         "RegulaTor$\\bigtriangledown$",
         "RegulaTor",
