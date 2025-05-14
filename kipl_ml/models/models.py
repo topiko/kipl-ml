@@ -41,7 +41,7 @@ def get_model(
 
             return net
 
-        raise NotImplementedError("Model not implemented yet.")
+        raise NotImplementedError(f"Model '{model_name}' not implemented yet.")
 
     def _get_local_models():
         match model_name:
