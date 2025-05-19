@@ -55,6 +55,9 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
 
     infty = ""
     bottleneck = "\\bottleneck"
+
+    df.to_csv("tables/overview_table_raw.csv", index=False)
+
     res = (
         df.groupby(groupby)
         .apply(
@@ -124,6 +127,8 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
         .replace("blocking", "Block")
         for idx in res.index
     ]
+
+    res.to_csv("tables/overview_table_formatted.csv", index=True)
 
     return res
 
