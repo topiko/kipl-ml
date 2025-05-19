@@ -19,16 +19,17 @@ netwk_state=infinite
 events_mltp=16
 
 
-for defence in $defences
+for xv in "[0]" "[1]" "[2]" "[3]" "[4]"
 do
-	if [ "$defence" == "ephemeral-block-bottle-padding-heavy" ]; then
-		max_trace_length=300000
-	else
-		max_trace_length=200000
-	fi
-
-	for xv in "[0]" "[1]" "[2]" "[3]" "[4]"
+	echo $xv
+	for defence in ${defences[@]}
 	do
+		if [ "$defence" == "ephemeral-block-bottle-padding-heavy" ]; then
+			max_trace_length=300000
+		else
+			max_trace_length=200000
+		fi
+
 		echo $defence
 
 		for sc in 0.25 0.95 0.8 0.75 0.5 0.25 0.99 1.0

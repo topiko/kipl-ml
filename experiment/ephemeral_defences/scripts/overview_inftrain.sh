@@ -31,12 +31,14 @@ do
 		do
 
 			echo $defence
+			# expr_name="Ephemeral-$dataset-inftrain-$netwk_state"
 			expr_name="EphemeralMORE-OFFICIAL-inftrain-$netwk_state"
 
 
 			common="train.defence_augmentation=$defaug lr_scheduler=plateau lr_scheduler.lr_patience=$lr_patience misc.mlflow.experiment_name=$expr_name network=$netwk_state train.patience=$patience train.n_epochs=0 dataset.test_splits=$xv"
 
 			uv run python main.py --config-name=df defence=$defence $common
+			uv run python main.py --config-name=laserbeak_wo_attention defence=$defence $common
 			uv run python main.py --config-name=rf defence=$defence $common
 			uv run python main.py --config-name=df-multi defence=$defence $common
 			# uv run python main.py --config-name=rf_star defence=$defence $common
