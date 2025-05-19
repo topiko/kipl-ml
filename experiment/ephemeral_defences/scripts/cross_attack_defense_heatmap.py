@@ -415,6 +415,10 @@ def main():
 
     cols = [col for col in cols if col in acc_mean.index]
 
+    acc_mean.loc[cols, cols].to_csv(
+        f"tables/{table_name.replace('.csv', '_formatted.csv')}", index=True
+    )
+
     _, ax = plt.subplots(figsize=(5, 5))
     sns.heatmap(
         acc_mean.loc[cols, cols] * 100,
