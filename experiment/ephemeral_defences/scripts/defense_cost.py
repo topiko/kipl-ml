@@ -122,6 +122,20 @@ def main():
     df.loc[:, COST] = df.loc[:, "delay"] + df.loc[:, "bw"]
     df.loc[df.loc[:, FLAVOR_COL].isnull(), FLAVOR_COL] = "default"
 
+    df.loc[
+        :,
+        [
+            FLAVOR_COL,
+            METRIC,
+            "bw",
+            "delay",
+            "xv",
+            "def-scale",
+            "params.model_name",
+            "params.defence.defence-type",
+        ],
+    ].to_csv("tables/cost_curve_raw.csv", index=False)
+
     df_ = (
         df.groupby([FLAVOR_COL, "def-scale"])
         .agg(
@@ -134,6 +148,8 @@ def main():
     )
 
     df_.columns = [f"{c[0]}-{c[1]}" if c[1] != "" else c[0] for c in df_.columns]
+
+    df_.to_csv("tables/cost_curve_formatted.csv", index=False)
 
     _, ax = plt.subplots()
 
