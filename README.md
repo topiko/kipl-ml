@@ -27,37 +27,36 @@ Download the "bigenough" dataset from [here](https://dart.cse.kau.se/maybenot/bi
 
 We rather have a single file for a trace to prepare for potential massive datasets.
 In order to make the conversion to this standard use `kipl_ml/data/conversion.py --dataset DATASET`.
-There are implementations for "bigenough" and "ts5" (deprecated) datasets.
+There are implementations for "bigenough" and "gong-surakav" datasets.
 In order to find these you need to set two paths in `.env` file.
 
 ```
 .env
 
 WF_DATA_DIR=/path/to/orig/data
-MLFLOW_TRACKING_URI=http://127.0.0.1:8000
 MACHINATION=/PATH/TO/MAYBENOT-GEN/target/release/machination
+
+MLFLOW_TRACKING_URI=http://127.0.0.1:8000
+MLFLOW_TRACKING_USERNAME=***
+MLFLOW_TRACKING_PASSWORD=***
 ```
 
 ### MLFlow:
 
-Run the mlflow server (note the env var from above):
+Run the mlflow server (note the env var from above) - ONLY if you don't have access to external server:
 
 `mlflow server --host 127.0.0.1 --port 8000 --backend-store-uri 'file:///abs/path/to/projectroot/.mlruns' --artifacts-destination '.mlartifacts'`
 
 ##### To train the laserbeak models you'll also need:
 
-`git@github.com:notem/Laserbeak-WF-Classifier.git`
+`git@github.com:topiko/laserbeak.git`
+but it is listed as an dep. and should work out of the box.
 
-Unfortunately the above is hard to install so just add it into you pythonpath for now... e.g., modify the venv activate script by adding:
-
-`export PYTHONPATH="$PYTHONPATH:/PATH/TO/Laserbeak-WF-Classifier"`
-
-You also need:
+You also need (DEPRECATED??):
 
 `git@github.com:huggingface/pytorch-image-models.git`
 
 however, those come as depencies and do not require manual installation.
-
 
 ### PyDeps for dep tracking:
 
