@@ -65,7 +65,7 @@ class Maybenot(_Def):
 
 
         if not os.path.isfile(deck_path):
-            raise ValueError(f"No deck found in: {deck_path}"
+            raise ValueError(f"No deck found in: {deck_path}")
 
 
         self.machines = deal_machines(
