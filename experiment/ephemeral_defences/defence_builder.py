@@ -188,9 +188,7 @@ def ephemeral(cfg: OmegaConf) -> dict[str, Maybenot]:
     mbnt_conf["network_delay_millis"] = netwk_delay
     mbnt_conf["network_pps"] = netwk_pps
 
-    mbnt_conf["deck_path"] = (
-        "/home/topiko/Playground/KIPL/.maybenot-decks/" + mbnt_conf.pop("deck_name")
-    )
+    mbnt_conf["deck_path"] = ".maybenot-decks/" + mbnt_conf.pop("deck_name")
     keys = (
         "client_padding_budget",
         "client_blocking_budget",

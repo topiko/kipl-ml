@@ -62,6 +62,12 @@ class Maybenot(_Def):
 
         self.scale = scale
         self.n_machines = n_machines
+
+
+        if not os.path.isfile(deck_path):
+            raise ValueError(f"No deck found in: {deck_path}"
+
+
         self.machines = deal_machines(
             str(deck_path), self.limits, n_machines, scale, seed=seed
         )
