@@ -70,6 +70,10 @@ to generate a dependency graph of a module. Config file in `.pydeps`.
 
 From the `bigenough` we currently map the direction flags: "s"(end) and "r"(eceive) into 1 and -1 respectively. We consider dir > 0 as the "upload" direction (according to Laserbeak conventions). See `kipl_ml/data/conversion.py` for the mapping.
 
+### For deterministic behavior:
+
+`export CUBLAS_WORKSPACE_CONFIG=:4096:8`
+
 ### TODO:
 
 Bring attacks form [wf-lib](https://github.com/Xinhao-Deng/Website-Fingerprinting-Library/).
