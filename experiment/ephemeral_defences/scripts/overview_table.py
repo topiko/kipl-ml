@@ -85,9 +85,9 @@ def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.Data
                 s = f"{stds.loc[row_idx, col_idx]:.1f}"
 
                 if (col_idx == max_idx) and make_bold:
-                    str_ = rf"$\mathbf{{{m}^{{\pm {s}}}}}"
+                    str_ = rf"$\mathbf{{{m}^{{\pm {s}}}}}$"
                 else:
-                    str_ = rf"${m}^{{\pm {s}}}"
+                    str_ = rf"${m}^{{\pm {s}}}$"
                 df.loc[row_idx, col_idx] = str_
 
         return df
