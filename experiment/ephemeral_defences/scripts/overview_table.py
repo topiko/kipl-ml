@@ -6,7 +6,7 @@ from experiment.ephemeral_defences.scripts.name_maps import DEFENCE_NAME_MAP
 from kipl_ml.tools.mlflow_utils import list_runs
 
 
-def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
+def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.DataFrame:
 
     def_type = "params.defence.defence-type"
     mbnt_mask = df.loc[:, def_type].isin(["maybenot", "ephemeral"])
@@ -58,26 +58,44 @@ def _parse_df(df: pd.DataFrame, metric: str) -> pd.DataFrame:
 
     df.to_csv("tables/overview_table_raw.csv", index=False)
 
-    res = (
-        df.groupby(groupby)
-        .apply(
-            lambda x: rf"${x.loc[:, metric].mean():.1f}^{{\pm {x.loc[:, metric].std():.1f}}}$",
-            include_groups=False,
+    res = df.groupby(groupby).agg({metric: ["mean", "std"]}).reset_index()
+    res.columns = [c[0] if c[1] == "" else f"{c[0]}-{c[1]}" for c in res.columns]
+
+    def _pivot_table(df, values) -> pd.DataFrame:
+        return (
+            df.pivot(
+                index=["params.defence.defence-type", "params.network_state"],
+                columns=["params.dataset_name", "params.model_name"],
+                values=values,
+            )
+            .rename_axis(index=["", ""], columns=["", ""])
+            .sort_index(axis=1)
+            .rename(
+                index={"infinite": infty, "bottleneck": bottleneck},
+                level=1,
+            )
         )
-        .to_frame()
-        .reset_index()
-        .pivot(
-            index=["params.defence.defence-type", "params.network_state"],
-            columns=["params.dataset_name", "params.model_name"],
-            values=0,
-        )
-        .rename_axis(index=["", ""], columns=["", ""])
-        .sort_index(axis=1)
-        .rename(
-            index={"infinite": infty, "bottleneck": bottleneck},
-            level=1,
-        )
-    )
+
+    def _to_str(means: pd.DataFrame, stds: pd.DataFrame) -> pd.DataFrame:
+        df = pd.DataFrame(index=means.index, columns=means.columns)
+        for row_idx, row_vals in means.iterrows():
+            max_idx = row_vals.idxmax()
+            for col_idx in row_vals.index:
+                m = f"{means.loc[row_idx, col_idx]:.1f}"
+                s = f"{stds.loc[row_idx, col_idx]:.1f}"
+
+                if (col_idx == max_idx) and make_bold:
+                    str_ = rf"$\mathbf{{{m}^{{\pm {s}}}}}"
+                else:
+                    str_ = rf"${m}^{{\pm {s}}}"
+                df.loc[row_idx, col_idx] = str_
+
+        return df
+
+    means = _pivot_table(res, f"{metric}-mean")
+    stds = _pivot_table(res, values=f"{metric}-std")
+
+    res = _to_str(means, stds)
 
     idx = res.index
     res.index = [DEFENCE_NAME_MAP[id_[0]] + id_[1] for id_ in idx]
@@ -151,7 +169,7 @@ def main():
     df = list_runs(args.experiment_name)
     df = df[~df.loc[:, "params.test_xv"].isnull()]
 
-    res_acc = _parse_df(df, "test_accuracy")
+    res_acc = _parse_df(df, "test_accuracy", make_bold=True)
     res_bw = _parse_df(df, "def.bandwidth")
     res_delay = _parse_df(df, "def.delay")
 
