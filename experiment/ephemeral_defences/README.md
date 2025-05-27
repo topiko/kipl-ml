@@ -53,6 +53,6 @@ output found in `figs/*`
 
 Figure is then generated using:
 
-`python scripts/defense_cost.py -en Ephemeral-[dataset]-COSTCURVE-infinite`
+`python scripts/defense_cost.py -en Ephemeral-[dataset]-COSTCURVE-infinite -en-undef Ephemeral-[dataset]-inftrain-infinite`
 
 again the output is found in `figs/*`

@@ -60,6 +60,7 @@ def main():
     parser.add_argument(
         "-en",
         "--experiment-name",
+        "-en",
         type=str,
         nargs="+",
         required=True,

@@ -3,7 +3,10 @@ import argparse
 import pandas as pd
 
 from experiment.ephemeral_defences.scripts.name_maps import DEFENCE_NAME_MAP
+from kipl_ml.logging.logger import get_logger
 from kipl_ml.tools.mlflow_utils import list_runs
+
+logger = get_logger(__name__)
 
 
 def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.DataFrame:
@@ -31,9 +34,9 @@ def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.Data
             df.loc[:, ["end_time", "start_time"]].apply(
                 lambda x: (x.end_time - x.start_time).total_seconds(), axis=1
             )
-            / 60
+            / 60 / 60
         )
-        unit = "min"
+        unit = "h"
     else:
         print("Available cols")
         for c in df.columns:
@@ -81,7 +84,8 @@ def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.Data
         for row_idx, row_vals in means.iterrows():
             max_idx = row_vals.idxmax()
             for col_idx in row_vals.index:
-                m = f"{means.loc[row_idx, col_idx]:.1f}"
+                m_val = max(0, means.loc[row_idx, col_idx])
+                m = f"{m_val:.1f}"
                 s = f"{stds.loc[row_idx, col_idx]:.1f}"
 
                 if (col_idx == max_idx) and make_bold:
@@ -167,7 +171,20 @@ def main():
     args = parser.parse_args()
 
     df = list_runs(args.experiment_name)
+    # Remove the parent runs.
     df = df[~df.loc[:, "params.test_xv"].isnull()]
+
+    mask = df.loc[:, ["params.model_name", "params.test_xv"]].apply(
+        lambda x: (
+            x.loc["params.model_name"] in {"laserbeak", "laserbeak_wo_attention"}
+        )
+        and (int(x.loc["params.test_xv"]) >= 2),
+        axis=1,
+    )
+
+    if sum(mask) > 0:
+        logger.warning("Removing lb runs over xv 2.")
+        df = df[~mask]
 
     res_acc = _parse_df(df, "test_accuracy", make_bold=True)
     res_bw = _parse_df(df, "def.bandwidth")

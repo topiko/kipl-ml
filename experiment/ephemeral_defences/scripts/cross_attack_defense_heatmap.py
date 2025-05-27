@@ -207,8 +207,12 @@ def get_metrics_for_xv(
         run = mlflow.get_run(run_id=run_id)
         recorded_acc = run.data.metrics["test_accuracy"]
         current_acc = metrics_vals["accuracy"]
-        print(rf"recorded acc = {recorded_acc:.5f} ~ {current_acc:.5f} = current acc ?")
-        print()
+        logger.info("DIAG ELEMENTS ==============================")
+        logger.info(
+            rf"recorded acc = {recorded_acc:.5f} ~ {current_acc:.5f} = current acc ?"
+        )
+        if abs(recorded_acc - current_acc) > 0.00001:
+            logger.warning("Diag elements do not macth!?")
     return metrics_vals
 
 
@@ -270,13 +274,13 @@ def main():
         default="bottleneck",
         help="Network type",
     )
-    parser.add_argument("--experiment-name", type=str, required=True)
+    parser.add_argument("--experiment-name", "-en", type=str, required=True)
     parser.add_argument(
         "--model",
         type=str,
         required=False,
         default="df",
-        choices=["df", "df-multi", "rf", "laserbeak"],
+        choices=["df", "df-multi", "rf", "laserbeak", "laserbeak_wo_attention"],
         help="Model type",
     )
 
@@ -391,9 +395,9 @@ def main():
 
                 df.to_csv("tables/" + table_name, index=False)
 
+    df = df[df.loc[:, "xv"] <= 1]
+    print(df.loc[:, "xv"].max())
     acc_mean = _to_pivotet(df)
-    print("==============================")
-    print(acc_mean)
 
     cols = [
         "Undefended",
@@ -419,6 +423,8 @@ def main():
         f"tables/{table_name.replace('.csv', '_formatted.csv')}", index=True
     )
 
+    print("==============================")
+    print(acc_mean.loc[cols, cols])
     _, ax = plt.subplots(figsize=(5, 5))
     sns.heatmap(
         acc_mean.loc[cols, cols] * 100,
