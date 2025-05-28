@@ -34,7 +34,8 @@ def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.Data
             df.loc[:, ["end_time", "start_time"]].apply(
                 lambda x: (x.end_time - x.start_time).total_seconds(), axis=1
             )
-            / 60 / 60
+            / 60
+            / 60
         )
         unit = "h"
     else:
