@@ -98,6 +98,10 @@ def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.Data
         return df
 
     means = _pivot_table(res, f"{metric}-mean")
+
+    if metric == "timings":
+        print(f"Total runtime: {df.loc[:, metric].sum()} {unit}")
+
     stds = _pivot_table(res, values=f"{metric}-std")
 
     res = _to_str(means, stds)

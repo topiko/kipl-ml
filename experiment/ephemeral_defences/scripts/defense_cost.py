@@ -84,20 +84,15 @@ def main():
     )
     parser.add_argument("--missing", action="store_true")
     parser.add_argument("--timings", action="store_true")
+    parser.add_argument("--model", type=str, default="laserbeak_wo_attention")
 
     args = parser.parse_args()
 
     df = list_runs(args.experiment_name)
     df = df[~df.loc[:, "params.test_xv"].isnull()]
+    df = df[df.loc[:, "params.model_name"] == args.model]
 
-    attack = df.loc[:, "params.model_name"].unique()
-
-    if len(attack) > 1:
-        raise ValueError(
-            "Multiple attacks found for defence curve - this is not supperted"
-        )
-
-    attack = attack[0]
+    attack = args.model
 
     df = pd.concat(
         (df, _get_undefended(attack, args.undef_experiment_name, args.xv)), axis=0
