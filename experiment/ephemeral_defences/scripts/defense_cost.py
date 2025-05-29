@@ -60,7 +60,6 @@ def main():
     parser.add_argument(
         "-en",
         "--experiment-name",
-        "-en",
         type=str,
         nargs="+",
         required=True,
@@ -83,7 +82,6 @@ def main():
         help="Cross-validation folds to consider",
     )
     parser.add_argument("--missing", action="store_true")
-    parser.add_argument("--timings", action="store_true")
     parser.add_argument("--model", type=str, default="laserbeak_wo_attention")
 
     args = parser.parse_args()
