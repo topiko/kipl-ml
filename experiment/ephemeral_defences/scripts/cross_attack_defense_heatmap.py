@@ -284,6 +284,7 @@ def main():
         default=False,
         help="Only run the diagonal elements.",
     )
+    parser.add_argument("--test", action="store_true")
 
     args = parser.parse_args()
 
@@ -363,7 +364,7 @@ def main():
                         & (df["test_netwk"] == test_netwk)
                         & (df["xv"] == xv)
                     )
-                    if mask.sum() > 0:
+                    if (mask.sum() > 0) and not args.test:
                         logger.info("Already done!")
                         continue
 
@@ -399,7 +400,7 @@ def main():
                 acc_mean = _to_pivotet(df)
                 print(acc_mean)
 
-                if not args.only_diag:
+                if not args.test:
                     df.to_csv("tables/" + table_name, index=False)
 
     df = df[df.loc[:, "xv"] <= 1]
