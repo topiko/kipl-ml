@@ -26,6 +26,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-mbnt-rustbindings = { path = "../mbnt-rustbindings" }
+mbnt-rustbindings = { path = "../mbnt-rustbindings" } # For Eph. use tag: v0.4
 # mbnt-rustbindings = { git = "ssh://git@github.com/topiko/mbnt-rustbindings.git", branch="main" }
-laserbeak = { git = "ssh://git@github.com/topiko/laserbeak.git" }
+laserbeak = { git = "ssh://git@github.com/topiko/laserbeak.git" } # For Eph. use tag: v0.0
+
+# For maybenot use commit: c41b3bf590e4a88e44744d75f56de8d1a4f1d1d7
+# For maybenot-gen use commit: 5ed0138c7bc0d5c68c53628e56c8ccd2e6040ff8
