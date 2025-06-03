@@ -35,7 +35,7 @@ do
 		for sc in 0.25 0.95 0.8 0.75 0.5 0.25 0.99 1.0
 
 		do
-			expr_name="Ephemeral-$dataset-COSTCURVE-$netwk_state"
+			expr_name="Ephemeral-$dataset-costcurve-$netwk_state"
 
 
 			common=("train.defence_augmentation=$defaug"
@@ -54,7 +54,7 @@ do
 
 			# uv run python main.py --config-name=df defence=$defence $common
 			# uv run python main.py --config-name=rf defence=$defence $common
-			# uv run python main.py --config-name=df-multi defence=$defence "${common[@]}"
+			uv run python main.py --config-name=df-multi defence=$defence "${common[@]}"
 			uv run python main.py --config-name=laserbeak_wo_attention defence=$defence "${common[@]}"
 			# uv run python main.py --config-name=laserbeak defence=$defence $common
 		done
