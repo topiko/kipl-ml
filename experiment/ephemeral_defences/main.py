@@ -69,7 +69,6 @@ def _get_parent(
 def _get_lr_scheduler(
     cfg: OmegaConf, optimizer: torch.optim.Optimizer
 ) -> tuple[ReduceLROnPlateau | LambdaLR | None, dict]:
-
     params = {f"lr_scheduler.{k}": v for k, v in dict(cfg.lr_scheduler).items()}
 
     match cfg.lr_scheduler.scheduler:
@@ -146,7 +145,6 @@ def _get_loss(cfg: OmegaConf):
 def _get_defence(
     cfg: OmegaConf,
 ) -> dict[str, Maybenot | FRONT | Interspace | Breakpad | NoDefence]:
-
     def_type = cfg.defence.type
 
     match def_type:
@@ -185,7 +183,6 @@ def _get_dl(ds: Dataset, bs: int, shuffle: bool = False) -> DataLoader:
 
 
 def _get_target(target: str) -> str:
-
     if target in (assets.PAGE_LABEL, assets.SUB_PAGE_LABEL):
         return target
 
@@ -193,7 +190,6 @@ def _get_target(target: str) -> str:
 
 
 def _parse_experiment_name(cfg: OmegaConf) -> str:
-
     return f"{cfg.misc.mlflow.experiment_name}"
 
 
@@ -306,13 +302,11 @@ def _run_xv(
     test_xv: int,
     nested_run: bool = True,
 ):
-
     # Set seeds
-    seed = cfg.misc.seed + test_xv
-    cfg.misc.seed = seed
-    torch.manual_seed(seed)
+    cfg.misc.seed += test_xv
+    torch.manual_seed(cfg.misc.seed)
     torch.use_deterministic_algorithms(True)
-    np.random.seed(seed)
+    np.random.seed(cfg.misc.seed)
 
     run_name = f"{parent_run_name}_xv={test_xv:02d}"
 
@@ -370,7 +364,6 @@ def _run_xv(
     lr_scheduler, scheduler_params = _get_lr_scheduler(cfg, optimizer)
 
     with mlflow.start_run(run_name=run_name, nested=nested_run):
-
         # Log the config file as an artifact
         log_hydra_conf(cfg)
 
@@ -450,7 +443,6 @@ def _run_xv(
 
 
 def _run_xvs(experiment_name: str, run_name: str, cfg: OmegaConf):
-
     test_splits = OmegaConf.to_object(cfg.dataset.test_splits)
     orig_seed = cfg.misc.seed
     for test_xv in test_splits:

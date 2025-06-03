@@ -44,7 +44,6 @@ mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 
 def _get_run_id(cfg: OmegaConf, test_xv: int) -> str:
-
     experiment_name = cfg.misc.mlflow.experiment_name
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
@@ -111,7 +110,6 @@ def _checks(cfg: OmegaConf, test_xv: int, feature_names: list[str]):
 
 
 def get_model(cfg: OmegaConf, test_xv: int) -> nn.Module:
-
     run_id = _get_run_id(cfg, test_xv)
     run = mlflow.get_run(run_id=run_id)
 
@@ -124,7 +122,6 @@ def get_model(cfg: OmegaConf, test_xv: int) -> nn.Module:
 
 
 def get_test_set(cfg: OmegaConf, test_xv: int) -> WFDataset:
-
     dataset = cfg.dataset.name
     meta_df = load_dataset_meta_df(dataset)
     n_splits = cfg.dataset.n_splits
@@ -163,8 +160,6 @@ def get_metrics_for_xv(
     test_xv: int,
     experiment_name: str,
 ) -> dict:
-
-    expr_name = "{}-{}"
     with initialize(version_base=None, config_path="../config/"):
         overrides_ = overrides + [
             f"defence={trained_defence}",
@@ -176,7 +171,6 @@ def get_metrics_for_xv(
     trained_model = get_model(cfg_attack, test_xv=test_xv)
 
     with initialize(version_base=None, config_path="../config/"):
-        expr_name = expr_name.format(experiment_name, test_defence)
         overrides_ = overrides + [
             f"defence={test_defence}",
             f"misc.mlflow.experiment_name={experiment_name}-{test_netwk}",
@@ -194,6 +188,7 @@ def get_metrics_for_xv(
     test_ds = get_test_set(cfg_defence, test_xv=test_xv)
 
     test_ds.report()
+    # Note the bs needs to match w. that of the training time.
     test_loader = _get_dl(test_ds, 128)
 
     metrics = [Accuracy()]
@@ -283,6 +278,12 @@ def main():
         choices=["df", "df-multi", "rf", "laserbeak", "laserbeak_wo_attention"],
         help="Model type",
     )
+    parser.add_argument(
+        "--only-diag",
+        action="store_true",
+        default=False,
+        help="Only run the diagonal elements.",
+    )
 
     args = parser.parse_args()
 
@@ -346,6 +347,11 @@ def main():
                 trained_defence = _defence_name_map(trained_defence_, trained_netwk)
                 test_defence = _defence_name_map(test_defence, test_netwk)
 
+                if args.only_diag and (
+                    trained_defence != test_defence or trained_netwk != test_netwk
+                ):
+                    continue
+
                 logger.info(
                     f"Now running: {trained_defence} - {trained_netwk} | {test_defence} - {test_netwk}"
                 )
@@ -393,7 +399,8 @@ def main():
                 acc_mean = _to_pivotet(df)
                 print(acc_mean)
 
-                df.to_csv("tables/" + table_name, index=False)
+                if not args.only_diag:
+                    df.to_csv("tables/" + table_name, index=False)
 
     df = df[df.loc[:, "xv"] <= 1]
     print(df.loc[:, "xv"].max())
