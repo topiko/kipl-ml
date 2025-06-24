@@ -310,9 +310,12 @@ def _run_xv(
 
     run_name = f"{parent_run_name}_xv={test_xv:02d}"
 
-    if run_exists(experiment_name, run_name, parent_run_name=parent_run_name) and (
-        not cfg.misc.ignore_existing
-    ):
+    if run_exists(
+        experiment_name,
+        run_name,
+        parent_run_name=parent_run_name,
+        ignore_existing=cfg.misc.ignore_existing,
+    ) and (not cfg.misc.ignore_existing):
         logger.info("Found finished run for: %s -> exiting.", run_name)
         return
 

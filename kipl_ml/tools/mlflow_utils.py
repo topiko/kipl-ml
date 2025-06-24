@@ -104,6 +104,7 @@ def run_exists(
     experiment_name: str,
     run_name: str | None = None,
     parent_run_name: str | None = None,
+    ignore_existing: bool = False,
 ) -> bool:
 
     df = list_runs(experiment_name, only_finished=False, raise_on_empty=False)
@@ -130,7 +131,12 @@ def run_exists(
         if (len(parents) == 1) and (mask.sum() == 1):
             return True
         if (len(parents) == 1) and (mask.sum() > 1):
-            raise ValueError("Same run several time for single parent")
+            if not ignore_existing:
+                raise ValueError("Same run several time for single parent")
+            else:
+                logger.warning(
+                    f"Repeated run name '{run_name}' for parent '{parent_run_name}'"
+                )
 
         logger.warning(
             "Run %s has several parents in experiment: %s", run_name, experiment_name
