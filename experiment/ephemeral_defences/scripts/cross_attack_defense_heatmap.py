@@ -45,6 +45,7 @@ mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 fontsize = 8
 
+mpl.use("pgf")
 mpl.rcParams.update(
     {
         # Same font everywhere, including $...$ parts
@@ -53,21 +54,16 @@ mpl.rcParams.update(
         "font.size": fontsize,
         "pgf.rcfonts": False,
         "axes.labelsize": fontsize,
-        "pgf.texsystem": "xelatex",
+        # "pgf.texsystem": "xelatex",
         "legend.fontsize": fontsize,
         "xtick.labelsize": fontsize,
         "ytick.labelsize": fontsize,
+        "pgf.texsystem": "pdflatex",  # <-- switch engine
         "pgf.preamble": "\n".join(
             [
-                "\\usepackage{fontspec}",
-                "\\setmainfont{Times New Roman}",
-                "\\setsansfont{Arial}",
-                "\\setmonofont{JetBrains Mono}",
-                "\\usepackage{unicode-math}",
-                "\\setmathfont{TeX Gyre Termes Math}",
-                "\\usepackage{unicode-math}",
-                "\\usepackage{graphicx}",
-                "\\usepackage{amssymb}",
+                "\\usepackage[T1]{fontenc}",
+                "\\usepackage{newtxtext}",  #  % Times-like text, Type 1
+                "\\usepackage{newtxmath}",
             ]
         ),
     }
@@ -473,20 +469,7 @@ def main():
     print(acc_mean.loc[cols, cols])
     _, ax = plt.subplots(figsize=(3.4, 3.4))
 
-    acc_mean = acc_mean.loc[cols, cols]
-    cols = [
-        c.replace(
-            "$\\bigtriangledown$",
-            "$\\raise0.5ex\\hbox{$\\bigtriangledown$}$",
-        )
-        for c in cols
-    ]
-    acc_mean.index = cols
-    acc_mean.columns = cols
-
-    print(acc_mean)
-
-    g = sns.heatmap(
+    sns.heatmap(
         acc_mean.loc[cols, cols] * 100,
         annot=True,
         ax=ax,
