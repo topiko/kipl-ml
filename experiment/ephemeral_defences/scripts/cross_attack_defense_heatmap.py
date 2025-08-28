@@ -54,7 +54,6 @@ mpl.rcParams.update(
         "font.size": fontsize,
         "pgf.rcfonts": False,
         "axes.labelsize": fontsize,
-        # "pgf.texsystem": "xelatex",
         "legend.fontsize": fontsize,
         "xtick.labelsize": fontsize,
         "ytick.labelsize": fontsize,
