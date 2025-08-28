@@ -51,12 +51,24 @@ mpl.rcParams.update(
         "text.usetex": True,
         "font.family": "DejaVu sans",  # serif",
         "font.size": fontsize,
+        "pgf.rcfonts": False,
         "axes.labelsize": fontsize,
+        "pgf.texsystem": "xelatex",
         "legend.fontsize": fontsize,
         "xtick.labelsize": fontsize,
         "ytick.labelsize": fontsize,
-        "text.latex.preamble": "\n".join(
-            [r"\usepackage{graphicx}", r"\usepackage{amssymb}"]
+        "pgf.preamble": "\n".join(
+            [
+                "\\usepackage{fontspec}",
+                "\\setmainfont{Times New Roman}",
+                "\\setsansfont{Arial}",
+                "\\setmonofont{JetBrains Mono}",
+                "\\usepackage{unicode-math}",
+                "\\setmathfont{TeX Gyre Termes Math}",
+                "\\usepackage{unicode-math}",
+                "\\usepackage{graphicx}",
+                "\\usepackage{amssymb}",
+            ]
         ),
     }
 )
@@ -303,6 +315,7 @@ def main():
         default=False,
         help="Only run the diagonal elements.",
     )
+    parser.add_argument("--nxv", type=int, default=5)
     parser.add_argument("--test", action="store_true")
 
     args = parser.parse_args()
@@ -361,7 +374,7 @@ def main():
         logger.warning(e)
         df = None
 
-    for xv in range(5):
+    for xv in range(args.nxv):
         for trained_defence_, trained_netwk in product(defences, networks):
             for test_defence, test_netwk in product(defences, networks):
                 trained_defence = _defence_name_map(trained_defence_, trained_netwk)
@@ -464,7 +477,7 @@ def main():
     cols = [
         c.replace(
             "$\\bigtriangledown$",
-            "$\\raise0.5ex\\hbox{\\scalebox{0.5}{\\hbox{$\\bigtriangledown$}}}$",
+            "$\\raise0.5ex\\hbox{$\\bigtriangledown$}$",
         )
         for c in cols
     ]
@@ -473,7 +486,6 @@ def main():
 
     print(acc_mean)
 
-    # fontfamily = "serif"  # "DejaVu Sans" #"serif"  #
     g = sns.heatmap(
         acc_mean.loc[cols, cols] * 100,
         annot=True,
@@ -482,9 +494,6 @@ def main():
         cbar=False,
         fmt=".0f",
     )
-
-    # g.set_xticklabels(g.get_xmajorticklabels(), fontfamily=fontfamily)
-    # g.set_yticklabels(g.get_ymajorticklabels(), fontfamily=fontfamily)
 
     plt.xlabel("")
     plt.ylabel("")
