@@ -55,6 +55,9 @@ mpl.rcParams.update(
         "legend.fontsize": fontsize,
         "xtick.labelsize": fontsize,
         "ytick.labelsize": fontsize,
+        "text.latex.preamble": "\n".join(
+            [r"\usepackage{graphicx}", r"\usepackage{amssymb}"]
+        ),
     }
 )
 
@@ -358,7 +361,7 @@ def main():
         logger.warning(e)
         df = None
 
-    for xv in range(2):
+    for xv in range(5):
         for trained_defence_, trained_netwk in product(defences, networks):
             for test_defence, test_netwk in product(defences, networks):
                 trained_defence = _defence_name_map(trained_defence_, trained_netwk)
@@ -456,6 +459,19 @@ def main():
     print("==============================")
     print(acc_mean.loc[cols, cols])
     _, ax = plt.subplots(figsize=(3.4, 3.4))
+
+    acc_mean = acc_mean.loc[cols, cols]
+    cols = [
+        c.replace(
+            "$\\bigtriangledown$",
+            "$\\raise0.5ex\\hbox{\\scalebox{0.5}{\\hbox{$\\bigtriangledown$}}}$",
+        )
+        for c in cols
+    ]
+    acc_mean.index = cols
+    acc_mean.columns = cols
+
+    print(acc_mean)
 
     # fontfamily = "serif"  # "DejaVu Sans" #"serif"  #
     g = sns.heatmap(
