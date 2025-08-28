@@ -5,6 +5,7 @@ import os
 from itertools import product
 
 import dotenv
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
@@ -41,6 +42,21 @@ logger = get_logger(__name__)
 dotenv.load_dotenv()
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+
+fontsize = 8
+
+mpl.rcParams.update(
+    {
+        # Same font everywhere, including $...$ parts
+        "text.usetex": True,
+        "font.family": "DejaVu sans",  # serif",
+        "font.size": fontsize,
+        "axes.labelsize": fontsize,
+        "legend.fontsize": fontsize,
+        "xtick.labelsize": fontsize,
+        "ytick.labelsize": fontsize,
+    }
+)
 
 
 def _get_run_id(cfg: OmegaConf, test_xv: int) -> str:
@@ -342,7 +358,7 @@ def main():
         logger.warning(e)
         df = None
 
-    for xv in range(5):
+    for xv in range(2):
         for trained_defence_, trained_netwk in product(defences, networks):
             for test_defence, test_netwk in product(defences, networks):
                 trained_defence = _defence_name_map(trained_defence_, trained_netwk)
@@ -427,25 +443,37 @@ def main():
 
     cols = [col for col in cols if col in acc_mean.index]
 
+    table_name = (
+        table_name.replace("_Ephemeral", "")
+        .replace("MORE-OFFICIAL", "")
+        .replace("bigenough-", "")
+        .replace("attack-", "attack_")
+    )
     acc_mean.loc[cols, cols].to_csv(
         f"tables/{table_name.replace('.csv', '_formatted.csv')}", index=True
     )
 
     print("==============================")
     print(acc_mean.loc[cols, cols])
-    _, ax = plt.subplots(figsize=(5, 5))
-    sns.heatmap(
+    _, ax = plt.subplots(figsize=(3.4, 3.4))
+
+    # fontfamily = "serif"  # "DejaVu Sans" #"serif"  #
+    g = sns.heatmap(
         acc_mean.loc[cols, cols] * 100,
         annot=True,
         ax=ax,
-        annot_kws={"fontsize": 8},
+        annot_kws={"fontsize": 6},  # , "fontfamily": fontfamily},
         cbar=False,
         fmt=".0f",
     )
-    # plt.suptitle(f"{args.experiment_name}\nntwk={args.network} | model={args.model}")
+
+    # g.set_xticklabels(g.get_xmajorticklabels(), fontfamily=fontfamily)
+    # g.set_yticklabels(g.get_ymajorticklabels(), fontfamily=fontfamily)
+
     plt.xlabel("")
     plt.ylabel("")
     plt.tight_layout()
+    plt.savefig(f"figs/{table_name.replace('.csv', '.pdf')}")
     plt.savefig(f"figs/{table_name.replace('.csv', '.png')}", dpi=300)
     plt.show()
 
