@@ -226,7 +226,7 @@ def train_model(
 
         if isinstance(lr_scheduler, ReduceLROnPlateau):
             lr_scheduler.step(metrics_vals["loss"])
-        elif isinstance(lr_scheduler, LambdaLR | RFLRScheduler):
+        elif isinstance(lr_scheduler, (LambdaLR, RFLRScheduler)):
             lr_scheduler.step()
         elif lr_scheduler is None:
             pass

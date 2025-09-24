@@ -104,7 +104,7 @@ def _save_meta_df(seq_rows: list[pd.DataFrame], dataset: str):
     pd.concat(seq_rows, axis=0).reset_index(drop=True).to_hdf(path, key="metadf")
 
 
-def _save_dataset_to_standard(dataset: str, save_np: bool = True):
+def _save_dataset_to_standard(dataset: str):
     """
     Convert data to standard format [seq_len, n_features], where features:
         - 0: t = time
@@ -164,7 +164,7 @@ def _save_dataset_to_standard(dataset: str, save_np: bool = True):
 
             sub_page_label, sample_id = parse_labels(trace_id, page_label)
 
-            print(trace_id, page_label, sub_page_label)
+            logger.info("Parsed %s (page %s -> sub-page %s)", trace_id, page_label, sub_page_label)
 
             trace_df = _data_to_meta_row(
                 data=trace,
@@ -189,12 +189,10 @@ if __name__ == "__main__":
         required=True,
         choices=[Datasets.GONG_SURAKAV, Datasets.BIGENOUGH],
     )
-    argparser.add_argument("--save-np", action="store_true")
-
     args = argparser.parse_args()
 
     if args.dataset in {Datasets.BIGENOUGH, Datasets.GONG_SURAKAV}:
-        _save_dataset_to_standard(args.dataset, save_np=args.save_np)
+        _save_dataset_to_standard(args.dataset)
 
         generate_xv_splits(args.dataset, n_splits=10, label_asset=assets.PAGE_LABEL)
         generate_xv_splits(args.dataset, n_splits=5, label_asset=assets.PAGE_LABEL)

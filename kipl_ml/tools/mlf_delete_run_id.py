@@ -31,21 +31,25 @@ def main():
         return
 
     def _delete_run(run_id: str):
-        yn = input(f"Run with id '{run_id}' is about to be deleted. Continue? (y/n)")
+        yn = input(f"Run with id '{run_id}' is about to be deleted. Continue? (y/n) ")
         if yn.lower() == "y":
             mlflow.delete_run(run_id)
-            print(f"Run with id {args.run_id} was deleted.")
+            print(f"Deleted run {run_id}.")
+        else:
+            print(f"Skipped deletion for run {run_id}.")
 
         run = mlflow.get_run(run_id)
         print("Lifecycle:", run.info.lifecycle_stage)
 
     def _delete_experiment(experiment_id: str):
         yn = input(
-            f"Experiment with id '{experiment_id}' is about to be deleted. Continue? (y/n)"
+            f"Experiment with id '{experiment_id}' is about to be deleted. Continue? (y/n) "
         )
         if yn.lower() == "y":
             mlflow.delete_experiment(experiment_id)
-            print(f"Run with id {args.run_id} was deleted.")
+            print(f"Deleted experiment {experiment_id}.")
+        else:
+            print(f"Skipped deletion for experiment {experiment_id}.")
 
     if args.experiment_id is not None:
         _delete_experiment(args.experiment_id)

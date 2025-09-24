@@ -26,11 +26,11 @@ def get_clf_df(model: nn.Module, dataloader: DataLoader) -> pd.DataFrame:
     pred_probs = torch.softmax(logits, dim=1)
     pred_class = logits.argmax(dim=1)
 
-    df = dataloader.dataset.meta_df
+    df = dataloader.dataset.meta_df.copy()
 
-    df.loc[:, PRED] = pred_class.numpy()
-    df.loc[:, PRED_CLS_PROB] = pred_probs.numpy()
-    df.loc[:, PAGE_LABEL] = y_true.numpy()
+    df.loc[:, PRED] = pred_class.cpu().numpy()
+    df.loc[:, PRED_CLS_PROB] = pred_probs.cpu().numpy().tolist()
+    df.loc[:, PAGE_LABEL] = y_true.cpu().numpy()
 
     return df
 

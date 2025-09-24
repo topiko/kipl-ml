@@ -153,7 +153,14 @@ class WFDataset(Dataset):
                 with open(tmp_trace_path, "rb") as f:
                     trace = torch.load(f, weights_only=True)
 
-        return {k: v.float() for k, v in trace.items()}
+        converted: dict[str, torch.Tensor] = {}
+        for key, val in trace.items():
+            if key == assets.PADDING:
+                converted[key] = val.to(dtype=torch.bool)
+            else:
+                converted[key] = val.to(dtype=torch.float32)
+
+        return converted
 
     def _get_label(self, idx: int) -> torch.Tensor:
         idx = self._get_idx(idx)[0]

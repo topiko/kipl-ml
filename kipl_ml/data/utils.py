@@ -111,9 +111,10 @@ def parse_trace_to_tensor_dict(
         case "ns":
             pass
         case _:
-            raise KeyError("Invalid time unit: {time_unit}")
+            raise KeyError(f"Invalid time unit: {time_unit}")
 
-    sizes = sizes or np.ones_like(times)
+    if sizes is None:
+        sizes = np.ones_like(times)
 
     # We make the cast to 32bit later in dataset.
     trace_dict = {
@@ -202,6 +203,8 @@ def generate_xv_splits(
 
     xv_col = assets.XV_SPLIT(n_splits, label_asset)
 
+    rng = np.random.default_rng(random_state) if random_state is not None else None
+
     if dataset == Datasets.BIGENOUGH:
         if n_splits == 10:
             meta_df.loc[:, xv_col] = meta_df.loc[:, assets.SAMPLE_ID] // 2
@@ -218,7 +221,10 @@ def generate_xv_splits(
 
             n_ = mask.sum() // n_splits
             split_idx = np.repeat(np.arange(n_splits), n_)
-            np.random.shuffle(split_idx)
+            if rng is not None:
+                rng.shuffle(split_idx)
+            else:
+                np.random.shuffle(split_idx)
 
             meta_df.loc[mask, xv_col] = split_idx
 
@@ -273,7 +279,3 @@ def preserve_class_frac_sample(
         raise ValueError("Empty df")
 
     return sampled_meta_df
-
-
-if __name__ == "__main__":
-    _xv_splits_fname(Datasets.BIGENOUGH, 5)

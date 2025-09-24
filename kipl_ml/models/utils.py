@@ -40,8 +40,9 @@ def get_signature(model: nn.Module, ds: WFDataset) -> ModelSignature:
     model.eval()
     with torch.no_grad():
         X_ = model.example_input(ds[0][0])
-        y_ = model(X_).numpy()
+        y_ = model(X_).detach().cpu().numpy()
 
-    signature = infer_signature({k: v.numpy() for k, v in X_.items()}, y_)
+    inputs = {k: v.detach().cpu().numpy() for k, v in X_.items()}
+    signature = infer_signature(inputs, y_)
 
     return signature

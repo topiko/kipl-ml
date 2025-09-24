@@ -413,10 +413,9 @@ class RunningRate(_TR):
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         times = trace[self.time_asset]
-        values = trace[self.asset]
+        values = trace[self.asset].clone()
 
-        bad_t = times == 0
-        values[bad_t] = 0.0
+        values[times == 0] = 0.0
 
         running_rate = torch.where(
             times != 0, torch.cumsum(values, dim=0) / times, torch.zeros_like(values)
