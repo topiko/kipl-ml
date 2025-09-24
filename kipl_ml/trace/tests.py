@@ -1,7 +1,7 @@
 import unittest
 
-import kipl_ml.data.assets as assets
 import torch
+
 from kipl_ml.trace.features import Compose, Feats, LogInv, PadOrCutTrace, get_feature_tr
 from kipl_ml.trace.params import DOWNLOAD, UPLOAD
 from kipl_ml.trace.transforms import _TR
@@ -264,7 +264,6 @@ class TestTR(unittest.TestCase):
         self.assertTrue(torch.allclose(tr(trace)[f"log_inv_{Feats.TIMES}"], log_times))
 
     def test_log_inv_iat_dirs(self):
-
         trace = self._get_trace(self.N_PACKETS)
 
         tr = self._get_key(Feats.LOG_INV_FLOW_IATS_NORMALIZED_DIRS, trace)
@@ -272,7 +271,6 @@ class TestTR(unittest.TestCase):
         tr(trace)[Feats.LOG_INV_FLOW_IATS_NORMALIZED_DIRS]
 
     def test_running_rate(self):
-
         trace = self._get_trace(self.N_PACKETS)
         tr = self._get_key(Feats.RUNNING_RATE_SIZES, trace)
 

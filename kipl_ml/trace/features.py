@@ -124,7 +124,6 @@ class PadOrCutTrace(_TR):
         return self
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-
         trace_ = {
             key: _pad_short_trace(val, self.n_packets, asset_key=key)
             for key, val in trace.items()
@@ -177,7 +176,6 @@ class Normalize(_TR):
     NAME = "normalized"
 
     def __init__(self, normalized_asset: str, input_asset: str, division: str = "std"):
-
         if division not in {"std", "max"}:
             raise ValueError("Division must be either 'std' or 'max'")
 
@@ -187,7 +185,6 @@ class Normalize(_TR):
 
     @property
     def name(self) -> str:
-
         if self.division == "std":
             return str(
                 {
@@ -263,7 +260,6 @@ class IAT(_TR):
         return self
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-
         if self.dir_key == "up":
             mask = trace[self.dir_asset] == UPLOAD
         elif self.dir_key == "down":
@@ -279,7 +275,6 @@ class IAT(_TR):
 
 
 class _DirWeight(_TR):
-
     def __init__(self, dir_asset: str, w_asset: str):
         self.dir_asset = dir_asset
         self.w_asset = w_asset
@@ -293,7 +288,6 @@ class _DirWeight(_TR):
         return self
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-
         return {self.name: trace[self.dir_asset] * trace[self.w_asset]}
 
 
@@ -375,7 +369,6 @@ class FlowIATS(_TR):
         return self
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-
         dirs = trace[Feats.DIRS]
         flow_iats = torch.zeros_like(dirs)
         flow_iats[dirs == UPLOAD] = trace[Feats.UP_IATS][dirs == UPLOAD]
@@ -422,11 +415,11 @@ class RunningRate(_TR):
         times = trace[self.time_asset]
         values = trace[self.asset]
 
-        # There can be time==0 in the beginning.
+        bad_t = times == 0
+        values[bad_t] = 0.0
+
         running_rate = torch.where(
-            times != 0,
-            torch.cumsum(values, dim=0) / torch.cumsum(times, dim=0),
-            torch.ones_like(times),
+            times != 0, torch.cumsum(values, dim=0) / times, torch.zeros_like(values)
         )
 
         return {self.name: running_rate}
@@ -498,7 +491,6 @@ class Compose(_TR):
         return self.transforms[-1].name
 
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> Compose:
-
         # Avoid inplace changes
         _trace = deepcopy(trace)
         for tr in self.transforms:
@@ -513,7 +505,6 @@ class Compose(_TR):
         return self
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-
         # Here inplace changes are fine?
         for tr in self.transforms:
             if tr == self.transforms[-1]:
@@ -569,7 +560,6 @@ class FeatureTrs:
         return report
 
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-
         trace_: dict[str, torch.Tensor] = {}
         for tr in self._feature_trs:
             out = tr(trace)
