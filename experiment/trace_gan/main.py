@@ -62,9 +62,11 @@ def main(cfg: DictConfig):
     optimG = torch.optim.Adam(generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     discriminator.to(device)
     generator.to(device)
 
+    print("Starting training... on device", device)
     while True:
         for X, y in dl:
             labels = torch.ones_like(y).to(device)
