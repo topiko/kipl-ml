@@ -41,13 +41,12 @@ class TRGEN1(nn.Module):
             nn.Linear(10 * seed_dim, trace_len),
             nn.LeakyReLU(),
             nn.ConvTranspose1d(1, 1, kernel_size=5, stride=1, padding=2),
-            nn.Tanh(),
+            nn.Hardtanh(),
         )
 
     def forward(self, seed: torch.Tensor) -> dict[Feats, torch.tensor]:
         seed = seed.unsqueeze(1)
         gen_trace = self.generator(seed).squeeze()
 
-        gen_trace = torch.sign(gen_trace)
 
         return {Feats.DIRS: gen_trace}

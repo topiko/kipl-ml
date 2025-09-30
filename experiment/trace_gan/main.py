@@ -100,14 +100,17 @@ def main(cfg: DictConfig):
                 dloss = lt.item()
 
                 # Generator
-                optimG.zero_grad()
-                preds_gen = discriminator(X_gen)
-                labels = torch.ones(len(preds_gen), dtype=torch.long, device=device)
+                for _ in range(cfg.generator_mltp):
+                    optimG.zero_grad()
+                    seeds = torch.randn(cfg.batch_size, seed_dim, device=device)
+                    X_gen = generator(seeds)
+                    preds_gen = discriminator(X_gen)
+                    labels = torch.ones(len(preds_gen), dtype=torch.long, device=device)
 
-                lg = loss(preds_gen, labels)
+                    lg = loss(preds_gen, labels)
 
-                lg.backward()
-                optimG.step()
+                    lg.backward()
+                    optimG.step()
 
                 gloss = lg.item()
 

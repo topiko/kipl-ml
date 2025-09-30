@@ -3,6 +3,7 @@ defaults:
 
 trace_len: 5000
 batch_size: 64
+generator_mltp: 10
 
 
 generator:
