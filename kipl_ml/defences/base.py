@@ -26,7 +26,6 @@ class _Def(ABC):
         seed: int | None = 42,
         fixed_per_trace: bool = False,
     ):
-
         self.network_delay_millis = NetwkDelay(*network_delay_millis, seed=seed)
         self.network_pps = NetwkPps(*network_pps, seed=seed)
         self.simul_rng = TraceSimulRng(seed=seed)
@@ -87,7 +86,6 @@ class _Def(ABC):
 
 
 class NoDefence(_Def):
-
     def __init__(
         self,
         network_delay_millis: tuple[int, int],
@@ -95,14 +93,13 @@ class NoDefence(_Def):
         seed: int | None = 42,
         simul_kwargs: dict | None = None,
     ):
-
         super().__init__(
             network_delay_millis=network_delay_millis,
             network_pps=network_pps,
             seed=seed,
             fixed_per_trace=False,
         )
-        self.simul_kwargs = {} or simul_kwargs
+        self.simul_kwargs = simul_kwargs or {}
 
     def report(self, to_log: bool = True) -> str:
         str_ = "No defence applied\n"
@@ -121,7 +118,6 @@ class NoDefence(_Def):
     def _simulate(
         self, trace_path: os.PathLike, machine_idx: int | None = None
     ) -> dict[str, torch.Tensor]:
-
         times, dirs, paddings = sim_trace_from_file_advanced(
             str(trace_path),
             [],  # Empty machines --> no defence

@@ -47,7 +47,6 @@ def load_machines(
 
 
 class _FixedMachine(_Def):
-
     def __init__(
         self,
         network_delay_millis: tuple[int, int],
@@ -80,10 +79,9 @@ class _FixedMachine(_Def):
 
         os.remove(tmpfile_)
 
-        self.simul_kwargs = {} or simul_kwargs
+        self.simul_kwargs = simul_kwargs or {}
 
     def report(self, to_log: bool = False) -> str:
-
         str_ = self.__class__.__name__ + "\n"
         if self.machination_args is not None:
             str_ += f"\tcmd: machination {' '.join(self.machination_args[1:])}\n"
@@ -116,7 +114,6 @@ class _FixedMachine(_Def):
     def _simulate(
         self, trace_path: os.PathLike, machine_idx: int | None = None
     ) -> dict[str, torch.Tensor]:
-
         client_machines, server_machines = self._get_machines(machine_idx)
 
         times, dirs, paddings = sim_trace_from_file_advanced(

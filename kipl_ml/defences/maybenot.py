@@ -17,7 +17,6 @@ logger = get_logger(__name__)
 
 
 class Maybenot(_Def):
-
     def __init__(
         self,
         deck_path: os.PathLike,
@@ -37,7 +36,6 @@ class Maybenot(_Def):
         fixed_per_trace: bool = False,
         simul_kwargs: dict | None = None,
     ):
-
         super().__init__(
             network_delay_millis=network_delay_millis,
             network_pps=network_pps,
@@ -63,17 +61,15 @@ class Maybenot(_Def):
         self.scale = scale
         self.n_machines = n_machines
 
-
         if not os.path.isfile(deck_path):
             raise ValueError(f"No deck found in: {deck_path}")
-
 
         self.machines = deal_machines(
             str(deck_path), self.limits, n_machines, scale, seed=seed
         )
         self.machine_rng = MachineRng(len(self.machines))
         self.deck_path = deck_path
-        self.simul_kwargs = {} or simul_kwargs
+        self.simul_kwargs = simul_kwargs or {}
 
     def report(self, to_log: bool = True) -> str:
         str_ = "Maybenot Defence:\n"
@@ -114,7 +110,6 @@ class Maybenot(_Def):
     def _simulate(
         self, trace_path: os.PathLike, machine_idx: int | None = None
     ) -> dict[str, torch.Tensor]:
-
         pad_bloc_fracs, (client_machines, server_machines) = self._get_machines(
             machine_idx
         )
@@ -142,7 +137,6 @@ class Maybenot(_Def):
         return trace_d
 
     def _mlflow_log_params(self) -> dict[str, str]:
-
         d = {}
         d[DEFENCE_TYPE_KW] = f"{self.__class__.__name__.lower()}"
         d["fixed_per_trace"] = str(self.FIXED_PER_TRACE)
