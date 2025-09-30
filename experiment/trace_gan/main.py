@@ -74,7 +74,7 @@ def main(cfg: DictConfig):
             for X, y in pbar:
                 # Discriminator
                 optimD.zero_grad()
-                labels = torch.ones_like(y).to(device)
+                labels = torch.ones(len(y), device=device, dtype=torch.long)
                 preds = discriminator(dict_to_device(X, device))
 
                 # Loss
@@ -86,7 +86,9 @@ def main(cfg: DictConfig):
                 seeds = torch.randn(cfg.batch_size, seed_dim, device=device)
                 X_gen = generator(seeds)
 
-                preds_gen = discriminator({k: x.detach() for k, x in X_gen.items()})
+                preds_gen = discriminator(
+                    {k: x.detach().clone() for k, x in X_gen.items()}
+                )
                 labels_gen = torch.zeros(len(seeds), dtype=torch.long, device=device)
 
                 l0 = loss(preds_gen, labels_gen)
