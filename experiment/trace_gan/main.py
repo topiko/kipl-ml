@@ -8,7 +8,7 @@ from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
 from kipl_ml.data.utils import load_dataset_meta_df
-from kipl_ml.data.wf_dataset import WFDataset
+from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.defences.base import NoDefence
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.models.df import DF
@@ -61,10 +61,14 @@ def main(cfg: DictConfig):
     optimD = torch.optim.Adam(discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
     optimG = torch.optim.Adam(generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    discriminator.to(device)
+    generator.to(device)
+
     while True:
         for X, y in dl:
-            labels = torch.ones_like(y)
-            preds = discriminator(X)
+            labels = torch.ones_like(y).to(device)
+            preds = discriminator(dict_to_device(X, device))
 
             # Loss
             # L1 = log(D(x))
@@ -72,11 +76,11 @@ def main(cfg: DictConfig):
 
             l1 = loss(preds, labels)
 
-            seeds = torch.randn(cfg.batch_size, seed_dim)
+            seeds = torch.randn(cfg.batch_size, seed_dim, device=device)
             X_gen = generator(seeds)
 
             preds_gen = discriminator({k: x.detach() for k, x in X_gen.items()})
-            labels_gen = torch.zeros(len(seeds), dtype=torch.long)
+            labels_gen = torch.zeros(len(seeds), dtype=torch.long, device=device)
 
             l0 = loss(preds_gen, labels_gen)
 
