@@ -5,6 +5,7 @@ import hydra
 import mlflow
 import torch
 from omegaconf import DictConfig
+from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -54,7 +55,6 @@ def main(cfg: DictConfig):
         trace_len=trace_len,
         features=feature_names,
         seed_dim=seed_dim,
-        latent_dim=cfg.generator.latent_dim,
     )
     # generator
 
@@ -72,6 +72,8 @@ def main(cfg: DictConfig):
     while True:
         with tqdm(dl, desc=f"epoch {epoch: 03d}", ncols=TQDM_W) as pbar:
             for X, y in pbar:
+                # Discriminator
+                optimD.zero_grad()
                 labels = torch.ones_like(y).to(device)
                 preds = discriminator(dict_to_device(X, device))
 
@@ -93,9 +95,24 @@ def main(cfg: DictConfig):
                 lt.backward()
                 optimD.step()
 
-                optimD.zero_grad()
-                pbar.set_postfix({"loss": f"{lt.item():1.4f}"})
+                dloss = lt.item()
 
+                # Generator
+                optimG.zero_grad()
+                preds_gen = discriminator(X_gen)
+                labels = torch.ones(len(preds_gen), dtype=torch.long, device=device)
+
+                lg = loss(preds_gen, labels)
+
+                lg.backward()
+                optimG.step()
+
+                gloss = lg.item()
+
+                pbar.set_postfix({"Dloss": f"{dloss:1.4f}", "Gloss": f"{gloss:1.4f}"})
+
+            preds_gen = F.softmax(preds_gen, dim=1)
+            print(torch.unique(preds_gen.argmax(dim=1), return_counts=True))
         epoch += 1
 
 

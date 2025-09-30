@@ -12,7 +12,6 @@ class TRGEN1(nn.Module):
         trace_len: int,
         features: list[Feats],
         seed_dim: int = 100,
-        latent_dim: int = 500,
     ):
         if features != [Feats.DIRS]:
             raise ValueError("TRGEN1 only supports 'dirs' feature.")
@@ -23,16 +22,32 @@ class TRGEN1(nn.Module):
         self.trace_len = trace_len
 
         self.generator = nn.Sequential(
-            nn.Linear(seed_dim, latent_dim),
-            nn.ReLU(),
-            nn.Linear(latent_dim, 1024),
-            nn.ReLU(),
-            nn.Linear(1024, 2048),
-            nn.ReLU(),
-            nn.Linear(2048, trace_len),
+            nn.ConvTranspose1d(
+                1,
+                1,
+                kernel_size=5,
+                stride=1,
+                padding=2,
+            ),
+            nn.LeakyReLU(),
+            nn.Linear(seed_dim, 2 * seed_dim),
+            nn.LeakyReLU(),
+            nn.ConvTranspose1d(1, 1, kernel_size=5, stride=1, padding=2),
+            nn.LeakyReLU(),
+            nn.Linear(2 * seed_dim, 10 * seed_dim),
+            nn.LeakyReLU(),
+            nn.ConvTranspose1d(1, 1, kernel_size=5, stride=1, padding=2),
+            nn.LeakyReLU(),
+            nn.Linear(10 * seed_dim, trace_len),
+            nn.LeakyReLU(),
+            nn.ConvTranspose1d(1, 1, kernel_size=5, stride=1, padding=2),
             nn.Tanh(),
         )
 
     def forward(self, seed: torch.Tensor) -> dict[Feats, torch.tensor]:
-        gen_trace = self.generator(seed)
+        seed = seed.unsqueeze(1)
+        gen_trace = self.generator(seed).squeeze()
+
+        gen_trace = torch.sign(gen_trace)
+
         return {Feats.DIRS: gen_trace}
