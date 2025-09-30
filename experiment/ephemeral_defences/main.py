@@ -211,30 +211,6 @@ def _parse_run_name(cfg: OmegaConf) -> str:
     return f"{defence_str} vs. {cfg.model.name} | aug={aug}"
 
 
-def _get_bw_overhead(cfg: OmegaConf, undefended_trace_len: int) -> int:
-    match cfg.defence.type:
-        case "ephemeral":
-            return int(
-                undefended_trace_len * float(1 / (1 - cfg.defence.max_padding_frac))
-            )
-        case "no-defence":
-            return undefended_trace_len
-        case "front":
-            max_extra_packets = int(
-                cfg.defence.padding_budget_max_client
-                + cfg.defence.padding_budget_max_server
-            )
-            return undefended_trace_len + max_extra_packets
-        case "interspace":
-            logger.warning("What is the bw overhead estimate for Interspace?")
-            return undefended_trace_len * 2
-        case "breakpad":
-            logger.warning("What is the bw overhead estimate for Breakpad?")
-            return undefended_trace_len * 2
-        case _:
-            raise NotImplementedError("Defence type not implemented.")
-
-
 def _get_model_config(
     cfg: OmegaConf, ret_feature_names: bool = False
 ) -> dict | list[str]:
