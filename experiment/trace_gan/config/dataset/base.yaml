@@ -1,0 +1,4 @@
+n_splits: 5
+test_splits: [0, 1, 2, 3, 4]
+random_state: 24
+n_min_packets: 0 # Require the orig. flow to have at least this many packets.
