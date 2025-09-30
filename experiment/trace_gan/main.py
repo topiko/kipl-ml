@@ -6,11 +6,12 @@ import mlflow
 import torch
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from kipl_ml.data.utils import load_dataset_meta_df
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.defences.base import NoDefence
-from kipl_ml.logging.logger import get_logger
+from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.df import DF
 from kipl_ml.models.trgen import TRGEN1
 from kipl_ml.trace.features import Feats, FeatureTrs
@@ -67,32 +68,35 @@ def main(cfg: DictConfig):
     generator.to(device)
 
     print("Starting training... on device", device)
+    epoch = 0
     while True:
-        for X, y in dl:
-            labels = torch.ones_like(y).to(device)
-            preds = discriminator(dict_to_device(X, device))
+        with tqdm(dl, desc=f"epoch {epoch: 03d}", ncols=TQDM_W) as pbar:
+            for X, y in pbar:
+                labels = torch.ones_like(y).to(device)
+                preds = discriminator(dict_to_device(X, device))
 
-            # Loss
-            # L1 = log(D(x))
-            # L0 = log(1 - D(G(z))) (discriminator)
+                # Loss
+                # L1 = log(D(x))
+                # L0 = log(1 - D(G(z))) (discriminator)
 
-            l1 = loss(preds, labels)
+                l1 = loss(preds, labels)
 
-            seeds = torch.randn(cfg.batch_size, seed_dim, device=device)
-            X_gen = generator(seeds)
+                seeds = torch.randn(cfg.batch_size, seed_dim, device=device)
+                X_gen = generator(seeds)
 
-            preds_gen = discriminator({k: x.detach() for k, x in X_gen.items()})
-            labels_gen = torch.zeros(len(seeds), dtype=torch.long, device=device)
+                preds_gen = discriminator({k: x.detach() for k, x in X_gen.items()})
+                labels_gen = torch.zeros(len(seeds), dtype=torch.long, device=device)
 
-            l0 = loss(preds_gen, labels_gen)
+                l0 = loss(preds_gen, labels_gen)
 
-            lt = l1 + l0
-            lt.backward()
-            optimD.step()
+                lt = l1 + l0
+                lt.backward()
+                optimD.step()
 
-            optimD.zero_grad()
+                optimD.zero_grad()
+                pbar.set_postfix({"loss": f"{lt.item():1.4f}"})
 
-        print(lt.item())
+        epoch += 1
 
 
 if __name__ == "__main__":
