@@ -68,6 +68,24 @@ def main(cfg: DictConfig):
     discriminator.to(device)
     generator.to(device)
 
+    seeds = torch.randn(cfg.batch_size, seed_dim, device=device)
+    while True:
+        for X, y in dl:
+            X = dict_to_device(X, device)
+
+            X_gen = generator(seeds)
+
+            loss = ((X_gen["dirs"] - X["dirs"]) ** 2).sum()
+
+            loss.backward()
+            optimG.step()
+
+            print(loss.mean().item())
+            print(X_gen["dirs"][0])
+            print(X["dirs"][0])
+            print()
+            break
+
     logger.info("Discriminator params: %s" % count_parameters(discriminator))
     logger.info("Generator params: %s" % count_parameters(generator))
 
