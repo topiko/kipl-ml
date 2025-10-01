@@ -15,6 +15,7 @@ from kipl_ml.defences.base import NoDefence
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.df import DF
 from kipl_ml.models.trgen import TRGEN1
+from kipl_ml.models.utils import count_parameters
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
@@ -59,17 +60,24 @@ def main(cfg: DictConfig):
     # generator
 
     loss = torch.nn.CrossEntropyLoss()
-    optimD = torch.optim.Adam(discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
-    optimG = torch.optim.Adam(generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
+    optimD = torch.optim.Adam(discriminator.parameters(), lr=0.01)
+    optimG = torch.optim.Adam(generator.parameters(), lr=0.01)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     discriminator.to(device)
     generator.to(device)
 
-    print("Starting training... on device", device)
+    logger.info("Discriminator params: %s" % count_parameters(discriminator))
+    logger.info("Generator params: %s" % count_parameters(generator))
+
+    logger.info("Starting training... on device: %s" % device)
     epoch = 0
     while True:
+        logger.info("Epoch: %04d" % epoch)
+        dloss_mean = 0
+        gloss_mean = 0
+        i = 0
         with tqdm(dl, desc=f"epoch {epoch: 03d}", ncols=TQDM_W) as pbar:
             for X, y in pbar:
                 # Discriminator
@@ -86,9 +94,7 @@ def main(cfg: DictConfig):
                 seeds = torch.randn(cfg.batch_size, seed_dim, device=device)
                 X_gen = generator(seeds)
 
-                preds_gen = discriminator(
-                    {k: x.detach().clone() for k, x in X_gen.items()}
-                )
+                preds_gen = discriminator({k: x.detach() for k, x in X_gen.items()})
                 labels_gen = torch.zeros(len(seeds), dtype=torch.long, device=device)
 
                 l0 = loss(preds_gen, labels_gen)
@@ -114,9 +120,16 @@ def main(cfg: DictConfig):
 
                 gloss = lg.item()
 
-                pbar.set_postfix({"Dloss": f"{dloss:1.4f}", "Gloss": f"{gloss:1.4f}"})
+                i += 1
+                dloss_mean = dloss_mean + (dloss - dloss_mean) / i
+                gloss_mean = gloss_mean + (gloss - gloss_mean) / i
+
+                pbar.set_postfix(
+                    {"Dloss": f"{dloss_mean:1.4f}", "Gloss": f"{gloss_mean:1.4f}"}
+                )
 
             preds_gen = F.softmax(preds_gen, dim=1)
+            print(X_gen)
             print(torch.unique(preds_gen.argmax(dim=1), return_counts=True))
         epoch += 1
 
