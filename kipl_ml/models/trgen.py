@@ -16,7 +16,7 @@ class _ConvBlock(nn.Module):
 
     def forward(self, x: torch.tensor) -> torch.tensor:
         # print(x.shape)
-        x = self.block(x) * 10
+        x = self.block(x)
         # print(x.shape)
         # print()
         return x

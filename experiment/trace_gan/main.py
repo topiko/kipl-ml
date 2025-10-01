@@ -47,7 +47,7 @@ def main(cfg: DictConfig):
         feature_trs=FeatureTrs(feature_names=feature_names, n_packets=trace_len),
     )
 
-    dl = DataLoader(ds, batch_size=cfg.batch_size, shuffle=True, num_workers=4)
+    dl = DataLoader(ds, batch_size=cfg.batch_size, shuffle=False, num_workers=24)
 
     discriminator = DF(n_classes, large_input=False)
     seed_dim = cfg.generator.seed_dim
@@ -69,21 +69,26 @@ def main(cfg: DictConfig):
     generator.to(device)
 
     seeds = torch.randn(cfg.batch_size, seed_dim, device=device)
+    i = 0
     while True:
         for X, y in dl:
             X = dict_to_device(X, device)
 
             X_gen = generator(seeds)
 
-            loss = ((X_gen["dirs"] - X["dirs"]) ** 2).sum()
+            loss = ((X_gen["dirs"] - X["dirs"]) ** 2).mean()
 
             loss.backward()
             optimG.step()
 
-            print(loss.mean().item())
-            print(X_gen["dirs"][0])
-            print(X["dirs"][0])
-            print()
+            i += 1
+            print(loss.item())
+
+            if i % 10 == 0:
+                for k in range(5):
+                    print(X_gen["dirs"][k])
+                    print(X["dirs"][k])
+                    print()
             break
 
     logger.info("Discriminator params: %s" % count_parameters(discriminator))
