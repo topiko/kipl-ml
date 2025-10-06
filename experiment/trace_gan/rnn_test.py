@@ -43,7 +43,7 @@ def main(cfg: DictConfig):
         feature_trs=FeatureTrs(feature_names=feature_names, n_packets=trace_len),
     )
 
-    dl = DataLoader(ds, batch_size=cfg.batch_size, shuffle=False, num_workers=4)
+    dl = DataLoader(ds, batch_size=cfg.batch_size, shuffle=True, num_workers=4)
 
     generator = TRGEN2(features=feature_names, inlen=1)
 
@@ -55,6 +55,8 @@ def main(cfg: DictConfig):
 
     while True:
         with tqdm(dl, desc="Training", ncols=TQDM_W) as pbar:
+            loss_ = 0
+            n = 1
             for X, _ in pbar:
                 X = dict_to_device(X, device)[Feats.DIRS]
 
@@ -62,13 +64,21 @@ def main(cfg: DictConfig):
                 for t in range(trace_len - 1):
                     optimG.zero_grad()
                     dirs, h = generator(X[:, t : t + 1], h)
-                    loss = ((dirs - X[:, t + 1]) ** 2).mean()
 
-                    if t % 100 == 0:
+                    loss = torch.where(
+                        X[:, t + 1] != 0, (dirs - X[:, t + 1]) ** 2, 0
+                    ).mean()
+                    # loss = ((torch.sign(dirs) - X[:, t + 1]) ** 2).mean()
+
+                    loss_ += (loss.item() - loss_) / n
+
+                    if t % 1000 == 0:
                         loss.backward()
                         optimG.step()
                         h = tuple(s.detach() for s in h)
-                        pbar.set_postfix({"loss": loss.item()})
+                        pbar.set_postfix({"loss": loss_})
+
+                    n += 1
         break
 
 
