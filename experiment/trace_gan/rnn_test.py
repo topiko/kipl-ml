@@ -55,6 +55,7 @@ def main(cfg: DictConfig):
 
     generator.to(device)
 
+    e = 0
     while True:
         with tqdm(dl, desc="Training", ncols=TQDM_W) as pbar:
             loss_ = 0
@@ -98,10 +99,10 @@ def main(cfg: DictConfig):
                         plot_trace({Feats.DIRS: X_gen}, idx=0, ax=ax1)
                         plot_trace({Feats.DIRS: X_}, idx=0, ax=ax2)
                         plt.savefig(f"figs/rnn/rnn_step_{n:04d}.png")
+                        e += 1
                         # plt.show()
 
                     n += 1
-        break
 
 
 if __name__ == "__main__":
