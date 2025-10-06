@@ -2,6 +2,7 @@ import os
 
 import dotenv
 import hydra
+import matplotlib.pyplot as plt
 import mlflow
 import torch
 from omegaconf import DictConfig
@@ -13,6 +14,7 @@ from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.defences.base import NoDefence
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.trgen import TRGEN2
+from kipl_ml.tools.plottr import plot_trace
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
@@ -77,6 +79,26 @@ def main(cfg: DictConfig):
                         optimG.step()
                         h = tuple(s.detach() for s in h)
                         pbar.set_postfix({"loss": loss_})
+
+                    if t == 0:
+                        _, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 3), sharex=True)
+
+                        trlen = 500
+                        X_ = X[:1, :trlen]
+
+                        X_gen = torch.zeros_like(X_)
+                        h_ = None
+                        for t_ in range(trlen - 1):
+                            if t_ < trlen - 100:
+                                x_ = X_[:, t_ : t_ + 1]
+                            else:
+                                x_ = X_gen[:, t_ : t_ + 1]
+                            dirs_, h_ = generator(x_, h_)
+                            X_gen[0, t_ + 1] = dirs_
+                        plot_trace({Feats.DIRS: X_gen}, idx=0, ax=ax1)
+                        plot_trace({Feats.DIRS: X_}, idx=0, ax=ax2)
+                        plt.savefig(f"figs/rnn/rnn_step_{n:04d}.png")
+                        # plt.show()
 
                     n += 1
         break
