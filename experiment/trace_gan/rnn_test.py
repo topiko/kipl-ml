@@ -47,13 +47,16 @@ def main(cfg: DictConfig):
 
     dl = DataLoader(ds, batch_size=cfg.batch_size, shuffle=True, num_workers=4)
 
-    generator = TRGEN2(features=feature_names, inlen=1)
+    generator = TRGEN2(features=feature_names, inlen=1, hsize=256, nlayer=2)
 
     optimG = torch.optim.Adam(generator.parameters(), lr=0.01)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     generator.to(device)
+
+    trlen = 500
+    X_ = ds[0][0][Feats.DIRS].to(device).unsqueeze(0)[:, :trlen]
 
     e = 0
     while True:
@@ -84,8 +87,6 @@ def main(cfg: DictConfig):
                     if t == 0:
                         _, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 3), sharex=True)
 
-                        trlen = 500
-                        X_ = X[:1, :trlen]
 
                         X_gen = torch.zeros_like(X_)
                         h_ = None
@@ -98,7 +99,7 @@ def main(cfg: DictConfig):
                             X_gen[0, t_ + 1] = dirs_
                         plot_trace({Feats.DIRS: X_gen}, idx=0, ax=ax1)
                         plot_trace({Feats.DIRS: X_}, idx=0, ax=ax2)
-                        plt.savefig(f"figs/rnn/rnn_step_{n:04d}.png")
+                        plt.savefig(f"figs/rnn/rnn_step_{e:04d}.png")
                         e += 1
                         # plt.show()
 
