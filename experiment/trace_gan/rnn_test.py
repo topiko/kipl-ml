@@ -56,14 +56,21 @@ def main(cfg: DictConfig):
     generator.to(device)
 
     trlen = 500
-    X_ = ds[0][0][Feats.DIRS].to(device).unsqueeze(0)[:, :trlen]
+    X_, y_ = ds[0]
+
+    X_ = X_[Feats.DIRS].to(device).unsqueeze(0)[:, :trlen]
 
     e = 0
     while True:
         with tqdm(dl, desc="Training", ncols=TQDM_W) as pbar:
             loss_ = 0
             n = 1
-            for X, _ in pbar:
+            for X, y in pbar:
+                mask = y == y_
+                if mask.sum() < 2:
+                    continue
+
+                X[Feats.DIRS] = X[Feats.DIRS][mask]
                 X = dict_to_device(X, device)[Feats.DIRS]
 
                 h = None
@@ -86,7 +93,6 @@ def main(cfg: DictConfig):
 
                     if t == 0:
                         _, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 3), sharex=True)
-
 
                         X_gen = torch.zeros_like(X_)
                         h_ = None
