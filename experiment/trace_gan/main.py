@@ -2,6 +2,7 @@ import os
 
 import dotenv
 import hydra
+import matplotlib.pyplot as plt
 import mlflow
 import torch
 from omegaconf import DictConfig
@@ -16,6 +17,7 @@ from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.df import DF
 from kipl_ml.models.trgen import TRGEN1
 from kipl_ml.models.utils import count_parameters
+from kipl_ml.tools.plottr import plot_trace
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
@@ -68,7 +70,7 @@ def main(cfg: DictConfig):
     discriminator.to(device)
     generator.to(device)
 
-    seeds = torch.randn(cfg.batch_size, seed_dim, device=device)
+    seeds = torch.randn(cfg.batch_size, seed_dim, 1, device=device)
     i = 0
     while True:
         for X, y in dl:
@@ -76,19 +78,24 @@ def main(cfg: DictConfig):
 
             X_gen = generator(seeds)
 
-            loss = ((X_gen["dirs"] - X["dirs"]) ** 2).mean()
+            loss = ((X_gen["dirs"][:, :5000] - X["dirs"]) ** 2).mean()
 
             loss.backward()
             optimG.step()
 
-            i += 1
             print(loss.item())
 
             if i % 10 == 0:
-                for k in range(5):
+                for k in range(min(5, cfg.batch_size)):
+                    # _, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 3), sharex=True)
+                    # plot_trace(X_gen, idx=k, ax=ax1)
+                    # plot_trace(X, idx=k, ax=ax2)
+                    # plt.show()
+
                     print(X_gen["dirs"][k])
                     print(X["dirs"][k])
                     print()
+            i += 1
             break
 
     logger.info("Discriminator params: %s" % count_parameters(discriminator))

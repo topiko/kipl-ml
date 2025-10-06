@@ -2,10 +2,10 @@ defaults:
   - dataset: bigenough
 
 trace_len: 5000
-batch_size: 64
+batch_size: 32
 generator_mltp: 1
 
 
 generator:
-  seed_dim: 5000
+  seed_dim: 100
   latent_dim: 500
