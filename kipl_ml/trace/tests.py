@@ -230,6 +230,29 @@ class TestTR(unittest.TestCase):
 
         self.assertTrue(torch.allclose(tr(trace)[Feats.BURST_EDGES], edges))
 
+    def test_burst_lens_dirs(self):
+        burst_lens = torch.randint(1, 11, (21,))
+        dirs = []
+        for i, bl in enumerate(burst_lens):
+            dirs.append(torch.ones(bl, dtype=torch.float32) * (-1) ** i)
+
+        dirs = torch.cat(dirs)
+        trace = {Feats.DIRS: dirs}
+
+        tr = self._get_key(Feats.BURST_LENS, trace)
+
+        burst_lens_ = tr(trace)[Feats.BURST_LENS].long()
+
+        self.assertTrue(torch.allclose(burst_lens_, burst_lens))
+
+        tr = self._get_key(Feats.BURST_DIRS, trace)
+
+        burst_dirs = tr(trace)[Feats.BURST_DIRS]
+        burst_dirs_ = torch.ones_like(burst_lens)
+        burst_dirs_[1::2] = -1
+
+        self.assertTrue(torch.all(burst_dirs.long() == burst_dirs_))
+
     def test_normalized_flow_iats(self):
         trace = self._get_trace(self.N_PACKETS)
         tr = self._get_key(Feats.FLOW_IATS_NORMALIZED, trace)

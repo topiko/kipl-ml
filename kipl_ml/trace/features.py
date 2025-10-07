@@ -40,6 +40,8 @@ class Feats(StrEnum):
     IAT_DIRS_NORMALIZED = f"{IATS_NORMALIZED}_dirs"
     CUM_SIZES_MAX_NORMALIZED = f"max_normalized_{CUM_SIZES}"
     BURST_EDGES = "burst_edges"
+    BURST_LENS = "burst_lens"
+    BURST_DIRS = "burst_dirs"
     FLOW_IATS = "flow_iats"
     FLOW_IATS_NORMALIZED = f"normalized_{FLOW_IATS}"
     LOG_INV_FLOW_IATS = f"log_inv_{FLOW_IATS}"
@@ -342,11 +344,11 @@ class Cumulative(_TR):
 
 
 class BurstEdges(_TR):
-    NAME = "burst_edges"
+    NAME = Feats.BURST_EDGES
 
     @property
     def name(self) -> str:
-        return "burst_edges"
+        return self.NAME
 
     def get_shapes(self, trace: dict[str, torch.Tensor]) -> BurstEdges:
         self._output_sizes = {self.name: trace[Feats.DIRS].shape[0]}
@@ -355,6 +357,70 @@ class BurstEdges(_TR):
     def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         edges = torch.diff(trace[Feats.DIRS], dim=0, prepend=torch.Tensor([0]))
         return {self.name: edges}
+
+
+class BurstLens(_TR):
+    NAME = Feats.BURST_LENS
+
+    @property
+    def name(self) -> str:
+        return self.NAME
+
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> BurstLens:
+        self._output_sizes = {self.name: None}  # Variable length
+        return self
+
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        edges = trace[Feats.BURST_EDGES]
+
+        # Example:
+        # dirs:    -1, 1, 1, -1, -1, -1, 1, 1, 1, 1, -1
+        # edges:   -1, 2, 0, -2,  0,  0, 2, 0, 0, 0, -2
+        # lens:     1,    2,          3,          4, ...
+
+        down2up = torch.argwhere(edges == 2).squeeze()
+        up2down = torch.argwhere(edges == -2).squeeze()
+
+        idxs = torch.cat((down2up, up2down, torch.Tensor([len(edges)]))).sort()[0]
+
+        burst_lens = torch.diff(idxs, prepend=torch.Tensor([0]))
+
+        return {self.name: burst_lens}
+
+
+class BurstDirs(_TR):
+    NAME = Feats.BURST_DIRS
+
+    @property
+    def name(self) -> str:
+        return self.NAME
+
+    def get_shapes(self, trace: dict[str, torch.Tensor]) -> BurstDirs:
+        self._output_sizes = {self.name: None}  # Variable length
+        return self
+
+    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        edges = trace[Feats.BURST_EDGES]
+
+        # Example:
+        # dirs:    -1, 1, 1, -1, -1, -1, 1, 1, 1, 1, -1
+        # edges:   -1, 2, 0, -2,  0,  0, 2, 0, 0, 0, -2
+        # lens:     1,    2,          3,          4, ...
+
+        down2up = torch.argwhere(edges == 2).squeeze()
+        up2down = torch.argwhere(edges == -2).squeeze()
+
+        idxs = torch.cat((down2up, up2down, torch.Tensor([len(edges)]))).sort()[0]
+
+        burst_dirs = torch.ones_like(idxs)
+        if trace[Feats.DIRS][0] == DOWNLOAD:
+            burst_dirs[0::2] = -1
+        elif trace[Feats.DIRS][0] == UPLOAD:
+            burst_dirs[1::2] = -1
+        else:
+            raise ValueError("First dir cannot be 0")
+
+        return {self.name: burst_dirs}
 
 
 class FlowIATS(_TR):
@@ -673,10 +739,11 @@ def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
                 ),
             )
         case Feats.BURST_EDGES:
-            return Compose(
-                PadOrCutTrace(n_packets),
-                BurstEdges(),
-            )
+            return Compose(PadOrCutTrace(n_packets), BurstEdges())
+        case Feats.BURST_LENS:
+            return Compose(BurstEdges(), BurstLens())
+        case Feats.BURST_DIRS:
+            return Compose(BurstEdges(), BurstDirs())
         case Feats.FLOW_IATS:
             return Compose(
                 PadOrCutTrace(n_packets),

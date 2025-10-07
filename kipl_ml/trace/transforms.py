@@ -11,10 +11,10 @@ import torch
 
 class _TR(ABC):
     NAME: str
-    _output_sizes: dict[str, int] | None = None
+    _output_sizes: dict[str, int | None] | None = None
 
     @property
-    def output_sizes(self) -> dict[str, int]:
+    def output_sizes(self) -> dict[str, int | None]:
         if self._output_sizes is None:
             raise ValueError("Output size not set. Need to call 'get_shapes(X)' first.")
         return self._output_sizes

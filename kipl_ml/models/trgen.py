@@ -94,9 +94,6 @@ class TRGEN2(nn.Module):
         hsize: int = 128,
         nlayer: int = 2,
     ):
-        if features != [Feats.DIRS]:
-            raise ValueError("TRGEN1 only supports 'dirs' feature.")
-
         super().__init__()
 
         self.generator = nn.Sequential(

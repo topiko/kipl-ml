@@ -1,0 +1,137 @@
+import os
+
+import dotenv
+import hydra
+import matplotlib.pyplot as plt
+import mlflow
+import torch
+from omegaconf import DictConfig
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+from kipl_ml.data.utils import load_dataset_meta_df
+from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
+from kipl_ml.defences.base import NoDefence
+from kipl_ml.logging.logger import TQDM_W, get_logger
+from kipl_ml.models.trgen import TRGEN2
+from kipl_ml.tools.plottr import plot_trace
+from kipl_ml.trace.features import Feats, FeatureTrs
+
+logger = get_logger(__name__)
+dotenv.load_dotenv()
+
+WORKING_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_DIR_PATH = os.path.join(WORKING_DIR, "config")
+
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
+
+assert MLFLOW_TRACKING_URI is not None, "MLFLOW_TRACKING_URI must be set in .env file."
+mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+
+
+@hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
+def main(cfg: DictConfig):
+    trace_len = cfg.trace_len
+    dataset = cfg.dataset.name
+    meta_df = load_dataset_meta_df(dataset)
+
+    defense = NoDefence(network_delay_millis=(0, 0), network_pps=(0, 0))
+
+    feature_names = [Feats.BURST_LENS, Feats.BURST_DIRS]
+    ds = WFDataset(
+        dataset=f"{dataset}",
+        meta_df=meta_df,
+        defence=defense,
+        feature_trs=FeatureTrs(feature_names=feature_names, n_packets=trace_len),
+    )
+
+    ds.report()
+
+    def collate_fn(batch) -> tuple[dict[Feats, torch.Tensor], torch.Tensor]:
+        max_ = max(len(b[Feats.BURST_LENS]) for b, _ in batch)
+
+        bs = len(batch)
+        features = batch[0][0].keys()
+        X = {f: torch.zeros((bs, max_), dtype=torch.float) for f in features}
+        y = torch.zeros((bs,), dtype=torch.long)
+        for i, (x_, y_) in enumerate(batch):
+            for f in features:
+                X[f][i, : len(x_[f])] = x_[f]
+            y[i] = y_
+
+        return X, y
+
+    dl = DataLoader(
+        ds,
+        batch_size=cfg.batch_size,
+        shuffle=True,
+        num_workers=0,
+        collate_fn=collate_fn,
+    )
+
+    generator = TRGEN2(features=feature_names, inlen=1, hsize=256, nlayer=2)
+
+    optimG = torch.optim.Adam(generator.parameters(), lr=0.01)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    generator.to(device)
+
+    trlen = 500
+    X_, y_ = ds[0]
+
+    e = 0
+    while True:
+        with tqdm(dl, desc="Training", ncols=TQDM_W) as pbar:
+            loss_ = 0
+            n = 1
+            for X, y in pbar:
+                breakpoint()
+                mask = y == y_
+                if mask.sum() < 2:
+                    continue
+
+                X[Feats.DIRS] = X[Feats.DIRS][mask]
+                X = dict_to_device(X, device)[Feats.DIRS]
+
+                h = None
+                for t in range(trace_len - 1):
+                    optimG.zero_grad()
+                    dirs, h = generator(X[:, t : t + 1], h)
+
+                    loss = torch.where(
+                        X[:, t + 1] != 0, (dirs - X[:, t + 1]) ** 2, 0
+                    ).mean()
+                    # loss = ((torch.sign(dirs) - X[:, t + 1]) ** 2).mean()
+
+                    loss_ += (loss.item() - loss_) / n
+
+                    if t % 1000 == 0:
+                        loss.backward()
+                        optimG.step()
+                        h = tuple(s.detach() for s in h)
+                        pbar.set_postfix({"loss": loss_})
+
+                    if t == 0:
+                        _, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 3), sharex=True)
+
+                        X_gen = torch.zeros_like(X_)
+                        h_ = None
+                        for t_ in range(trlen - 1):
+                            if t_ < trlen - 100:
+                                x_ = X_[:, t_ : t_ + 1]
+                            else:
+                                x_ = X_gen[:, t_ : t_ + 1]
+                            dirs_, h_ = generator(x_, h_)
+                            X_gen[0, t_ + 1] = dirs_
+                        plot_trace({Feats.DIRS: X_gen}, idx=0, ax=ax1)
+                        plot_trace({Feats.DIRS: X_}, idx=0, ax=ax2)
+                        plt.savefig(f"figs/rnn/rnn_step_{e:04d}.png")
+                        e += 1
+                        # plt.show()
+
+                    n += 1
+
+
+if __name__ == "__main__":
+    main()
