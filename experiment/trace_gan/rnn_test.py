@@ -9,6 +9,7 @@ from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from kipl_ml.data import assets
 from kipl_ml.data.utils import load_dataset_meta_df
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.defences.base import NoDefence
@@ -35,6 +36,10 @@ def main(cfg: DictConfig):
     dataset = cfg.dataset.name
     meta_df = load_dataset_meta_df(dataset)
 
+    y_ = 0
+    mask = meta_df.loc[:, assets.PAGE_LABEL] == y_
+    meta_df = meta_df.loc[mask].sample(5)
+
     defense = NoDefence(network_delay_millis=(0, 0), network_pps=(0, 0))
 
     feature_names = [Feats.DIRS]
@@ -45,19 +50,18 @@ def main(cfg: DictConfig):
         feature_trs=FeatureTrs(feature_names=feature_names, n_packets=trace_len),
     )
 
-    dl = DataLoader(ds, batch_size=cfg.batch_size, shuffle=True, num_workers=4)
+    dl = DataLoader(ds, batch_size=16, shuffle=True, num_workers=4)
 
-    generator = TRGEN2(features=feature_names, inlen=1, hsize=256, nlayer=2)
+    generator = TRGEN2(features=feature_names, inlen=1, hsize=1024, nlayer=4)
 
-    optimG = torch.optim.Adam(generator.parameters(), lr=0.01)
+    optimG = torch.optim.Adam(generator.parameters(), lr=0.0001)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     generator.to(device)
 
     trlen = 500
-    X_, y_ = ds[0]
-
+    X_, _ = ds[0]
     X_ = X_[Feats.DIRS].to(device).unsqueeze(0)[:, :trlen]
 
     e = 0
@@ -65,22 +69,17 @@ def main(cfg: DictConfig):
         with tqdm(dl, desc="Training", ncols=TQDM_W) as pbar:
             loss_ = 0
             n = 1
-            for X, y in pbar:
-                mask = y == y_
-                if mask.sum() < 2:
-                    continue
-
-                X[Feats.DIRS] = X[Feats.DIRS][mask]
+            for X, _ in pbar:
                 X = dict_to_device(X, device)[Feats.DIRS]
 
                 h = None
                 for t in range(trace_len - 1):
                     optimG.zero_grad()
-                    dirs, h = generator(X[:, t : t + 1], h)
+                    dirs, h = generator(X[:, t].unsqueeze(-1), h)
 
-                    loss = torch.where(
-                        X[:, t + 1] != 0, (dirs - X[:, t + 1]) ** 2, 0
-                    ).mean()
+                    mask = X[:, t] != 0
+
+                    loss = ((dirs[mask] - X[mask, t + 1]) ** 2).mean()
                     # loss = ((torch.sign(dirs) - X[:, t + 1]) ** 2).mean()
 
                     loss_ += (loss.item() - loss_) / n
@@ -107,6 +106,7 @@ def main(cfg: DictConfig):
                         plot_trace({Feats.DIRS: X_}, idx=0, ax=ax2)
                         plt.savefig(f"figs/rnn/rnn_step_{e:04d}.png")
                         e += 1
+                        plt.close()
                         # plt.show()
 
                     n += 1
