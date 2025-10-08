@@ -16,6 +16,7 @@ from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.defences.base import NoDefence
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.trgen import TRGEN2
+from kipl_ml.models.utils import count_parameters
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
@@ -38,10 +39,11 @@ def collate_fn(
     X = {f: torch.ones((bs, seq_len), dtype=torch.float) for f in features}
     Xnext = {f: torch.ones((bs,), dtype=torch.float) for f in features}
     y = torch.zeros((bs,), dtype=torch.long)
+    start_idx = torch.randint(0, 100, (bs,))
     for i, (x_, y_) in enumerate(batch):
-        start_idx = 0
+        sidx = start_idx[i]
         for f in features:
-            xtmp = x_[f][start_idx : start_idx + seq_len + 1]
+            xtmp = x_[f][sidx : sidx + seq_len + 1]
             if f == Feats.BURST_DIRS:
                 xtmp += 1
 
@@ -88,8 +90,9 @@ def main(cfg: DictConfig):
         collate_fn=partial(collate_fn, seq_len=cfg.train_seq_len),
     )
 
-    generator = TRGEN2(features=feature_names, in_channels=2, hsize=256, nlayer=1)
+    generator = TRGEN2(features=feature_names, in_channels=2, hsize=512, nlayer=2)
 
+    logger.info("Generator params: %s" % count_parameters(generator))
     optimG = torch.optim.Adam(generator.parameters(), lr=0.01)
 
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -126,7 +129,7 @@ def main(cfg: DictConfig):
 
                 len_loss_ = len_loss(lens[:, :-1], blens)
 
-                loss = dir_loss_ + len_loss_
+                loss = dir_loss_ * 10 + len_loss_
 
                 loss.backward()
                 optimG.step()

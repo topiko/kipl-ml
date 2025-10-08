@@ -91,6 +91,7 @@ class TRGEN2(nn.Module):
         self,
         features: list[Feats],
         in_channels: int = 2,
+        nfeat: int = 64,
         hsize: int = 128,
         nlayer: int = 2,
     ):
@@ -100,7 +101,13 @@ class TRGEN2(nn.Module):
             nn.Tanh(),
         )
 
-        self.rnn = nn.LSTM(in_channels, hsize, nlayer, batch_first=True)
+        self.rnn = nn.LSTM(nfeat, hsize, nlayer, batch_first=True)
+
+        self.feat_lin = nn.Sequential(
+            nn.Linear(in_channels, nfeat),
+            nn.LayerNorm(nfeat),
+            nn.GELU(),
+        )
 
         self.dir_lin = nn.Linear(hsize, 3)
         self.len_lin = nn.Linear(hsize, 1)
@@ -108,10 +115,15 @@ class TRGEN2(nn.Module):
     def forward(
         self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
     ) -> tuple[tuple[torch.Tensor, torch.Tensor], torch.Tensor | None]:
-        dirs = x[Feats.BURST_DIRS].unsqueeze(-1)
-        lens = x[Feats.BURST_LENS].unsqueeze(-1)
+        dirs = x[Feats.BURST_DIRS]
+        lens = x[Feats.BURST_LENS]
 
-        X = torch.cat([dirs, lens], dim=-1)
+        # (N, L, 2)
+        X = torch.stack([dirs, lens], dim=-1)
+
+        # (N, L, nfeat)
+        X = self.feat_lin(X)
+
         # (N, L, H)
         output, h = self.rnn(X, h)
 

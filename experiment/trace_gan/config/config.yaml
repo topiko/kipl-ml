@@ -2,7 +2,7 @@ defaults:
   - dataset: bigenough
 
 trace_len: 5000
-batch_size: 32
+batch_size: 64
 generator_mltp: 1
 train_seq_len: 300
 
