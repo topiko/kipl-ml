@@ -118,6 +118,6 @@ class TRGEN2(nn.Module):
         dirs = self.dir_lin(output).squeeze(-1)
 
         lens = self.len_lin(output).squeeze(-1)
-        lens = torch.relu(lens)
+        lens = torch.relu(lens) + 1
 
         return (dirs, lens), h
