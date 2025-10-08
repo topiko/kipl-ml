@@ -39,7 +39,7 @@ def collate_fn(
     X = {f: torch.ones((bs, seq_len), dtype=torch.float) for f in features}
     Xnext = {f: torch.ones((bs,), dtype=torch.float) for f in features}
     y = torch.zeros((bs,), dtype=torch.long)
-    start_idx = torch.randint(0, 100, (bs,))
+    start_idx = torch.randint(0, 5, (bs,))
     for i, (x_, y_) in enumerate(batch):
         sidx = start_idx[i]
         for f in features:
@@ -93,7 +93,7 @@ def main(cfg: DictConfig):
     generator = TRGEN2(features=feature_names, in_channels=2, hsize=512, nlayer=2)
 
     logger.info("Generator params: %s" % count_parameters(generator))
-    optimG = torch.optim.Adam(generator.parameters(), lr=0.01)
+    optimG = torch.optim.Adam(generator.parameters(), lr=0.001)
 
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer=optimG, factor=0.8, patience=3
@@ -129,7 +129,7 @@ def main(cfg: DictConfig):
 
                 len_loss_ = len_loss(lens[:, :-1], blens)
 
-                loss = dir_loss_ * 10 + len_loss_
+                loss = dir_loss_ * 100 + len_loss_
 
                 loss.backward()
                 optimG.step()
