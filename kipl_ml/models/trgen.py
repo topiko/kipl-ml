@@ -90,7 +90,7 @@ class TRGEN2(nn.Module):
     def __init__(
         self,
         features: list[Feats],
-        inlen: int = 10,
+        in_channels: int = 2,
         hsize: int = 128,
         nlayer: int = 2,
     ):
@@ -100,19 +100,24 @@ class TRGEN2(nn.Module):
             nn.Tanh(),
         )
 
-        self.rnn = nn.LSTM(inlen, hsize, nlayer)
+        self.rnn = nn.LSTM(in_channels, hsize, nlayer, batch_first=True)
 
-        self.lin = nn.Linear(hsize, 1)
-
-        self.activation = nn.Tanh()
+        self.dir_lin = nn.Linear(hsize, 3)
+        self.len_lin = nn.Linear(hsize, 1)
 
     def forward(
-        self, dirs: torch.Tensor, h: torch.Tensor | None = None
-    ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        dirs, h = self.rnn(dirs, h)
+        self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
+    ) -> tuple[tuple[torch.Tensor, torch.Tensor], torch.Tensor | None]:
+        dirs = x[Feats.BURST_DIRS].unsqueeze(-1)
+        lens = x[Feats.BURST_LENS].unsqueeze(-1)
 
-        dirs = self.lin(dirs).squeeze(-1)
+        X = torch.cat([dirs, lens], dim=-1)
+        # (N, L, H)
+        output, h = self.rnn(X, h)
 
-        dirs = self.activation(dirs)
+        dirs = self.dir_lin(output).squeeze(-1)
 
-        return dirs, h
+        lens = self.len_lin(output).squeeze(-1)
+        lens = torch.relu(lens)
+
+        return (dirs, lens), h
