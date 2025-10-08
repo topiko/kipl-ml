@@ -82,7 +82,7 @@ def main(cfg: DictConfig):
         ds,
         batch_size=cfg.batch_size,
         shuffle=True,
-        num_workers=0,
+        num_workers=12,
         collate_fn=collate_fn,
     )
 
@@ -110,8 +110,10 @@ def main(cfg: DictConfig):
                 optimG.zero_grad()
                 (dirs, lens), h = generator(X, h)
 
-                dir_loss_ = dir_loss(dirs[:, -1], Xnext[Feats.BURST_DIRS].long())
-                len_loss_ = len_loss(lens[:, -1], Xnext[Feats.BURST_LENS])
+                dir_loss_ = dir_loss(
+                    dirs[:, :-1].permute(0, 2, 1), X[Feats.BURST_DIRS][:, 1:].long()
+                )
+                len_loss_ = len_loss(lens[:, :-1], X[Feats.BURST_LENS][:, 1:])
 
                 loss = dir_loss_ + len_loss_
 
@@ -130,6 +132,18 @@ def main(cfg: DictConfig):
 
                 n += 1
             e += 1
+
+        X, _ = ds[0]
+        (dirs, lens), _ = generator(dict_to_device(X, device), None)
+        dirs_true = X[Feats.BURST_DIRS]
+        lens_true = X[Feats.BURST_LENS]
+        print("Dirs true / pred")
+        print(dirs_true[1:101])
+        print(dirs[:100].argmax(-1) - 1)
+        print("Lens true / pred")
+        print(lens_true[1:101])
+        print(lens[:100])
+        print()
 
 
 if __name__ == "__main__":
