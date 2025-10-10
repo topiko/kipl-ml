@@ -64,6 +64,23 @@ def collate_fn(
     return X, Xnext, y
 
 
+def mimic_loss(
+    pred_dirs: torch.Tensor, pred_blens: torch.Tensor, X: dict[Feats, torch.Tensor]
+) -> torch.Tensor:
+    dir_loss_ = nn.functional.cross_entropy(
+        pred_dirs[:, :-1].permute(0, 2, 1), X[Feats.BURST_DIRS][:, 1:].long()
+    )
+
+    true_blens = X[Feats.BURST_LENS][:, 1:]
+    pred_blens = pred_blens[:, :-1]
+
+    len_loss_ = nn.functional.mse_loss(
+        (pred_blens - true_blens) / true_blens, torch.ones_like(true_blens)
+    )
+
+    return dir_loss_ * 100 + len_loss_
+
+
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
 def main(cfg: DictConfig):
     trace_len = cfg.trace_len
@@ -73,6 +90,7 @@ def main(cfg: DictConfig):
     # y_ = 0
     # mask = meta_df.loc[:, assets.PAGE_LABEL] == y_
     # meta_df = meta_df.loc[mask]
+    # meta_df = meta_df.sample(32)
     defense = NoDefence(network_delay_millis=(0, 0), network_pps=(0, 0))
 
     feature_names = [Feats.BURST_LENS, Feats.BURST_DIRS, Feats.DIRS, Feats.TIMES]
@@ -122,9 +140,6 @@ def main(cfg: DictConfig):
 
     generator.to(device)
 
-    dir_loss = nn.CrossEntropyLoss()
-    len_loss = nn.MSELoss()
-
     e = 0
     min_loss = np.inf
     c = 0
@@ -141,14 +156,7 @@ def main(cfg: DictConfig):
                 optimG.zero_grad()
                 (dirs, lens), h = generator(X, h)
 
-                dir_loss_ = dir_loss(
-                    dirs[:, :-1].permute(0, 2, 1), X[Feats.BURST_DIRS][:, 1:].long()
-                )
-                blens = X[Feats.BURST_LENS][:, 1:]
-
-                len_loss_ = len_loss(lens[:, :-1], blens)
-
-                loss = dir_loss_ * 100 + len_loss_
+                loss = mimic_loss(dirs, lens, X)
 
                 loss.backward()
                 optimG.step()
@@ -171,23 +179,28 @@ def main(cfg: DictConfig):
         if c > patience:
             break
 
-    rng = np.random.default_rng(seed=42)
-    N = 200
-    for i in rng.integers(0, 15000, 10):
-        X, _ = ds[i]
-        (dirs, lens), _ = generator(dict_to_device(X, device), None)
-        dirs_true = X[Feats.BURST_DIRS].to(device)
-        lens_true = X[Feats.BURST_LENS].to(device)
-        N = min(len(dirs_true) - 1, N)
-        print("Dirs true / pred")
-        print(dirs_true[1 : N + 1] - (dirs[:N].argmax(-1) - 1))
-        print("Lens true / pred")
-        lt = lens_true[1 : N + 1]
-        lp = lens[:N].round()
+        rng = np.random.default_rng(seed=42)
+        N = 200
+        for i in rng.integers(0, 15000, 1):
+            X, _, _ = collate_fn([ds[i]])
+            X = dict_to_device(X, device)
+            (dirs, lens), _ = generator(dict_to_device(X, device), None)
+            print("loss ", mimic_loss(dirs, lens, X))
+            dirs_true = X[Feats.BURST_DIRS].to(device).squeeze()
+            lens_true = X[Feats.BURST_LENS].to(device).squeeze()
+            dirs = dirs.squeeze()
+            lens = lens.squeeze()
+            N = min(len(dirs_true) - 1, N)
 
-        print(lt)
-        print(lp)
-        print()
+            print("Dirs true / pred")
+            print(dirs_true[1 : N + 1] - 1)
+            print(dirs[:N].argmax(-1) - 1)
+            print("Lens true / pred")
+            lt = lens_true[1 : N + 1]
+            lp = lens[:N].round()
+            print(lt)
+            print(lp)
+            print()
 
 
 if __name__ == "__main__":
