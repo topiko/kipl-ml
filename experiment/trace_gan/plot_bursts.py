@@ -40,8 +40,10 @@ def simple_burst_plot(
         sharex=True,
         sharey=True,
     )
+    rng = np.random.default_rng(seed=42)
+
     for axrow in axarr:
-        idx = np.random.randint(0, len(wf_))
+        idx = rng.integers(0, len(wf_))
         X, _ = wf_[idx]
         ax = plot_bursts(X, ax=axrow[0])
         (dirs, lens), _ = generator(dict_to_device(X, device), None)
