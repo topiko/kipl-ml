@@ -1,3 +1,4 @@
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -10,6 +11,9 @@ from kipl_ml.defences.base import _Def
 from kipl_ml.tools.plottr import plot_bursts
 from kipl_ml.trace.features import Feats, FeatureTrs
 
+mpl.rcParams["axes.spines.right"] = False
+mpl.rcParams["axes.spines.top"] = False
+
 
 def simple_burst_plot(
     meta_df: pd.DataFrame,
@@ -21,6 +25,14 @@ def simple_burst_plot(
     device: torch.device = torch.device("cpu"),
 ) -> plt.Figure:
     nsamples = 3
+
+    mask = meta_df.loc[:, assets.PAGE_LABEL] == lbl
+    wf_ = WFDataset(
+        meta_df=meta_df.loc[mask],
+        defence=defense,
+        feature_trs=FeatureTrs(feature_names=feature_names, n_packets=None),
+    )
+
     fig, axarr = plt.subplots(
         nsamples,
         2,
@@ -28,19 +40,10 @@ def simple_burst_plot(
         sharex=True,
         sharey=True,
     )
-
     for axrow in axarr:
-        mask = meta_df.loc[:, assets.PAGE_LABEL] == lbl
-        wf_ = WFDataset(
-            meta_df=meta_df.loc[mask],
-            defence=defense,
-            feature_trs=FeatureTrs(feature_names=feature_names, n_packets=None),
-        )
-
         idx = np.random.randint(0, len(wf_))
         X, _ = wf_[idx]
         ax = plot_bursts(X, ax=axrow[0])
-        ax.set_title("True")
         (dirs, lens), _ = generator(dict_to_device(X, device), None)
 
         dirs = dirs.argmax(dim=-1) - 1
@@ -48,6 +51,8 @@ def simple_burst_plot(
 
         X = {Feats.BURST_DIRS: dirs.squeeze(), Feats.BURST_LENS: lens.squeeze()}
         ax = plot_bursts(X, ax=axrow[1])
-        ax.set_title("Generated")
 
+    axarr[0, 0].set_title("True")
+    axarr[0, 1].set_title("Generated")
+    plt.tight_layout()
     return fig
