@@ -8,6 +8,8 @@ from abc import ABC, abstractmethod
 
 import torch
 
+from kipl_ml.trace.features import Feats
+
 
 class _TR(ABC):
     NAME: str
@@ -15,8 +17,8 @@ class _TR(ABC):
 
     @property
     def output_sizes(self) -> dict[str, int | None]:
-        if self._output_sizes is None:
-            raise ValueError("Output size not set. Need to call 'get_shapes(X)' first.")
+        # if self._output_sizes is None:
+        #     raise ValueError("Output size not set. Need to call 'get_shapes(X)' first.")
         return self._output_sizes
 
     @property
@@ -28,9 +30,9 @@ class _TR(ABC):
         return self.name
 
     @abstractmethod
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> _TR:
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> _TR:
         raise NotImplementedError
 
     @abstractmethod
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         raise NotImplementedError

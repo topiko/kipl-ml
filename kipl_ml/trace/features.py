@@ -1,68 +1,17 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from enum import StrEnum
 
 import torch
 
 from kipl_ml.data import assets
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt, log_multiline
+from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.params import DOWNLOAD, UPLOAD
 from kipl_ml.trace.transforms import _TR
 
 logger = get_logger(__name__)
-
-
-class Feats(StrEnum):
-    DIRS = assets.DIRS
-    SIZES = assets.SIZES
-    TIMES = assets.TIMES
-    PADDING = assets.PADDING
-    TIMES_NORMALIZED = f"normalized_{TIMES}"
-    TIMES_MAX_NORMALIZED = f"max_normalized_{TIMES}"
-    CUM_TIMES = f"cum_{TIMES}"
-    CUM_SIZES = f"cum_{SIZES}"
-    CUM_SIZES_NORMALIZED = f"normalized_{CUM_SIZES}"
-    LABEL = "label"
-    IATS = "iats"
-    IATS_NORMALIZED = f"normalized_{IATS}"
-    IATS_MAX_NORMALIZED = f"max_normalized_{IATS}"
-    UP_IATS = f"up_{IATS}"
-    UP_IATS_NORMALIZED = f"up_{IATS_NORMALIZED}"
-    DOWN_IATS = f"down_{IATS}"
-    DOWN_IATS_NORMALIZED = f"down_{IATS_NORMALIZED}"
-    UP_PACKETS = "up_packets"
-    DOWN_PACKETS = "down_packets"
-    TIME_DIRS = f"{TIMES}_dirs"
-    IAT_DIRS = f"{IATS}_dirs"
-    # FLOW_IAT_DIRS = f"flow_{IAT_DIRS}"
-    IAT_DIRS_NORMALIZED = f"{IATS_NORMALIZED}_dirs"
-    CUM_SIZES_MAX_NORMALIZED = f"max_normalized_{CUM_SIZES}"
-    BURST_EDGES = "burst_edges"
-    BURST_LENS = "burst_lens"
-    BURST_DIRS = "burst_dirs"
-    FLOW_IATS = "flow_iats"
-    FLOW_IATS_NORMALIZED = f"normalized_{FLOW_IATS}"
-    LOG_INV_FLOW_IATS = f"log_inv_{FLOW_IATS}"
-    LOG_INV_FLOW_IATS_NORMALIZED = f"log_inv_{FLOW_IATS_NORMALIZED}"
-    LOG_INV_FLOW_IATS_NORMALIZED_DIRS = f"log_inv_{FLOW_IATS_NORMALIZED}_dirs"
-    LOG_INV_FLOW_IAT_DIRS = f"{LOG_INV_FLOW_IATS}_dirs"
-    RUNNING_RATE_SIZES = f"running_rate_{SIZES}"
-    RUNNING_RATE_SIZES_MAX_NORMALIZED = f"max_normalized_running_rate_{SIZES}"
-    SIZE_DIRS = f"{SIZES}_dirs"
-    CUM_SIZE_DIRS = f"cum_{SIZE_DIRS}"
-    CUM_SIZE_DIRS_MAX_NORMALIZED = f"max_normalized_{CUM_SIZE_DIRS}"
-    TAM_UP = "tam-upload"
-    TAM_UP_MAX_NORMALIZED = f"{TAM_UP}_max_normalized"
-    TAM_DOWN = "tam-download"
-    TAM_DOWN_MAX_NORMALIZED = f"{TAM_DOWN}_max_normalized"
-
-    def __str__(self) -> str:
-        return self.value
-
-    def __repr__(self) -> str:
-        return self.value
 
 
 FEAT_NAME_MAP = {
@@ -113,19 +62,26 @@ def _pad_short_trace(
 class PadOrCutTrace(_TR):
     NAME = "sel_packets"
 
-    def __init__(self, n_packets: int):
+    def __init__(self, n_packets: int | None):
+        if n_packets is None:
+            logger.info("Disabled padding/cutting traces - n_packets is None")
         self.n_packets = n_packets
 
     @property
     def name(self) -> str:
+        if self.n_packets is None:
+            return "cut/pad DISABLED"
         return f"cut|{self.n_packets}"
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> PadOrCutTrace:
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> PadOrCutTrace:
         self._output_sizes = {key: self.n_packets for key in trace.keys()}
 
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
+        if self.n_packets is None:
+            return trace
+
         trace_ = {
             key: _pad_short_trace(val, self.n_packets, asset_key=key)
             for key, val in trace.items()
@@ -135,37 +91,43 @@ class PadOrCutTrace(_TR):
 
 
 class Select(_TR):
-    NAME = "identity"
+    NAME = "select"
 
-    def __init__(self, asset: str):
+    def __init__(self, asset: Feats):
         self.asset = asset
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> Select:
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> Select:
         self._output_sizes = {self.asset: trace[self.asset].shape[0]}
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         return {self.asset: trace[self.asset]}
 
 
 class UDPackets(_TR):
     NAME = "up/down_packets"
 
-    def __init__(self, up_down: str, dir_asset: str = Feats.DIRS):
+    def __init__(self, up_down: str, dir_asset: Feats = Feats.DIRS):
         if up_down not in {"up", "down"}:
             raise ValueError("up_down must be either 'up' or 'down'")
         self.up_down = up_down
         self.dir_asset = dir_asset
 
     @property
-    def name(self) -> str:
-        return self.up_down + "_packets"
+    def name(self) -> Feats:
+        match self.up_down:
+            case "down":
+                return Feats.DOWN_PACKETS
+            case "up":
+                return Feats.UP_PACKETS
+            case _:
+                raise ValueError("up_down must be either 'up' or 'down'")
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> UDPackets:
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> UDPackets:
         self._output_sizes = {self.name: trace[self.dir_asset].shape[0]}
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         if self.up_down == "up":
             mask = trace[self.dir_asset] == UPLOAD
         elif self.up_down == "down":
@@ -177,7 +139,9 @@ class UDPackets(_TR):
 class Normalize(_TR):
     NAME = "normalized"
 
-    def __init__(self, normalized_asset: str, input_asset: str, division: str = "std"):
+    def __init__(
+        self, normalized_asset: Feats, input_asset: Feats, division: str = "std"
+    ):
         if division not in {"std", "max"}:
             raise ValueError("Division must be either 'std' or 'max'")
 
@@ -186,36 +150,32 @@ class Normalize(_TR):
         self.division = division
 
     @property
-    def name(self) -> str:
+    def name(self) -> Feats:
         if self.division == "std":
-            return str(
-                {
-                    Feats.TIMES: Feats.TIMES_NORMALIZED,
-                    Feats.IATS: Feats.IATS_NORMALIZED,
-                    Feats.UP_IATS: Feats.UP_IATS_NORMALIZED,
-                    Feats.DOWN_IATS: Feats.DOWN_IATS_NORMALIZED,
-                    Feats.CUM_SIZES: Feats.CUM_SIZES_NORMALIZED,
-                    Feats.FLOW_IATS: Feats.FLOW_IATS_NORMALIZED,
-                }[self.normalized_asset]
-            )
-
-        return str(
-            {
-                Feats.TIMES: Feats.TIMES_MAX_NORMALIZED,
-                Feats.IATS: Feats.IATS_MAX_NORMALIZED,
-                Feats.CUM_SIZES: Feats.CUM_SIZES_MAX_NORMALIZED,
-                Feats.CUM_SIZE_DIRS: Feats.CUM_SIZE_DIRS_MAX_NORMALIZED,
-                Feats.RUNNING_RATE_SIZES: Feats.RUNNING_RATE_SIZES_MAX_NORMALIZED,
-                Feats.TAM_UP: Feats.TAM_UP_MAX_NORMALIZED,
-                Feats.TAM_DOWN: Feats.TAM_DOWN_MAX_NORMALIZED,
+            return {
+                Feats.TIMES: Feats.TIMES_NORMALIZED,
+                Feats.IATS: Feats.IATS_NORMALIZED,
+                Feats.UP_IATS: Feats.UP_IATS_NORMALIZED,
+                Feats.DOWN_IATS: Feats.DOWN_IATS_NORMALIZED,
+                Feats.CUM_SIZES: Feats.CUM_SIZES_NORMALIZED,
+                Feats.FLOW_IATS: Feats.FLOW_IATS_NORMALIZED,
             }[self.normalized_asset]
-        )
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> Normalize:
+        return {
+            Feats.TIMES: Feats.TIMES_MAX_NORMALIZED,
+            Feats.IATS: Feats.IATS_MAX_NORMALIZED,
+            Feats.CUM_SIZES: Feats.CUM_SIZES_MAX_NORMALIZED,
+            Feats.CUM_SIZE_DIRS: Feats.CUM_SIZE_DIRS_MAX_NORMALIZED,
+            Feats.RUNNING_RATE_SIZES: Feats.RUNNING_RATE_SIZES_MAX_NORMALIZED,
+            Feats.TAM_UP: Feats.TAM_UP_MAX_NORMALIZED,
+            Feats.TAM_DOWN: Feats.TAM_DOWN_MAX_NORMALIZED,
+        }[self.normalized_asset]
+
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> Normalize:
         self._output_sizes = {self.name: trace[self.input_asset].shape[0]}
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         trace_ = trace[self.normalized_asset] - trace[self.normalized_asset].mean()
 
         if self.division == "std":
@@ -240,7 +200,10 @@ class IAT(_TR):
     NAME = "iat"
 
     def __init__(
-        self, dir_key: str, time_asset: str = Feats.TIMES, dir_asset: str = Feats.DIRS
+        self,
+        dir_key: str,
+        time_asset: Feats = Feats.TIMES,
+        dir_asset: Feats = Feats.DIRS,
     ):
         if dir_key not in {"up", "down", "any"}:
             raise ValueError("Dir key must be either 'up' or 'down', or 'any'")
@@ -249,19 +212,22 @@ class IAT(_TR):
         self.dir_asset = dir_asset
 
     @property
-    def name(self) -> str:
-        if self.dir_key == "any":
-            return str(Feats.IATS)
-        if self.dir_key == "up":
-            return str(Feats.UP_IATS)
+    def name(self) -> Feats:
+        match self.dir_key:
+            case "any":
+                return Feats.IATS
+            case "up":
+                return Feats.UP_IATS
+            case "down":
+                return Feats.DOWN_IATS
+            case _:
+                raise ValueError("Dir key must be either 'up' or 'down', or 'any'")
 
-        return str(Feats.DOWN_IATS)
-
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> IAT:
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> IAT:
         self._output_sizes = {self.name: trace[self.time_asset].shape[0]}
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         if self.dir_key == "up":
             mask = trace[self.dir_asset] == UPLOAD
         elif self.dir_key == "down":
@@ -285,11 +251,11 @@ class _DirWeight(_TR):
     def name(self) -> str:
         return self.w_asset + "_dirs"
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> _DirWeight:
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> _DirWeight:
         self._output_sizes = {self.name: trace[self.dir_asset].shape[0]}
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         return {self.name: trace[self.dir_asset] * trace[self.w_asset]}
 
 
@@ -314,7 +280,7 @@ class IATDirs(_DirWeight):
         if add_unit_to_weight:
             self.add = 1.0
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         trace[self.w_asset] = trace[self.w_asset] + self.add
         return super().__call__(trace)
 
@@ -336,10 +302,10 @@ class Cumulative(_TR):
     def name(self) -> str:
         return f"cum_{self.asset}"
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> Cumulative:
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> Cumulative:
         self._output_sizes = {self.name: trace[self.asset].shape[0]}
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         return {self.name: torch.cumsum(trace[self.asset], dim=0)}
 
 
@@ -347,14 +313,14 @@ class BurstEdges(_TR):
     NAME = Feats.BURST_EDGES
 
     @property
-    def name(self) -> str:
+    def name(self) -> Feats:
         return self.NAME
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> BurstEdges:
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> BurstEdges:
         self._output_sizes = {self.name: trace[Feats.DIRS].shape[0]}
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         edges = torch.diff(trace[Feats.DIRS], dim=0, prepend=torch.Tensor([0]))
         return {self.name: edges}
 
@@ -363,14 +329,14 @@ class BurstLens(_TR):
     NAME = Feats.BURST_LENS
 
     @property
-    def name(self) -> str:
+    def name(self) -> Feats:
         return self.NAME
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> BurstLens:
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> BurstLens:
         self._output_sizes = {self.name: None}  # Variable length
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         edges = trace[Feats.BURST_EDGES]
 
         # Example:
@@ -392,14 +358,14 @@ class BurstDirs(_TR):
     NAME = Feats.BURST_DIRS
 
     @property
-    def name(self) -> str:
+    def name(self) -> Feats:
         return self.NAME
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> BurstDirs:
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> BurstDirs:
         self._output_sizes = {self.name: None}  # Variable length
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         edges = trace[Feats.BURST_EDGES]
 
         # Example:
@@ -424,17 +390,17 @@ class BurstDirs(_TR):
 
 
 class FlowIATS(_TR):
-    NAME = "flow_iats"
+    NAME = Feats.FLOW_IATS
 
     @property
-    def name(self) -> str:
-        return str(Feats.FLOW_IATS)
+    def name(self) -> Feats:
+        return Feats.FLOW_IATS
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> FlowIATS:
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> FlowIATS:
         self._output_sizes = {self.name: trace[Feats.UP_IATS].shape[0]}
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         dirs = trace[Feats.DIRS]
         flow_iats = torch.zeros_like(dirs)
         flow_iats[dirs == UPLOAD] = trace[Feats.UP_IATS][dirs == UPLOAD]
@@ -445,18 +411,18 @@ class FlowIATS(_TR):
 class LogInv(_TR):
     NAME = "log_inv"
 
-    def __init__(self, asset: str):
+    def __init__(self, asset: Feats):
         self.asset = asset
 
     @property
-    def name(self) -> str:
+    def name(self) -> Feats:
         return f"log_inv_{self.asset}"
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> LogInv:
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> LogInv:
         self._output_sizes = {self.name: trace[self.asset].shape[0]}
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         log_inv = torch.log(torch.nan_to_num(1 / trace[self.asset] + 1, posinf=1e4))
 
         return {self.name: log_inv}
@@ -465,19 +431,19 @@ class LogInv(_TR):
 class RunningRate(_TR):
     NAME = "running_rate"
 
-    def __init__(self, asset: str, time_asset: str):
+    def __init__(self, asset: Feats, time_asset: Feats):
         self.asset = asset
         self.time_asset = time_asset
 
     @property
-    def name(self) -> str:
+    def name(self) -> Feats:
         return f"running_rate_{self.asset}"
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> RunningRate:
-        self._output_sizes = {self.name: trace[self.asset].shape[0]}
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> RunningRate:
+        self._output_sizes = {self.name: None}
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         times = trace[self.time_asset]
         values = trace[self.asset].clone()
 
@@ -508,14 +474,20 @@ class _TAM(_TR):
         self.bins[-1] = float("inf")
 
     @property
-    def name(self) -> str:
-        return f"{self.NAME}-{self.DIR}"  # _matr={self.max_matrix_len}_loads={self.max_load_time_s:.1f}"
+    def name(self) -> Feats:
+        match self.DIR:
+            case "upload":
+                return Feats.TAM_UP
+            case "download":
+                return Feats.TAM_DOWN
+            case _:
+                raise KeyError(f"Invalid dir {self.DIR}")
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> RunningRate:
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> RunningRate:
         self._output_sizes = {self.name: self.max_matrix_len}
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         times = trace[assets.TIMES]
         dirs = trace[assets.DIRS]
 
@@ -555,11 +527,12 @@ class Compose(_TR):
     def output(self) -> str:
         return self.transforms[-1].name
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> Compose:
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> Compose:
         # Avoid inplace changes
         _trace = deepcopy(trace)
         for tr in self.transforms:
             tr.get_shapes(_trace)
+
             if tr == self.transforms[-1]:
                 _trace = tr(_trace)
             else:
@@ -569,7 +542,7 @@ class Compose(_TR):
 
         return self
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         # Here inplace changes are fine?
         for tr in self.transforms:
             if tr == self.transforms[-1]:
@@ -593,14 +566,14 @@ class FeatureTrs:
             )
         if feature_trs is None:
             if n_packets is None:
-                raise ValueError("n_packets must be provided if 'feature_names' is.")
+                logger.warning("No 'n_packets' provided, padding/cutting disabled.")
             feature_trs = build_feature_trs(feature_names, n_packets)
         elif not all(isinstance(tr, _TR) for tr in feature_trs):
             raise ValueError("All elements in 'feature_trs' must be of type _TR.")
 
         self._feature_trs = feature_trs
 
-    def get_shapes(self, trace: dict[str, torch.Tensor]) -> FeatureTrs:
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> FeatureTrs:
         for tr in self._feature_trs:
             tr.get_shapes(trace)
         return self
@@ -624,8 +597,8 @@ class FeatureTrs:
 
         return report
 
-    def __call__(self, trace: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        trace_: dict[str, torch.Tensor] = {}
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
+        trace_: dict[Feats, torch.Tensor] = {}
         for tr in self._feature_trs:
             out = tr(trace)
             if len(out) != 1:
@@ -640,7 +613,7 @@ def build_feature_trs(feature_name: list[str], n_packets: int) -> list[_TR]:
     return [get_feature_tr(f, n_packets) for f in feature_name]
 
 
-def get_feature_tr(feature_name: str, n_packets: int) -> _TR:
+def get_feature_tr(feature_name: str, n_packets: int | None) -> _TR:
     match feature_name:
         case Feats.DIRS:
             return Compose(PadOrCutTrace(n_packets), Select(Feats.DIRS))

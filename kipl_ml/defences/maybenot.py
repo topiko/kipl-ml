@@ -109,7 +109,7 @@ class Maybenot(_Def):
 
     def _simulate(
         self, trace_path: os.PathLike, machine_idx: int | None = None
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[Feats, torch.Tensor]:
         pad_bloc_fracs, (client_machines, server_machines) = self._get_machines(
             machine_idx
         )

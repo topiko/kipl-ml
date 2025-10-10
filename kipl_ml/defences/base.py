@@ -10,6 +10,7 @@ from kipl_ml.data.utils import get_std_trace_dict, parse_trace_to_tensor_dict
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.tools.rng_samplers import NetwkDelay, NetwkPps, TraceSimulRng
+from kipl_ml.trace.features import Feats
 from kipl_ml.trace.params import EVENTS_MULTIPLIER, MAX_TRACE_LENGTH
 
 logger = get_logger(__name__)
@@ -48,7 +49,7 @@ class _Def(ABC):
 
     def __call__(
         self, trace_path: os.PathLike, machine_idx: int | None = None
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[Feats, torch.Tensor]:
         if not isinstance(trace_path, os.PathLike):
             raise TypeError(
                 f"Expected trace to be os.PathLike, got: {type(trace_path)}"
@@ -56,13 +57,13 @@ class _Def(ABC):
 
         return self._simulate(trace_path, machine_idx)
 
-    def load_data(self, trace_path: os.PathLike) -> dict[str, torch.Tensor]:
+    def load_data(self, trace_path: os.PathLike) -> dict[Feats, torch.Tensor]:
         return get_std_trace_dict(trace_path)
 
     @abstractmethod
     def _simulate(
         self, trace_path: os.PathLike, machine_idx: int | None = None
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[Feats, torch.Tensor]:
         raise NotImplementedError
 
     @abstractmethod
@@ -117,7 +118,7 @@ class NoDefence(_Def):
 
     def _simulate(
         self, trace_path: os.PathLike, machine_idx: int | None = None
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[Feats, torch.Tensor]:
         times, dirs, paddings = sim_trace_from_file_advanced(
             str(trace_path),
             [],  # Empty machines --> no defence

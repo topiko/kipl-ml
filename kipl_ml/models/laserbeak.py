@@ -14,12 +14,12 @@ logger = get_logger(__name__)
 
 class WrapDFNet(DFNet):
 
-    def example_input(self, X: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def example_input(self, X: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         return unsqueeze_batch(X)
 
     def forward(
         self,
-        x: dict[str, torch.Tensor],
+        x: dict[Feats, torch.Tensor],
         sample_sizes=None,
         return_feats=False,
         *args,
@@ -32,7 +32,7 @@ class WrapDFNet(DFNet):
 
 class CNNVisTransformer(ConvolutionalVisionTransformer):
 
-    def example_input(self, X: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def example_input(self, X: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         return unsqueeze_batch(X)
 
     def forward(self, x: torch.Tensor):

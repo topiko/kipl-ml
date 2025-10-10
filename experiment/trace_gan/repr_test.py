@@ -3,7 +3,6 @@ from functools import partial
 
 import dotenv
 import hydra
-import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import torch
@@ -12,14 +11,13 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from kipl_ml.data import assets
+from experiment.trace_gan.plot_bursts import simple_burst_plot
 from kipl_ml.data.utils import load_dataset_meta_df
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.defences.base import NoDefence
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.trgen import TRGEN2
 from kipl_ml.models.utils import count_parameters
-from kipl_ml.tools.plottr import plot_trace
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
@@ -97,7 +95,7 @@ def main(cfg: DictConfig):
     ds = WFDataset(
         meta_df=meta_df,
         defence=defense,
-        feature_trs=FeatureTrs(feature_names=feature_names, n_packets=trace_len),
+        feature_trs=FeatureTrs(feature_names=feature_names, n_packets=None),
     )
 
     ds.report()
@@ -109,23 +107,6 @@ def main(cfg: DictConfig):
         num_workers=0,
         collate_fn=partial(collate_fn, seq_len=cfg.train_seq_len),
     )
-
-    # lbls = (0, 1)
-    # nsamples = 3
-    # fig, axarr = plt.subplots(1, len(lbls), figsize=(7 * len(lbls), nsamples * 2))
-
-    # for lbl, axcol in zip(lbls, axarr.T):
-    #     mask = meta_df.loc[:, assets.PAGE_LABEL] == lbl
-    #     wf_ = WFDataset(
-    #         meta_df=meta_df.loc[mask],
-    #         defence=defense,
-    #         feature_trs=FeatureTrs(feature_names=feature_names, n_packets=trace_len),
-    #     )
-    #     for s in range(nsamples):
-    #         idx = np.random.randint(0, len(wf_))
-    #         X, _ = wf_[idx]
-    #         plot_trace(X, ax=axarr[s])
-    #plt.show()
 
     generator = TRGEN2(features=feature_names, in_channels=2, hsize=512, nlayer=2)
 
@@ -145,9 +126,19 @@ def main(cfg: DictConfig):
     c = 0
     patience = 10
     while True:
+        simple_burst_plot(
+            meta_df,
+            nsamples=3,
+            generator=generator,
+            feature_names=feature_names,
+            defense=None,
+            device=device,
+        ).savefig(f"figs/burst_plot-{e:05d}.png")
+
         with tqdm(dl, desc="Training", ncols=TQDM_W) as pbar:
             loss_ = 0
             n = 1
+
             for X, Xnext, _ in pbar:
                 X = dict_to_device(X, device)
                 Xnext = dict_to_device(Xnext, device)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import random
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -14,7 +15,7 @@ from kipl_ml.data.utils import load_dataset_meta_df
 from kipl_ml.defences.base import NoDefence, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
-from kipl_ml.trace.features import FeatureTrs
+from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
 
@@ -22,15 +23,22 @@ logger = get_logger(__name__)
 class WFDataset(Dataset):
     def __init__(
         self,
-        dataset: str,
         meta_df: pd.DataFrame,
         feature_trs: FeatureTrs,
         label: str = assets.PAGE_LABEL,
         defence: _Def | None = None,
         defence_aug: int = 0,
+        dataset_key: str | None = None,
     ) -> None:
-
         logger.info("Buidling dataset...")
+
+        dataset_key = dataset_key or "".join(
+            [random.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(10)]
+        )
+        dataset = (
+            "|".join(meta_df.loc[:, "dataset"].unique().tolist()) + f"-{dataset_key}"
+        )
+
         logger.info(key_val_fmt("name", dataset, suffix=""))
 
         self.meta_df = meta_df
@@ -114,8 +122,7 @@ class WFDataset(Dataset):
 
         return (idx // self.defence_aug, idx % self.defence_aug)
 
-    def _get_trace(self, idx: int) -> dict[str, torch.tensor]:
-
+    def _get_trace(self, idx: int) -> dict[Feats, torch.Tensor]:
         orig_idx, sub_idx = self._get_idx(idx)
 
         orig_trace_path = Path(self.meta_df.iloc[orig_idx][assets.TRACE_F_PATH])
@@ -153,7 +160,7 @@ class WFDataset(Dataset):
                 with open(tmp_trace_path, "rb") as f:
                     trace = torch.load(f, weights_only=True)
 
-        converted: dict[str, torch.Tensor] = {}
+        converted: dict[Feats, torch.Tensor] = {}
         for key, val in trace.items():
             if key == assets.PADDING:
                 converted[key] = val.to(dtype=torch.bool)
@@ -172,8 +179,7 @@ class WFDataset(Dataset):
 
         return len(self.meta_df)
 
-    def __getitem__(self, idx: int) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
-
+    def __getitem__(self, idx: int) -> tuple[dict[Feats, torch.Tensor], torch.Tensor]:
         trace_dict = self._get_trace(idx)
 
         trace_dict = self.feature_trs(trace_dict)
@@ -184,8 +190,8 @@ class WFDataset(Dataset):
 
 
 def dict_to_device(
-    X: dict[str, torch.tensor], device: torch.DeviceObjType
-) -> dict[str, torch.tensor]:
+    X: dict[Feats, torch.tensor], device: torch.DeviceObjType
+) -> dict[Feats, torch.tensor]:
     return {k: v.to(device) for k, v in X.items()}
 
 
@@ -202,7 +208,6 @@ def get_train_valid_test(
     n_min_packets: int | None = None,
     **kwargs,
 ) -> tuple[WFDataset, WFDataset, WFDataset]:
-
     meta_df = load_dataset_meta_df(dataset)
 
     if (n_min_packets := n_min_packets or 0) > 0:
@@ -223,10 +228,10 @@ def get_train_valid_test(
     test_df = meta_df[meta_df[col] == test_xv]
 
     train_ds = WFDataset(
-        dataset=f"{dataset}-train",
         label=label,
         meta_df=train_df,
         defence=defence_train,
+        dataset_key="train",
         **kwargs,
     )
     train_ds.report()
@@ -237,19 +242,19 @@ def get_train_valid_test(
     kwargs["defence_aug"] = defence_aug_valid
 
     valid_ds = WFDataset(
-        dataset=f"{dataset}-valid",
         label=label,
         meta_df=valid_df,
         defence=defence_valid,
+        dataset_key="valid",
         **kwargs,
     )
     valid_ds.report()
 
     test_ds = WFDataset(
-        dataset=f"{dataset}-test",
         label=label,
         meta_df=test_df,
         defence=defence_test,
+        dataset_key="test",
         **kwargs,
     )
     test_ds.report()

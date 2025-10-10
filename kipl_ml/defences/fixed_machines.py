@@ -113,7 +113,7 @@ class _FixedMachine(_Def):
 
     def _simulate(
         self, trace_path: os.PathLike, machine_idx: int | None = None
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[Feats, torch.Tensor]:
         client_machines, server_machines = self._get_machines(machine_idx)
 
         times, dirs, paddings = sim_trace_from_file_advanced(

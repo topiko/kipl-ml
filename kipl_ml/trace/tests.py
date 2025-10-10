@@ -20,12 +20,12 @@ class TestTR(unittest.TestCase):
 
         return {Feats.DIRS: dirs, Feats.SIZES: sizes, Feats.TIMES: times}
 
-    def _get_key(self, key: str, trace: dict[str, torch.Tensor]) -> _TR:
+    def _get_key(self, key: str, trace: dict[Feats, torch.Tensor]) -> _TR:
         tr = get_feature_tr(key, self.N_PACKETS)
         tr.get_shapes(trace)
         return tr
 
-    def _shapes_test(self, tr: _TR, trace: dict[str, torch.Tensor]):
+    def _shapes_test(self, tr: _TR, trace: dict[Feats, torch.Tensor]):
         for k, v in tr.output_sizes.items():
             self.assertEqual(v, self.N_PACKETS)
             self.assertEqual(tr(trace)[k].shape[0], self.N_PACKETS)

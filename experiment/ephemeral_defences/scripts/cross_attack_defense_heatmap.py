@@ -165,12 +165,12 @@ def get_test_set(cfg: OmegaConf, test_xv: int) -> WFDataset:
     feature_trs = FeatureTrs(feature_names=feature_names, n_packets=trace_len)
     defence_test = _get_defence(cfg)["defence_test"]
     test_ds = WFDataset(
-        dataset=f"{dataset}-test",
         label=label,
         meta_df=test_df,
         defence=defence_test,
         feature_trs=feature_trs,
         defence_aug=cfg.train.defence_augmentation_valid,
+        dataset_key="test",
     )
 
     return test_ds

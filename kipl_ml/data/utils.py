@@ -12,6 +12,7 @@ from mbnt import load_trace_to_numpy
 from kipl_ml.config import PROJECT_ROOT
 from kipl_ml.data import assets
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.trace.features import Feats
 from kipl_ml.trace.params import DOWNLOAD, EVENTS_MULTIPLIER, MAX_TRACE_LENGTH, UPLOAD
 
 logger = get_logger(__name__)
@@ -26,14 +27,12 @@ class Datasets:
 
 
 def _xv_splits_fname(dataset: str, n_splits: int, label_asset: str) -> Path:
-
     path = get_dataset_root(dataset).joinpath(f"xv_splits-{n_splits}-{label_asset}.csv")
 
     return path
 
 
 def get_dataset_root(dataset: str) -> Path:
-
     return Path(os.path.join(PROJECT_ROOT, ".data", dataset))
 
 
@@ -96,8 +95,7 @@ def parse_trace_to_tensor_dict(
     paddings: np.ndarray,
     sizes: np.ndarray | None = None,
     time_unit: str = "s",
-) -> dict[str, torch.tensor]:
-
+) -> dict[Feats, torch.Tensor]:
     if time_unit != "s":
         logger.warning("Some feature rely on time unit being 's' beware!")
 
@@ -118,10 +116,10 @@ def parse_trace_to_tensor_dict(
 
     # We make the cast to 32bit later in dataset.
     trace_dict = {
-        assets.TIMES: torch.tensor(times, dtype=torch.float64),
-        assets.DIRS: torch.tensor(dirs, dtype=torch.int8),
-        assets.SIZES: torch.tensor(sizes, dtype=torch.int16),
-        assets.PADDING: torch.tensor(paddings, dtype=torch.bool),
+        Feats.TIMES: torch.tensor(times, dtype=torch.float64),
+        Feats.DIRS: torch.tensor(dirs, dtype=torch.int8),
+        Feats.SIZES: torch.tensor(sizes, dtype=torch.int16),
+        Feats.PADDING: torch.tensor(paddings, dtype=torch.bool),
     }
 
     return trace_dict
@@ -131,8 +129,7 @@ def get_std_trace_dict(
     path: os.PathLike,
     network_delay_millis: int = 0,
     network_packets_per_second: int = 0,
-) -> dict[str, torch.tensor]:
-
+) -> dict[Feats, torch.Tensor]:
     times, dirs, paddings = get_std_trace_array(
         path,
         network_delay_millis=network_delay_millis,
@@ -142,15 +139,14 @@ def get_std_trace_dict(
     return parse_trace_to_tensor_dict(times, dirs, paddings, None)
 
 
-def tensor_dict_to_str(trace_d: dict[str, torch.tensor]) -> str:
-
-    times = (trace_d[assets.TIMES] * 1e9).detach().numpy().astype(int)
-    dirs = trace_d[assets.DIRS].detach().numpy().astype(int)
-    sizes = (trace_d[assets.SIZES].detach().numpy().astype(int) * 512).astype(str)
+def tensor_dict_to_str(trace_d: dict[Feats, torch.Tensor]) -> str:
+    times = (trace_d[Feats.TIMES] * 1e9).detach().numpy().astype(int)
+    dirs = trace_d[Feats.DIRS].detach().numpy().astype(int)
+    sizes = (trace_d[Feats.SIZES].detach().numpy().astype(int) * 512).astype(str)
 
     dirs_ = np.empty_like(dirs, dtype="<U2")
 
-    paddings = trace_d[assets.PADDING].detach().numpy().astype(bool)
+    paddings = trace_d[Feats.PADDING].detach().numpy().astype(bool)
 
     dirs_[(dirs == UPLOAD) & ~paddings] = "sn"  # send normal
     dirs_[(dirs == UPLOAD) & paddings] = "sp"  # send padding
@@ -173,7 +169,6 @@ def generate_xv_splits(
     random_state: int = 42,
     overlap_policy: str = "warn",
 ):
-
     logger.info(
         "Generating %d splits for dataset %s on label %s...",
         n_splits,
