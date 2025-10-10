@@ -3,6 +3,7 @@ from functools import partial
 
 import dotenv
 import hydra
+import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import torch
@@ -11,12 +12,14 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from kipl_ml.data import assets
 from kipl_ml.data.utils import load_dataset_meta_df
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.defences.base import NoDefence
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.trgen import TRGEN2
 from kipl_ml.models.utils import count_parameters
+from kipl_ml.tools.plottr import plot_trace
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
@@ -72,9 +75,8 @@ def main(cfg: DictConfig):
     # meta_df = meta_df.loc[mask]
     defense = NoDefence(network_delay_millis=(0, 0), network_pps=(0, 0))
 
-    feature_names = [Feats.BURST_LENS, Feats.BURST_DIRS]
+    feature_names = [Feats.BURST_LENS, Feats.BURST_DIRS, Feats.DIRS, Feats.TIMES]
     ds = WFDataset(
-        dataset=f"{dataset}",
         meta_df=meta_df,
         defence=defense,
         feature_trs=FeatureTrs(feature_names=feature_names, n_packets=trace_len),
@@ -86,9 +88,26 @@ def main(cfg: DictConfig):
         ds,
         batch_size=cfg.batch_size,
         shuffle=True,
-        num_workers=12,
+        num_workers=0,
         collate_fn=partial(collate_fn, seq_len=cfg.train_seq_len),
     )
+
+    # lbls = (0, 1)
+    # nsamples = 3
+    # fig, axarr = plt.subplots(1, len(lbls), figsize=(7 * len(lbls), nsamples * 2))
+
+    # for lbl, axcol in zip(lbls, axarr.T):
+    #     mask = meta_df.loc[:, assets.PAGE_LABEL] == lbl
+    #     wf_ = WFDataset(
+    #         meta_df=meta_df.loc[mask],
+    #         defence=defense,
+    #         feature_trs=FeatureTrs(feature_names=feature_names, n_packets=trace_len),
+    #     )
+    #     for s in range(nsamples):
+    #         idx = np.random.randint(0, len(wf_))
+    #         X, _ = wf_[idx]
+    #         plot_trace(X, ax=axarr[s])
+    #plt.show()
 
     generator = TRGEN2(features=feature_names, in_channels=2, hsize=512, nlayer=2)
 
