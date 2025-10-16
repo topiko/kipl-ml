@@ -90,9 +90,6 @@ def main(cfg: DictConfig):
 
                 dirs, h = generator(X, y, h)
 
-                print(dirs.shape)
-                print(X[Feats.DIRS].shape, X[Feats.DIRS])
-
                 loss = mimic_loss(dirs, X)
 
                 loss.backward()
