@@ -11,7 +11,6 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from kipl_ml.data import assets
 from kipl_ml.data.utils import load_dataset_meta_df
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.defences.base import NoDefence
@@ -46,9 +45,9 @@ def main(cfg: DictConfig):
     dataset = cfg.dataset.name
     meta_df = load_dataset_meta_df(dataset)
 
-    y_ = 0
-    mask = meta_df.loc[:, assets.PAGE_LABEL] == y_
-    meta_df = meta_df.loc[mask].sample(5)
+    # y_ = 0
+    # mask = meta_df.loc[:, assets.PAGE_LABEL] == y_
+    # meta_df = meta_df.loc[mask].sample(5)
 
     defense = NoDefence(network_delay_millis=(0, 0), network_pps=(0, 0))
 
