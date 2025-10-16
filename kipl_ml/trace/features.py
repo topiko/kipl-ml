@@ -557,7 +557,7 @@ class FeatureTrs:
     def __init__(
         self,
         feature_trs: list[_TR] | None = None,
-        feature_names: list[str] | None = None,
+        feature_names: list[Feats] | None = None,
         n_packets: int | None = None,
     ):
         if feature_trs is None and feature_names is None:
@@ -609,11 +609,11 @@ class FeatureTrs:
         return trace_
 
 
-def build_feature_trs(feature_name: list[str], n_packets: int) -> list[_TR]:
+def build_feature_trs(feature_name: list[Feats], n_packets: int) -> list[_TR]:
     return [get_feature_tr(f, n_packets) for f in feature_name]
 
 
-def get_feature_tr(feature_name: str, n_packets: int | None) -> _TR:
+def get_feature_tr(feature_name: Feats, n_packets: int | None) -> _TR:
     match feature_name:
         case Feats.DIRS:
             return Compose(PadOrCutTrace(n_packets), Select(Feats.DIRS))
