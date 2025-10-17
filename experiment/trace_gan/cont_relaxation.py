@@ -35,7 +35,7 @@ def mimic_loss(
     dir_log_probs: torch.Tensor, X: dict[Feats, torch.Tensor]
 ) -> torch.Tensor:
     dir_loss_ = nn.functional.nll_loss(
-        dir_log_probs[:, :-1].permute(0, 2, 1) + 1, X[Feats.DIRS][:, 1:].long() + 1
+        dir_log_probs[:, :-1].permute(0, 2, 1), X[Feats.DIRS][:, 1:].long() + 1
     )
 
     return dir_loss_
