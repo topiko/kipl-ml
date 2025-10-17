@@ -189,7 +189,6 @@ class TRGEN4(nn.Module):
     def __init__(
         self,
         features: list[Feats],
-        in_channels: int = 2,
         nfeat: int = 64,
         hsize: int = 128,
         nlayer: int = 2,
@@ -197,10 +196,15 @@ class TRGEN4(nn.Module):
     ):
         super().__init__()
 
+        if set(features) != {Feats.DIR_PROBS, Feats.IATS_MAX_NORMALIZED}:
+            raise ValueError(
+                "TRGEN4 only supports 'dir_probs' and 'iats_max_normalized' features."
+            )
+
         self.rnn = nn.LSTM(nfeat + 1, hsize, nlayer, batch_first=True)
 
         self.feat_lin = nn.Sequential(
-            nn.Linear(in_channels, nfeat),
+            nn.Linear(4, nfeat),
             nn.LayerNorm(nfeat),
             nn.GELU(),
         )
@@ -216,11 +220,14 @@ class TRGEN4(nn.Module):
         y: torch.Tensor,
         h: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        dirs = x[Feats.DIRS]
-        iats = x[Feats.IATS_MAX_NORMALIZED]
+        # (N, L, 3)
+        dir_probs = x[Feats.DIR_PROBS]
 
-        # (N, L, 2)
-        X = torch.stack([dirs, iats], dim=-1)
+        # (N, L, 1)
+        iats = x[Feats.IATS_MAX_NORMALIZED].unsqueeze(-1)
+
+        # (N, L, 4)
+        X = torch.cat([dir_probs, iats], dim=-1)
 
         # (N, L, nfeat)
         X = self.feat_lin(X)

@@ -47,6 +47,9 @@ class Feats(StrEnum):
     TAM_DOWN = "tam-download"
     TAM_DOWN_MAX_NORMALIZED = f"{TAM_DOWN}_max_normalized"
 
+    # Helpers:
+    DIR_PROBS = "dir_probs"
+
     def __str__(self) -> str:
         return self.value
 

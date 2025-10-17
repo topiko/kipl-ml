@@ -62,7 +62,9 @@ def main(cfg: DictConfig):
 
     dl = DataLoader(ds, batch_size=cfg.batch_size, shuffle=True, num_workers=4)
 
-    generator = TRGEN4(features=feature_names, hsize=256, nlayer=2)
+    generator = TRGEN4(
+        features=[Feats.DIR_PROBS, Feats.IATS_MAX_NORMALIZED], hsize=256, nlayer=2
+    )
 
     optimG = torch.optim.Adam(generator.parameters(), lr=0.0001)
 
@@ -90,6 +92,11 @@ def main(cfg: DictConfig):
                 h = None
                 optimG.zero_grad()
 
+                X[Feats.DIR_PROBS] = nn.functional.one_hot(
+                    X[Feats.DIRS].long() + 1, num_classes=3
+                ).float()
+
+                breakpoint()
                 dirs, h = generator(X, y, h)
 
                 loss = mimic_loss(dirs, X)
