@@ -236,8 +236,10 @@ class TRGEN4(nn.Module):
         dirs = self.dir_lin(output).squeeze(-1)
 
         if self.dir_activation == "gumbel_softmax":
-            dirs = nn.functional.gumbel_softmax(dirs, tau=1.0, hard=False, dim=-1)
+            dir_probs = nn.functional.gumbel_softmax(dirs, tau=1.0, hard=False, dim=-1)
         else:
             raise NotImplementedError(f"Unknown dir_activation: {self.dir_activation}")
 
-        return dirs, h
+        dir_log_probs = torch.log(dir_probs)
+
+        return dir_log_probs, h

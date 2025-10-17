@@ -15,7 +15,7 @@ from kipl_ml.data.utils import load_dataset_meta_df
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.defences.base import NoDefence
 from kipl_ml.logging.logger import TQDM_W, get_logger
-from kipl_ml.models.trgen import TRGEN3
+from kipl_ml.models.trgen import TRGEN4
 from kipl_ml.tools.plottr import plot_trace
 from kipl_ml.trace.features import Feats, FeatureTrs
 
@@ -31,9 +31,11 @@ assert MLFLOW_TRACKING_URI is not None, "MLFLOW_TRACKING_URI must be set in .env
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 
-def mimic_loss(pred_dirs: torch.Tensor, X: dict[Feats, torch.Tensor]) -> torch.Tensor:
-    dir_loss_ = nn.functional.cross_entropy(
-        pred_dirs[:, :-1].permute(0, 2, 1) + 1, X[Feats.DIRS][:, 1:].long() + 1
+def mimic_loss(
+    dir_log_probs: torch.Tensor, X: dict[Feats, torch.Tensor]
+) -> torch.Tensor:
+    dir_loss_ = nn.functional.nll_loss(
+        dir_log_probs[:, :-1].permute(0, 2, 1) + 1, X[Feats.DIRS][:, 1:].long() + 1
     )
 
     return dir_loss_
@@ -60,7 +62,7 @@ def main(cfg: DictConfig):
 
     dl = DataLoader(ds, batch_size=cfg.batch_size, shuffle=True, num_workers=4)
 
-    generator = TRGEN3(features=feature_names, hsize=256, nlayer=2)
+    generator = TRGEN4(features=feature_names, hsize=256, nlayer=2)
 
     optimG = torch.optim.Adam(generator.parameters(), lr=0.0001)
 
