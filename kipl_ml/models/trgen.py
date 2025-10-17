@@ -97,10 +97,6 @@ class TRGEN2(nn.Module):
     ):
         super().__init__()
 
-        self.generator = nn.Sequential(
-            nn.Tanh(),
-        )
-
         self.rnn = nn.LSTM(nfeat, hsize, nlayer, batch_first=True)
 
         self.feat_lin = nn.Sequential(
@@ -148,10 +144,6 @@ class TRGEN3(nn.Module):
     ):
         super().__init__()
 
-        self.generator = nn.Sequential(
-            nn.Tanh(),
-        )
-
         self.rnn = nn.LSTM(nfeat + 1, hsize, nlayer, batch_first=True)
 
         self.feat_lin = nn.Sequential(
@@ -187,5 +179,65 @@ class TRGEN3(nn.Module):
         output, h = self.rnn(X, h)
 
         dirs = self.dir_lin(output).squeeze(-1)
+
+        return dirs, h
+
+
+class TRGEN4(nn.Module):
+    name: str = "trgen3"
+
+    def __init__(
+        self,
+        features: list[Feats],
+        in_channels: int = 2,
+        nfeat: int = 64,
+        hsize: int = 128,
+        nlayer: int = 2,
+        dir_activation: str = "gumbel_softmax",
+    ):
+        super().__init__()
+
+        self.rnn = nn.LSTM(nfeat + 1, hsize, nlayer, batch_first=True)
+
+        self.feat_lin = nn.Sequential(
+            nn.Linear(in_channels, nfeat),
+            nn.LayerNorm(nfeat),
+            nn.GELU(),
+        )
+
+        self.dir_lin = nn.Linear(hsize, 3)
+
+        self.dir_activation = dir_activation
+        self.len_lin = nn.Linear(hsize, 1)
+
+    def forward(
+        self,
+        x: dict[Feats, torch.Tensor],
+        y: torch.Tensor,
+        h: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        dirs = x[Feats.DIRS]
+        iats = x[Feats.IATS_MAX_NORMALIZED]
+
+        # (N, L, 2)
+        X = torch.stack([dirs, iats], dim=-1)
+
+        # (N, L, nfeat)
+        X = self.feat_lin(X)
+
+        y_ = y.reshape(-1, 1).repeat(1, X.shape[1]).unsqueeze(2)
+
+        # (N, L, nfeat + 1)
+        X = torch.cat([X, y_], dim=-1)
+
+        # (N, L, H)
+        output, h = self.rnn(X, h)
+
+        dirs = self.dir_lin(output).squeeze(-1)
+
+        if self.dir_activation == "gumbel_softmax":
+            dirs = nn.functional.gumbel_softmax(dirs, tau=1.0, hard=False, dim=-1)
+        else:
+            raise NotImplementedError(f"Unknown dir_activation: {self.dir_activation}")
 
         return dirs, h
