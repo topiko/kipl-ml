@@ -96,7 +96,6 @@ def main(cfg: DictConfig):
                     X[Feats.DIRS].long() + 1, num_classes=3
                 ).float()
 
-                breakpoint()
                 dirs, h = generator(X, y, h)
 
                 loss = mimic_loss(dirs, X)
@@ -128,6 +127,9 @@ def main(cfg: DictConfig):
         for i, axcol in zip(rng.integers(0, len(meta_df), N), axarr.T):
             X, y = ds[i]
             X = {k: x_.unsqueeze(0) for k, x_ in dict_to_device(X, device).items()}
+            X[Feats.DIR_PROBS] = nn.functional.one_hot(
+                X[Feats.DIRS].long() + 1, num_classes=3
+            ).float()
             y = y.to(device).reshape(1)
 
             plot_trace(X, idx=0, ax=axcol[0])
