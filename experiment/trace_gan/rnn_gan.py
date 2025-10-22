@@ -115,7 +115,6 @@ def main(cfg: DictConfig):
                 X_, h = run_g_steps(generator, X_, y, h, n_steps=n_steps)
                 dir_probs = X_[Feats.DIR_PROBS]
 
-                breakpoint()
                 loss = mimic_loss(dir_probs, X)
 
                 loss.backward()
