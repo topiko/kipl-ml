@@ -24,7 +24,6 @@ def list_runs(
     raise_on_empty: bool = True,
     parents: bool = True,
 ) -> pd.DataFrame:
-
     if experiment_names is None:
         experiments = mlflow.search_experiments(view_type=ViewType.ALL)
         experiment_names = [ex.name for ex in experiments]
@@ -56,7 +55,6 @@ def log_dataset(
     target: str,
     predictions: np.ndarray | None = None,
 ):
-
     df = ds.meta_df.loc[:, store_cols]
 
     pred_col = "predictions" if predictions is not None else None
@@ -73,7 +71,6 @@ def log_dataset(
 
 
 def log_hydra_conf(cfg: OmegaConf):
-
     d = OmegaConf.to_container(cfg, resolve=True)
     mlflow.log_dict(d, artifact_file="hydra_config.json")
 
@@ -107,7 +104,6 @@ def run_exists(
     parent_run_name: str | None = None,
     ignore_existing: bool = False,
 ) -> bool:
-
     df = list_runs(experiment_name, only_finished=False, raise_on_empty=False)
 
     if len(df) == 0:
@@ -157,3 +153,27 @@ def run_exists(
             df[df.loc[:, "run_id"].isin(parents)].loc[:, "tags.mlflow.runName"].values
         )
         return parent_run_name in parent_names
+
+
+def get_mlflow_expr(experiment_name: str) -> str:
+    """
+    Retrieve the ID of an existing MLflow experiment or
+    create a new one if it doesn't exist.
+
+    If it does, the function returns its ID. If not,
+    it creates a new experiment with the provided name and returns its ID.
+
+    Args:
+        experiment_name (str): Name of the MLflow experiment.
+
+    Returns:
+        str: ID of the existing or newly created MLflow experiment.
+
+    """
+
+    if experiment := mlflow.get_experiment_by_name(experiment_name):
+        logger.info("Experiment '%s' already exists; using that.", experiment_name)
+        return str(experiment.experiment_id)
+
+    logger.info("Experiment '%s' does not exist --> create.", experiment_name)
+    return mlflow.create_experiment(experiment_name)

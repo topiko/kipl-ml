@@ -22,7 +22,7 @@ from kipl_ml.defences.front import FRONT
 from kipl_ml.defences.interspace import Interspace
 from kipl_ml.defences.maybenot import Maybenot
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.logging.utils import get_mlflow_expr, key_val_fmt, log_multiline
+from kipl_ml.logging.utils import key_val_fmt, log_multiline
 from kipl_ml.metrics.clf_metrics import Accuracy, ClassRecall
 from kipl_ml.metrics.defence_netwk_metrics import get_overheads
 from kipl_ml.model_eval.evaluate import evaluate_model
@@ -30,6 +30,7 @@ from kipl_ml.models.models import get_model
 from kipl_ml.models.rf import RFLRScheduler
 from kipl_ml.models.utils import get_laserbeak_model_config, get_signature
 from kipl_ml.tools.mlflow_utils import (
+    get_mlflow_expr,
     get_parent_run_id,
     list_runs,
     log_dataset,
