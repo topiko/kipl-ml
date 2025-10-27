@@ -157,8 +157,9 @@ class WFDataset(Dataset):
                 with open(tmp_trace_path, "wb") as f:
                     torch.save(trace, f)
             else:
-                with open(tmp_trace_path, "rb") as f:
-                    trace = torch.load(f, weights_only=True)
+                with torch.serialization.safe_globals([Feats]):
+                    with open(tmp_trace_path, "rb") as f:
+                        trace = torch.load(f, weights_only=True)
 
         converted: dict[Feats, torch.Tensor] = {}
         for key, val in trace.items():
