@@ -318,8 +318,9 @@ class RNNCLF1(nn.Module):
         self,
         n_classes: int,
         features: list[Feats],
-        hsize: int = 128,
-        nlayer: int = 2,
+        hsize: int = 256,
+        nlayer: int = 3,
+        dropout: float = 0.3,
     ):
         super().__init__()
 
@@ -327,9 +328,9 @@ class RNNCLF1(nn.Module):
             raise ValueError(f"Only {Feats.BURST_LENS} supported")
 
         nfeat = len(features)
-        self.rnn = nn.LSTM(nfeat, hsize, nlayer, batch_first=True)
+        self.rnn = nn.LSTM(nfeat, hsize, nlayer, batch_first=True, dropout=dropout)
 
-        self.final_lin = nn.Linear(hsize, n_classes)
+        self.final_lin = nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, n_classes))
 
     def forward(
         self,

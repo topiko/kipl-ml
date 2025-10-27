@@ -17,6 +17,7 @@ from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.metrics.clf_metrics import Accuracy
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.trgen import RNNCLF1
+from kipl_ml.models.utils import count_parameters
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
 from kipl_ml.trace.features import Feats, FeatureTrs
 
@@ -95,6 +96,9 @@ def main(cfg: DictConfig):
     dl_valid = dl_(ds_valid)
 
     clf = RNNCLF1(ds_train.n_classes, feature_names)
+
+    logger.info(f"Model parameters: {count_parameters(clf)}")
+
     optimG = torch.optim.Adam(clf.parameters(), lr=0.001)
 
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -116,7 +120,6 @@ def main(cfg: DictConfig):
             with tqdm(dl_train, desc=f"epoch {e:02d}", ncols=TQDM_W) as pbar:
                 loss_ = 0
                 n = 1
-
                 clf.train()
 
                 for X, y in pbar:
