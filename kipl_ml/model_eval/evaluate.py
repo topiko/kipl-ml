@@ -16,7 +16,6 @@ logger = get_logger(__name__)
 
 
 def get_clf_df(model: nn.Module, dataloader: DataLoader) -> pd.DataFrame:
-
     no_shuffle_dl = DataLoader(
         dataloader.dataset, batch_size=dataloader.batch_size, shuffle=False
     )
@@ -37,26 +36,28 @@ def get_clf_df(model: nn.Module, dataloader: DataLoader) -> pd.DataFrame:
 
 def run_inference(
     model: nn.Module, dataloader: DataLoader
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     logger.info("Run inference...")
     model.eval()
     model.to(get_device())
 
     logits = []
+    preds = []
     labels = []
     with torch.no_grad():
         with tqdm(dataloader, ncols=TQDM_W) as pbar:
             for X, y in pbar:
                 X_ = dict_to_device(X, get_device())
-                logits_ = model(X_)
+                logits_, preds_ = model.predict(X_)
                 logits.append(logits_)
+                preds.append(preds_)
                 labels.append(y)
 
     logits = torch.cat(logits).to("cpu")
+    preds = torch.cat(preds).to("cpu")
     y_true = torch.cat(labels).to("cpu")
 
-    model.to("cpu")
-    return logits, y_true
+    return logits, preds, y_true
 
 
 def evaluate_model(
@@ -67,9 +68,7 @@ def evaluate_model(
 ) -> dict[str, float | torch.Tensor]:
     logger.info(f"Evaluate... {dataloader.dataset.name}")
 
-    logits, y_true = run_inference(model, dataloader)
-
-    pred_class = logits.argmax(dim=1)
+    logits, pred_class, y_true = run_inference(model, dataloader)
 
     metric_vals: dict[str, float | torch.Tensor] = {}
     for m in metrics:

@@ -309,3 +309,53 @@ class TRGEN5(nn.Module):
             raise NotImplementedError(f"Unknown dir_activation: {self.dir_activation}")
 
         return dir_probs, h
+
+
+class RNNCLF1(nn.Module):
+    name: str = "rnnclf1"
+
+    def __init__(
+        self,
+        n_classes: int,
+        features: list[Feats],
+        hsize: int = 128,
+        nlayer: int = 2,
+    ):
+        super().__init__()
+
+        if set(features) != {Feats.BURST_LENS}:
+            raise ValueError(f"Only {Feats.BURST_LENS} supported")
+
+        nfeat = len(features)
+        self.rnn = nn.LSTM(nfeat, hsize, nlayer, batch_first=True)
+
+        self.final_lin = nn.Linear(hsize, n_classes)
+
+    def forward(
+        self,
+        x: dict[Feats, torch.Tensor],
+        h: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        # (N, L, 1)
+        inputs = x[Feats.BURST_LENS].unsqueeze(-1)
+
+        # (N, L, H)
+        output, h = self.rnn(inputs, h)
+
+        # (N, L, n_classes)
+        class_probs = self.final_lin(output)
+
+        return class_probs, h
+
+    def predict(
+        self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if x[Feats.BURST_LENS].ndim != 2:
+            raise ValueError("Batched inputs expected!")
+
+        # (N, nt, n_classes)
+        logits, _ = self(x)
+
+        logits = logits[:, -1, :]
+
+        return logits, logits.argmax(1)
