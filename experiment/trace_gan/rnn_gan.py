@@ -31,10 +31,15 @@ assert MLFLOW_TRACKING_URI is not None, "MLFLOW_TRACKING_URI must be set in .env
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 
-def mimic_loss(dir_probs: torch.Tensor, X: dict[Feats, torch.Tensor]) -> torch.Tensor:
+def mimic_loss(
+    X_: dict[Feats, torch.Tensor], X: dict[Feats, torch.Tensor], n_steps: int
+) -> torch.Tensor:
+    dir_probs = X_[Feats.DIR_PROBS][:, -n_steps:, :]
+    true_dirs = X[Feats.DIRS][:, -n_steps:]
     dir_log_probs = torch.log(dir_probs + 1e-12)
+
     dir_loss_ = nn.functional.nll_loss(
-        dir_log_probs[:, :-1].permute(0, 2, 1), X[Feats.DIRS][:, 1:].long() + 1
+        dir_log_probs.permute(0, 2, 1), true_dirs.long() + 1
     )
 
     return dir_loss_
@@ -93,7 +98,7 @@ def main(cfg: DictConfig):
     patience = 5
     e = 0
     c = 0
-    n_steps = 1
+    n_steps = 2
     while True:
         with tqdm(dl, desc=f"epoch {e:02d}", ncols=TQDM_W) as pbar:
             loss_ = 0
@@ -110,12 +115,10 @@ def main(cfg: DictConfig):
                     X[Feats.DIRS].long() + 1, num_classes=3
                 ).float()
 
-                # dirs, h = generator(X, y, h)
                 X_ = {Feats.DIR_PROBS: X[Feats.DIR_PROBS][:, :-n_steps, :]}
                 X_, h = run_g_steps(generator, X_, y, h, n_steps=n_steps)
-                dir_probs = X_[Feats.DIR_PROBS]
 
-                loss = mimic_loss(dir_probs, X)
+                loss = mimic_loss(X_, X, n_steps=n_steps)
 
                 loss.backward()
                 optimG.step()
@@ -153,11 +156,15 @@ def main(cfg: DictConfig):
             axcol[0].set_title("Original")
 
             h = None
+            X_ = {Feats.DIR_PROBS: X[Feats.DIR_PROBS][:, :-n_steps, :]}
+            X_, h = run_g_steps(generator, X_, y, h, n_steps=n_steps)
 
-            dir_probs, h = generator(X, y, h)
-
-            plot_trace({Feats.DIRS: dir_probs.argmax(-1) - 1}, idx=0, ax=axcol[1])
-            axcol[1].set_title(f"Generated, loss {mimic_loss(dir_probs, X):.3f}")
+            plot_trace(
+                {Feats.DIRS: X_[Feats.DIR_PROBS].argmax(-1) - 1}, idx=0, ax=axcol[1]
+            )
+            axcol[1].set_title(
+                f"Generated, loss {mimic_loss(X_, X, n_steps=n_steps):.3f}"
+            )
             plt.suptitle(f"Epoch {e:03d}")
         plt.savefig(f"figs/trace_plot-{e:05d}.png")
         plt.close()
