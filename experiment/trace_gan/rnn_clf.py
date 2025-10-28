@@ -69,7 +69,7 @@ def main(cfg: DictConfig):
 
     dataset = cfg.dataset.name
 
-    feature_names = [Feats.BURST_LENS, Feats.BURST_DURS]
+    feature_names = [Feats.BURST_LENS]  # , Feats.BURST_DURS]
 
     ds_train, ds_valid, _ = get_train_valid_test(
         dataset=dataset,
@@ -89,14 +89,14 @@ def main(cfg: DictConfig):
             ds,
             batch_size=cfg.batch_size,
             shuffle=True,
-            num_workers=24,
+            num_workers=30,
             collate_fn=collate_fn,
         )
 
     dl_train = dl_(ds_train)
     dl_valid = dl_(ds_valid)
 
-    clf = RNNCLF1(ds_train.n_classes, feature_names)
+    clf = RNNCLF1(ds_train.n_classes, feature_names, dropout=0.2)
 
     logger.info(f"Model parameters: {count_parameters(clf)}")
 
@@ -107,22 +107,21 @@ def main(cfg: DictConfig):
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    loss_fn = nn.CrossEntropyLoss(label_smoothing=0.1)
+    loss_fn = nn.CrossEntropyLoss(label_smoothing=0.02)
 
     clf.to(device)
 
     min_loss = np.inf
-    patience = 5
+    patience = 10
     e = 0
     c = 0
 
     with mlflow.start_run():
         while True:
+            loss_ = 0.0
+            n = 1
+            clf.train()
             with tqdm(dl_train, desc=f"epoch {e:02d}", ncols=TQDM_W) as pbar:
-                loss_ = 0.0
-                n = 1
-                clf.train()
-
                 for X, y in pbar:
                     X = dict_to_device(X, device)
                     y = y.to(device)
@@ -148,17 +147,19 @@ def main(cfg: DictConfig):
             lr_scheduler.step(loss_)
 
             c += 1
+            e += 1
 
-            valid_metrics_d = evaluate_model(clf, dl_valid, [Accuracy()], loss_fn)
-            train_metrics_d = evaluate_model(clf, dl_train, [Accuracy()], loss_fn)
-            mlflow.log_metrics(
-                metrics={f"valid-{k}": v for k, v in valid_metrics_d.items()}, step=e
+            valid_metrics_d = evaluate_model(
+                clf, dl_valid, [Accuracy()], loss_fn, key="valid"
             )
-            mlflow.log_metrics(
-                metrics={f"train-{k}": v for k, v in train_metrics_d.items()}, step=e
+            train_metrics_d = evaluate_model(
+                clf, dl_train, [Accuracy()], loss_fn, key="train"
             )
 
-            if (loss_ := valid_metrics_d["loss"]) < min_loss:
+            mlflow.log_metrics(valid_metrics_d, step=e)
+            mlflow.log_metrics(train_metrics_d, step=e)
+
+            if (loss_ := valid_metrics_d["valid-loss"]) < min_loss:
                 logger.info("Improved loss! %.4f -> %.4f", min_loss, loss_)
                 min_loss = loss_
                 c = 0
@@ -168,7 +169,7 @@ def main(cfg: DictConfig):
 
             rng = np.random.default_rng(seed=42)
 
-            ntraces = 4
+            ntraces = 20
 
             idxs = rng.integers(0, len(ds_valid), size=ntraces)
 
@@ -185,7 +186,7 @@ def main(cfg: DictConfig):
                 logits, _ = clf(X)
 
                 ax = plot_bursts(
-                    X, ax=ax, cl_probs=nn.functional.softmax(logits, dim=1)
+                    X, ax=ax, cl_probs=nn.functional.softmax(logits, dim=-1)
                 )
                 ax.set_title(f"True class: {y.item()}")
 
@@ -194,8 +195,7 @@ def main(cfg: DictConfig):
             if e % 10 == 0:
                 mlflow.log_figure(fig, f"bursts_clf_epoch={e:03d}.png")
 
-            plt.clf()
-            e += 1
+            plt.close()
 
 
 if __name__ == "__main__":

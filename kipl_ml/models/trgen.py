@@ -320,13 +320,14 @@ class RNNCLF1(nn.Module):
         features: list[Feats],
         hsize: int = 256,
         nlayer: int = 3,
-        dropout: float = 0.3,
+        dropout: float = 0.2,
     ):
         super().__init__()
 
-        if set(features) != {Feats.BURST_LENS, Feats.BURST_DURS}:
+        if {Feats.BURST_LENS, Feats.BURST_DURS}.issubset(set(features)):
             raise ValueError(f"Only {Feats.BURST_LENS} supported")
 
+        self.features = features
         nfeat = len(features)
         self.rnn = nn.LSTM(nfeat, hsize, nlayer, batch_first=True, dropout=dropout)
 
@@ -337,12 +338,13 @@ class RNNCLF1(nn.Module):
         x: dict[Feats, torch.Tensor],
         h: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # (N, L) x 2
-        lens = x[Feats.BURST_LENS]
-        durs = x[Feats.BURST_DURS]
+        # (N, L) x nfeat
+        fs = []
+        for f in self.features:
+            fs.append(x[f].unsqueeze(-1))
 
-        # (N, L, 2)
-        inputs = torch.stack((lens, durs), dim=2)
+        # (N, L, nfeat)
+        inputs = torch.cat(fs, dim=-1)
 
         # (N, L, H)
         output, h = self.rnn(inputs, h)

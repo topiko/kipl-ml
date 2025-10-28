@@ -96,7 +96,7 @@ def plot_bursts(
             burst_dirs_,
             step="pre",
             color="blue" if ud < 0 else "red",
-            alpha=0.5,
+            alpha=0.2,
         )
 
     if cl_probs is not None:
@@ -104,12 +104,13 @@ def plot_bursts(
 
         ax2 = ax.twinx()
         max_p = cl_probs.max(axis=1)
-        ax2.plot(burst_edges, max_p)
+
+        ax2.plot(burst_edges, max_p, "--")
 
         ax3 = ax.twinx()
         ax3.spines["right"].set_position(("outward", 60))  # offset by 60 points
 
-        ax3.plot(burst_edges, cl_probs.argmax(axis=1))
+        ax3.plot(burst_edges, cl_probs.argmax(axis=1), color="black")
 
         ax2.spines["right"].set_visible(True)
         ax3.spines["right"].set_visible(True)

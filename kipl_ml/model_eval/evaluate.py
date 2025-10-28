@@ -65,6 +65,7 @@ def evaluate_model(
     dataloader: DataLoader,
     metrics: list[GeneralMetric | ClassMetric],
     loss_fn: Callable | None = None,
+    key: str | None = None,
 ) -> dict[str, float | torch.Tensor]:
     logger.info(f"Evaluate... {dataloader.dataset.name}")
 
@@ -83,4 +84,6 @@ def evaluate_model(
         loss = loss_fn(logits, y_true)
         metric_vals["loss"] = loss.item()
 
+    if key is not None:
+        metric_vals = {f"{key}-{k}": v for k, v in metric_vals.items()}
     return metric_vals
