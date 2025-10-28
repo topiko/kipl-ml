@@ -324,7 +324,7 @@ class RNNCLF1(nn.Module):
     ):
         super().__init__()
 
-        if set(features) != {Feats.BURST_LENS}:
+        if set(features) != {Feats.BURST_LENS, Feats.BURST_DURS}:
             raise ValueError(f"Only {Feats.BURST_LENS} supported")
 
         nfeat = len(features)
@@ -337,8 +337,12 @@ class RNNCLF1(nn.Module):
         x: dict[Feats, torch.Tensor],
         h: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # (N, L, 1)
-        inputs = x[Feats.BURST_LENS].unsqueeze(-1)
+        # (N, L) x 2
+        lens = x[Feats.BURST_LENS]
+        durs = x[Feats.BURST_DURS]
+
+        # (N, L, 2)
+        inputs = torch.stack((lens, durs), dim=2)
 
         # (N, L, H)
         output, h = self.rnn(inputs, h)
@@ -357,6 +361,12 @@ class RNNCLF1(nn.Module):
         # (N, nt, n_classes)
         logits, _ = self(x)
 
-        logits = logits[:, -1, :]
+        bs, seq_len, _ = logits.shape
+        row_idxs = torch.arange(bs).long()
+        col_idxs = torch.clip(
+            (x[Feats.BURST_LENS] != 0).sum(dim=1).long(), 0, seq_len - 1
+        )
+
+        logits = logits[row_idxs, col_idxs, :]
 
         return logits, logits.argmax(1)

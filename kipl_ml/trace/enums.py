@@ -30,6 +30,7 @@ class Feats(StrEnum):
     CUM_SIZES_MAX_NORMALIZED = f"max_normalized_{CUM_SIZES}"
     BURST_EDGES = "burst_edges"
     BURST_LENS = "burst_lens"
+    BURST_DURS = "burst_durs"
     BURST_DIRS = "burst_dirs"
     FLOW_IATS = "flow_iats"
     FLOW_IATS_NORMALIZED = f"normalized_{FLOW_IATS}"

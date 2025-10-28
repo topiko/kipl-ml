@@ -342,6 +342,7 @@ class BurstLens(_TR):
         # Example:
         # dirs:    -1, 1, 1, -1, -1, -1, 1, 1, 1, 1, -1
         # edges:   -1, 2, 0, -2,  0,  0, 2, 0, 0, 0, -2
+        # idxs:        1,     3,         6,          10,
         # lens:     1,    2,          3,          4, ...
 
         down2up = torch.argwhere(edges == 2).squeeze()
@@ -352,6 +353,41 @@ class BurstLens(_TR):
         burst_lens = torch.diff(idxs, prepend=torch.Tensor([0]))
 
         return {self.name: burst_lens}
+
+
+class BurstDurs(_TR):
+    NAME = Feats.BURST_DURS
+
+    @property
+    def name(self) -> Feats:
+        return self.NAME
+
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> BurstLens:
+        self._output_sizes = {self.name: None}  # Variable length
+        return self
+
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
+        edges = trace[Feats.BURST_EDGES]
+
+        # Example:
+        # dirs:    -1, 1, 1, -1, -1, -1,  1, 1, 1, 1, -1
+        # edges:   -1, 2, 0, -2,  0,  0,  2, 0, 0, 0, -2
+        # idxs:        1,     3,          6,          10,
+        # times:    0, 1, 2,  4,  8, 12, 14, 0, 0, 0, -2
+        # bt:       0, 1,     3,         10, ...
+
+        down2up = torch.argwhere(edges == 2).squeeze()
+        up2down = torch.argwhere(edges == -2).squeeze()
+
+        idxs = (
+            torch.cat((down2up, up2down, torch.Tensor([len(edges) - 1])))
+            .sort()[0]
+            .long()
+        )
+
+        burst_durs = torch.diff(trace[Feats.TIMES][idxs], prepend=torch.Tensor([0]))
+
+        return {self.name: burst_durs}
 
 
 class BurstDirs(_TR):
@@ -715,6 +751,8 @@ def get_feature_tr(feature_name: Feats, n_packets: int | None) -> _TR:
             return Compose(PadOrCutTrace(n_packets), BurstEdges())
         case Feats.BURST_LENS:
             return Compose(BurstEdges(), BurstLens())
+        case Feats.BURST_DURS:
+            return Compose(BurstEdges(), BurstDurs())
         case Feats.BURST_DIRS:
             return Compose(BurstEdges(), BurstDirs())
         case Feats.FLOW_IATS:
