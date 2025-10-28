@@ -1,0 +1,13 @@
+# mystyle.mplstyle
+axes.grid: false
+axes.titleweight: bold
+axes.titlesize: small
+axes.titlelocation: left
+axes.spines.top: false
+axes.spines.right: false
+font.family: sans-serif
+legend.frameon: false
+savefig.dpi: 250
+
+figure.constrained_layout.use: true
+

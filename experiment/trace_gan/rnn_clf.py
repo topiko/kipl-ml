@@ -3,6 +3,7 @@ from functools import partial
 
 import dotenv
 import hydra
+import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import torch
@@ -19,6 +20,7 @@ from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.trgen import RNNCLF1
 from kipl_ml.models.utils import count_parameters
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
+from kipl_ml.tools.plottr import plot_bursts
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
@@ -38,7 +40,7 @@ def collate_fn_(
 ) -> tuple[dict[Feats, torch.Tensor], torch.Tensor]:
     bs = len(batch)
     features = batch[0][0].keys()
-    X = {f: torch.ones((bs, seq_len), dtype=torch.float) for f in features}
+    X = {f: torch.zeros((bs, seq_len), dtype=torch.float) for f in features}
     y = torch.zeros((bs,), dtype=torch.long)
     start_idx = torch.randint(0, 5, (bs,))
     for i, (x_, y_) in enumerate(batch):
@@ -65,12 +67,11 @@ def main(cfg: DictConfig):
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
 
-    trace_len = cfg.trace_len
     dataset = cfg.dataset.name
 
-    feature_names = [Feats.BURST_LENS]
+    feature_names = [Feats.BURST_LENS, Feats.BURST_DURS]
 
-    ds_train, ds_valid, ds_test = get_train_valid_test(
+    ds_train, ds_valid, _ = get_train_valid_test(
         dataset=dataset,
         label=assets.PAGE_LABEL,
         n_splits=5,
@@ -79,7 +80,7 @@ def main(cfg: DictConfig):
         feature_trs=FeatureTrs(feature_names=feature_names, n_packets=None),
     )
 
-    n_bursts = 300
+    n_bursts = 1000
 
     collate_fn = partial(collate_fn_, seq_len=n_bursts)
 
@@ -118,7 +119,7 @@ def main(cfg: DictConfig):
     with mlflow.start_run():
         while True:
             with tqdm(dl_train, desc=f"epoch {e:02d}", ncols=TQDM_W) as pbar:
-                loss_ = 0
+                loss_ = 0.0
                 n = 1
                 clf.train()
 
@@ -143,9 +144,8 @@ def main(cfg: DictConfig):
                     pbar.set_postfix({"l": loss_, "lr": lr_scheduler.get_last_lr()[0]})
 
                     n += 1
-                e += 1
 
-                lr_scheduler.step(loss_)
+            lr_scheduler.step(loss_)
 
             c += 1
 
@@ -157,15 +157,45 @@ def main(cfg: DictConfig):
             mlflow.log_metrics(
                 metrics={f"train-{k}": v for k, v in train_metrics_d.items()}, step=e
             )
-            loss_ = valid_metrics_d["loss"]
 
-            if loss_ < min_loss:
+            if (loss_ := valid_metrics_d["loss"]) < min_loss:
                 logger.info("Improved loss! %.4f -> %.4f", min_loss, loss_)
                 min_loss = loss_
                 c = 0
 
             if c > patience:
                 break
+
+            rng = np.random.default_rng(seed=42)
+
+            ntraces = 4
+
+            idxs = rng.integers(0, len(ds_valid), size=ntraces)
+
+            fig, axarr = plt.subplots(
+                ntraces, 1, figsize=(10, ntraces * 3), sharex=True
+            )
+
+            for i, ax in zip(idxs, axarr):
+                X, y = collate_fn([ds_valid[i]])
+
+                X = dict_to_device(X, device)
+                y = y.to(device)
+
+                logits, _ = clf(X)
+
+                ax = plot_bursts(
+                    X, ax=ax, cl_probs=nn.functional.softmax(logits, dim=1)
+                )
+                ax.set_title(f"True class: {y.item()}")
+
+            fig.canvas.draw()
+
+            if e % 10 == 0:
+                mlflow.log_figure(fig, f"bursts_clf_epoch={e:03d}.png")
+
+            plt.clf()
+            e += 1
 
 
 if __name__ == "__main__":
