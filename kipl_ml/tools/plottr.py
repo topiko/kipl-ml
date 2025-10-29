@@ -68,6 +68,7 @@ def plot_bursts(
     idx: int | None = None,
     ax: plt.Axes | None = None,
     cl_probs: torch.Tensor | None = None,
+    true_class: int | None = None,
 ) -> plt.Axes:
     try:
         burst_lens = trace_dict[Feats.BURST_LENS].detach().cpu().numpy()
@@ -105,12 +106,26 @@ def plot_bursts(
         ax2 = ax.twinx()
         max_p = cl_probs.max(axis=1)
 
-        ax2.plot(burst_edges, max_p, "--")
+        ax2.plot(burst_edges, max_p, "-", lw=0.5)
 
         ax3 = ax.twinx()
         ax3.spines["right"].set_position(("outward", 60))  # offset by 60 points
 
-        ax3.plot(burst_edges, cl_probs.argmax(axis=1), color="black")
+        preds = cl_probs.argmax(axis=1)
+        ax3.plot(burst_edges, preds, color="black", lw=1)
+
+        if true_class is not None:
+            ax3.hlines(
+                true_class,
+                ls="--",
+                color="black",
+                xmin=burst_edges.min(),
+                xmax=burst_edges.max(),
+                alpha=1.0,
+                lw=0.5,
+            )
+            mask = preds == true_class
+            ax3.scatter(burst_edges[mask], preds[mask], marker="*", color="green")
 
         ax2.spines["right"].set_visible(True)
         ax3.spines["right"].set_visible(True)

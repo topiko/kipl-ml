@@ -187,13 +187,16 @@ def main(cfg: DictConfig):
                 logits, _ = clf(X)
 
                 ax = plot_bursts(
-                    X, ax=ax, cl_probs=nn.functional.softmax(logits, dim=-1)
+                    X,
+                    ax=ax,
+                    cl_probs=nn.functional.softmax(logits, dim=-1),
+                    true_class=y.item(),
                 )
                 ax.set_title(f"True class: {y.item()}")
 
             fig.canvas.draw()
 
-            if e % 10 == 0:
+            if (e - 1) % 10 == 0:
                 mlflow.log_figure(fig, f"bursts_clf_epoch={e:03d}.png")
 
             plt.close()
