@@ -69,7 +69,7 @@ def main(cfg: DictConfig):
 
     dataset = cfg.dataset.name
 
-    feature_names = [Feats.BURST_LENS]  # , Feats.BURST_DURS]
+    feature_names = [Feats.BURST_LENS, Feats.BURST_DURS]
 
     ds_train, ds_valid, _ = get_train_valid_test(
         dataset=dataset,
@@ -84,16 +84,16 @@ def main(cfg: DictConfig):
 
     collate_fn = partial(collate_fn_, seq_len=n_bursts)
 
-    def dl_(ds: WFDataset) -> DataLoader:
+    def dl_(ds: WFDataset, shuffle: bool = False) -> DataLoader:
         return DataLoader(
             ds,
             batch_size=cfg.batch_size,
-            shuffle=True,
+            shuffle=shuffle,
             num_workers=30,
             collate_fn=collate_fn,
         )
 
-    dl_train = dl_(ds_train)
+    dl_train = dl_(ds_train, shuffle=True)
     dl_valid = dl_(ds_valid)
 
     clf = RNNCLF1(ds_train.n_classes, feature_names, dropout=0.2)
@@ -117,6 +117,7 @@ def main(cfg: DictConfig):
     c = 0
 
     with mlflow.start_run():
+        mlflow.log_params(cfg)
         while True:
             loss_ = 0.0
             n = 1
@@ -196,6 +197,12 @@ def main(cfg: DictConfig):
                 mlflow.log_figure(fig, f"bursts_clf_epoch={e:03d}.png")
 
             plt.close()
+
+        model_info = mlflow.pytorch.log_model(pytorch_model=clf, name="rnnclf")
+
+    model_info = mlflow.get_logged_model(model_info.model_id)
+
+    mlflow.pytorch.load_model(model_info.model_uri)
 
 
 if __name__ == "__main__":

@@ -324,7 +324,7 @@ class RNNCLF1(nn.Module):
     ):
         super().__init__()
 
-        if {Feats.BURST_LENS, Feats.BURST_DURS}.issubset(set(features)):
+        if not set(features).issubset({Feats.BURST_LENS, Feats.BURST_DURS}):
             raise ValueError(f"Only {Feats.BURST_LENS} supported")
 
         self.features = features
