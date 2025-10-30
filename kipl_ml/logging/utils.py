@@ -14,3 +14,13 @@ def log_multiline(log_str: str) -> None:
 
 def key_val_fmt(key: str, val: Any, key_len: int = KEY_LEN, suffix: str = "\n") -> str:
     return f"{key:>{key_len}}: {val}{suffix}"
+
+
+def log_dict(dict_: dict[str, float | int], key_len: int = KEY_LEN):
+    for k, v in dict_.items():
+        if isinstance(v, int):
+            v_ = str(v)
+        elif isinstance(v, float):
+            v_ = f"{v:.03f}"
+
+        logger.info(key_val_fmt(k, v_, key_len=key_len, suffix=""))

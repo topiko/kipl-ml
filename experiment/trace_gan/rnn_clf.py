@@ -16,6 +16,7 @@ from experiment.utils import defence_builder
 from kipl_ml.data.utils import assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
+from kipl_ml.logging.utils import log_dict
 from kipl_ml.metrics.clf_metrics import Accuracy
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.trgen import RNNCLF1
@@ -109,7 +110,7 @@ def main(cfg: DictConfig):
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    loss_fn = nn.CrossEntropyLoss(label_smoothing=0.02)
+    loss_fn = nn.CrossEntropyLoss(label_smoothing=0.05)
 
     clf.to(device)
 
@@ -164,6 +165,12 @@ def main(cfg: DictConfig):
             train_metrics_d = evaluate_model(
                 clf, dl_train, [Accuracy()], loss_fn, key="train"
             )
+
+            logger.info("Valid metrics:")
+            log_dict(valid_metrics_d)
+
+            logger.info("Train metrics:")
+            log_dict(train_metrics_d)
 
             mlflow.log_metrics(valid_metrics_d, step=e)
             mlflow.log_metrics(train_metrics_d, step=e)

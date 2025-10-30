@@ -20,7 +20,7 @@ def get_clf_df(model: nn.Module, dataloader: DataLoader) -> pd.DataFrame:
         dataloader.dataset, batch_size=dataloader.batch_size, shuffle=False
     )
 
-    logits, y_true = run_inference(model, no_shuffle_dl)
+    logits, pred_class, y_true = run_inference(model, no_shuffle_dl)
 
     pred_probs = torch.softmax(logits, dim=1)
     pred_class = logits.argmax(dim=1)

@@ -77,10 +77,9 @@ def plot_bursts(
 
     burst_lens = _squeeze_batched(burst_lens, idx)
 
-    burst_dirs = np.ones_like(burst_lens)
-    burst_dirs[1::2] = -1
-
-    burst_edges = burst_lens.cumsum()
+    burst_edges = np.concat((np.zeros(1), burst_lens.cumsum()))
+    burst_dirs = np.ones_like(burst_edges)
+    burst_dirs[0::2] = -1
 
     ax = ax or plt.subplots(figsize=(12, 3))[1]
 
@@ -105,6 +104,9 @@ def plot_bursts(
 
         ax2 = ax.twinx()
         max_p = cl_probs.max(axis=1)
+
+        breakpoint()
+        burst_edges = burst_edges[1:]
 
         ax2.plot(burst_edges, max_p, "-", lw=0.5)
 
