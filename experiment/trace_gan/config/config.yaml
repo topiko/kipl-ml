@@ -8,5 +8,6 @@ defaults:
 trace_len: 5000
 batch_size: 64
 grad_norm_clip: 5
+label_smoothing: 0.02
 
 

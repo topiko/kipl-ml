@@ -110,7 +110,7 @@ def main(cfg: DictConfig):
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    loss_fn = nn.CrossEntropyLoss(label_smoothing=0.05)
+    loss_fn = nn.CrossEntropyLoss(label_smoothing=cfg.label_smoothing)
 
     clf.to(device)
 
