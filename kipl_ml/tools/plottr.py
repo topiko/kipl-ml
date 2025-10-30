@@ -94,7 +94,7 @@ def plot_bursts(
             burst_edges,
             0,
             burst_dirs_,
-            step="pre",
+            step="post",
             color="blue" if ud < 0 else "red",
             alpha=0.2,
         )
@@ -105,7 +105,6 @@ def plot_bursts(
         ax2 = ax.twinx()
         max_p = cl_probs.max(axis=1)
 
-        breakpoint()
         burst_edges = burst_edges[1:]
 
         ax2.plot(burst_edges, max_p, "-", lw=0.5)
