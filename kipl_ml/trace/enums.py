@@ -32,6 +32,7 @@ class Feats(StrEnum):
     BURST_LENS = "burst_lens"
     BURST_DURS = "burst_durs"
     BURST_DIRS = "burst_dirs"
+    BURST_RELDURS = "burst_reldurs"
     FLOW_IATS = "flow_iats"
     FLOW_IATS_NORMALIZED = f"normalized_{FLOW_IATS}"
     LOG_INV_FLOW_IATS = f"log_inv_{FLOW_IATS}"

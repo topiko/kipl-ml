@@ -390,6 +390,42 @@ class BurstDurs(_TR):
         return {self.name: burst_durs}
 
 
+class BurstRelativeDurs(_TR):
+    NAME = Feats.BURST_RELDURS
+
+    @property
+    def name(self) -> Feats:
+        return self.NAME
+
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> BurstLens:
+        self._output_sizes = {self.name: None}  # Variable length
+        return self
+
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
+        # Example:
+        # dirs:    -1, 1, 1, -1, -1, -1,  1, 1, 1, 1, -1
+        # edges:   -1, 2, 0, -2,  0,  0,  2, 0, 0, 0, -2
+        # idxs:        1,     3,          6,          10,
+        # times:    0, 1, 2,  4,  8, 12, 14, 0, 0, 0, -2
+        # bt:       0, 1,     3,         10, ...
+        bt = trace[Feats.BURST_DURS]
+
+        bt_down = bt[::2]
+        bt_up = bt[1::2]
+
+        cummax_down = bt_down.cummax(0)[0]
+        cummax_up = bt_up.cummax(0)[0]
+
+        bt_down = torch.where(cummax_down != 0, bt_down / cummax_down, 1)
+        bt_up = torch.where(cummax_up != 0, bt_up / cummax_up, 1)
+
+        burst_rel_durs = torch.zeros_like(bt)
+        burst_rel_durs[::2] = bt_down
+        burst_rel_durs[1::2] = bt_up
+
+        return {self.name: burst_rel_durs}
+
+
 class BurstDirs(_TR):
     NAME = Feats.BURST_DIRS
 
@@ -753,6 +789,8 @@ def get_feature_tr(feature_name: Feats, n_packets: int | None) -> _TR:
             return Compose(BurstEdges(), BurstLens())
         case Feats.BURST_DURS:
             return Compose(BurstEdges(), BurstDurs())
+        case Feats.BURST_RELDURS:
+            return Compose(BurstEdges(), BurstDurs(), BurstRelativeDurs())
         case Feats.BURST_DIRS:
             return Compose(BurstEdges(), BurstDirs())
         case Feats.FLOW_IATS:
