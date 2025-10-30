@@ -1,0 +1,8 @@
+type: bottleneck
+delay_millis:
+  min: 25
+  max: 250
+pps:
+  min: 0
+  max: 0
+

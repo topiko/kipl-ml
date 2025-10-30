@@ -1,0 +1,6 @@
+type: interspace
+n_train_machines: 50_000
+n_valid_machines: 4_000
+n_test_machines: 4_000
+fixed_per_trace: false
+

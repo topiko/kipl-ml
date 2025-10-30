@@ -1,0 +1,4 @@
+type: tamaraw
+pc: 0.01
+ps: 0.005
+window_val: 2_000_000 # mus
