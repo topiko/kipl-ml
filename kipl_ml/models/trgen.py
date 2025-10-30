@@ -324,8 +324,10 @@ class RNNCLF1(nn.Module):
     ):
         super().__init__()
 
-        if not set(features).issubset({Feats.BURST_LENS, Feats.BURST_DURS}):
-            raise ValueError(f"Only {Feats.BURST_LENS} supported")
+        if not set(features).issubset(
+            {Feats.BURST_LENS, Feats.BURST_DURS, Feats.BURST_RELDURS}
+        ):
+            raise ValueError("Invalid set of feats.")
 
         self.features = features
         nfeat = len(features)
@@ -363,12 +365,36 @@ class RNNCLF1(nn.Module):
         # (N, nt, n_classes)
         logits, _ = self(x)
 
-        bs, seq_len, _ = logits.shape
-        row_idxs = torch.arange(bs).long()
-        col_idxs = torch.clip(
-            (x[Feats.BURST_LENS] != 0).sum(dim=1).long(), 0, seq_len - 1
-        )
+        # (N, nt, n_classes)
+        probs = nn.functional.softmax(logits, dim=2)
 
+        # (N, nt)
+        max_p = probs.max(dim=2)[0]
+        k = 21
+
+        # (N, nt)
+        max_p = nn.functional.conv1d(
+            max_p.unsqueeze(1),
+            weight=torch.Tensor([1.0 / k] * k)
+            .to(max_p.device)
+            .unsqueeze(0)
+            .unsqueeze(0),
+            padding="same",
+        ).squeeze(1)
+
+        # (N, )
+        col_idxs = max_p.argmax(dim=1)
+
+        bs = len(logits)
+        row_idxs = torch.arange(bs).long()
+        # col_idxs = torch.clip(
+        #     (x[Feats.BURST_LENS] != 0).sum(dim=1).long(), 0, seq_len - 1
+        # )
+
+        # (N, n_classes)
         logits = logits[row_idxs, col_idxs, :]
 
-        return logits, logits.argmax(1)
+        # (N, )
+        preds = probs[row_idxs, col_idxs, :].argmax(-1)
+
+        return logits, preds

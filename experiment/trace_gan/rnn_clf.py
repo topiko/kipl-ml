@@ -12,6 +12,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from experiment.utils import defence_builder
 from kipl_ml.data.utils import assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
@@ -69,7 +70,7 @@ def main(cfg: DictConfig):
 
     dataset = cfg.dataset.name
 
-    feature_names = [Feats.BURST_LENS, Feats.BURST_DURS]
+    feature_names = [Feats.BURST_LENS, Feats.BURST_RELDURS]
 
     ds_train, ds_valid, _ = get_train_valid_test(
         dataset=dataset,
@@ -78,6 +79,7 @@ def main(cfg: DictConfig):
         test_xv=0,
         random_state=42,
         feature_trs=FeatureTrs(feature_names=feature_names, n_packets=None),
+        **defence_builder.get_defence(cfg),
     )
 
     n_bursts = 1000
@@ -100,10 +102,10 @@ def main(cfg: DictConfig):
 
     logger.info(f"Model parameters: {count_parameters(clf)}")
 
-    optimG = torch.optim.Adam(clf.parameters(), lr=0.001)
+    optimG = torch.optim.Adam(clf.parameters(), lr=0.002)
 
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer=optimG, factor=0.8, patience=3
+        optimizer=optimG, factor=0.5, patience=3
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -112,7 +114,7 @@ def main(cfg: DictConfig):
     clf.to(device)
 
     min_loss = np.inf
-    patience = 10
+    patience = 20
     e = 0
     c = 0
 
@@ -137,6 +139,12 @@ def main(cfg: DictConfig):
                     )
 
                     loss.backward()
+
+                    # Gradient clipping
+                    nn.utils.clip_grad_norm_(
+                        clf.parameters(), cfg.grad_norm_clip, error_if_nonfinite=True
+                    )
+
                     optimG.step()
 
                     loss_ += (loss.item() - loss_) / n
@@ -159,6 +167,7 @@ def main(cfg: DictConfig):
 
             mlflow.log_metrics(valid_metrics_d, step=e)
             mlflow.log_metrics(train_metrics_d, step=e)
+            mlflow.log_metric("learning_rate", lr_scheduler.get_last_lr()[0], step=e)
 
             if (loss_ := valid_metrics_d["valid-loss"]) < min_loss:
                 logger.info("Improved loss! %.4f -> %.4f", min_loss, loss_)
