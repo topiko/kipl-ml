@@ -87,19 +87,19 @@ def main(cfg: DictConfig):
 
     collate_fn = partial(collate_fn_, seq_len=n_bursts)
 
-    def dl_(ds: WFDataset, shuffle: bool = False) -> DataLoader:
+    def dl_(ds: WFDataset, bs: int, shuffle: bool = False) -> DataLoader:
         return DataLoader(
             ds,
-            batch_size=cfg.batch_size,
+            batch_size=bs,
             shuffle=shuffle,
             num_workers=30,
             collate_fn=collate_fn,
         )
 
-    dl_train = dl_(ds_train, shuffle=True)
-    dl_valid = dl_(ds_valid)
+    dl_train = dl_(ds_train, cfg.batch_size, shuffle=True)
+    dl_valid = dl_(ds_valid, 256)
 
-    clf = RNNCLF1(ds_train.n_classes, feature_names, dropout=0.2)
+    clf = RNNCLF1(ds_train.n_classes, feature_names, dropout=cfg.dropout)
 
     logger.info(f"Model parameters: {count_parameters(clf)}")
 
@@ -143,7 +143,7 @@ def main(cfg: DictConfig):
 
                     # Gradient clipping
                     nn.utils.clip_grad_norm_(
-                        clf.parameters(), cfg.grad_norm_clip, error_if_nonfinite=True
+                        clf.parameters(), cfg.grad_norm_clip, error_if_nonfinite=False
                     )
 
                     optimG.step()
