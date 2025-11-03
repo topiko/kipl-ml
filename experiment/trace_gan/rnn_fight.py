@@ -3,9 +3,12 @@ from functools import partial
 
 import dotenv
 import hydra
+import matplotlib.pyplot as plt
 import mlflow
+import numpy as np
 import torch
 from omegaconf import DictConfig
+from torch import nn
 from tqdm import tqdm
 
 from experiment.trace_gan.data_utils import collate_fn_, dl_
@@ -17,6 +20,8 @@ from kipl_ml.logging.utils import log_dict
 from kipl_ml.metrics.clf_metrics import Accuracy
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.trgen import ANTINCLF1
+from kipl_ml.tools.mlflow_utils import get_mlflow_expr
+from kipl_ml.tools.plottr import plot_bursts
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
@@ -33,6 +38,9 @@ mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="battle-config", version_base=None)
 def main(cfg: DictConfig):
+    experiment_name = "rnn-fight"
+    experiment_id = get_mlflow_expr(experiment_name=experiment_name)
+    mlflow.set_experiment(experiment_id=experiment_id)
     discriminator_model_id = "m-aab63f997ef74e7dbe7e61f7d33f7c60"
 
     model_uri = mlflow.get_logged_model(discriminator_model_id).model_uri
@@ -53,11 +61,9 @@ def main(cfg: DictConfig):
         **defence_builder.get_defence(cfg),
     )
 
-    ds_valid[0]
-
     collate_fn = partial(collate_fn_, seq_len=cfg.n_bursts)
     dl_train = dl_(ds_train, bs=cfg.batch_size, collate_fn=collate_fn, shuffle=True)
-    dl_valid = dl_(ds_valid, bs=128, collate_fn=collate_fn)
+    dl_valid = dl_(ds_valid, bs=128, collate_fn=collate_fn, shuffle=False)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     loss_fn = torch.nn.CrossEntropyLoss()
@@ -82,9 +88,7 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
-                    addons = obs(X)
-
-                    X = {f: X[f] + addons[f] for f in X.keys()}
+                    X = obs(X)
 
                     logits, _ = discriminator(X)
                     loss = -loss_fn(
@@ -100,12 +104,67 @@ def main(cfg: DictConfig):
 
                     n += 1
 
+            e += 1
             lr_scheduler.step(loss_)
-            train_metrics_d = evaluate_model(
-                discriminator, dl_train, [Accuracy()], None, key="train"
+            valid_metrics_d = evaluate_model(
+                discriminator, dl_valid, [Accuracy()], None, key="valid"
+            )
+            valid_obs_metrics_d = evaluate_model(
+                discriminator,
+                dl_valid,
+                [Accuracy()],
+                None,
+                key="valid-obs",
+                obsfuscator=obs,
             )
 
-            log_dict(train_metrics_d)
+            log_dict(valid_metrics_d)
+            log_dict(valid_obs_metrics_d)
+
+            mlflow.log_metrics(valid_metrics_d, step=e)
+            mlflow.log_metrics(valid_obs_metrics_d, step=e)
+
+            rng = np.random.default_rng(seed=42)
+
+            ntraces = 2
+
+            idxs = rng.integers(0, len(ds_valid), size=ntraces)
+
+            fig, axarr = plt.subplots(
+                2, ntraces, figsize=(ntraces * 7, 7), sharex="col"
+            )
+
+            for i, didx in enumerate(idxs):
+                X, y = collate_fn([ds_valid[didx]])
+
+                X = dict_to_device(X, device)
+                y = y.to(device)
+
+                logits, _ = discriminator(X)
+
+                ax = plot_bursts(
+                    X,
+                    ax=axarr[0, i],
+                    cl_probs=nn.functional.softmax(logits, dim=-1),
+                    true_class=y.item(),
+                )
+                ax.set_title(f"True class: {y.item()}")
+
+                X = obs(X)
+
+                logits_obs = discriminator(X)[0]
+                plot_bursts(
+                    X,
+                    ax=axarr[1, i],
+                    cl_probs=nn.functional.softmax(logits_obs, dim=-1),
+                )
+
+            fig.canvas.draw()
+
+            if (e - 1) % 10 == 0:
+                mlflow.log_figure(fig, f"bursts_clf_epoch={e:03d}.png")
+
+            plt.close()
 
 
 if __name__ == "__main__":

@@ -443,6 +443,6 @@ class ANTINCLF1(nn.Module):
         addons = self.final_lin(output)
 
         return {
-            f: torch.nn.functional.elu(addons)[:, :, i] + 1
+            f: x[f] + torch.nn.functional.elu(addons)[:, :, i] + 1
             for i, f in enumerate(self.features)
         }

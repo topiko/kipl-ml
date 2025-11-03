@@ -35,11 +35,13 @@ def get_clf_df(model: nn.Module, dataloader: DataLoader) -> pd.DataFrame:
 
 
 def run_inference(
-    model: nn.Module, dataloader: DataLoader
+    model: nn.Module, dataloader: DataLoader, obsfuscator: nn.Module | None = None
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     logger.info("Run inference...")
     model.eval()
     model.to(get_device())
+    if obsfuscator is not None:
+        obsfuscator.to(get_device())
 
     logits = []
     preds = []
@@ -48,6 +50,9 @@ def run_inference(
         with tqdm(dataloader, ncols=TQDM_W) as pbar:
             for X, y in pbar:
                 X_ = dict_to_device(X, get_device())
+                if obsfuscator is not None:
+                    X_ = obsfuscator(X_)
+
                 logits_, preds_ = model.predict(X_)
                 logits.append(logits_)
                 preds.append(preds_)
@@ -66,10 +71,13 @@ def evaluate_model(
     metrics: list[GeneralMetric | ClassMetric],
     loss_fn: Callable | None = None,
     key: str | None = None,
+    obsfuscator: nn.Module | None = None,
 ) -> dict[str, float | torch.Tensor]:
     logger.info(f"Evaluate... {dataloader.dataset.name}")
 
-    logits, pred_class, y_true = run_inference(model, dataloader)
+    logits, pred_class, y_true = run_inference(
+        model, dataloader, obsfuscator=obsfuscator
+    )
 
     metric_vals: dict[str, float | torch.Tensor] = {}
     for m in metrics:
