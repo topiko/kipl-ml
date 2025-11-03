@@ -9,12 +9,12 @@ import numpy as np
 import torch
 from omegaconf import DictConfig
 from torch import nn
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from experiment.trace_gan.data_utils import collate_fn_, dl_
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import assets
-from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
+from kipl_ml.data.wf_dataset import dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.logging.utils import log_dict
 from kipl_ml.metrics.clf_metrics import Accuracy
@@ -35,32 +35,6 @@ MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
 
 assert MLFLOW_TRACKING_URI is not None, "MLFLOW_TRACKING_URI must be set in .env file."
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-
-
-def collate_fn_(
-    batch: list[tuple[dict[Feats, torch.Tensor], torch.Tensor]], seq_len: int = 300
-) -> tuple[dict[Feats, torch.Tensor], torch.Tensor]:
-    bs = len(batch)
-    features = batch[0][0].keys()
-    X = {f: torch.zeros((bs, seq_len), dtype=torch.float) for f in features}
-    y = torch.zeros((bs,), dtype=torch.long)
-    start_idx = torch.randint(0, 5, (bs,))
-    for i, (x_, y_) in enumerate(batch):
-        sidx = start_idx[i]
-        for f in features:
-            xtmp = x_[f][sidx : sidx + seq_len + 1]
-            if f == Feats.BURST_DIRS:
-                xtmp += 1
-
-            if len(xtmp) < seq_len + 1:
-                lenx = len(xtmp)
-            else:
-                lenx = len(xtmp) - 1
-
-            X[f][i, :lenx] = xtmp[:lenx]
-        y[i] = y_
-
-    return X, y
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
@@ -87,17 +61,8 @@ def main(cfg: DictConfig):
 
     collate_fn = partial(collate_fn_, seq_len=n_bursts)
 
-    def dl_(ds: WFDataset, bs: int, shuffle: bool = False) -> DataLoader:
-        return DataLoader(
-            ds,
-            batch_size=bs,
-            shuffle=shuffle,
-            num_workers=30,
-            collate_fn=collate_fn,
-        )
-
-    dl_train = dl_(ds_train, cfg.batch_size, shuffle=True)
-    dl_valid = dl_(ds_valid, 256)
+    dl_train = dl_(ds_train, cfg.batch_size, collate_fn, shuffle=True)
+    dl_valid = dl_(ds_valid, 256, collate_fn)
 
     clf = RNNCLF1(ds_train.n_classes, feature_names, dropout=cfg.dropout)
 
@@ -133,10 +98,10 @@ def main(cfg: DictConfig):
                     h = None
                     optimG.zero_grad()
 
-                    probs, _ = clf(X, h)
+                    logits, _ = clf(X, h)
 
                     loss = loss_fn(
-                        probs.permute(0, 2, 1), y.unsqueeze(-1).repeat(1, n_bursts)
+                        logits.permute(0, 2, 1), y.unsqueeze(-1).repeat(1, n_bursts)
                     )
 
                     loss.backward()

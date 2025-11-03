@@ -352,9 +352,9 @@ class RNNCLF1(nn.Module):
         output, h = self.rnn(inputs, h)
 
         # (N, L, n_classes)
-        class_probs = self.final_lin(output)
+        logits = self.final_lin(output)
 
-        return class_probs, h
+        return logits, h
 
     def predict(
         self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
@@ -398,3 +398,51 @@ class RNNCLF1(nn.Module):
         preds = probs[row_idxs, col_idxs, :].argmax(-1)
 
         return logits, preds
+
+
+class ANTINCLF1(nn.Module):
+    name: str = "anticlf1"
+
+    def __init__(
+        self,
+        features: list[Feats],
+        hsize: int = 256,
+        nlayer: int = 3,
+        dropout: float = 0.2,
+    ):
+        super().__init__()
+
+        if not set(features).issubset(
+            {Feats.BURST_LENS, Feats.BURST_DURS, Feats.BURST_RELDURS}
+        ):
+            raise ValueError("Invalid set of feats.")
+
+        self.features = features
+        nfeat = len(features)
+        self.rnn = nn.LSTM(nfeat, hsize, nlayer, batch_first=True, dropout=dropout)
+
+        self.final_lin = nn.Sequential(
+            nn.Dropout(dropout), nn.Linear(hsize, len(features))
+        )
+
+    def forward(
+        self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        # (N, L) x nfeat
+        fs = []
+        for f in self.features:
+            fs.append(x[f].unsqueeze(-1))
+
+        # (N, L, nfeat)
+        inputs = torch.cat(fs, dim=-1)
+
+        # (N, L, H)
+        output, h = self.rnn(inputs, h)
+
+        # (N, L, n_classes)
+        addons = self.final_lin(output)
+
+        return {
+            f: torch.nn.functional.elu(addons)[:, :, i] + 1
+            for i, f in enumerate(self.features)
+        }
