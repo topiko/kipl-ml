@@ -2,8 +2,6 @@
 Classification metrics.
 """
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import ClassVar
 
 import pandas as pd
@@ -12,51 +10,9 @@ from torch import nn
 
 from kipl_ml.data.assets import PAGE_LABEL, PRED
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.metrics.metrics import ClassMetric, GeneralMetric, Objective, PredType
 
 logger = get_logger(__name__)
-
-
-@dataclass
-class Objective:
-    MIN: str = "min"
-    MAX: str = "max"
-
-
-@dataclass
-class PredType:
-    CLASSES: str = "classes"
-    LOGITS: str = "logits"
-    PROBS: str = "probs"
-
-
-class GeneralMetric(ABC):
-    OBJECTIVE: ClassVar[str]
-    PRED_TYPE: ClassVar[str]
-
-    @property
-    def name(self) -> str:
-        return self.__class__.__name__.lower()
-
-    @abstractmethod
-    def __call__(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> float:
-        raise NotImplementedError
-
-
-class ClassMetric(ABC):
-    OBJECTIVE: ClassVar[str]
-    PRED_TYPE: ClassVar[str]
-    CLASS_IDX: int
-
-    def __init__(self, class_idx: int):
-        self.CLASS_IDX = class_idx
-
-    @property
-    def name(self):
-        return f"{self.CLASS_IDX:04d} - {self.__class__.__name__.lower()}"
-
-    @abstractmethod
-    def __call__(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> float:
-        raise NotImplementedError
 
 
 class CrossEntropyLoss(GeneralMetric):
