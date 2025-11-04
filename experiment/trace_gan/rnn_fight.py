@@ -18,7 +18,12 @@ from kipl_ml.data.wf_dataset import dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.logging.utils import log_dict
 from kipl_ml.metrics.clf_metrics import Accuracy
+from kipl_ml.metrics.overhead_metrics import (
+    BurstLenOverhead,
+    BurstRelDurOverhead,
+)
 from kipl_ml.model_eval.evaluate import evaluate_model
+from kipl_ml.model_eval.obsfuscator import evaluate_obs
 from kipl_ml.models.trgen import ANTINCLF1
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
 from kipl_ml.tools.plottr import plot_bursts
@@ -63,10 +68,12 @@ def main(cfg: DictConfig):
 
     collate_fn = partial(collate_fn_, seq_len=cfg.n_bursts)
     dl_train = dl_(ds_train, bs=cfg.batch_size, collate_fn=collate_fn, shuffle=True)
-    dl_valid = dl_(ds_valid, bs=128, collate_fn=collate_fn, shuffle=False)
+    dl_valid = dl_(ds_valid, bs=64, collate_fn=collate_fn, shuffle=False)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     loss_fn = torch.nn.CrossEntropyLoss()
+    dur_loss = BurstRelDurOverhead()
+    len_loss = BurstLenOverhead()
 
     obs = ANTINCLF1(feature_names).to(device)
 
@@ -88,12 +95,16 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
-                    X = obs(X)
+                    X_ = obs(X)
 
-                    logits, _ = discriminator(X)
-                    loss = -loss_fn(
+                    logits, _ = discriminator(X_)
+                    clf_loss = -loss_fn(
                         logits.permute(0, 2, 1), y.unsqueeze(-1).repeat(1, cfg.n_bursts)
                     )
+                    dur_loss_ = dur_loss(X_, X)
+                    len_loss_ = len_loss(X_, X)
+
+                    loss = clf_loss + dur_loss_ + len_loss_
 
                     loss.backward()
 
@@ -113,16 +124,22 @@ def main(cfg: DictConfig):
                 discriminator,
                 dl_valid,
                 [Accuracy()],
-                None,
+                loss_fn,
                 key="valid-obs",
                 obsfuscator=obs,
             )
 
+            valid_obs_overhead_metrics_d = evaluate_obs(
+                obs, dl_valid, [len_loss, dur_loss], "valid-obs-losses"
+            )
+
             log_dict(valid_metrics_d)
             log_dict(valid_obs_metrics_d)
+            log_dict(valid_obs_overhead_metrics_d)
 
             mlflow.log_metrics(valid_metrics_d, step=e)
             mlflow.log_metrics(valid_obs_metrics_d, step=e)
+            mlflow.log_metrics(valid_obs_overhead_metrics_d, step=e)
 
             rng = np.random.default_rng(seed=42)
 

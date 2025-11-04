@@ -96,7 +96,8 @@ def plot_bursts(
             burst_dirs_,
             step="post",
             color="blue" if ud < 0 else "red",
-            alpha=0.2,
+            alpha=0.5,
+            lw=0,
         )
 
     if cl_probs is not None:

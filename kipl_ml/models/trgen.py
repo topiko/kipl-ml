@@ -407,7 +407,7 @@ class ANTINCLF1(nn.Module):
         self,
         features: list[Feats],
         hsize: int = 256,
-        nlayer: int = 3,
+        nlayers: int = 3,
         dropout: float = 0.2,
     ):
         super().__init__()
@@ -418,16 +418,29 @@ class ANTINCLF1(nn.Module):
             raise ValueError("Invalid set of feats.")
 
         self.features = features
+        self.num_layers = nlayers
+        self.hidden_size = hsize
         nfeat = len(features)
-        self.rnn = nn.LSTM(nfeat, hsize, nlayer, batch_first=True, dropout=dropout)
+        self.rnn = nn.LSTM(nfeat, hsize, nlayers, batch_first=True, dropout=dropout)
 
         self.final_lin = nn.Sequential(
             nn.Dropout(dropout), nn.Linear(hsize, len(features))
         )
 
+    def _get_init_h(self, x: dict[Feats, torch.Tensor]) -> torch.Tensor:
+        bs = x[self.features[0]].shape[0]
+        device = x[self.features[0]].device
+        return (
+            torch.zeros(self.num_layers, bs, self.hidden_size, device=device),
+            torch.zeros(self.num_layers, bs, self.hidden_size, device=device),
+        )
+
     def forward(
         self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
     ) -> torch.Tensor:
+        if h is None:
+            h = self._get_init_h(x)
+
         # (N, L) x nfeat
         fs = []
         for f in self.features:
@@ -443,6 +456,6 @@ class ANTINCLF1(nn.Module):
         addons = self.final_lin(output)
 
         return {
-            f: x[f] + torch.nn.functional.elu(addons)[:, :, i] + 1
+            f: x[f] * (1 + torch.nn.functional.elu(addons)[:, :, i] + 1)
             for i, f in enumerate(self.features)
         }
