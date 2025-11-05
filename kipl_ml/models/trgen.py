@@ -409,6 +409,7 @@ class ANTINCLF1(nn.Module):
         hsize: int = 256,
         nlayers: int = 3,
         dropout: float = 0.2,
+        zero_init: bool = False,
     ):
         super().__init__()
 
@@ -420,6 +421,7 @@ class ANTINCLF1(nn.Module):
         self.features = features
         self.num_layers = nlayers
         self.hidden_size = hsize
+        self.zero_init = zero_init
         nfeat = len(features)
         self.rnn = nn.LSTM(nfeat, hsize, nlayers, batch_first=True, dropout=dropout)
 
@@ -427,7 +429,10 @@ class ANTINCLF1(nn.Module):
             nn.Dropout(dropout), nn.Linear(hsize, len(features))
         )
 
-    def _get_init_h(self, x: dict[Feats, torch.Tensor]) -> torch.Tensor:
+    def _get_init_h(self, x: dict[Feats, torch.Tensor]) -> torch.Tensor | None:
+        if not self.zero_init:
+            return None
+
         bs = x[self.features[0]].shape[0]
         device = x[self.features[0]].device
         return (
@@ -455,7 +460,12 @@ class ANTINCLF1(nn.Module):
         # (N, L, n_classes)
         addons = self.final_lin(output)
 
-        return {
-            f: x[f] * (1 + torch.nn.functional.elu(addons)[:, :, i] + 1)
-            for i, f in enumerate(self.features)
-        }
+        # vals \in ]0, inf[
+        scales = torch.nn.functional.elu(addons) + 1
+
+        # The model tells how to modify the _next_ burst, not the current one.
+        xobs = {k: v.clone() for k, v in x.items()}
+        for i, f in enumerate(self.features):
+            xobs[f][:, 1:] = x[f][:, :-1] * scales[:, :-1, i] + x[f][:, 1:]
+
+        return xobs
