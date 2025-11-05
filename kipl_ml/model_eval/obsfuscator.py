@@ -30,7 +30,7 @@ def evaluate_obs(
 
                 for m in metrics:
                     mv = metric_vals[m.name]
-                    metric_vals[m.name] = mv + m(Xobs, X).item() / n
+                    metric_vals[m.name] = mv + (m(Xobs, X).item() - mv) / n
 
                 n += 1
 
