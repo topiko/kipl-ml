@@ -9,9 +9,8 @@ from kipl_ml.trace.enums import Feats
 class _BurstOverheadLoss(GeneralMetric):
     OBJECTIVE: ClassVar[str] = Objective.MIN
 
-    def __init__(self, feat: Feats, mltp: float = 1, reduction: str = "mean"):
+    def __init__(self, feat: Feats, reduction: str = "mean"):
         self.feat = feat
-        self.mltp = mltp
 
         if reduction not in {"mean", "sum"}:
             raise KeyError("'reduction' can only be 'mean' or 'sum'.")
@@ -26,26 +25,26 @@ class _BurstOverheadLoss(GeneralMetric):
         abs_extra = xobs[self.feat] - x[self.feat]
 
         # for each trace:
-        abs_extra = abs_extra.sum(axis=1)
-        orig = x[self.feat].sum(axis=1)
+        abs_extra = abs_extra.sum(dim=1)
+        orig = x[self.feat].sum(dim=1)
 
         loss = abs_extra / orig
         if self.reduction == "mean":
-            return loss.mean() * self.mltp
+            return loss.mean()
 
-        return loss.sum() * self.mltp
+        return loss.sum()
 
 
 class BurstLenOverhead(_BurstOverheadLoss):
-    def __init__(self, mltp: float = 1.0, reduction: str = "mean"):
-        super().__init__(feat=Feats.BURST_LENS, mltp=mltp, reduction=reduction)
+    def __init__(self, reduction: str = "mean"):
+        super().__init__(feat=Feats.BURST_LENS, reduction=reduction)
 
 
 class BurstDurOverhead(_BurstOverheadLoss):
-    def __init__(self, mltp: float = 1.0, reduction: str = "mean"):
-        super().__init__(feat=Feats.BURST_DURS, mltp=mltp, reduction=reduction)
+    def __init__(self, reduction: str = "mean"):
+        super().__init__(feat=Feats.BURST_DURS, reduction=reduction)
 
 
 class BurstRelDurOverhead(_BurstOverheadLoss):
-    def __init__(self, mltp: float = 1.0, reduction: str = "mean"):
-        super().__init__(feat=Feats.BURST_RELDURS, mltp=mltp, reduction=reduction)
+    def __init__(self, reduction: str = "mean"):
+        super().__init__(feat=Feats.BURST_RELDURS, reduction=reduction)

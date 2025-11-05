@@ -77,46 +77,101 @@ def main(cfg: DictConfig):
 
     obs = ANTINCLF1(feature_names).to(device)
 
-    optimG = torch.optim.Adam(obs.parameters(), lr=0.002)
+    optimG = torch.optim.Adam(obs.parameters(), lr=0.001)
+    optimD = torch.optim.Adam(discriminator.parameters(), lr=0.001)
 
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    obs_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer=optimG, factor=0.5, patience=3
+    )
+    disc_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer=optimD, factor=0.5, patience=3
     )
     e = 0
     with mlflow.start_run():
+        optim_obs = True
         while True:
-            loss_ = 0
-            n = 1
+            mean_obsfusc_loss = 0
+            mean_len_loss = 0
+            mean_dur_loss = 0
+            discriminator_loss_ = 0
+            n1 = 1
+            n2 = 1
+            obsfuscator_train_frac = 2
             discriminator.train()
             obs.train()
-            with tqdm(dl_train, desc=f"epoch {e:02d}", ncols=TQDM_W) as pbar:
+            logger.info("Obsfuscator train: %s", optim_obs)
+            with tqdm(
+                dl_train,
+                desc=f"epoch {e:02d}",
+                ncols=2 * TQDM_W,
+            ) as pbar:
                 for X, y in pbar:
+                    optim_obs = True
+                    if (n1 / n2) > obsfuscator_train_frac:
+                        optim_obs = False
                     optimG.zero_grad()
+                    optimD.zero_grad()
+
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
                     X_ = obs(X)
 
+                    if not optim_obs:
+                        X_ = {k: v.detach() for k, v in X_.items()}
                     logits, _ = discriminator(X_)
-                    clf_loss = -loss_fn(
+                    clf_loss = loss_fn(
                         logits.permute(0, 2, 1), y.unsqueeze(-1).repeat(1, cfg.n_bursts)
                     )
-                    dur_loss_ = dur_loss(X_, X)
-                    len_loss_ = len_loss(X_, X)
+                    if optim_obs:
+                        dur_loss_ = dur_loss(X_, X)
+                        len_loss_ = len_loss(X_, X)
 
-                    loss = clf_loss + dur_loss_ + len_loss_
+                        obsfusc_loss = -clf_loss + dur_loss_ + len_loss_
 
-                    loss.backward()
+                        obsfusc_loss.backward()
 
-                    optimG.step()
-                    loss_ += (loss.item() - loss_) / n
+                        nn.utils.clip_grad_norm_(
+                            obs.parameters(),
+                            cfg.grad_norm_clip,
+                            error_if_nonfinite=False,
+                        )
 
-                    pbar.set_postfix({"l": loss_, "lr": lr_scheduler.get_last_lr()[0]})
+                        optimG.step()
+                        mean_obsfusc_loss += (
+                            obsfusc_loss.item() - mean_obsfusc_loss
+                        ) / n1
+                        mean_dur_loss += (dur_loss_.item() - mean_dur_loss) / n1
+                        mean_len_loss += (len_loss_.item() - mean_len_loss) / n1
+                        n1 += 1
+                    else:
+                        clf_loss.backward()
+                        nn.utils.clip_grad_norm_(
+                            discriminator.parameters(),
+                            cfg.grad_norm_clip,
+                            error_if_nonfinite=False,
+                        )
+                        optimD.step()
+                        discriminator_loss_ += (
+                            clf_loss.item() - discriminator_loss_
+                        ) / n2
+                        n2 += 1
 
-                    n += 1
+                    pbar.set_postfix(
+                        {
+                            "lobs": f"{mean_obsfusc_loss:.02f}",
+                            "dur_loss": f"{mean_dur_loss:.05f}",
+                            "len_loss": f"{mean_len_loss:.03f}",
+                            "ldisc": f"{discriminator_loss_:.02f}",
+                        }
+                    )
 
             e += 1
-            lr_scheduler.step(loss_)
+            # if optim_obs:
+            #     obs_lr_scheduler.step(obsfusc_loss_)
+            # else:
+            #     disc_lr_scheduler.step(discriminator_loss_)
+
             valid_metrics_d = evaluate_model(
                 discriminator, dl_valid, [Accuracy()], None, key="valid"
             )
@@ -136,6 +191,14 @@ def main(cfg: DictConfig):
             log_dict(valid_metrics_d)
             log_dict(valid_obs_metrics_d)
             log_dict(valid_obs_overhead_metrics_d)
+            log_dict(
+                {
+                    "lro": obs_lr_scheduler.get_last_lr()[0],
+                    "lrd": disc_lr_scheduler.get_last_lr()[0],
+                }
+            )
+
+            optim_obs = discriminator_loss_ < 1.0
 
             mlflow.log_metrics(valid_metrics_d, step=e)
             mlflow.log_metrics(valid_obs_metrics_d, step=e)
@@ -148,7 +211,7 @@ def main(cfg: DictConfig):
             idxs = rng.integers(0, len(ds_valid), size=ntraces)
 
             fig, axarr = plt.subplots(
-                2, ntraces, figsize=(ntraces * 7, 7), sharex="col"
+                2, ntraces, figsize=(ntraces * 7, 7), sharex="col", sharey=True
             )
 
             for i, didx in enumerate(idxs):
@@ -167,14 +230,17 @@ def main(cfg: DictConfig):
                 )
                 ax.set_title(f"True class: {y.item()}")
 
-                X = obs(X)
+                Xobs = obs(X)
 
-                logits_obs = discriminator(X)[0]
-                plot_bursts(
-                    X,
+                logits_obs = discriminator(Xobs)[0]
+                ax = plot_bursts(
+                    Xobs,
                     ax=axarr[1, i],
                     cl_probs=nn.functional.softmax(logits_obs, dim=-1),
+                    true_class=y.item(),
                 )
+
+                ax.set_title(f"Overhead {len_loss(Xobs, X)}")
 
             fig.canvas.draw()
 

@@ -21,6 +21,6 @@ def log_dict(dict_: dict[str, float | int], key_len: int = KEY_LEN):
         if isinstance(v, int):
             v_ = str(v)
         elif isinstance(v, float):
-            v_ = f"{v:.03f}"
+            v_ = f"{v:.05f}"
 
         logger.info(key_val_fmt(k, v_, key_len=key_len, suffix=""))
