@@ -1,7 +1,7 @@
 ignore_existing: false
 seed: 42
 mlflow:
-  experiment_name: "Ephemeral"
+  experiment_name: "rnn-battle"
 simul_args:
   max_trace_length: 60_000
   events_multiplier: 16

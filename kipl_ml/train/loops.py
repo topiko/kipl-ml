@@ -103,7 +103,6 @@ def _one_epoch(
     loss_val = 0
     with tqdm(dataloader, desc=f"epoch {n_epoch: 03d}", ncols=TQDM_W) as pbar:
         for X, y in pbar:
-
             X_ = dict_to_device(X, get_device())
             y_ = y.to(get_device())
 
@@ -243,6 +242,6 @@ def train_model(
 
     model.load_state_dict(best_model_state, strict=True)
 
-    metrics_vals = evaluate_model(model, valid_loader, metrics, loss_fn)
+    # metrics_vals = evaluate_model(model, valid_loader, metrics, loss_fn)
 
     return model

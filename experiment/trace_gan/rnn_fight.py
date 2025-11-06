@@ -7,16 +7,16 @@ import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from torch import nn
 from tqdm import tqdm
 
-from experiment.trace_gan.data_utils import collate_fn_, dl_
+from experiment.trace_gan.data_utils import Burst2Packets, collate_fn_, dl_
 from experiment.utils import defence_builder
-from kipl_ml.data.utils import assets
-from kipl_ml.data.wf_dataset import dict_to_device, get_train_valid_test
+from kipl_ml.data.utils import Datasets, assets
+from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
-from kipl_ml.logging.utils import log_dict
+from kipl_ml.logging.utils import log_dict, log_multiline
 from kipl_ml.metrics.clf_metrics import Accuracy
 from kipl_ml.metrics.overhead_metrics import (
     BurstLenOverhead,
@@ -24,6 +24,7 @@ from kipl_ml.metrics.overhead_metrics import (
 )
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.model_eval.obsfuscator import evaluate_obs
+from kipl_ml.models.models import get_model
 from kipl_ml.models.trgen import ANTINCLF1
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
 from kipl_ml.tools.plottr import plot_bursts
@@ -40,6 +41,97 @@ MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
 assert MLFLOW_TRACKING_URI is not None, "MLFLOW_TRACKING_URI must be set in .env file."
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
+N_SPLITS = 5
+TEST_XV = 0
+TARGET = assets.PAGE_LABEL
+DATASET = Datasets.BIGENOUGH
+
+
+def run_df(
+    obsfuscator: nn.Module | None,
+    ds_train: WFDataset,
+    ds_valid: WFDataset,
+    collate_fn: callable,
+    main_e: int,
+):
+    n_packets = 5000
+
+    obsfuscator = Burst2Packets(obs=obsfuscator, trace_len=n_packets)
+
+    dl_train = dl_(ds_train, 256, collate_fn, shuffle=True)
+    dl_valid = dl_(ds_valid, 256, collate_fn)
+
+    df = get_model(
+        "local",
+        "df",
+        n_classes=dl_train.dataset.n_classes,
+        inputs={"dummy": {Feats.DIRS: n_packets}},
+        model_config={},
+    )
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    loss = nn.CrossEntropyLoss()
+
+    optim = torch.optim.Adamax(df.parameters(), lr=0.002)
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optim, factor=0.8, patience=5
+    )
+
+    patience = 10
+    e = 0
+    min_loss = np.inf
+    c = 0
+    while True:
+        df_metrics = evaluate_model(
+            df,
+            dl_valid,
+            metrics=[Accuracy()],
+            loss_fn=loss,
+            key="df-valid",
+            obsfuscator=obsfuscator,
+        )
+
+        logger.info(f"DF metrics, epoch = {e:03d}")
+        log_dict(df_metrics)
+
+        if df_metrics["df-valid-loss"] < min_loss:
+            min_loss = df_metrics["df-valid-loss"]
+            best_metrics = df_metrics
+            c = 0
+            logger.info(f"Best loss {min_loss:.04f}")
+        if c >= patience:
+            break
+
+        mloss = 0
+        n = 1
+        df.to(device)
+        df.train()
+        with tqdm(dl_train, desc=f"df-train: epoch {e:03d}", ncols=TQDM_W) as pbar:
+            for X, y in pbar:
+                X = dict_to_device(X, device)
+                y = y.to(device)
+
+                optim.zero_grad()
+                X_ = obsfuscator(X)
+
+                logits = df(X_)
+                loss_ = loss(logits, y)
+
+                loss_.backward()
+
+                optim.step()
+
+                mloss += (loss_.item() - mloss) / n
+
+                pbar.set_postfix({"loss": mloss, "lr": lr_scheduler.get_last_lr()[0]})
+                n += 1
+        lr_scheduler.step(mloss)
+        e += 1
+        c += 1
+
+    mlflow.log_metrics(best_metrics, step=main_e)
+
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="battle-config", version_base=None)
 def main(cfg: DictConfig):
@@ -52,15 +144,13 @@ def main(cfg: DictConfig):
 
     discriminator = mlflow.pytorch.load_model(model_uri)
 
-    dataset = cfg.dataset.name
-
     feature_names = [Feats.BURST_LENS, Feats.BURST_RELDURS]
 
     ds_train, ds_valid, _ = get_train_valid_test(
-        dataset=dataset,
+        dataset=DATASET,
         label=assets.PAGE_LABEL,
-        n_splits=5,
-        test_xv=0,
+        n_splits=N_SPLITS,
+        test_xv=TEST_XV,
         random_state=42,
         feature_trs=FeatureTrs(feature_names=feature_names, n_packets=None),
         **defence_builder.get_defence(cfg),
@@ -80,15 +170,16 @@ def main(cfg: DictConfig):
     optimG = torch.optim.Adam(obs.parameters(), lr=0.001)
     optimD = torch.optim.Adam(discriminator.parameters(), lr=0.001)
 
-    obs_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer=optimG, factor=0.5, patience=3
+    obs_lr_scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer=optimD, step_size=cfg.lr.period, gamma=cfg.lr.gamma
     )
-    disc_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer=optimD, factor=0.5, patience=3
+    disc_lr_scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer=optimD, step_size=cfg.lr.period, gamma=cfg.lr.gamma
     )
     e = 0
     with mlflow.start_run():
-        optim_obs = True
+        log_multiline(OmegaConf.to_yaml(cfg))
+        run_df(None, ds_train, ds_valid, collate_fn, e)
         while True:
             mean_obsfusc_loss = 0
             mean_len_loss = 0
@@ -99,7 +190,6 @@ def main(cfg: DictConfig):
             obsfuscator_train_frac = 2
             discriminator.train()
             obs.train()
-            logger.info("Obsfuscator train: %s", optim_obs)
             with tqdm(
                 dl_train,
                 desc=f"epoch {e:02d}",
@@ -124,8 +214,13 @@ def main(cfg: DictConfig):
                         logits.permute(0, 2, 1), y.unsqueeze(-1).repeat(1, cfg.n_bursts)
                     )
                     if optim_obs:
-                        dur_loss_ = dur_loss(X_, X)
-                        len_loss_ = len_loss(X_, X)
+                        dur_loss_ = (
+                            dur_loss(X_, X) - cfg.target_overheads.burst_durs
+                        ) ** 2
+
+                        len_loss_ = (
+                            len_loss(X_, X) - cfg.target_overheads.burst_lens
+                        ) ** 2
 
                         obsfusc_loss = -clf_loss + dur_loss_ + len_loss_
 
@@ -167,10 +262,10 @@ def main(cfg: DictConfig):
                     )
 
             e += 1
-            # if optim_obs:
-            #     obs_lr_scheduler.step(obsfusc_loss_)
-            # else:
-            #     disc_lr_scheduler.step(discriminator_loss_)
+            if optim_obs:
+                obs_lr_scheduler.step()
+            else:
+                disc_lr_scheduler.step()
 
             valid_metrics_d = evaluate_model(
                 discriminator, dl_valid, [Accuracy()], None, key="valid"
@@ -246,6 +341,8 @@ def main(cfg: DictConfig):
 
             if (e - 1) % 10 == 0:
                 mlflow.log_figure(fig, f"bursts_clf_epoch={e:03d}.png")
+
+                run_df(obs, ds_train, ds_valid, collate_fn, e)
 
             plt.close()
 

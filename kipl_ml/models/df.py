@@ -135,7 +135,6 @@ class DF(nn.Module):
         )
 
     def forward(self, x: dict[Feats, torch.tensor]):
-
         x_ = torch.cat([x_.unsqueeze(1) for x_ in x.values()], dim=1)
         # Pass the input through the feature extraction part
         x_ = self.feature_extraction(x_)
@@ -144,6 +143,10 @@ class DF(nn.Module):
         x_ = self.classifier(x_)
 
         return x_
+
+    def predict(self, x: dict[Feats, torch.tensor]) -> torch.tensor:
+        logits = self(x)
+        return logits, logits.argmax(dim=1)
 
     def example_input(self, x: dict[str, torch.tensor]) -> dict[str, torch.tensor]:
         return unsqueeze_batch(x)

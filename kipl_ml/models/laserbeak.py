@@ -8,12 +8,12 @@ from laserbeak.transdfnet import DFNet
 
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.models.utils import unsqueeze_batch
+from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
 
 
 class WrapDFNet(DFNet):
-
     def example_input(self, X: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         return unsqueeze_batch(X)
 
@@ -31,7 +31,6 @@ class WrapDFNet(DFNet):
 
 
 class CNNVisTransformer(ConvolutionalVisionTransformer):
-
     def example_input(self, X: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         return unsqueeze_batch(X)
 

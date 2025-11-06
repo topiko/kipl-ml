@@ -59,7 +59,7 @@ def get_model(
                     n_classes=n_classes, in_channels=len(inputs), **model_config
                 )
             case _:
-                raise NotImplementedError()
+                raise NotImplementedError(f"Model '{model_name}'")
 
     if source == "lb":
         model = _get_lb_models()
