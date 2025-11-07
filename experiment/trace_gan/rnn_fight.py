@@ -75,7 +75,7 @@ def run_df(
 
     optim = torch.optim.Adamax(df.parameters(), lr=0.002)
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optim, factor=0.8, patience=5
+        optim, factor=0.8, patience=3
     )
 
     patience = 10
@@ -262,10 +262,8 @@ def main(cfg: DictConfig):
                     )
 
             e += 1
-            if optim_obs:
-                obs_lr_scheduler.step()
-            else:
-                disc_lr_scheduler.step()
+            obs_lr_scheduler.step()
+            disc_lr_scheduler.step()
 
             valid_metrics_d = evaluate_model(
                 discriminator, dl_valid, [Accuracy()], None, key="valid"
