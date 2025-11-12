@@ -11,7 +11,7 @@ dependencies = [
     "matplotlib>=3.10.0",
     "maturin>=1.8.1",
     "mbnt-rustbindings",
-    "mlflow>=2.20.0",
+    "mlflow==3",
     "numpy>=2.2.2",
     "pandas>=2.2.3",
     "python-dotenv>=1.0.1",
