@@ -291,8 +291,6 @@ def main(cfg: DictConfig):
                 }
             )
 
-            optim_obs = discriminator_loss_ < 1.0
-
             mlflow.log_metrics(valid_metrics_d, step=e)
             mlflow.log_metrics(valid_obs_metrics_d, step=e)
             mlflow.log_metrics(valid_obs_overhead_metrics_d, step=e)
