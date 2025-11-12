@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import multiprocessing
+
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
@@ -16,11 +18,9 @@ def collate_fn_(
     features = batch[0][0].keys()
     X = {f: torch.zeros((bs, seq_len), dtype=torch.float) for f in features}
     y = torch.zeros((bs,), dtype=torch.long)
-    start_idx = torch.randint(0, 5, (bs,))
     for i, (x_, y_) in enumerate(batch):
-        sidx = start_idx[i]
         for f in features:
-            xtmp = x_[f][sidx : sidx + seq_len + 1]
+            xtmp = x_[f][: seq_len + 1]
             if f == Feats.BURST_DIRS:
                 xtmp += 1
 
@@ -38,11 +38,12 @@ def collate_fn_(
 def dl_(
     ds: WFDataset, bs: int, collate_fn: callable, shuffle: bool = False
 ) -> DataLoader:
+    nworkers = multiprocessing.cpu_count() // 5 * 4
     return DataLoader(
         ds,
         batch_size=bs,
         shuffle=shuffle,
-        num_workers=30,
+        num_workers=nworkers,
         collate_fn=collate_fn,
     )
 
