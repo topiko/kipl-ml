@@ -324,10 +324,12 @@ class RNNCLF1(nn.Module):
     ):
         super().__init__()
 
-        if not set(features).issubset(
-            {Feats.BURST_LENS, Feats.BURST_DURS, Feats.BURST_RELDURS}
-        ):
-            raise ValueError("Invalid set of feats.")
+        if (
+            not set(features).issubset(
+                {Feats.BURST_LENS, Feats.BURST_DURS, Feats.BURST_RELDURS}
+            )
+        ) and (not set(features).issubset({Feats.DIRS, Feats.DIR_PROBS, Feats.IATS})):
+            raise ValueError(f"Invalid set of feats. {'-'.join(features)}")
 
         self.features = features
         nfeat = len(features)
@@ -343,6 +345,8 @@ class RNNCLF1(nn.Module):
         # (N, L) x nfeat
         fs = []
         for f in self.features:
+            if x[f].ndim != 2:
+                raise ValueError("Inputs should be (B, L) tensors.")
             fs.append(x[f].unsqueeze(-1))
 
         # (N, L, nfeat)

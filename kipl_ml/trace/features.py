@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 import torch
+from torch import nn
 
 from kipl_ml.data import assets
 from kipl_ml.logging.logger import get_logger
@@ -102,6 +103,25 @@ class Select(_TR):
 
     def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         return {self.asset: trace[self.asset]}
+
+
+class DirProbs(_TR):
+    NAME = Feats.DIR_PROBS
+
+    @property
+    def name(self) -> Feats:
+        return Feats.DIR_PROBS
+
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> DirProbs:
+        self._output_sizes = {self.name: trace[Feats.DIRS].shape[0]}
+        return self
+
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
+        dirs = trace[Feats.DIRS]
+
+        dirps = nn.functional.one_hot(dirs.long() + 1, num_classes=3).float()
+
+        return {self.name: dirps}
 
 
 class UDPackets(_TR):
@@ -689,6 +709,8 @@ def get_feature_tr(feature_name: Feats, n_packets: int | None) -> _TR:
     match feature_name:
         case Feats.DIRS:
             return Compose(PadOrCutTrace(n_packets), Select(Feats.DIRS))
+        case Feats.DIR_PROBS:
+            return Compose(PadOrCutTrace(n_packets), DirProbs())
         case Feats.SIZES:
             return Compose(PadOrCutTrace(n_packets), Select(Feats.SIZES))
         case Feats.TIMES:

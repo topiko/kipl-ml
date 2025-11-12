@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 from kipl_ml.logging.logger import get_logger
@@ -6,8 +7,30 @@ from kipl_ml.models.laserbeak import WrapDFNet
 from kipl_ml.models.march import March
 from kipl_ml.models.rf import RF
 from kipl_ml.models.utils import count_parameters
+from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
+
+
+class _WrapPacketProbsNet(nn.Module):
+    def __init__(self, net: nn.Module, learn_kernel: bool = True):
+        super().__init__()
+        self.net = net
+        self.net.features[self.net.features.index(Feats.DIR_PROBS)] = Feats.DIRS
+        self.conv = nn.Conv1d(3, 1, kernel_size=1, bias=False)
+
+        self.conv.weight = nn.Parameter(
+            torch.tensor([[[1.0, 0.0, -1.0]]]).reshape(1, 3, 1),
+            requires_grad=learn_kernel,
+        )
+        logger.info(f"Model {self.net.name} wrapped to use packet probabilities.")
+
+    def forward(self, x: dict[str, torch.Tensor], *args, **kwargs):
+        # (B, 3, L)
+        dirps = x[Feats.DIR_PROBS].permute(0, 2, 1)
+        x[Feats.DIRS] = self.conv(dirps).squeeze(1)
+
+        return self.net(x, *args, **kwargs)
 
 
 def get_model(
@@ -17,7 +40,6 @@ def get_model(
     inputs: dict[str, dict[str, int]],
     model_config: dict,
 ) -> nn.Module:
-
     input_lens: set[int] = set()
     for input_dict in inputs.values():
         input_lens = input_lens.union(set(input_dict.values()))

@@ -36,9 +36,15 @@ def collate_fn_(
 
 
 def dl_(
-    ds: WFDataset, bs: int, collate_fn: callable, shuffle: bool = False
+    ds: WFDataset,
+    bs: int,
+    collate_fn: callable | None,
+    shuffle: bool = False,
+    nworkers: int | None = None,
 ) -> DataLoader:
-    nworkers = multiprocessing.cpu_count() // 5 * 4
+    if not isinstance(nworkers, int):
+        nworkers = multiprocessing.cpu_count() // 5 * 4
+
     return DataLoader(
         ds,
         batch_size=bs,
