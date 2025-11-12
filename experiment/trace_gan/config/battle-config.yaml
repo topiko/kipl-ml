@@ -10,12 +10,13 @@ batch_size: 64
 dropout: 0.25
 grad_norm_clip: 5
 label_smoothing: 0.02
+n_epochs: 800
 
 lr:
   period: 50
   gamma: 0.8
 
 target_overheads:
-  burst_lens: 0.5
+  burst_lens: 0.9
   burst_durs: 0.1
 

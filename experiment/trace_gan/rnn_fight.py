@@ -143,6 +143,7 @@ def main(cfg: DictConfig):
     model_uri = mlflow.get_logged_model(discriminator_model_id).model_uri
 
     discriminator = mlflow.pytorch.load_model(model_uri)
+    discriminator_orig = mlflow.pytorch.load_model(model_uri)
 
     feature_names = [Feats.BURST_LENS, Feats.BURST_RELDURS]
 
@@ -187,7 +188,7 @@ def main(cfg: DictConfig):
             discriminator_loss_ = 0
             n1 = 1
             n2 = 1
-            obsfuscator_train_frac = 2
+            obsfuscator_train_frac = 1
             discriminator.train()
             obs.train()
             with tqdm(
@@ -215,12 +216,12 @@ def main(cfg: DictConfig):
                     )
                     if optim_obs:
                         dur_loss_ = (
-                            dur_loss(X_, X) - cfg.target_overheads.burst_durs
-                        ) ** 2
+                            5 * (dur_loss(X_, X) - cfg.target_overheads.burst_durs) ** 2
+                        )
 
                         len_loss_ = (
-                            len_loss(X_, X) - cfg.target_overheads.burst_lens
-                        ) ** 2
+                            5 * (len_loss(X_, X) - cfg.target_overheads.burst_lens) ** 2
+                        )
 
                         obsfusc_loss = -clf_loss + dur_loss_ + len_loss_
 
@@ -311,7 +312,7 @@ def main(cfg: DictConfig):
                 X = dict_to_device(X, device)
                 y = y.to(device)
 
-                logits, _ = discriminator(X)
+                logits, _ = discriminator_orig(X)
 
                 ax = plot_bursts(
                     X,
@@ -319,7 +320,7 @@ def main(cfg: DictConfig):
                     cl_probs=nn.functional.softmax(logits, dim=-1),
                     true_class=y.item(),
                 )
-                ax.set_title(f"True class: {y.item()}")
+                ax.set_title(f"True class: {y.item()}, idx={didx}")
 
                 Xobs = obs(X)
 
@@ -335,12 +336,18 @@ def main(cfg: DictConfig):
 
             fig.canvas.draw()
 
-            if (e - 1) % 10 == 0:
+            if (e - 1) % 50 == 0:
                 mlflow.log_figure(fig, f"bursts_clf_epoch={e:03d}.png")
 
                 run_df(obs, ds_train, ds_valid, collate_fn, e)
 
             plt.close()
+
+            if e > cfg.n_epochs:
+                break
+
+        mlflow.pytorch.log_model(pytorch_model=obs, name="obsfuscator")
+        mlflow.pytorch.log_model(pytorch_model=discriminator, name="discriminator")
 
 
 if __name__ == "__main__":
