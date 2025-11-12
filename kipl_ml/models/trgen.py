@@ -363,7 +363,7 @@ class RNNCLF1(nn.Module):
     def predict(
         self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        if x[Feats.BURST_LENS].ndim != 2:
+        if x[self.features[0]].ndim != 2:
             raise ValueError("Batched inputs expected!")
 
         # (N, nt, n_classes)

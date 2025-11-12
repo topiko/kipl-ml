@@ -16,38 +16,6 @@ style_path = (
 plt.style.use(style_path)
 
 
-def plot_trace(
-    trace_dict: dict[Feats, torch.tensor],
-    idx: int | None = None,
-    ax: plt.Axes | None = None,
-) -> plt.Axes:
-    try:
-        dirs = trace_dict[Feats.DIRS].detach().cpu().numpy()
-    except KeyError as e:
-        raise ValueError("To plot trace dict must contain 'dirs' feature.") from e
-
-    if (idx is None) and (dirs.ndim >= 2):
-        raise ValueError("Must provide idx if batch size > 1.")
-
-    if idx is not None:
-        dirs = dirs[idx]
-
-    try:
-        times = trace_dict[Feats.TIMES].detach().cpu().numpy()
-        if idx is not None:
-            times = times[idx]
-    except KeyError:
-        times = np.arange(len(dirs))
-
-    ax = ax or plt.subplots(figsize=(12, 3))[1]
-
-    ax.vlines(
-        times, 0, dirs, colors=["red" if d > 0 else "blue" for d in dirs], alpha=0.5
-    )
-
-    return ax
-
-
 def _squeeze_batched(arr: np.ndarray | torch.Tensor, idx: int | None) -> np.ndarray:
     if isinstance(arr, torch.Tensor):
         arr = arr.cpu().detach().numpy()
@@ -61,6 +29,78 @@ def _squeeze_batched(arr: np.ndarray | torch.Tensor, idx: int | None) -> np.ndar
             raise ValueError("Batched input but no index provided")
 
         return arr[idx]
+
+
+def _plot_probs(
+    cl_probs: torch.Tensor,
+    xs: np.ndarray,
+    ax: plt.Axes,
+    idx: int | None = None,
+    true_class: int | None = None,
+) -> None:
+    cl_probs = _squeeze_batched(cl_probs, idx)
+
+    ax2 = ax.twinx()
+    max_p = cl_probs.max(axis=1)
+
+    x = xs
+
+    ax2.plot(x, max_p, "-", lw=0.5)
+
+    ax3 = ax.twinx()
+    ax3.spines["right"].set_position(("outward", 60))  # offset by 60 points
+
+    preds = cl_probs.argmax(axis=1)
+    ax3.plot(x, preds, color="black", lw=1)
+
+    if true_class is not None:
+        ax3.hlines(
+            true_class,
+            ls="--",
+            color="black",
+            xmin=x.min(),
+            xmax=x.max(),
+            alpha=1.0,
+            lw=0.5,
+        )
+        mask = preds == true_class
+        ax3.scatter(x[mask], preds[mask], marker="*", color="green")
+
+    ax2.spines["right"].set_visible(True)
+    ax3.spines["right"].set_visible(True)
+
+
+def plot_trace(
+    trace_dict: dict[Feats, torch.tensor],
+    idx: int | None = None,
+    ax: plt.Axes | None = None,
+    cl_probs: torch.Tensor | None = None,
+    true_class: int | None = None,
+) -> plt.Axes:
+    try:
+        dirs = trace_dict[Feats.DIRS].detach().cpu().numpy()
+    except KeyError:
+        dirs = trace_dict[Feats.DIR_PROBS].argmax(dim=-1).detach().cpu().numpy() - 1
+
+    dirs = _squeeze_batched(dirs, idx)
+
+    try:
+        times = trace_dict[Feats.TIMES].detach().cpu().numpy()
+    except KeyError:
+        times = np.arange(len(dirs))
+
+    times = _squeeze_batched(times, idx)
+
+    ax = ax or plt.subplots(figsize=(12, 3))[1]
+
+    ax.vlines(
+        times, 0, dirs, colors=["red" if d < 0 else "blue" for d in dirs], alpha=0.5
+    )
+
+    if cl_probs is not None:
+        _plot_probs(cl_probs, times, ax, idx, true_class)
+
+    return ax
 
 
 def plot_bursts(
@@ -101,35 +141,6 @@ def plot_bursts(
         )
 
     if cl_probs is not None:
-        cl_probs = _squeeze_batched(cl_probs, idx)
-
-        ax2 = ax.twinx()
-        max_p = cl_probs.max(axis=1)
-
-        burst_edges = burst_edges[1:]
-
-        ax2.plot(burst_edges, max_p, "-", lw=0.5)
-
-        ax3 = ax.twinx()
-        ax3.spines["right"].set_position(("outward", 60))  # offset by 60 points
-
-        preds = cl_probs.argmax(axis=1)
-        ax3.plot(burst_edges, preds, color="black", lw=1)
-
-        if true_class is not None:
-            ax3.hlines(
-                true_class,
-                ls="--",
-                color="black",
-                xmin=burst_edges.min(),
-                xmax=burst_edges.max(),
-                alpha=1.0,
-                lw=0.5,
-            )
-            mask = preds == true_class
-            ax3.scatter(burst_edges[mask], preds[mask], marker="*", color="green")
-
-        ax2.spines["right"].set_visible(True)
-        ax3.spines["right"].set_visible(True)
+        _plot_probs(cl_probs, burst_edges[1:], ax, idx, true_class)
 
     return ax

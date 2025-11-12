@@ -25,12 +25,18 @@ class _WrapPacketProbsNet(nn.Module):
         )
         logger.info(f"Model {self.net.name} wrapped to use packet probabilities.")
 
-    def forward(self, x: dict[str, torch.Tensor], *args, **kwargs):
+    def _map(self, x: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         # (B, 3, L)
         dirps = x[Feats.DIR_PROBS].permute(0, 2, 1)
         x[Feats.DIRS] = self.conv(dirps).squeeze(1)
 
-        return self.net(x, *args, **kwargs)
+        return x
+
+    def forward(self, x: dict[str, torch.Tensor], *args, **kwargs):
+        return self.net(self._map(x), *args, **kwargs)
+
+    def predict(self, x: dict[str, torch.Tensor], *args, **kwargs):
+        return self.net.predict(self._map(x), *args, **kwargs)
 
 
 def get_model(
