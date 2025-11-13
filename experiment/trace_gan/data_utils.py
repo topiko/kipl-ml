@@ -43,7 +43,7 @@ def dl_(
     nworkers: int | None = None,
 ) -> DataLoader:
     if not isinstance(nworkers, int):
-        nworkers = multiprocessing.cpu_count() // 5 * 4
+        nworkers = multiprocessing.cpu_count() // 8 * 7
 
     return DataLoader(
         ds,

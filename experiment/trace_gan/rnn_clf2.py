@@ -15,6 +15,9 @@ from experiment.utils import defence_builder
 from kipl_ml.data.utils import assets
 from kipl_ml.data.wf_dataset import dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
+from kipl_ml.logging.utils import log_dict
+from kipl_ml.metrics.clf_metrics import Accuracy
+from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.models import _WrapPacketProbsNet
 from kipl_ml.models.trgen import RNNCLF1
 from kipl_ml.models.utils import count_parameters
@@ -55,8 +58,8 @@ def main(cfg: DictConfig):
         **defence_builder.get_defence(cfg),
     )
 
-    dl_train = dl_(ds_train, cfg.batch_size, None, shuffle=True, nworkers=0)
-    dl_valid = dl_(ds_valid, 256, None, nworkers=0)
+    dl_train = dl_(ds_train, cfg.batch_size, None, shuffle=True, nworkers=None)
+    dl_valid = dl_(ds_valid, 256, None, nworkers=None)
 
     clf = RNNCLF1(ds_train.n_classes, feature_names, dropout=cfg.dropout)
 
@@ -64,7 +67,7 @@ def main(cfg: DictConfig):
 
     logger.info(f"Model parameters: {count_parameters(clf)}")
 
-    optimG = torch.optim.Adam(clf.parameters(), lr=0.002)
+    optimG = torch.optim.Adam(clf.parameters(), lr=0.001)
 
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer=optimG, factor=0.5, patience=3
@@ -114,34 +117,33 @@ def main(cfg: DictConfig):
                     pbar.set_postfix({"l": loss_, "lr": lr_scheduler.get_last_lr()[0]})
 
                     n += 1
-                    break
 
             lr_scheduler.step(loss_)
 
             c += 1
             e += 1
 
-            # valid_metrics_d = evaluate_model(
-            #     clf, dl_valid, [Accuracy()], loss_fn, key="valid"
-            # )
-            # train_metrics_d = evaluate_model(
-            #     clf, dl_train, [Accuracy()], loss_fn, key="train"
-            # )
+            valid_metrics_d = evaluate_model(
+                clf, dl_valid, [Accuracy()], loss_fn, key="valid"
+            )
+            train_metrics_d = evaluate_model(
+                clf, dl_train, [Accuracy()], loss_fn, key="train"
+            )
 
-            # logger.info("Valid metrics:")
-            # log_dict(valid_metrics_d)
+            logger.info("Valid metrics:")
+            log_dict(valid_metrics_d)
 
-            # logger.info("Train metrics:")
-            # log_dict(train_metrics_d)
+            logger.info("Train metrics:")
+            log_dict(train_metrics_d)
 
-            # mlflow.log_metrics(valid_metrics_d, step=e)
-            # mlflow.log_metrics(train_metrics_d, step=e)
-            # mlflow.log_metric("learning_rate", lr_scheduler.get_last_lr()[0], step=e)
+            mlflow.log_metrics(valid_metrics_d, step=e)
+            mlflow.log_metrics(train_metrics_d, step=e)
+            mlflow.log_metric("learning_rate", lr_scheduler.get_last_lr()[0], step=e)
 
-            # if (loss_ := valid_metrics_d["valid-loss"]) < min_loss:
-            #     logger.info("Improved loss! %.4f -> %.4f", min_loss, loss_)
-            #     min_loss = loss_
-            #     c = 0
+            if (loss_ := valid_metrics_d["valid-loss"]) < min_loss:
+                logger.info("Improved loss! %.4f -> %.4f", min_loss, loss_)
+                min_loss = loss_
+                c = 0
 
             if c > patience:
                 break
