@@ -473,3 +473,66 @@ class ANTINCLF1(nn.Module):
             xobs[f][:, 1:] = x[f][:, :-1] * scales[:, :-1, i] + x[f][:, 1:]
 
         return xobs
+
+
+class ANTINCLF2(nn.Module):
+    name: str = "anticlf2"
+
+    def __init__(
+        self,
+        hsize: int = 256,
+        nlayers: int = 3,
+        dropout: float = 0.2,
+        zero_init: bool = False,
+    ):
+        super().__init__()
+
+        self.features = [Feats.UP_BUFFER, Feats.DOWN_BUFFER]
+        self.num_layers = nlayers
+        self.hidden_size = hsize
+        self.zero_init = zero_init
+        nfeat = len(self.features)
+        self.rnn = nn.LSTM(nfeat, hsize, nlayers, batch_first=True, dropout=dropout)
+
+        self.final_lin = nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, nfeat))
+
+    def _get_init_h(
+        self, x: dict[Feats, torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor] | None:
+        if not self.zero_init:
+            return None
+
+        bs = x[self.features[0]].shape[0]
+        device = x[self.features[0]].device
+        return (
+            torch.zeros(self.num_layers, bs, self.hidden_size, device=device),
+            torch.zeros(self.num_layers, bs, self.hidden_size, device=device),
+        )
+
+    def forward(
+        self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
+    ) -> tuple[dict[Feats, torch.Tensor], torch.Tensor]:
+        if h is None:
+            h = self._get_init_h(x)
+
+        # (N, L) x nfeat
+        fs = []
+        for f in self.features:
+            fs.append(x[f].unsqueeze(-1))
+
+        # (N, L, nfeat)
+        inputs = torch.cat(fs, dim=-1)
+
+        # (N, L, H)
+        output, h = self.rnn(inputs, h)
+
+        # (N, L, 2) we have packets_up, packets_down
+        addons = self.final_lin(output)
+
+        # vals \in ]0, inf[
+        packets = torch.nn.functional.elu(addons) + 1
+
+        return {
+            Feats.DOWN_BUFFER: packets[:, :, 0],
+            Feats.UP_BUFFER: packets[:, :, 1],
+        }, h

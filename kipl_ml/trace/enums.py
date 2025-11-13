@@ -51,6 +51,8 @@ class Feats(StrEnum):
 
     # Helpers:
     DIR_PROBS = "dir_probs"
+    UP_BUFFER = "up_buffer"
+    DOWN_BUFFER = "down_buffer"
 
     def __str__(self) -> str:
         return self.value

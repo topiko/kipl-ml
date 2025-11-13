@@ -1,0 +1,4 @@
+defaults:
+  - base
+name: "bigenough"
+target: "page_label"
