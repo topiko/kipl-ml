@@ -1,6 +1,8 @@
+import numpy as np
 import torch
 from torch import nn
 
+from kipl_ml.rl.enums import Actions
 from kipl_ml.trace.features import Feats
 
 
@@ -475,8 +477,14 @@ class ANTINCLF1(nn.Module):
         return xobs
 
 
-class ANTINCLF2(nn.Module):
-    name: str = "anticlf2"
+class AGENT1(nn.Module):
+    name: str = "agent"
+    ACTIONS = [
+        Actions.WAIT,
+        Actions.SEND_BUFFER,
+        Actions.SEND_PADDING_UP,
+        Actions.SEND_PADDING_DOWN,
+    ]
 
     def __init__(
         self,
@@ -487,14 +495,16 @@ class ANTINCLF2(nn.Module):
     ):
         super().__init__()
 
-        self.features = [Feats.UP_BUFFER, Feats.DOWN_BUFFER]
+        self.nactions = len(self.ACTIONS)
+        self.features = [Feats.UP_BUFFER, Feats.DOWN_BUFFER, Feats.TIMES]
         self.num_layers = nlayers
         self.hidden_size = hsize
         self.zero_init = zero_init
         nfeat = len(self.features)
         self.rnn = nn.LSTM(nfeat, hsize, nlayers, batch_first=True, dropout=dropout)
 
-        self.final_lin = nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, nfeat))
+        self.actor = nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, self.nactions))
+        self.critic = nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, 1))
 
     def _get_init_h(
         self, x: dict[Feats, torch.Tensor]
@@ -526,13 +536,41 @@ class ANTINCLF2(nn.Module):
         # (N, L, H)
         output, h = self.rnn(inputs, h)
 
-        # (N, L, 2) we have packets_up, packets_down
-        addons = self.final_lin(output)
+        # (N, L, nactions)
+        action_logits = self.actor(output)
 
-        # vals \in ]0, inf[
-        packets = torch.nn.functional.elu(addons) + 1
+        # (N, L, 1)
+        state_values = self.critic(output).squeeze(-1)
 
-        return {
-            Feats.DOWN_BUFFER: packets[:, :, 0],
-            Feats.UP_BUFFER: packets[:, :, 1],
-        }, h
+        return {Feats.ACTION_LOGITS: action_logits, Feats.STATE_VALUE: state_values}, h
+
+    def act(
+        self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
+    ) -> tuple[np.ndarray, torch.Tensor, torch.Tensor, torch.Tensor]:
+        action_outputs, h = self(x, h)
+
+        # (B, L, nactions)
+        action_logits = action_outputs[Feats.ACTION_LOGITS]
+        action_probs = nn.functional.softmax(action_logits, dim=-1)
+
+        # (B, L)
+        actions = torch.distributions.Categorical(action_probs).sample()
+
+        # (B, L, nactions)
+        log_probs = torch.log(action_probs)
+
+        # (B, L)
+        log_probs = log_probs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
+
+        # (B, L)
+        values = action_outputs[Feats.STATE_VALUE]
+
+        if actions.shape[1] != 1:
+            raise ValueError("Expected action shape (B, 1)")
+
+        return (
+            np.array([self.ACTIONS[idx] for idx in actions.squeeze(1)]),
+            log_probs.squeeze(1),
+            values.squeeze(1),
+            h,
+        )

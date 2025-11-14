@@ -13,7 +13,7 @@ from experiment.utils import defence_builder
 from kipl_ml.data.utils import Datasets, assets
 from kipl_ml.data.wf_dataset import dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
-from kipl_ml.models.trgen import ANTINCLF2
+from kipl_ml.models.trgen import AGENT1
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
 from kipl_ml.trace.features import Feats, FeatureTrs
 
@@ -35,7 +35,7 @@ def main(cfg: DictConfig):
     experiment_name = "obsrl"
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
-    discriminator_model_id = "m-ba2f7628ee3743c388bee6d4377bc3f8"
+    discriminator_model_id = "m-f87f760721794c8090e741cf3e2456b4"
 
     model_uri = mlflow.get_logged_model(discriminator_model_id).model_uri
 
@@ -54,11 +54,11 @@ def main(cfg: DictConfig):
         **defence_builder.get_defence(cfg),
     )
 
-    dl_train = dl_(ds_train, bs=256, collate_fn=None, shuffle=True)
+    dl_train = dl_(ds_train, bs=16, collate_fn=None, shuffle=True)
     dl_valid = dl_(ds_valid, bs=64, collate_fn=None, shuffle=False)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    obs = ANTINCLF2().to(device)
+    obs = AGENT1().to(device)
 
     e = 0
     while True:
@@ -71,7 +71,7 @@ def main(cfg: DictConfig):
                 X = dict_to_device(X, device)
                 y = y.to(device)
 
-                sim(obs, discriminator, X)
+                sim(obs, discriminator, X, y)
 
 
 if __name__ == "__main__":
