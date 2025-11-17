@@ -1,9 +1,7 @@
-import numpy as np
 import torch
 from torch import nn
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
-from kipl_ml.models.trgen import AGENT1
 from kipl_ml.rl.enums import Actions
 from kipl_ml.trace.enums import Feats
 
@@ -35,7 +33,8 @@ def update_buffer(
 
 
 def consume(
-    actions: dict[Feats, torch.Tensor],
+    actions: torch.Tensor,
+    idx2ackts: dict[int, Actions],
     Xobs: dict[Feats, torch.Tensor],
     buffer: dict[Feats, torch.Tensor],
     t: float,
@@ -55,8 +54,9 @@ def consume(
         buffer[action_mask] = 0
         Xobs[Feats.TIMES][action_mask, idxs[action_mask] - 1] = t
 
-    for a in AGENT1.ACTIONS:
+    for a in actions.unique():
         mask = actions == a
+        a = idx2ackts[a.item()]
 
         match a:
             case Actions.SEND_PADDING_UP:
@@ -72,12 +72,15 @@ def consume(
                 _append_buffer(buffer[Feats.DOWN_BUFFER], DOWNLOAD, mask)
             case Actions.WAIT:
                 pass
+            case _:
+                raise ValueError(f"Unknown action: {a}")
 
     return Xobs, buffer, idxs
 
 
 def get_reward(
-    action: np.ndarray[Actions],
+    action: torch.Tensor,
+    ackts2idxs: dict[Actions, int],
     Xobs: dict[Feats, torch.Tensor],
     idxs: torch.Tensor,
     y: torch.Tensor,
@@ -87,7 +90,7 @@ def get_reward(
 ) -> torch.Tensor:
     rewards = torch.zeros(action.shape[0])
     with torch.no_grad():
-        mask = action != Actions.WAIT
+        mask = action != ackts2idxs[Actions.WAIT]
         Xobs_ = {f: v.gather(1, idxs[mask].unsqueeze(1) - 1) for f, v in Xobs.items()}
         logits, _ = disc(Xobs_, hdisc)
         probs = torch.nn.functional.softmax(logits, dim=-1).squeeze()
@@ -101,14 +104,14 @@ def get_reward(
         ).numpy()
 
         # When you delay the buffer
-        delay_mask = non_zero_buffer_mask & (action == Actions.WAIT)
+        delay_mask = non_zero_buffer_mask & (action == ackts2idxs[Actions.WAIT])
         rewards[delay_mask] += -0.1
 
         # When you send padding
-        padding_mask = action == Actions.SEND_PADDING_UP
+        padding_mask = action == ackts2idxs[Actions.SEND_PADDING_UP]
         rewards[padding_mask] += -0.05
 
-        padding_mask = action == Actions.SEND_PADDING_DOWN
+        padding_mask = action == ackts2idxs[Actions.SEND_PADDING_DOWN]
         rewards[padding_mask] += -0.05
 
     return rewards
@@ -138,6 +141,10 @@ def rollout(
         Feats.DIRS: torch.zeros((bs, NT)).float(),
         Feats.TIMES: torch.zeros((bs, NT)).float(),
     }
+
+    idx2ackts = obs.ACTIONS
+    ackts2idxs = {a: i for i, a in enumerate(obs.ACTIONS)}
+
     while t < T:
         buffer = update_buffer(X, t, dt, buffer)
 
@@ -145,9 +152,9 @@ def rollout(
         log_ps.append(log_ps_.unsqueeze(1))
         values.append(values_.unsqueeze(1))
 
-        Xobs, buffer, idxs = consume(action, Xobs, buffer, t, idxs)
+        Xobs, buffer, idxs = consume(action, idx2ackts, Xobs, buffer, t, idxs)
 
-        rewards_ = get_reward(action, Xobs, idxs, y, disc, hdisc, buffer)
+        rewards_ = get_reward(action, ackts2idxs, Xobs, idxs, y, disc, hdisc, buffer)
 
         rewards.append(rewards_.unsqueeze(1))
 
