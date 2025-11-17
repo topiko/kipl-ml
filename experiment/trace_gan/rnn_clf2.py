@@ -44,9 +44,9 @@ def main(cfg: DictConfig):
     mlflow.set_experiment(experiment_id=experiment_id)
 
     dataset = cfg.dataset.name
-    npackets = 5000
+    npackets = 10000
 
-    feature_names = [Feats.DIR_PROBS, Feats.IATS]
+    feature_names = [Feats.DIRS, Feats.TIMES]
 
     ds_train, ds_valid, _ = get_train_valid_test(
         dataset=dataset,
@@ -63,7 +63,7 @@ def main(cfg: DictConfig):
 
     clf = RNNCLF1(ds_train.n_classes, feature_names, dropout=cfg.dropout)
 
-    clf = _WrapPacketProbsNet(clf)
+    # clf = _WrapPacketProbsNet(clf)
 
     logger.info(f"Model parameters: {count_parameters(clf)}")
 

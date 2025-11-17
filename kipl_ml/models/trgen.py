@@ -330,7 +330,11 @@ class RNNCLF1(nn.Module):
             not set(features).issubset(
                 {Feats.BURST_LENS, Feats.BURST_DURS, Feats.BURST_RELDURS}
             )
-        ) and (not set(features).issubset({Feats.DIRS, Feats.DIR_PROBS, Feats.IATS})):
+        ) and (
+            not set(features).issubset(
+                {Feats.DIRS, Feats.DIR_PROBS, Feats.IATS, Feats.TIMES}
+            )
+        ):
             raise ValueError(f"Invalid set of feats. {'-'.join(features)}")
 
         self.features = features
