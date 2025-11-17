@@ -85,6 +85,12 @@ def _plot_set(
 
         Xobs = rollout(obs, clf, _unsqueeze(X), y)[0]
         Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
+
+        mask = Xobs[Feats.TIMES] == 0
+        mask[0] = False
+        if mask.any():
+            Xobs[Feats.TIMES] = Xobs[Feats.TIMES][~mask]
+            Xobs[Feats.DIRS] = Xobs[Feats.DIRS][~mask]
         plot_trace(
             Xobs,
             ax=axrow[1],
@@ -147,7 +153,7 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
-                    _, log_ps, values, rewards = rollout(obs, discriminator, X, y)
+                    _, log_ps, values, rewards = rollout(obs, discriminator, X, y)[:4]
 
                     G = returns(rewards, gamma=0.99)
 

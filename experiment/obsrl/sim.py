@@ -151,6 +151,8 @@ def rollout(
 
     idx2ackts = obs.ACTIONS
     ackts2idxs = {a: i for i, a in enumerate(obs.ACTIONS)}
+    actions = []
+    times = []
 
     while t < T:
         buffer = update_buffer(X, t, dt, buffer)
@@ -158,6 +160,8 @@ def rollout(
         action, log_ps_, values_, hobs = obs.act(buffer, hobs)
         log_ps.append(log_ps_.unsqueeze(1))
         values.append(values_.unsqueeze(1))
+        actions.append(action.unsqueeze(1))
+        times.append(t)
 
         Xobs, buffer, idxs = consume(action, idx2ackts, Xobs, buffer, t, idxs)
 
@@ -169,6 +173,8 @@ def rollout(
 
     log_ps = torch.cat(log_ps, dim=1)
     values = torch.cat(values, dim=1)
+    actions = torch.cat(actions, dim=1)
+    times = torch.tensor(times)
     rewards = torch.cat(rewards, dim=1)
 
-    return Xobs, log_ps, values, rewards
+    return Xobs, log_ps, values, rewards, actions, times
