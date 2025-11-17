@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 from torch import nn
 
@@ -550,7 +549,7 @@ class AGENT1(nn.Module):
 
     def act(
         self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
-    ) -> tuple[np.ndarray, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         action_outputs, h = self(x, h)
 
         # (B, L, nactions)
@@ -573,7 +572,7 @@ class AGENT1(nn.Module):
             raise ValueError("Expected action shape (B, 1)")
 
         return (
-            np.array([self.ACTIONS[idx] for idx in actions.squeeze(1)]),
+            actions.squeeze(1),
             log_probs.squeeze(1),
             values.squeeze(1),
             h,

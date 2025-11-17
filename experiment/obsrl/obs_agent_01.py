@@ -2,19 +2,23 @@ import os
 
 import dotenv
 import hydra
+import matplotlib.pyplot as plt
 import mlflow
+import numpy as np
 import torch
 from omegaconf import DictConfig
+from torch import nn
 from tqdm import tqdm
 
 from experiment.obsrl.sim import rollout
 from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import Datasets, assets
-from kipl_ml.data.wf_dataset import dict_to_device, get_train_valid_test
+from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.trgen import AGENT1
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
+from kipl_ml.tools.plottr import plot_trace
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
@@ -42,6 +46,61 @@ def returns(rewards: torch.Tensor, gamma: float) -> torch.Tensor:
     return G
 
 
+def _plot_set(
+    ds: WFDataset,
+    obs: nn.Module,
+    clf: nn.Module,
+    e: int,
+    device: torch.DeviceObjType,
+):
+    rng = np.random.default_rng(seed=42)
+
+    ntraces = 5
+
+    idxs = rng.integers(0, len(ds), size=ntraces)
+
+    fig, axarr = plt.subplots(ntraces, 2, figsize=(10, ntraces * 3), sharex=True)
+
+    def _unsqueeze(X: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
+        return {k: v.unsqueeze(0) for k, v in X.items()}
+
+    def X_to_probs(X: dict[Feats, torch.Tensor]) -> torch.Tensor:
+        logits, _ = clf(_unsqueeze(X))
+        probs = nn.functional.softmax(logits, dim=-1)
+        return probs
+
+    for i, axrow in zip(idxs, axarr):
+        X, y = ds[i]
+
+        X = dict_to_device(X, device)
+        y = y.to(device).unsqueeze(-1)
+
+        plot_trace(
+            X,
+            ax=axrow[0],
+            cl_probs=X_to_probs(X),
+            true_class=y.item(),
+        )
+        axrow[0].set_title(f"True class: {y.item()}")
+
+        Xobs = rollout(obs, clf, _unsqueeze(X), y)[0]
+        Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
+        plot_trace(
+            Xobs,
+            ax=axrow[1],
+            cl_probs=X_to_probs(Xobs),
+            true_class=y.item(),
+        )
+
+        axrow[1].set_title("Obsfuscated")
+
+    fig.canvas.draw()
+
+    mlflow.log_figure(fig, f"bursts_clf_epoch={e:03d}.png")
+
+    plt.close()
+
+
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="battle-config", version_base=None)
 def main(cfg: DictConfig):
     experiment_name = "obsrl"
@@ -66,51 +125,58 @@ def main(cfg: DictConfig):
         **defence_builder.get_defence(cfg),
     )
 
-    dl_train = dl_(ds_train, bs=16, collate_fn=None, shuffle=True)
-    dl_valid = dl_(ds_valid, bs=64, collate_fn=None, shuffle=False)
+    dl_train = dl_(ds_train, bs=32, collate_fn=None, shuffle=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     obs = AGENT1().to(device)
+    discriminator = discriminator.to(device)
 
     optim = torch.optim.Adam(obs.parameters(), lr=0.001)
 
     e = 0
-    while True:
-        with tqdm(
-            dl_train,
-            desc=f"epoch {e:02d}",
-            ncols=2 * TQDM_W,
-        ) as pbar:
-            for X, y in pbar:
-                optim.zero_grad()
-                X = dict_to_device(X, device)
-                y = y.to(device)
+    i = 0
+    with mlflow.start_run():
+        while True:
+            with tqdm(
+                dl_train,
+                desc=f"epoch {e:02d}",
+                ncols=2 * TQDM_W,
+            ) as pbar:
+                for X, y in pbar:
+                    optim.zero_grad()
+                    X = dict_to_device(X, device)
+                    y = y.to(device)
 
-                log_ps, values, rewards = rollout(obs, discriminator, X, y)
+                    _, log_ps, values, rewards = rollout(obs, discriminator, X, y)
 
-                G = returns(rewards, gamma=0.99)
+                    G = returns(rewards, gamma=0.99)
 
-                advantages = G - values
-                # Compute losses
+                    advantages = G - values
+                    # Compute losses
 
-                policy_loss = -(log_ps * advantages.detach()).mean()
-                value_loss = 0.5 * (values - G).pow(2).mean()
+                    policy_loss = -(log_ps * advantages.detach()).mean()
+                    value_loss = 0.5 * (values - G).pow(2).mean()
 
-                loss = policy_loss + value_loss
+                    loss = policy_loss + value_loss
 
-                loss.backward()
-                optim.step()
+                    loss.backward()
+                    optim.step()
 
-                pbar.set_postfix(
-                    {
+                    losses = {
                         "loss": loss.item(),
                         "policy_loss": policy_loss.item(),
                         "value_loss": value_loss.item(),
                         "avg_return": G.mean().item(),
                     }
-                )
 
-        e += 1
+                    pbar.set_postfix(losses)
+
+                    mlflow.log_metrics(losses, step=i)
+                    i += 1
+
+                    if (i - 1) % 10 == 0:
+                        _plot_set(ds_valid, obs, discriminator, i, device)
+            e += 1
 
 
 if __name__ == "__main__":

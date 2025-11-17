@@ -40,17 +40,18 @@ def consume(
     t: float,
     idxs: torch.Tensor | None = None,
 ) -> tuple[dict[Feats, torch.Tensor], dict[Feats, torch.Tensor], torch.Tensor]:
-    idxs = idxs if idxs is not None else torch.zeros(Xobs[Feats.DIRS].shape[0]).long()
+    idxs = idxs if idxs is not None else torch.zeros_like(actions).long()
 
     def _append_buffer(buffer, direction, action_mask):
-        buffer = buffer.squeeze()
+        buffer = buffer.squeeze(1)
         mb = buffer.max().floor().int().item()
         for b in range(mb):
-            buffer_mask = (buffer > b).numpy()
+            buffer_mask = buffer > b
             mask = buffer_mask & action_mask
 
             Xobs[Feats.DIRS][mask, idxs[mask]] = direction
             idxs[mask] += 1
+
         buffer[action_mask] = 0
         Xobs[Feats.TIMES][action_mask, idxs[action_mask] - 1] = t
 
@@ -79,56 +80,62 @@ def consume(
 
 
 def get_reward(
-    action: torch.Tensor,
+    actions: torch.Tensor,
     ackts2idxs: dict[Actions, int],
     Xobs: dict[Feats, torch.Tensor],
     idxs: torch.Tensor,
     y: torch.Tensor,
     disc: nn.Module,
+    buffer: dict[Feats, torch.Tensor],
     hdisc: torch.Tensor | None,
-    buffer: dict[Feats, torch.Tensor] | None = None,
 ) -> torch.Tensor:
-    rewards = torch.zeros(action.shape[0])
+    rewards = torch.zeros(actions.shape[0], device=actions.device)
     with torch.no_grad():
-        mask = action != ackts2idxs[Actions.WAIT]
+        mask = actions != ackts2idxs[Actions.WAIT]
+
         Xobs_ = {f: v.gather(1, idxs[mask].unsqueeze(1) - 1) for f, v in Xobs.items()}
         logits, _ = disc(Xobs_, hdisc)
-        probs = torch.nn.functional.softmax(logits, dim=-1).squeeze()
+        probs = torch.nn.functional.softmax(logits, dim=-1).squeeze(1)
 
         # When discriminator is able to predict the correct label
-        rewards[mask] += -probs.gather(1, y[mask].unsqueeze(1)).squeeze()
+        if mask.sum() > 0:
+            tp_cl_probs = probs.gather(1, y[mask].unsqueeze(1)).squeeze(1)
+            rewards[mask] -= tp_cl_probs
 
-        non_zero_buffer_mask = (
-            (buffer[Feats.UP_BUFFER].squeeze() != 0)
-            | (buffer[Feats.DOWN_BUFFER].squeeze() != 0)
-        ).numpy()
+        non_zero_buffer_mask = (buffer[Feats.UP_BUFFER].squeeze(1) != 0) | (
+            buffer[Feats.DOWN_BUFFER].squeeze(1) != 0
+        )
 
         # When you delay the buffer
-        delay_mask = non_zero_buffer_mask & (action == ackts2idxs[Actions.WAIT])
-        rewards[delay_mask] += -0.1
+        delay_mask = non_zero_buffer_mask & (actions == ackts2idxs[Actions.WAIT])
+        rewards[delay_mask] += -0.05
 
         # When you send padding
-        padding_mask = action == ackts2idxs[Actions.SEND_PADDING_UP]
-        rewards[padding_mask] += -0.05
+        padding_mask = actions == ackts2idxs[Actions.SEND_PADDING_UP]
+        rewards[padding_mask] += -0.1
 
-        padding_mask = action == ackts2idxs[Actions.SEND_PADDING_DOWN]
-        rewards[padding_mask] += -0.05
+        padding_mask = actions == ackts2idxs[Actions.SEND_PADDING_DOWN]
+        rewards[padding_mask] += -0.1
 
     return rewards
 
 
 def rollout(
     obs: nn.Module, disc: nn.Module, X: dict[Feats, torch.Tensor], y: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[dict[Feats, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor]:
     hobs = None
     hdisc = None
     idxs = None
     buffer = None
-    T = 10
+    T = 1
     dt = 0.01
     t = 0.0
 
+    if set(X.keys()) != {Feats.TIMES, Feats.DIRS}:
+        raise ValueError("Single set of features accepted!")
+
     bs = X[Feats.DIRS].shape[0]
+    device = X[Feats.DIRS].device
 
     log_ps = []
     values = []
@@ -138,8 +145,8 @@ def rollout(
     NT = int(T // dt) + 1 + npackets
 
     Xobs = {
-        Feats.DIRS: torch.zeros((bs, NT)).float(),
-        Feats.TIMES: torch.zeros((bs, NT)).float(),
+        Feats.DIRS: torch.zeros((bs, NT), device=device).float(),
+        Feats.TIMES: torch.zeros((bs, NT), device=device).float(),
     }
 
     idx2ackts = obs.ACTIONS
@@ -154,7 +161,7 @@ def rollout(
 
         Xobs, buffer, idxs = consume(action, idx2ackts, Xobs, buffer, t, idxs)
 
-        rewards_ = get_reward(action, ackts2idxs, Xobs, idxs, y, disc, hdisc, buffer)
+        rewards_ = get_reward(action, ackts2idxs, Xobs, idxs, y, disc, buffer, hdisc)
 
         rewards.append(rewards_.unsqueeze(1))
 
@@ -164,4 +171,4 @@ def rollout(
     values = torch.cat(values, dim=1)
     rewards = torch.cat(rewards, dim=1)
 
-    return log_ps, values, rewards
+    return Xobs, log_ps, values, rewards

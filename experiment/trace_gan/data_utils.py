@@ -42,7 +42,7 @@ def dl_(
     shuffle: bool = False,
     nworkers: int | None = None,
 ) -> DataLoader:
-    if not isinstance(nworkers, int):
+    if nworkers is None:
         nworkers = multiprocessing.cpu_count() // 8 * 7
 
     return DataLoader(
