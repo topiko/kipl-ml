@@ -7,7 +7,7 @@ import torch
 from omegaconf import DictConfig
 from tqdm import tqdm
 
-from experiment.obsrl.sim import sim
+from experiment.obsrl.sim import rollout
 from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import Datasets, assets
@@ -28,6 +28,18 @@ N_SPLITS = 5
 TEST_XV = 0
 TARGET = assets.PAGE_LABEL
 DATASET = Datasets.BIGENOUGH
+
+
+def returns(rewards: torch.Tensor, gamma: float) -> torch.Tensor:
+    G = torch.zeros_like(rewards)
+    R = 0
+    i = 0
+
+    for r in rewards.flip(dims=(1,)).T:
+        R = r + gamma * R
+        G[:, -1 - i] = R
+        i += 1
+    return G
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="battle-config", version_base=None)
@@ -60,6 +72,8 @@ def main(cfg: DictConfig):
 
     obs = AGENT1().to(device)
 
+    optim = torch.optim.Adam(obs.parameters(), lr=0.001)
+
     e = 0
     while True:
         with tqdm(
@@ -68,10 +82,35 @@ def main(cfg: DictConfig):
             ncols=2 * TQDM_W,
         ) as pbar:
             for X, y in pbar:
+                optim.zero_grad()
                 X = dict_to_device(X, device)
                 y = y.to(device)
 
-                sim(obs, discriminator, X, y)
+                log_ps, values, rewards = rollout(obs, discriminator, X, y)
+
+                G = returns(rewards, gamma=0.99)
+
+                advantages = G - values
+                # Compute losses
+
+                policy_loss = -(log_ps * advantages.detach()).mean()
+                value_loss = 0.5 * (values - G).pow(2).mean()
+
+                loss = policy_loss + value_loss
+
+                loss.backward()
+                optim.step()
+
+                pbar.set_postfix(
+                    {
+                        "loss": loss.item(),
+                        "policy_loss": policy_loss.item(),
+                        "value_loss": value_loss.item(),
+                        "avg_return": G.mean().item(),
+                    }
+                )
+
+        e += 1
 
 
 if __name__ == "__main__":

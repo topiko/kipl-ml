@@ -90,7 +90,7 @@ def get_reward(
         mask = action != Actions.WAIT
         Xobs_ = {f: v.gather(1, idxs[mask].unsqueeze(1) - 1) for f, v in Xobs.items()}
         logits, _ = disc(Xobs_, hdisc)
-        probs = torch.nn.functional.softmax(logits).squeeze()
+        probs = torch.nn.functional.softmax(logits, dim=-1).squeeze()
 
         # When discriminator is able to predict the correct label
         rewards[mask] += -probs.gather(1, y[mask].unsqueeze(1)).squeeze()
@@ -114,17 +114,25 @@ def get_reward(
     return rewards
 
 
-def sim(obs: nn.Module, disc: nn.Module, X: dict[Feats, torch.Tensor], y: torch.Tensor):
+def rollout(
+    obs: nn.Module, disc: nn.Module, X: dict[Feats, torch.Tensor], y: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     hobs = None
     hdisc = None
     idxs = None
     buffer = None
-    T = 60
+    T = 10
     dt = 0.01
     t = 0.0
 
     bs = X[Feats.DIRS].shape[0]
-    NT = int(T // dt) + 1
+
+    log_ps = []
+    values = []
+    rewards = []
+
+    npackets = X[Feats.DIRS].shape[1]
+    NT = int(T // dt) + 1 + npackets
 
     Xobs = {
         Feats.DIRS: torch.zeros((bs, NT)).float(),
@@ -133,11 +141,20 @@ def sim(obs: nn.Module, disc: nn.Module, X: dict[Feats, torch.Tensor], y: torch.
     while t < T:
         buffer = update_buffer(X, t, dt, buffer)
 
-        action, log_ps, values, hobs = obs.act(buffer, hobs)
+        action, log_ps_, values_, hobs = obs.act(buffer, hobs)
+        log_ps.append(log_ps_.unsqueeze(1))
+        values.append(values_.unsqueeze(1))
 
         Xobs, buffer, idxs = consume(action, Xobs, buffer, t, idxs)
 
-        rewards = get_reward(action, Xobs, idxs, y, disc, hdisc, buffer)
+        rewards_ = get_reward(action, Xobs, idxs, y, disc, hdisc, buffer)
+
+        rewards.append(rewards_.unsqueeze(1))
+
         t += dt
 
-    # Here we return log_ps, values, and rewards and further build returns, advantages, etc.
+    log_ps = torch.cat(log_ps, dim=1)
+    values = torch.cat(values, dim=1)
+    rewards = torch.cat(rewards, dim=1)
+
+    return log_ps, values, rewards
