@@ -37,7 +37,7 @@ def get_reward(
 
         # When you delay the buffer
         delay_mask = (buffer_counts != 0) & (actions == ackts2idxs[Actions.WAIT])
-        rewards[delay_mask] += -0.05 * buffer_counts[delay_mask]
+        rewards[delay_mask] += -0.001 * buffer_counts[delay_mask]
 
         # When you send padding
         padding_mask = actions == ackts2idxs[Actions.SEND_PADDING_UP]
@@ -57,7 +57,7 @@ def rollout(
     idxs = None
 
     T = 5
-    dt = 0.002
+    dt = 0.01
     t = 0.0
     buffer = PacketBuffer(dt)
 
@@ -112,7 +112,7 @@ def rollout(
 
     timings = np.concat(timings, axis=0).mean(axis=0)
 
-    print(timings / timings.sum())
+    # print(timings / timings.sum())
 
     log_ps = torch.cat(log_ps, dim=1)
     values = torch.cat(values, dim=1)
