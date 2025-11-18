@@ -12,7 +12,7 @@ from kipl_ml.trace.enums import Feats
 def get_reward(
     actions: torch.Tensor,
     ackts2idxs: dict[Actions, int],
-    Xobs: dict[Feats, torch.Tensor],
+    curXobs: dict[Feats, torch.Tensor],
     idxs: torch.Tensor,
     y: torch.Tensor,
     disc: nn.Module,
@@ -25,10 +25,7 @@ def get_reward(
         mask = actions != wait_idx
 
         if mask.any():
-            Xobs_ = {
-                f: v.gather(1, idxs[mask].unsqueeze(1) - 1) for f, v in Xobs.items()
-            }
-            logits, _ = disc(Xobs_, hdisc)
+            logits, _ = disc(curXobs, hdisc)
             probs = torch.nn.functional.softmax(logits, dim=-1).squeeze(1)
 
             # When discriminator is able to predict the correct label
@@ -36,11 +33,11 @@ def get_reward(
                 tp_cl_probs = probs.gather(1, y[mask].unsqueeze(1)).squeeze(1)
                 rewards[mask] -= tp_cl_probs
 
-        non_zero_buffer_mask = buffer.is_empty([Feats.UP_BUFFER, Feats.DOWN_BUFFER])
+        buffer_counts = buffer.bcounts()
 
         # When you delay the buffer
-        delay_mask = non_zero_buffer_mask & (actions == ackts2idxs[Actions.WAIT])
-        rewards[delay_mask] += -0.05
+        delay_mask = (buffer_counts != 0) & (actions == ackts2idxs[Actions.WAIT])
+        rewards[delay_mask] += -0.05 * buffer_counts[delay_mask]
 
         # When you send padding
         padding_mask = actions == ackts2idxs[Actions.SEND_PADDING_UP]
@@ -60,7 +57,7 @@ def rollout(
     idxs = None
 
     T = 5
-    dt = 0.01
+    dt = 0.002
     t = 0.0
     buffer = PacketBuffer(dt)
 
@@ -74,13 +71,10 @@ def rollout(
     values = []
     rewards = []
 
-    npackets = X[Feats.DIRS].shape[1]
-    NT = int(T // dt) + 1 + npackets
-
-    Xobs = {
-        Feats.DIRS: torch.zeros((bs, NT), device=device).float(),
-        Feats.TIMES: torch.zeros((bs, NT), device=device).float(),
-        Feats.PADDING: torch.zeros((bs, NT), device=device).bool(),
+    curXobs = {
+        Feats.DIRS: torch.zeros((bs, 1), device=device).float(),
+        Feats.TIMES: torch.zeros((bs, 1), device=device).float(),
+        Feats.PADDING: torch.zeros((bs, 1), device=device).bool(),
     }
 
     idx2ackts = obs.ACTIONS
@@ -93,9 +87,7 @@ def rollout(
         buffer.step(X)
         t1 = time.time()
 
-        buffer_d = buffer.buffer
-
-        actions_, log_ps_, values_, hobs = obs.act(buffer_d, hobs)
+        actions_, log_ps_, values_, hobs = obs.act(buffer.get_feats(), hobs)
         t2 = time.time()
 
         log_ps.append(log_ps_.unsqueeze(1))
@@ -103,10 +95,12 @@ def rollout(
         actions.append(actions_.unsqueeze(1))
         times.append(t)
 
-        Xobs, buffer, idxs = step_actions(actions_, idx2ackts, Xobs, buffer, t, idxs)
+        curXobs, buffer = step_actions(actions_, idx2ackts, curXobs, buffer, t)
         t3 = time.time()
 
-        rewards_ = get_reward(actions_, ackts2idxs, Xobs, idxs, y, disc, buffer, hdisc)
+        rewards_ = get_reward(
+            actions_, ackts2idxs, curXobs, idxs, y, disc, buffer, hdisc
+        )
         t4 = time.time()
         rewards.append(rewards_.unsqueeze(1))
 
@@ -124,4 +118,4 @@ def rollout(
     times = torch.tensor(times)
     rewards = torch.cat(rewards, dim=1)
 
-    return Xobs, log_ps, values, rewards, actions, times
+    return curXobs, log_ps, values, rewards, actions, times
