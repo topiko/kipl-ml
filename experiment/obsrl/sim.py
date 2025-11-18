@@ -82,6 +82,7 @@ def rollout(
     actions = []
     times = []
     timings = []
+    Xobs = []
     while t < T:
         t0 = time.time()
         buffer.step(X)
@@ -106,6 +107,7 @@ def rollout(
 
         t += dt
 
+        Xobs.append({k: v.clone() for k, v in curXobs.items()})
         timings.append([[t1 - t0, t2 - t1, t3 - t2, t4 - t3]])
 
     timings = np.concat(timings, axis=0).mean(axis=0)
@@ -118,4 +120,6 @@ def rollout(
     times = torch.tensor(times)
     rewards = torch.cat(rewards, dim=1)
 
-    return curXobs, log_ps, values, rewards, actions, times
+    Xobs = {k: torch.cat([x[k] for x in Xobs], dim=1) for k in Xobs[0].keys()}
+
+    return Xobs, log_ps, values, rewards, actions, times
