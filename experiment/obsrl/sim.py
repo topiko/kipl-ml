@@ -1,3 +1,6 @@
+import time
+
+import numpy as np
 import torch
 from torch import nn
 
@@ -80,24 +83,37 @@ def rollout(
     ackts2idxs = {a: i for i, a in enumerate(obs.ACTIONS)}
     actions = []
     times = []
-
+    timings = []
     while t < T:
+        t0 = time.time()
         buffer.step(X)
+        t1 = time.time()
+
         buffer_d = buffer.buffer
 
         actions_, log_ps_, values_, hobs = obs.act(buffer_d, hobs)
+        t2 = time.time()
+
         log_ps.append(log_ps_.unsqueeze(1))
         values.append(values_.unsqueeze(1))
         actions.append(actions_.unsqueeze(1))
         times.append(t)
 
         Xobs, buffer, idxs = step_actions(actions_, idx2ackts, Xobs, buffer, t, idxs)
+        t3 = time.time()
 
         rewards_ = get_reward(actions_, ackts2idxs, Xobs, idxs, y, disc, buffer, hdisc)
-
+        t4 = time.time()
         rewards.append(rewards_.unsqueeze(1))
 
         t += dt
+
+        timings.append([t1 - t0, t2 - t1, t3 - t2, t4 - t3])
+
+    timings = np.concat(timings, axis=0).mean(axis=0)
+
+    print(timings)
+    breakpoint()
 
     log_ps = torch.cat(log_ps, dim=1)
     values = torch.cat(values, dim=1)
