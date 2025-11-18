@@ -64,23 +64,47 @@ def step_actions(
 ) -> tuple[dict[Feats, torch.Tensor], PacketBuffer, torch.Tensor]:
     idxs = idxs if idxs is not None else torch.zeros_like(actions).long()
 
-    def _send_buffer(buffer, direction, action_mask):
-        buffer = buffer.squeeze(1)
-        mb = buffer.max().int().item()
-        for b in range(mb):
-            buffer_mask = buffer > b
-            mask = buffer_mask & action_mask
+    def _send_buffer(buffer_counts, direction, action_mask):
+        # buffer_counts: (B, 1) or (B,)
+        # action_mask: (B,) bool
+        # uses outer-scope Xobs, idxs, t
 
-            Xobs[Feats.DIRS][mask, idxs[mask]] = direction
-            Xobs[Feats.TIMES][mask, idxs[mask]] = t
-            idxs[mask] += 1
+        counts = buffer_counts.squeeze(1)  # (B,)
+        active_rows = torch.nonzero(action_mask, as_tuple=False).squeeze(1)  # (R,)
+        if active_rows.numel() == 0:
+            return
 
-        # buffer[action_mask] = 0
+        counts = counts[active_rows].long()  # (R,)
+        total_count = counts.sum()
+        if total_count == 0:
+            return
+
+        max_c = counts.max()  # still on device
+
+        # shape: (max_c,)
+        arange = torch.arange(max_c, device=counts.device)
+        # (1, max_c) < (R, 1) -> (R, max_c)
+        valid = arange.unsqueeze(0) < counts.unsqueeze(1)
+
+        # row indices
+        # (R, 1) -> (R, max_c)[valid] -> (total, )
+        row_idx = active_rows.unsqueeze(1).expand(-1, max_c)[valid]  # (total,)
+
+        # col indices: start at idxs[row] and go up
+        # (R, 1)
+        start = idxs[active_rows].unsqueeze(1)
+        # (R, 1) + (1, max_c) -> (R, max_c)[valid] -> (total, )
+        col_idx = (start + arange.unsqueeze(0))[valid]
+
+        Xobs[Feats.DIRS][row_idx, col_idx] = direction
+        Xobs[Feats.TIMES][row_idx, col_idx] = t
+
+        # bump idxs by how many entries we filled per row
+        idxs[active_rows] += counts
 
     for a in actions.unique():
         mask = actions == a
-        a = idx2ackts[a.item()]
-
+        a = idx2ackts[a]
         match a:
             case Actions.SEND_PADDING_DOWN | Actions.SEND_PADDING_UP:
                 Xobs[Feats.DIRS][mask, idxs[mask]] = (

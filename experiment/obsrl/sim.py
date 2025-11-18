@@ -20,17 +20,21 @@ def get_reward(
     hdisc: torch.Tensor | None,
 ) -> torch.Tensor:
     rewards = torch.zeros(actions.shape[0], device=actions.device)
+    wait_idx = ackts2idxs[Actions.WAIT]
     with torch.no_grad():
-        mask = actions != ackts2idxs[Actions.WAIT]
+        mask = actions != wait_idx
 
-        Xobs_ = {f: v.gather(1, idxs[mask].unsqueeze(1) - 1) for f, v in Xobs.items()}
-        logits, _ = disc(Xobs_, hdisc)
-        probs = torch.nn.functional.softmax(logits, dim=-1).squeeze(1)
+        if mask.any():
+            Xobs_ = {
+                f: v.gather(1, idxs[mask].unsqueeze(1) - 1) for f, v in Xobs.items()
+            }
+            logits, _ = disc(Xobs_, hdisc)
+            probs = torch.nn.functional.softmax(logits, dim=-1).squeeze(1)
 
-        # When discriminator is able to predict the correct label
-        if mask.sum() > 0:
-            tp_cl_probs = probs.gather(1, y[mask].unsqueeze(1)).squeeze(1)
-            rewards[mask] -= tp_cl_probs
+            # When discriminator is able to predict the correct label
+            if mask.sum() > 0:
+                tp_cl_probs = probs.gather(1, y[mask].unsqueeze(1)).squeeze(1)
+                rewards[mask] -= tp_cl_probs
 
         non_zero_buffer_mask = buffer.is_empty([Feats.UP_BUFFER, Feats.DOWN_BUFFER])
 
@@ -55,7 +59,7 @@ def rollout(
     hdisc = None
     idxs = None
 
-    T = 1
+    T = 5
     dt = 0.01
     t = 0.0
     buffer = PacketBuffer(dt)
@@ -80,7 +84,7 @@ def rollout(
     }
 
     idx2ackts = obs.ACTIONS
-    ackts2idxs = {a: i for i, a in enumerate(obs.ACTIONS)}
+    ackts2idxs = {a.item(): i for i, a in enumerate(obs.ACTIONS)}
     actions = []
     times = []
     timings = []
@@ -108,12 +112,11 @@ def rollout(
 
         t += dt
 
-        timings.append([t1 - t0, t2 - t1, t3 - t2, t4 - t3])
+        timings.append([[t1 - t0, t2 - t1, t3 - t2, t4 - t3]])
 
     timings = np.concat(timings, axis=0).mean(axis=0)
 
-    print(timings)
-    breakpoint()
+    print(timings / timings.sum())
 
     log_ps = torch.cat(log_ps, dim=1)
     values = torch.cat(values, dim=1)

@@ -482,12 +482,14 @@ class ANTINCLF1(nn.Module):
 
 class AGENT1(nn.Module):
     name: str = "agent"
-    ACTIONS = [
-        Actions.WAIT,
-        Actions.SEND_BUFFER,
-        Actions.SEND_PADDING_UP,
-        Actions.SEND_PADDING_DOWN,
-    ]
+    ACTIONS = torch.Tensor(
+        [
+            Actions.WAIT,
+            Actions.SEND_BUFFER,
+            Actions.SEND_PADDING_UP,
+            Actions.SEND_PADDING_DOWN,
+        ]
+    ).int()
 
     def __init__(
         self,
