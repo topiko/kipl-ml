@@ -48,7 +48,7 @@ def _plot_probs(
     ax2.plot(x, max_p, "-", lw=0.5)
 
     ax3 = ax.twinx()
-    ax3.spines["right"].set_position(("outward", 60))  # offset by 60 points
+    ax3.spines["right"].set_position(("outward", 40))  # offset by 40 points
 
     preds = cl_probs.argmax(axis=1)
     ax3.plot(x, preds, color="black", lw=1)
@@ -93,8 +93,39 @@ def plot_trace(
 
     ax = ax or plt.subplots(figsize=(12, 3))[1]
 
+    info_d = {
+        "nup": (dirs == 1).sum(),
+        "ndown": (dirs == -1).sum(),
+        "maxt": f"{times.max():.02f}",
+    }
+
+    colors = np.empty_like(dirs, dtype=object)
+    colors[dirs == 1] = "blue"
+    colors[dirs == -1] = "red"
+    if Feats.PADDING in trace_dict:
+        pad = _squeeze_batched(trace_dict[Feats.PADDING], idx)
+        colors[pad] = "black"
+
+        info_d["pad nup"] = (pad & (dirs == 1)).sum()
+        info_d["pad ndown"] = (pad & (dirs == -1)).sum()
+        dirs[pad] *= 0.7
+
     ax.vlines(
-        times, 0, dirs, colors=["red" if d < 0 else "blue" for d in dirs], alpha=0.5
+        times,
+        0,
+        dirs,
+        colors=colors,
+        alpha=1,
+        lw=0.5,
+    )
+
+    ax.text(
+        0.98,
+        0.99,
+        "\n".join([f"{k} : {v}" for k, v in info_d.items()]),
+        transform=ax.transAxes,
+        va="top",
+        ha="right",
     )
 
     if cl_probs is not None:

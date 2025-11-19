@@ -43,8 +43,8 @@ def _append_to_buffer(
 
 class PacketBuffer:
     def __init__(self, dt: float):
-        self.t = 0.0
         self.dt = dt
+        self.t = -dt  # After first update self.t = 0
         self._buffer: torch.Tensor | None = None
         self.blen: int = 1000
 
@@ -54,6 +54,8 @@ class PacketBuffer:
 
     def step(self, X: dict[Feats, torch.Tensor]):
         times = X[Feats.TIMES]
+        self.t += self.dt
+
         mask = (self.t <= times) & (times < self.t + self.dt)
 
         up = (mask & (X[Feats.DIRS] == UPLOAD)).sum(dim=1).float()
@@ -67,12 +69,8 @@ class PacketBuffer:
         self._buffer[..., 0] = _append_to_buffer(self._buffer[..., 0], up, UPLOAD)
         self._buffer[..., 0] = _append_to_buffer(self._buffer[..., 0], down, DOWNLOAD)
         self._buffer[..., 1] = _append_to_buffer(
-            self._buffer[..., 1],
-            (up.unsqueeze(1) + down.unsqueeze(1)).sum(dim=1),
-            self.t,
+            self._buffer[..., 1], up + down, self.t
         )
-
-        self.t += self.dt
 
     def reset(self, mask: torch.Tensor, feat: Feats):
         self._buffer[feat][mask] = 0
@@ -87,10 +85,17 @@ class PacketBuffer:
 
         return dirs
 
+    @property
     def bcounts(self) -> torch.Tensor:
         return (self.buffer[..., 0] != 0).sum(dim=1)
 
-    def get_feats(self) -> dict[Feats, torch.Tensor]:
+    @property
+    def btimes(self) -> torch.Tensor:
+        t = torch.where(self.buffer[..., 1] != 0, -(self.buffer[..., 1] - self.t), 0)
+        return t.max(dim=1)[0]
+
+    @property
+    def feature_dict(self) -> dict[Feats, torch.Tensor]:
         return {
             Feats.UP_BUFFER: (self.buffer[..., 0] == UPLOAD).sum(dim=1, keepdim=True),
             Feats.DOWN_BUFFER: (self.buffer[..., 0] == DOWNLOAD).sum(
@@ -117,16 +122,16 @@ def step_actions(
                     DOWNLOAD if action_ == Actions.SEND_PADDING_DOWN else UPLOAD
                 )
                 curXobs[Feats.PADDING][mask] = True
-                curXobs[Feats.TIMES][mask] = t
             case Actions.SEND_BUFFER:
                 curXobs[Feats.DIRS][mask] = buffer.pop_oldest(mask).unsqueeze(1)
                 curXobs[Feats.PADDING][mask] = False
-                curXobs[Feats.TIMES][mask] = t
             case Actions.WAIT:
-                pass
+                curXobs[Feats.DIRS][mask] = 0
+                curXobs[Feats.PADDING][mask] = False
             case _:
-                raise ValueError(f"Unknown action: {a}")
+                raise ValueError(f"Unknown action: {action_}")
 
+    curXobs[Feats.TIMES][...] = t
     return curXobs, buffer
 
 

@@ -59,7 +59,7 @@ def _plot_set(
 
     idxs = rng.integers(0, len(ds), size=ntraces)
 
-    fig, axarr = plt.subplots(ntraces, 2, figsize=(10, ntraces * 3), sharex=True)
+    fig, axarr = plt.subplots(ntraces, 2, figsize=(20, ntraces * 3), sharex=True)
 
     def _unsqueeze(X: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         return {k: v.unsqueeze(0) for k, v in X.items()}
@@ -86,11 +86,11 @@ def _plot_set(
         Xobs = rollout(obs, clf, _unsqueeze(X), y)[0]
         Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
 
-        mask = Xobs[Feats.TIMES] == 0
-        mask[0] = False
+        mask = Xobs[Feats.DIRS] != 0
         if mask.any():
-            Xobs[Feats.TIMES] = Xobs[Feats.TIMES][~mask]
-            Xobs[Feats.DIRS] = Xobs[Feats.DIRS][~mask]
+            Xobs[Feats.TIMES] = Xobs[Feats.TIMES][mask]
+            Xobs[Feats.DIRS] = Xobs[Feats.DIRS][mask]
+            Xobs[Feats.PADDING] = Xobs[Feats.PADDING][mask]
         plot_trace(
             Xobs,
             ax=axrow[1],
@@ -140,6 +140,7 @@ def main(cfg: DictConfig):
     optim = torch.optim.Adam(obs.parameters(), lr=0.001)
 
     e = 0
+    dt = 0.01
     i = 0
     with mlflow.start_run():
         while True:
@@ -153,15 +154,17 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
-                    _, log_ps, values, rewards = rollout(obs, discriminator, X, y)[:4]
+                    _, log_ps, values, rewards = rollout(obs, discriminator, X, y, dt)[
+                        :4
+                    ]
 
                     G = returns(rewards, gamma=0.99)
 
                     advantages = G - values
-                    # Compute losses
 
+                    # Compute losses
                     policy_loss = -(log_ps * advantages.detach()).mean()
-                    value_loss = 0.5 * (values - G).pow(2).mean()
+                    value_loss = 0.5 * (values - G).pow(2).sqrt().mean()
 
                     loss = policy_loss + value_loss
 
@@ -177,11 +180,16 @@ def main(cfg: DictConfig):
 
                     pbar.set_postfix(losses)
 
-                    mlflow.log_metrics(losses, step=i)
+                    if (i > 10) or (e > 0):
+                        mlflow.log_metrics(losses, step=i)
+
+                    if i % 100 == 0:
+                        _plot_set(ds_valid, obs, discriminator, i, device)
+                        mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
+                        dt /= 2
+
                     i += 1
 
-                    if (i - 1) % 10 == 0:
-                        _plot_set(ds_valid, obs, discriminator, i, device)
             e += 1
 
 

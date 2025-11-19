@@ -9,56 +9,87 @@ from kipl_ml.rl.utils import PacketBuffer, step_actions
 from kipl_ml.trace.enums import Feats
 
 
+def _hidden_w_mask(
+    h: tuple[torch.Tensor, ...],
+    mask: torch.Tensor,
+    hmasked: tuple[torch.Tensor, ...] | None = None,
+) -> tuple[torch.Tensor, ...]:
+    if hmasked is None:
+        return tuple(h_[:, mask] for h_ in h)
+
+    for i, h_ in enumerate(h):
+        h_[:, mask] = hmasked[i]
+
+    return h
+
+
 def get_reward(
     actions: torch.Tensor,
     ackts2idxs: dict[Actions, int],
     curXobs: dict[Feats, torch.Tensor],
-    idxs: torch.Tensor,
     y: torch.Tensor,
     disc: nn.Module,
     buffer: PacketBuffer,
-    hdisc: torch.Tensor | None,
+    hdisc: tuple[torch.Tensor, ...],
+    sc: float = 1.0,
 ) -> torch.Tensor:
     rewards = torch.zeros(actions.shape[0], device=actions.device)
-    wait_idx = ackts2idxs[Actions.WAIT]
+    buffer_counts = buffer.bcounts
+    buffer_times = buffer.btimes
     with torch.no_grad():
-        mask = actions != wait_idx
+        is_waiting = actions == ackts2idxs[Actions.WAIT]
+        has_action = ~is_waiting  # has_action.sum() = A
+        has_buffer = buffer_counts != 0
+        sends_padding = (actions == ackts2idxs[Actions.SEND_PADDING_DOWN]) | (
+            actions == ackts2idxs[Actions.SEND_PADDING_UP]
+        )
 
-        if mask.any():
-            logits, _ = disc(curXobs, hdisc)
+        if has_action.any():
+            hdisc_ = _hidden_w_mask(hdisc, has_action)
+            curXnotwaiting = {k: v[has_action] for k, v in curXobs.items()}
+            logits, hdisc_ = disc(curXnotwaiting, hdisc_)
+
+            hdisc = _hidden_w_mask(hdisc, has_action, hdisc_)
+
+            # (A, n_actions)
             probs = torch.nn.functional.softmax(logits, dim=-1).squeeze(1)
 
-            # When discriminator is able to predict the correct label
-            if mask.sum() > 0:
-                tp_cl_probs = probs.gather(1, y[mask].unsqueeze(1)).squeeze(1)
-                rewards[mask] -= tp_cl_probs
+            # Punish for discriminator high prop:
 
-        buffer_counts = buffer.bcounts()
+            # (A, )
+            cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
 
-        # When you delay the buffer
-        delay_mask = (buffer_counts != 0) & (actions == ackts2idxs[Actions.WAIT])
-        rewards[delay_mask] += -0.001 * buffer_counts[delay_mask]
+            # High correct cl prob --> small reward
+            rewards[has_action] += (1 - cl_probs) * sc
+        else:
+            # When you delay the buffer
+            delayed_buffer_mask = has_buffer & is_waiting
+            rewards[delayed_buffer_mask] -= (
+                10.0
+                * sc
+                * buffer_times[delayed_buffer_mask]
+                * buffer_counts[delayed_buffer_mask]
+            )
 
-        # When you send padding
-        padding_mask = actions == ackts2idxs[Actions.SEND_PADDING_UP]
-        rewards[padding_mask] += -0.1
+        # When you send padding while having buffer
+        rewards[sends_padding & has_buffer] -= 10 * sc
 
-        padding_mask = actions == ackts2idxs[Actions.SEND_PADDING_DOWN]
-        rewards[padding_mask] += -0.1
+        # When you send padding w. empty buffer
+        rewards[sends_padding & ~has_buffer] -= 1 * sc
 
-    return rewards
+    return rewards, hdisc
 
 
 def rollout(
-    obs: nn.Module, disc: nn.Module, X: dict[Feats, torch.Tensor], y: torch.Tensor
+    obs: nn.Module,
+    disc: nn.Module,
+    X: dict[Feats, torch.Tensor],
+    y: torch.Tensor,
+    dt: float = 0.01,
 ) -> tuple[dict[Feats, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor]:
     hobs = None
-    hdisc = None
-    idxs = None
 
-    T = 5
-    dt = 0.01
-    t = 0.0
+    T = 20
     buffer = PacketBuffer(dt)
 
     if set(X.keys()) != {Feats.TIMES, Feats.DIRS}:
@@ -77,37 +108,45 @@ def rollout(
         Feats.PADDING: torch.zeros((bs, 1), device=device).bool(),
     }
 
+    # Dummy run to get init hdisc...
+    _, hdisc = disc(curXobs, None)
+
     idx2ackts = obs.ACTIONS
     ackts2idxs = {a.item(): i for i, a in enumerate(obs.ACTIONS)}
+    packet_counts = torch.zeros_like(curXobs[Feats.DIRS])
     actions = []
     times = []
     timings = []
     Xobs = []
-    while t < T:
+    while buffer.t < T:
         t0 = time.time()
         buffer.step(X)
         t1 = time.time()
 
-        actions_, log_ps_, values_, hobs = obs.act(buffer.get_feats(), hobs)
+        actions_, log_ps_, values_, hobs = obs.act(buffer.feature_dict, hobs)
         t2 = time.time()
 
         log_ps.append(log_ps_.unsqueeze(1))
         values.append(values_.unsqueeze(1))
         actions.append(actions_.unsqueeze(1))
-        times.append(t)
+        times.append(buffer.t)
 
-        curXobs, buffer = step_actions(actions_, idx2ackts, curXobs, buffer, t)
+        curXobs, buffer = step_actions(actions_, idx2ackts, curXobs, buffer, buffer.t)
         t3 = time.time()
 
-        rewards_ = get_reward(
-            actions_, ackts2idxs, curXobs, idxs, y, disc, buffer, hdisc
+        rewards_, hdisc = get_reward(
+            actions_, ackts2idxs, curXobs, y, disc, buffer, hdisc
         )
+
+        Xobs.append({k: v.clone() for k, v in curXobs.items()})
+
+        packet_counts += ((curXobs[Feats.DIRS] == 1) & ~curXobs[Feats.PADDING]).squeeze(
+            0
+        )
+
         t4 = time.time()
         rewards.append(rewards_.unsqueeze(1))
 
-        t += dt
-
-        Xobs.append({k: v.clone() for k, v in curXobs.items()})
         timings.append([[t1 - t0, t2 - t1, t3 - t2, t4 - t3]])
 
     timings = np.concat(timings, axis=0).mean(axis=0)
@@ -121,5 +160,17 @@ def rollout(
     rewards = torch.cat(rewards, dim=1)
 
     Xobs = {k: torch.cat([x[k] for x in Xobs], dim=1) for k in Xobs[0].keys()}
+
+    if not (
+        ((Xobs[Feats.DIRS] == 1) & ~Xobs[Feats.PADDING]).sum(dim=1)
+        == packet_counts.squeeze()
+    ).all():
+        breakpoint()
+
+    nmissing = (X[Feats.DIRS] == 1).sum(dim=1) - packet_counts.squeeze(1)
+
+    if (nmissing < 0).any():
+        print(nmissing)
+        breakpoint()
 
     return Xobs, log_ps, values, rewards, actions, times
