@@ -131,7 +131,7 @@ def main(cfg: DictConfig):
         **defence_builder.get_defence(cfg),
     )
 
-    dl_train = dl_(ds_train, bs=32, collate_fn=None, shuffle=True)
+    dl_train = dl_(ds_train, bs=8, collate_fn=None, shuffle=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     obs = AGENT1().to(device)

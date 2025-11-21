@@ -1,8 +1,11 @@
 import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
+from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.enums import Actions
 from kipl_ml.trace.enums import Feats
+
+logger = get_logger(__name__)
 
 
 def _append_to_buffer(
@@ -38,6 +41,32 @@ def _append_to_buffer(
     write_mask = (col_grid >= start_grid) & (col_grid < end_grid)  # (B, M) bool
 
     buffer[write_mask] = val
+    return buffer
+
+
+def _append_values(buffer: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
+    if buffer.shape[0] != values.shape[0]:
+        raise ValueError("Batch size of buffer and values must match")
+
+    B = buffer.shape[0]
+
+    # (B, )
+    start_idxs = (buffer != 0).sum(dim=1)
+
+    if ((start_idxs + values.shape[1]) > buffer.shape[1]).any():
+        raise ValueError("Not enough space in buffer to append values")
+
+    M = values.shape[1]
+    # (B, M) column indices
+    col_idxs = torch.arange(M, device=buffer.device).unsqueeze(0).expand(
+        B, -1
+    ) + start_idxs.unsqueeze(1)
+
+    # (B, M) row indices
+    row_idxs = torch.arange(B, device=buffer.device).unsqueeze(1).expand(-1, M)
+
+    buffer[row_idxs, col_idxs] = values
+
     return buffer
 
 
@@ -78,10 +107,10 @@ class PacketBuffer:
     def is_empty(self) -> torch.Tensor:
         return self.buffer[..., 0].sum(dim=1) == 0
 
-    def pop_oldest(self, mask: torch.Tensor) -> torch.Tensor:
-        dirs = self.buffer[mask, 0, 0].clone()
-        self.buffer[mask] = self.buffer[mask].roll(-1, dims=1)
-        self.buffer[mask, -1, :] = 0
+    def pop_oldest(self, mask: torch.Tensor, count: int = 1) -> torch.Tensor:
+        dirs = self.buffer[mask, :count, 0].clone()
+        self.buffer[mask] = self.buffer[mask].roll(-count, dims=1)
+        self.buffer[mask, -count:, :] = 0
 
         return dirs
 
@@ -106,32 +135,90 @@ class PacketBuffer:
         }
 
 
+class TraceObservation:
+    def __init__(self, B: int, L: int):
+        self.L = L
+        self.X = torch.zeros((B, L, 3))  # dirs, times, padding
+
+    @property
+    def times(self) -> torch.Tensor:
+        return self.X[..., 1]
+
+    @property
+    def dirs(self) -> torch.Tensor:
+        return self.X[..., 0]
+
+    @property
+    def is_waiting(self) -> torch.Tensor:
+        return self.X[:, 0, 0] == 0
+
+    def pop_oldest(self) -> tuple[dict[Feats, torch.Tensor], torch.Tensor]:
+        # (B, 1)
+        dirs_ = self.X[:, 0, 0].clone()
+        times_ = self.X[:, 0, 1].clone()
+        padding_ = self.X[:, 0, 2].clone()
+
+        self.X = self.X.roll(-1, dims=1)
+        self.X[:, -1, :] = 0
+
+        # (B, 1) -> (B,)
+        mask = dirs_ == 0
+
+        # (B, 1)
+        obs = {
+            Feats.DIRS: dirs_.unsqueeze(1),
+            Feats.TIMES: times_.unsqueeze(1),
+            Feats.PADDING: padding_.unsqueeze(1),
+        }
+        return obs, mask
+
+    def reset(self):
+        if (self.X != 0).any():
+            logger.warning("Resetting non-empty TraceObservation")
+        self.X[...] = 0
+
+
 def step_actions(
     actions: torch.Tensor,
-    idx2ackts: dict[int, Actions],
-    curXobs: dict[Feats, torch.Tensor],
+    idx2ackts: dict[int, tuple[Actions, int]],
+    curXobs: TraceObservation,
     buffer: PacketBuffer,
     t: float,
-) -> tuple[dict[Feats, torch.Tensor], PacketBuffer]:
+) -> tuple[TraceObservation, PacketBuffer]:
     for action in actions.unique():
         mask = actions == action
-        action_ = idx2ackts[action]
+        action_, count = idx2ackts[action]
+        counts = torch.zeros_like(mask, dtype=torch.int)
+        counts[mask] = count
         match action_:
             case Actions.SEND_PADDING_DOWN | Actions.SEND_PADDING_UP:
-                curXobs[Feats.DIRS][mask] = (
-                    DOWNLOAD if action_ == Actions.SEND_PADDING_DOWN else UPLOAD
+                val = DOWNLOAD if action_ == Actions.SEND_PADDING_DOWN else UPLOAD
+
+                curXobs.X[mask, :, 0] = _append_to_buffer(
+                    curXobs.X[mask, :, 0], counts[mask], val
                 )
-                curXobs[Feats.PADDING][mask] = True
+                curXobs.X[mask, :, 1] = _append_to_buffer(
+                    curXobs.X[mask, :, 1], counts[mask], t
+                )
+                curXobs.X[mask, :, 2] = _append_to_buffer(
+                    curXobs.X[mask, :, 2], counts[mask], 1
+                )
             case Actions.SEND_BUFFER:
-                curXobs[Feats.DIRS][mask] = buffer.pop_oldest(mask).unsqueeze(1)
-                curXobs[Feats.PADDING][mask] = False
+                send = buffer.pop_oldest(mask, count)
+                curXobs.X[mask, :, 0] = _append_values(curXobs.X[mask, :, 0], send)
+
+                counts_ = (send != 0).sum(dim=1)
+                curXobs.X[mask, :, 1] = _append_to_buffer(
+                    curXobs.X[mask, :, 1], counts_, t
+                )
+                curXobs.X[mask, :, 2] = _append_to_buffer(
+                    curXobs.X[mask, :, 2], counts_, 2
+                )
             case Actions.WAIT:
-                curXobs[Feats.DIRS][mask] = 0
-                curXobs[Feats.PADDING][mask] = False
+                pass
             case _:
                 raise ValueError(f"Unknown action: {action_}")
 
-    curXobs[Feats.TIMES][...] = t
     return curXobs, buffer
 
 

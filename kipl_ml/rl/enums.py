@@ -1,8 +1,10 @@
-from enum import IntEnum
+from enum import StrEnum
 
 
-class Actions(IntEnum):
-    WAIT = 0
-    SEND_BUFFER = 1
-    SEND_PADDING_UP = 2
-    SEND_PADDING_DOWN = 3
+class Actions(StrEnum):
+    WAIT = "wait"
+    SEND_BUFFER = "send_from_buffer"
+    SEND_PADDING_UP = "send_padding_up"
+    SEND_PADDING_DOWN = "send_padding_down"
+
+    COUNT = "count_to_send"

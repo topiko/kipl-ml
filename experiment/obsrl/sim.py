@@ -4,8 +4,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from kipl_ml.rl.enums import Actions
-from kipl_ml.rl.utils import PacketBuffer, step_actions
+from kipl_ml.rl.utils import PacketBuffer, TraceObservation, step_actions
 from kipl_ml.trace.enums import Feats
 
 
@@ -25,8 +24,7 @@ def _hidden_w_mask(
 
 def get_reward(
     actions: torch.Tensor,
-    ackts2idxs: dict[Actions, int],
-    curXobs: dict[Feats, torch.Tensor],
+    curXobs: TraceObservation,
     y: torch.Tensor,
     disc: nn.Module,
     buffer: PacketBuffer,
@@ -37,45 +35,45 @@ def get_reward(
     buffer_counts = buffer.bcounts
     buffer_times = buffer.btimes
     with torch.no_grad():
-        is_waiting = actions == ackts2idxs[Actions.WAIT]
-        has_action = ~is_waiting  # has_action.sum() = A
-        has_buffer = buffer_counts != 0
-        sends_padding = (actions == ackts2idxs[Actions.SEND_PADDING_DOWN]) | (
-            actions == ackts2idxs[Actions.SEND_PADDING_UP]
-        )
+        while not curXobs.is_waiting.all():
+            obs, is_waiting = curXobs.pop_oldest()
 
-        if has_action.any():
-            hdisc_ = _hidden_w_mask(hdisc, has_action)
-            curXnotwaiting = {k: v[has_action] for k, v in curXobs.items()}
-            logits, hdisc_ = disc(curXnotwaiting, hdisc_)
+            has_action = ~is_waiting  # has_action.sum() = A
+            has_buffer = buffer.bcounts != 0
+            sends_padding = obs[Feats.PADDING].squeeze(1).bool()
 
-            hdisc = _hidden_w_mask(hdisc, has_action, hdisc_)
+            if has_action.any():
+                hdisc_ = _hidden_w_mask(hdisc, has_action)
+                curXnotwaiting = {k: v[has_action] for k, v in obs.items()}
+                logits, hdisc_ = disc(curXnotwaiting, hdisc_)
 
-            # (A, n_actions)
-            probs = torch.nn.functional.softmax(logits, dim=-1).squeeze(1)
+                hdisc = _hidden_w_mask(hdisc, has_action, hdisc_)
 
-            # Punish for discriminator high prop:
+                # (A, n_actions)
+                probs = torch.nn.functional.softmax(logits, dim=-1).squeeze(1)
 
-            # (A, )
-            cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
+                # Punish for discriminator high prop:
 
-            # High correct cl prob --> small reward
-            rewards[has_action] += (1 - cl_probs) * sc
-        else:
-            # When you delay the buffer
-            delayed_buffer_mask = has_buffer & is_waiting
-            rewards[delayed_buffer_mask] -= (
-                10.0
-                * sc
-                * buffer_times[delayed_buffer_mask]
-                * buffer_counts[delayed_buffer_mask]
-            )
+                # (A, )
+                cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
 
-        # When you send padding while having buffer
-        rewards[sends_padding & has_buffer] -= 10 * sc
+                # High correct cl prob --> small reward
+                rewards[has_action] += (1 - cl_probs) * sc
+            else:
+                # When you delay the buffer
+                delayed_buffer_mask = has_buffer & is_waiting
+                rewards[delayed_buffer_mask] -= (
+                    10.0
+                    * sc
+                    * buffer_times[delayed_buffer_mask]
+                    * buffer_counts[delayed_buffer_mask]
+                )
 
-        # When you send padding w. empty buffer
-        rewards[sends_padding & ~has_buffer] -= 1 * sc
+            # When you send padding while having buffer
+            rewards[sends_padding & has_buffer] -= 10 * sc
+
+            # When you send padding w. empty buffer
+            rewards[sends_padding & ~has_buffer] -= 1 * sc
 
     return rewards, hdisc
 
@@ -89,7 +87,7 @@ def rollout(
 ) -> tuple[dict[Feats, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor]:
     hobs = None
 
-    T = 20
+    T = 1
     buffer = PacketBuffer(dt)
 
     if set(X.keys()) != {Feats.TIMES, Feats.DIRS}:
@@ -102,22 +100,17 @@ def rollout(
     values = []
     rewards = []
 
-    curXobs = {
-        Feats.DIRS: torch.zeros((bs, 1), device=device).float(),
-        Feats.TIMES: torch.zeros((bs, 1), device=device).float(),
-        Feats.PADDING: torch.zeros((bs, 1), device=device).bool(),
-    }
+    curXobs = TraceObservation(B=bs, L=100)
 
     # Dummy run to get init hdisc...
-    _, hdisc = disc(curXobs, None)
+    _, hdisc = disc(curXobs.pop_oldest()[0], None)
 
-    idx2ackts = obs.ACTIONS
-    ackts2idxs = {a.item(): i for i, a in enumerate(obs.ACTIONS)}
-    packet_counts = torch.zeros_like(curXobs[Feats.DIRS])
+    idx2ackts = obs.action_map
+    packet_counts = torch.zeros(bs, device=device)
     actions = []
     times = []
     timings = []
-    Xobs = []
+    Xobs_l = []
     while buffer.t < T:
         t0 = time.time()
         buffer.step(X)
@@ -134,20 +127,18 @@ def rollout(
         curXobs, buffer = step_actions(actions_, idx2ackts, curXobs, buffer, buffer.t)
         t3 = time.time()
 
-        rewards_, hdisc = get_reward(
-            actions_, ackts2idxs, curXobs, y, disc, buffer, hdisc
+        Xobs_l.append(curXobs.X.clone())
+        packet_counts += ((curXobs.X[..., 0] == 1) & (curXobs.X[..., 2] == 2)).sum(
+            dim=1
         )
-
-        Xobs.append({k: v.clone() for k, v in curXobs.items()})
-
-        packet_counts += ((curXobs[Feats.DIRS] == 1) & ~curXobs[Feats.PADDING]).squeeze(
-            0
-        )
-
         t4 = time.time()
+
+        rewards_, hdisc = get_reward(actions_, curXobs, y, disc, buffer, hdisc)
+
+        t5 = time.time()
         rewards.append(rewards_.unsqueeze(1))
 
-        timings.append([[t1 - t0, t2 - t1, t3 - t2, t4 - t3]])
+        timings.append([[t1 - t0, t2 - t1, t3 - t2, t4 - t3, t5 - t4]])
 
     timings = np.concat(timings, axis=0).mean(axis=0)
 
@@ -159,18 +150,39 @@ def rollout(
     times = torch.tensor(times)
     rewards = torch.cat(rewards, dim=1)
 
-    Xobs = {k: torch.cat([x[k] for x in Xobs], dim=1) for k in Xobs[0].keys()}
+    # Append the observations:
+    Xobs = torch.cat(Xobs_l, dim=1)
+
+    Lmax = Xobs[..., 0].ne(0).sum(dim=1).max()
+
+    Xobsd = {}
+    for f, i in zip((Feats.DIRS, Feats.TIMES, Feats.PADDING), range(3)):
+        mask = Xobs[..., i] != 0
+        lens = mask.sum(dim=1)
+
+        idxs = torch.arange(Lmax, device=device).unsqueeze(0).expand(bs, -1)
+
+        new_mask = idxs < lens.unsqueeze(1)
+
+        # (B, Lmax, 3)
+        Xobs_ = torch.zeros((bs, Lmax), device=device)
+        Xobs_[new_mask] = Xobs[mask, i]
+
+        Xobsd[f] = Xobs_
+
+    Xobsd[Feats.PADDING] = Xobsd[Feats.PADDING] == 1
 
     if not (
-        ((Xobs[Feats.DIRS] == 1) & ~Xobs[Feats.PADDING]).sum(dim=1)
-        == packet_counts.squeeze()
+        ((Xobsd[Feats.DIRS] == 1) & (~Xobsd[Feats.PADDING])).sum(dim=1) == packet_counts
     ).all():
+        print(((Xobsd[Feats.DIRS] == 1) & (~Xobsd[Feats.PADDING])).sum(dim=1))
+        print(packet_counts)
         breakpoint()
 
-    nmissing = (X[Feats.DIRS] == 1).sum(dim=1) - packet_counts.squeeze(1)
+    nmissing = (X[Feats.DIRS] == 1).sum(dim=1) - packet_counts
 
     if (nmissing < 0).any():
         print(nmissing)
         breakpoint()
 
-    return Xobs, log_ps, values, rewards, actions, times
+    return Xobsd, log_ps, values, rewards, actions, times

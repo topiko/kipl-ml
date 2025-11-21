@@ -482,14 +482,12 @@ class ANTINCLF1(nn.Module):
 
 class AGENT1(nn.Module):
     name: str = "agent"
-    ACTIONS = torch.Tensor(
-        [
-            Actions.WAIT,
-            Actions.SEND_BUFFER,
-            Actions.SEND_PADDING_UP,
-            Actions.SEND_PADDING_DOWN,
-        ]
-    ).int()
+    ACTIONS = (
+        Actions.WAIT,
+        Actions.SEND_BUFFER,
+        Actions.SEND_PADDING_UP,
+        Actions.SEND_PADDING_DOWN,
+    )
 
     def __init__(
         self,
@@ -497,6 +495,7 @@ class AGENT1(nn.Module):
         nlayers: int = 3,
         dropout: float = 0.2,
         zero_init: bool = False,
+        send_counts: list[int] | None = None,
     ):
         super().__init__()
 
@@ -505,10 +504,29 @@ class AGENT1(nn.Module):
         self.num_layers = nlayers
         self.hidden_size = hsize
         self.zero_init = zero_init
+        self.counts = send_counts or [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]
+        self.ncounts = len(self.counts)
         nfeat = len(self.features)
+
+        # Mapping from idx to (action, count)
+        self._action_map = [(Actions.WAIT, 1)]
+        self._action_map += [(Actions.SEND_BUFFER, count) for count in self.counts]
+        self._action_map += [(Actions.SEND_PADDING_UP, count) for count in self.counts]
+        self._action_map += [
+            (Actions.SEND_PADDING_DOWN, count) for count in self.counts
+        ]
+
         self.rnn = nn.LSTM(nfeat, hsize, nlayers, batch_first=True, dropout=dropout)
 
-        self.actor = nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, self.nactions))
+        self.actor: dict[str, nn.Module] = {}
+
+        self.actor["action_selection"] = nn.Sequential(
+            nn.Dropout(dropout), nn.Linear(hsize, self.nactions)
+        )
+        self.actor["count_selection"] = nn.Sequential(
+            nn.Dropout(dropout), nn.Linear(hsize, self.ncounts)
+        )
+
         self.critic = nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, 1))
 
     def _get_init_h(
@@ -542,12 +560,37 @@ class AGENT1(nn.Module):
         output, h = self.rnn(inputs, h)
 
         # (N, L, nactions)
-        action_logits = self.actor(output)
+        action_type = self.actor["action_selection"](output)
+
+        # (N, L, ncounts)
+        action_count = self.actor["count_selection"](output)
+
+        # Combine action type and count into final action logits
+        action_logits = torch.zeros(
+            (
+                action_type.shape[0],
+                action_type.shape[1],
+                (self.nactions - 1) * self.ncounts + 1,
+            ),
+            device=action_type.device,
+        )
+
+        action_logits[..., 0] = action_type[..., 0]  # WAIT action
+        n = 1
+        for i in range(1, self.nactions):
+            action_logits[..., n : n + self.ncounts] = (
+                action_type[..., i].unsqueeze(2) + action_count
+            )
+            n += self.ncounts
 
         # (N, L, 1)
         state_values = self.critic(output).squeeze(-1)
 
         return {Feats.ACTION_LOGITS: action_logits, Feats.STATE_VALUE: state_values}, h
+
+    @property
+    def action_map(self) -> list[tuple[Actions, int]]:
+        return self._action_map
 
     def act(
         self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
