@@ -136,9 +136,9 @@ class PacketBuffer:
 
 
 class TraceObservation:
-    def __init__(self, B: int, L: int):
+    def __init__(self, B: int, L: int, device: torch.DeviceObjType):
         self.L = L
-        self.X = torch.zeros((B, L, 3))  # dirs, times, padding
+        self.X = torch.zeros((B, L, 3), device=device)  # dirs, times, padding
 
     @property
     def times(self) -> torch.Tensor:
@@ -147,6 +147,14 @@ class TraceObservation:
     @property
     def dirs(self) -> torch.Tensor:
         return self.X[..., 0]
+
+    @property
+    def count_send(self) -> torch.Tensor:
+        return (self.X[..., 0] != 0).sum(dim=1)
+
+    @property
+    def count_padding(self) -> torch.Tensor:
+        return (self.X[..., 2] != 1).sum(dim=1)
 
     @property
     def is_waiting(self) -> torch.Tensor:
@@ -172,9 +180,15 @@ class TraceObservation:
         }
         return obs, mask
 
+    @property
+    def feature_dict(self) -> dict[Feats, torch.Tensor]:
+        return {
+            Feats.DIRS: self.X[..., 0],
+            Feats.TIMES: self.X[..., 1],
+            Feats.PADDING: self.X[..., 2],
+        }
+
     def reset(self):
-        if (self.X != 0).any():
-            logger.warning("Resetting non-empty TraceObservation")
         self.X[...] = 0
 
 

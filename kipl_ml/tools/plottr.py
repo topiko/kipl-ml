@@ -100,6 +100,7 @@ def plot_trace(
     }
 
     colors = np.empty_like(dirs, dtype=object)
+    colors[:] = "cyan"
     colors[dirs == 1] = "blue"
     colors[dirs == -1] = "red"
     if Feats.PADDING in trace_dict:

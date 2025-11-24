@@ -16,7 +16,7 @@ from experiment.utils import defence_builder
 from kipl_ml.data.utils import Datasets, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
-from kipl_ml.models.trgen import AGENT1
+from kipl_ml.models.trgen import AGENT1, RNNCLF1
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
 from kipl_ml.tools.plottr import plot_trace
 from kipl_ml.trace.features import Feats, FeatureTrs
@@ -51,7 +51,10 @@ def _plot_set(
     obs: nn.Module,
     clf: nn.Module,
     e: int,
+    dt: float,
+    T: float,
     device: torch.DeviceObjType,
+    max_len: int = 10_000,
 ):
     rng = np.random.default_rng(seed=42)
 
@@ -65,8 +68,9 @@ def _plot_set(
         return {k: v.unsqueeze(0) for k, v in X.items()}
 
     def X_to_probs(X: dict[Feats, torch.Tensor]) -> torch.Tensor:
-        logits, _ = clf(_unsqueeze(X))
-        probs = nn.functional.softmax(logits, dim=-1)
+        with torch.no_grad():
+            logits, _ = clf(_unsqueeze(X))
+            probs = nn.functional.softmax(logits, dim=-1)
         return probs
 
     for i, axrow in zip(idxs, axarr):
@@ -83,14 +87,19 @@ def _plot_set(
         )
         axrow[0].set_title(f"True class: {y.item()}")
 
-        Xobs = rollout(obs, clf, _unsqueeze(X), y)[0]
-        Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
+        with torch.no_grad():
+            Xobs = rollout(obs, clf, _unsqueeze(X), y, dt=dt, maxT=T)[0]
+            Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
 
         mask = Xobs[Feats.DIRS] != 0
+        if mask.sum() > max_len:
+            logger.warning(f"Long seqs. detected -> truncating to {max_len}.")
+
         if mask.any():
-            Xobs[Feats.TIMES] = Xobs[Feats.TIMES][mask]
-            Xobs[Feats.DIRS] = Xobs[Feats.DIRS][mask]
-            Xobs[Feats.PADDING] = Xobs[Feats.PADDING][mask]
+            Xobs[Feats.TIMES] = Xobs[Feats.TIMES][mask][:max_len]
+            Xobs[Feats.DIRS] = Xobs[Feats.DIRS][mask][:max_len]
+            Xobs[Feats.PADDING] = Xobs[Feats.PADDING][mask][:max_len]
+
         plot_trace(
             Xobs,
             ax=axrow[1],
@@ -118,6 +127,8 @@ def main(cfg: DictConfig):
 
     discriminator = mlflow.pytorch.load_model(model_uri, map_location="cpu")
 
+    discriminator = RNNCLF1(n_classes=95, features=[Feats.DIRS, Feats.TIMES])
+
     feature_names = [Feats.DIRS, Feats.TIMES]
     npackets = 1000
 
@@ -131,7 +142,7 @@ def main(cfg: DictConfig):
         **defence_builder.get_defence(cfg),
     )
 
-    dl_train = dl_(ds_train, bs=8, collate_fn=None, shuffle=True)
+    dl_train = dl_(ds_train, bs=32, collate_fn=None, shuffle=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     obs = AGENT1().to(device)
@@ -141,6 +152,7 @@ def main(cfg: DictConfig):
 
     e = 0
     dt = 0.01
+    T = 6
     i = 0
     with mlflow.start_run():
         while True:
@@ -154,9 +166,9 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
-                    _, log_ps, values, rewards = rollout(obs, discriminator, X, y, dt)[
-                        :4
-                    ]
+                    _, log_ps, values, rewards = rollout(
+                        obs, discriminator, X, y, dt, T
+                    )[:4]
 
                     G = returns(rewards, gamma=0.99)
 
@@ -169,6 +181,7 @@ def main(cfg: DictConfig):
                     loss = policy_loss + value_loss
 
                     loss.backward()
+
                     optim.step()
 
                     losses = {
@@ -184,7 +197,7 @@ def main(cfg: DictConfig):
                         mlflow.log_metrics(losses, step=i)
 
                     if i % 100 == 0:
-                        _plot_set(ds_valid, obs, discriminator, i, device)
+                        _plot_set(ds_valid, obs, discriminator, i, dt, T, device)
                         mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
                         dt /= 2
 

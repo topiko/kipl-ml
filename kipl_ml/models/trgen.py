@@ -1,8 +1,23 @@
 import torch
 from torch import nn
+from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence
 
 from kipl_ml.rl.enums import Actions
 from kipl_ml.trace.features import Feats
+
+
+def _hidden_w_mask(
+    h: tuple[torch.Tensor, ...],
+    mask: torch.Tensor,
+    hmasked: tuple[torch.Tensor, ...] | None = None,
+) -> tuple[torch.Tensor, ...]:
+    if hmasked is None:
+        return tuple(h_[:, mask] for h_ in h)
+
+    for i, h_ in enumerate(h):
+        h_[:, mask] = hmasked[i]
+
+    return h
 
 
 class _ConvBlock(nn.Module):
@@ -342,25 +357,68 @@ class RNNCLF1(nn.Module):
 
         self.final_lin = nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, n_classes))
 
-    def forward(
+    def pack_and_forward(
         self,
         x: dict[Feats, torch.Tensor],
-        h: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        # (N, L) x nfeat
+        h: tuple[torch.Tensor, ...],
+        seq_lens: torch.Tensor,
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor]]:
         fs = []
         for f in self.features:
             if x[f].ndim != 2:
                 raise ValueError("Inputs should be (B, L) tensors.")
+
             fs.append(x[f].unsqueeze(-1))
 
-        # (N, L, nfeat)
+        mask = seq_lens != 0
+
+        if mask.sum() == 0:
+            return None, h
+
+        # M = mask.sum()
+
+        # (M, L, nfeat)
+        inputs = torch.cat(fs, dim=-1)[mask, ...]
+
+        packed_inputs = pack_padded_sequence(
+            inputs, seq_lens[mask], batch_first=True, enforce_sorted=False
+        )
+
+        # Only select the needed h states:
+        h_ = _hidden_w_mask(h, mask)
+
+        # (M, L, H), hidden
+        _, h_ = self.rnn(packed_inputs, h_)
+
+        # h_[0].shape = (nhidden, B, hidden_size)
+        # In the last index we have the last rnn output.
+        # (M, H)
+        logits = self.final_lin(h_[0][-1])
+
+        # Update the hidden state:
+        h = _hidden_w_mask(h, mask, h_)
+
+        return logits, h
+
+    def forward(
+        self,
+        x: dict[Feats, torch.Tensor | PackedSequence],
+        h: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        # (B, L) x nfeat
+        fs = []
+        for f in self.features:
+            if (not isinstance(x[f], PackedSequence)) and (x[f].ndim != 2):
+                raise ValueError("Inputs should be (B, L) tensors.")
+            fs.append(x[f].unsqueeze(-1))
+
+        # (B, L, nfeat)
         inputs = torch.cat(fs, dim=-1)
 
-        # (N, L, H)
+        # (B, L, H)
         output, h = self.rnn(inputs, h)
 
-        # (N, L, n_classes)
+        # (B, L, n_classes)
         logits = self.final_lin(output)
 
         return logits, h
@@ -504,7 +562,7 @@ class AGENT1(nn.Module):
         self.num_layers = nlayers
         self.hidden_size = hsize
         self.zero_init = zero_init
-        self.counts = send_counts or [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]
+        self.counts = send_counts or [1, 2, 4, 8, 16, 32, 64]
         self.ncounts = len(self.counts)
         nfeat = len(self.features)
 
@@ -518,13 +576,15 @@ class AGENT1(nn.Module):
 
         self.rnn = nn.LSTM(nfeat, hsize, nlayers, batch_first=True, dropout=dropout)
 
-        self.actor: dict[str, nn.Module] = {}
-
-        self.actor["action_selection"] = nn.Sequential(
-            nn.Dropout(dropout), nn.Linear(hsize, self.nactions)
-        )
-        self.actor["count_selection"] = nn.Sequential(
-            nn.Dropout(dropout), nn.Linear(hsize, self.ncounts)
+        self.actor = nn.ModuleDict(
+            {
+                "action_selection": nn.Sequential(
+                    nn.Dropout(dropout), nn.Linear(hsize, self.nactions)
+                ),
+                "count_selection": nn.Sequential(
+                    nn.Dropout(dropout), nn.Linear(hsize, self.ncounts)
+                ),
+            }
         )
 
         self.critic = nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, 1))

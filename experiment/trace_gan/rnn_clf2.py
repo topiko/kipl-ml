@@ -18,7 +18,6 @@ from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.logging.utils import log_dict
 from kipl_ml.metrics.clf_metrics import Accuracy
 from kipl_ml.model_eval.evaluate import evaluate_model
-from kipl_ml.models.models import _WrapPacketProbsNet
 from kipl_ml.models.trgen import RNNCLF1
 from kipl_ml.models.utils import count_parameters
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr

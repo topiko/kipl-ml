@@ -8,20 +8,6 @@ from kipl_ml.rl.utils import PacketBuffer, TraceObservation, step_actions
 from kipl_ml.trace.enums import Feats
 
 
-def _hidden_w_mask(
-    h: tuple[torch.Tensor, ...],
-    mask: torch.Tensor,
-    hmasked: tuple[torch.Tensor, ...] | None = None,
-) -> tuple[torch.Tensor, ...]:
-    if hmasked is None:
-        return tuple(h_[:, mask] for h_ in h)
-
-    for i, h_ in enumerate(h):
-        h_[:, mask] = hmasked[i]
-
-    return h
-
-
 def get_reward(
     actions: torch.Tensor,
     curXobs: TraceObservation,
@@ -31,49 +17,45 @@ def get_reward(
     hdisc: tuple[torch.Tensor, ...],
     sc: float = 1.0,
 ) -> torch.Tensor:
-    rewards = torch.zeros(actions.shape[0], device=actions.device)
     buffer_counts = buffer.bcounts
     buffer_times = buffer.btimes
     with torch.no_grad():
-        while not curXobs.is_waiting.all():
-            obs, is_waiting = curXobs.pop_oldest()
+        rewards = torch.zeros(actions.shape[0], device=actions.device)
+        has_buffer = buffer.bcounts != 0
+        # When you delay the buffer
+        delayed_buffer_mask = has_buffer & curXobs.is_waiting
+        rewards[delayed_buffer_mask] -= (
+            10.0
+            * sc
+            * buffer_times[delayed_buffer_mask]
+            * buffer_counts[delayed_buffer_mask]
+        )
 
-            has_action = ~is_waiting  # has_action.sum() = A
-            has_buffer = buffer.bcounts != 0
-            sends_padding = obs[Feats.PADDING].squeeze(1).bool()
+        # Send counts:
+        count_padding = curXobs.count_padding
 
-            if has_action.any():
-                hdisc_ = _hidden_w_mask(hdisc, has_action)
-                curXnotwaiting = {k: v[has_action] for k, v in obs.items()}
-                logits, hdisc_ = disc(curXnotwaiting, hdisc_)
+        # When you send padding while having buffer
+        rewards[has_buffer] -= 10 * sc * count_padding[has_buffer]
 
-                hdisc = _hidden_w_mask(hdisc, has_action, hdisc_)
+        # When you send padding w. empty buffer
+        rewards[~has_buffer] -= 1 * sc * count_padding[~has_buffer]
 
-                # (A, n_actions)
-                probs = torch.nn.functional.softmax(logits, dim=-1).squeeze(1)
+        count_packets = curXobs.count_send
 
-                # Punish for discriminator high prop:
+        if count_packets.any():
+            has_action = count_packets != 0
+            logits, hdisc = disc.pack_and_forward(
+                curXobs.feature_dict, hdisc, count_packets.cpu()
+            )
 
-                # (A, )
-                cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
+            probs = nn.functional.softmax(logits, dim=1)
+            # (A, )
+            cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
 
-                # High correct cl prob --> small reward
-                rewards[has_action] += (1 - cl_probs) * sc
-            else:
-                # When you delay the buffer
-                delayed_buffer_mask = has_buffer & is_waiting
-                rewards[delayed_buffer_mask] -= (
-                    10.0
-                    * sc
-                    * buffer_times[delayed_buffer_mask]
-                    * buffer_counts[delayed_buffer_mask]
-                )
+            # High correct cl prob --> small reward
+            rewards[has_action] += (1 - cl_probs) * sc
 
-            # When you send padding while having buffer
-            rewards[sends_padding & has_buffer] -= 10 * sc
-
-            # When you send padding w. empty buffer
-            rewards[sends_padding & ~has_buffer] -= 1 * sc
+        curXobs.reset()
 
     return rewards, hdisc
 
@@ -84,10 +66,10 @@ def rollout(
     X: dict[Feats, torch.Tensor],
     y: torch.Tensor,
     dt: float = 0.01,
+    maxT: float = 10,
 ) -> tuple[dict[Feats, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor]:
     hobs = None
 
-    T = 1
     buffer = PacketBuffer(dt)
 
     if set(X.keys()) != {Feats.TIMES, Feats.DIRS}:
@@ -100,7 +82,7 @@ def rollout(
     values = []
     rewards = []
 
-    curXobs = TraceObservation(B=bs, L=100)
+    curXobs = TraceObservation(B=bs, L=1024, device=device)
 
     # Dummy run to get init hdisc...
     _, hdisc = disc(curXobs.pop_oldest()[0], None)
@@ -111,7 +93,7 @@ def rollout(
     times = []
     timings = []
     Xobs_l = []
-    while buffer.t < T:
+    while buffer.t < maxT:
         t0 = time.time()
         buffer.step(X)
         t1 = time.time()
@@ -128,6 +110,7 @@ def rollout(
         t3 = time.time()
 
         Xobs_l.append(curXobs.X.clone())
+
         packet_counts += ((curXobs.X[..., 0] == 1) & (curXobs.X[..., 2] == 2)).sum(
             dim=1
         )
@@ -153,11 +136,11 @@ def rollout(
     # Append the observations:
     Xobs = torch.cat(Xobs_l, dim=1)
 
-    Lmax = Xobs[..., 0].ne(0).sum(dim=1).max()
+    mask = Xobs[..., 0] != 0
+    Lmax = mask.sum(dim=1).max()
 
     Xobsd = {}
     for f, i in zip((Feats.DIRS, Feats.TIMES, Feats.PADDING), range(3)):
-        mask = Xobs[..., i] != 0
         lens = mask.sum(dim=1)
 
         idxs = torch.arange(Lmax, device=device).unsqueeze(0).expand(bs, -1)
