@@ -172,7 +172,7 @@ class TraceObservation:
 
     @property
     def count_padding(self) -> torch.Tensor:
-        return (self.X[..., 2] != 1).sum(dim=1)
+        return (self.X[..., 2] == 1).sum(dim=1)
 
     @property
     def is_waiting(self) -> torch.Tensor:
@@ -230,11 +230,12 @@ def step_actions(
     for action in actions.unique():
         mask = actions == action
         action_, count = idx2ackts[action]
-        counts = torch.zeros_like(mask, dtype=torch.int)
-        counts[mask] = count
         match action_:
             case Actions.SEND_PADDING_DOWN | Actions.SEND_PADDING_UP:
                 val = DOWNLOAD if action_ == Actions.SEND_PADDING_DOWN else UPLOAD
+
+                counts = torch.zeros_like(mask, dtype=torch.int)
+                counts[mask] = count
 
                 curXobs.X[mask, :, 0] = _append_to_buffer(
                     curXobs.X[mask, :, 0], counts[mask], val

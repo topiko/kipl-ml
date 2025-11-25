@@ -54,6 +54,7 @@ def get_reward(
 
             # High correct cl prob --> small reward
             rewards[has_action] += (1 - cl_probs) * sc
+        breakpoint()
 
     return rewards, hdisc
 
@@ -100,6 +101,7 @@ def rollout(
     actions_l = []
     times_l = []
     timings = []
+
     while buffer.t < maxT:
         t0 = time.time()
         buffer.step(X)
