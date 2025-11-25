@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from torch import nn
 
+from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.utils import PacketBuffer, TraceObservation, step_actions
 from kipl_ml.trace.enums import Feats
 
@@ -15,6 +16,7 @@ def get_reward(
     disc: nn.Module,
     buffer: PacketBuffer,
     hdisc: tuple[torch.Tensor, ...],
+    idx2ackts: list[tuple[Actions, int]],
     sc: float = 1.0,
 ) -> torch.Tensor:
     buffer_counts = buffer.bcounts
@@ -43,8 +45,15 @@ def get_reward(
         # When you send padding w. empty buffer
         rewards[~has_buffer] -= 1 * sc * count_padding[~has_buffer]
 
-        count_packets = Xobs.count_send
+        anything_butwait_mask = torch.tensor(
+            [idx2ackts[a][0] != Actions.WAIT for a in actions], device=actions.device
+        ).bool()
 
+        # Small penalty for doing anything
+        rewards[anything_butwait_mask] -= 0.10 * sc
+
+        # Classification reward
+        count_packets = Xobs.count_send
         if count_packets.any():
             has_action = count_packets != 0
             logits, hdisc = disc.pack_and_forward(
@@ -126,7 +135,7 @@ def rollout(
         packet_counts += ((Xobs.X[..., 0] == 1) & (Xobs.X[..., 2] == 2)).sum(dim=1)
         t4 = time.time()
 
-        rewards_, hdisc = get_reward(actions_, Xobs, y, disc, buffer, hdisc)
+        rewards_, hdisc = get_reward(actions_, Xobs, y, disc, buffer, hdisc, idx2ackts)
 
         Xobs.reset()
 

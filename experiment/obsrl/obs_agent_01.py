@@ -91,7 +91,7 @@ def _plot_single(
     idx: int,
     max_len: int = 10_000,
 ):
-    fig, (ax, ax_o, ax_b) = plt.subplots(3, 1, figsize=(20, 9.0), sharex=True)
+    fig, (ax, ax_o, ax_a, ax_b) = plt.subplots(4, 1, figsize=(20, 9.0), sharex=True)
 
     def _unsqueeze(X: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         return {k: v.unsqueeze(0) for k, v in X.items()}
@@ -138,27 +138,22 @@ def _plot_single(
         true_class=y.item(),
     )
 
-    ax_o.set_title("Obsfuscated")
+    # Plot actions
+    plot_actions(times, actions, idx2ackt=obs.action_map, ax=ax_a)
+    ax_a.set_title("Actions, buffer, etc.")
 
-    # Plot buffer and actions
+    # Plot buffer and rewards
     plot_packet_buffer(buffer, ax=ax_b)
     ax_b.set_ylabel("Buffer size [pkts]")
+    ax_o.set_title("Obsfuscated")
 
     # Plot rewards
     ax_r = ax_b.twinx()
-    ax_r.spines["right"].set_position(("outward", 40))  # offset by 40 points
     ax_r.axes.spines["right"].set_visible(True)
     plot_rewards(times, rewards, ax=ax_r)
 
-    # Plot actions
-    ax_a = ax_b.twinx()
-    ax_a.axes.spines["right"].set_visible(True)
-    plot_actions(times, actions, idx2ackt=obs.action_map, ax=ax_a)
-    ax_a.set_title("Actions, buffer, etc.")
-    ax_a.axes.spines["right"].set_visible(True)
-
-    ax_r.legend(frameon=False)
-    ax_b.legend(frameon=False)
+    ax_r.legend(frameon=False, loc=1)
+    ax_b.legend(frameon=False, loc=2)
     ax_b.set_xlabel("Time [s]")
 
     fig.canvas.draw()
