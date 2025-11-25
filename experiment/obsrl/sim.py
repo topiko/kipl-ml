@@ -143,6 +143,8 @@ def rollout(
 
     Xobsd = Xobs.history
 
+    breakpoint()
+
     if not (
         ((Xobsd[Feats.DIRS] == 1) & (~Xobsd[Feats.PADDING])).sum(dim=1) == packet_counts
     ).all():

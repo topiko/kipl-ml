@@ -194,7 +194,7 @@ class TraceObservation:
 
     @property
     def history(self) -> dict[Feats, torch.Tensor]:
-        Xobs = torch.cat(self._obs_list, dim=0)
+        Xobs = torch.cat(self._obs_list, dim=1)
         device = Xobs.device
         bs = Xobs.shape[0]
 

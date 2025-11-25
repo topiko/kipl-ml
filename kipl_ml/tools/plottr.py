@@ -6,6 +6,7 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.rl.enums import Actions
 from kipl_ml.trace.features import Feats
 
 logger = get_logger(__name__)
@@ -156,8 +157,24 @@ def plot_packet_buffer(
     buffer_down = _squeeze_batched(buffer[Feats.DOWN_BUFFER], idx)
     times = _squeeze_batched(buffer[Feats.TIMES], idx)
 
-    ax.step(times, buffer_up, colors="blue", where="post", lw=1)
-    ax.step(times, -buffer_down, colors="red", where="post", lw=1)
+    ax.step(times, buffer_up, c="blue", where="post", lw=1)
+    ax.step(times, -buffer_down, c="red", where="post", lw=1)
+
+    return ax
+
+
+def plot_packet_buffer(
+    times: torch.Tensor,
+    actions: torch.Tensor,
+    idx2ackt: dict[int, (Actions, int)],
+    idx: int | None = None,
+    ax: plt.Axes | None = None,
+) -> plt.Axes:
+    if ax is None:
+        _, ax = plt.subplots(figsize=(12, 3))
+
+    times = _squeeze_batched(times, idx)
+    actions = _squeeze_batched(actions, idx)
 
     return ax
 

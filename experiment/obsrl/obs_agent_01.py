@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import torch
+from matplotlib.gridspec import GridSpec
 from omegaconf import DictConfig
 from torch import nn
 from tqdm import tqdm
@@ -62,8 +63,6 @@ def _plot_set(
 
     idxs = rng.integers(0, len(ds), size=ntraces)
 
-    fig, axarr = plt.subplots(ntraces, 2, figsize=(20, ntraces * 3), sharex=True)
-
     fig = plt.figure(figsize=(20, ntraces * 3))
     gs = GridSpec(2 * ntraces, 2)
 
@@ -76,8 +75,8 @@ def _plot_set(
             probs = nn.functional.softmax(logits, dim=-1)
         return probs
 
-    for i, axrow in zip(idxs, axarr):
-        X, y = ds[i]
+    for i, idx in enumerate(idxs):
+        X, y = ds[idx]
 
         X = dict_to_device(X, device)
         y = y.to(device).unsqueeze(-1)
@@ -92,7 +91,9 @@ def _plot_set(
         ax.set_title(f"True class: {y.item()}")
 
         with torch.no_grad():
-            Xobs, buffer = rollout(obs, clf, _unsqueeze(X), y, dt=dt, maxT=T)[3:5]
+            Xobs, buffer, times, actions = rollout(
+                obs, clf, _unsqueeze(X), y, dt=dt, maxT=T
+            )[3:]
             Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
 
         mask = Xobs[Feats.DIRS] != 0
@@ -121,6 +122,14 @@ def _plot_set(
         ax_b.sharex(ax)
 
         plot_packet_buffer(buffer, ax=ax_b)
+
+        # Plot actions
+        plot_actions(times, actions, ax=ax_b)
+
+        if idx != idxs[-1]:
+            ax.set_xticks([])
+            ax_o.set_xticks([])
+        ax_b.set_xticks([])
 
     fig.canvas.draw()
 
