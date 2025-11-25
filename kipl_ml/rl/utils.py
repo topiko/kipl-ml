@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
@@ -76,6 +78,7 @@ class PacketBuffer:
         self.t = -dt  # After first update self.t = 0
         self._buffer: torch.Tensor | None = None
         self.blen: int = 1000
+        self._buffer_list: list[torch.Tensor] = []
 
     @property
     def buffer(self) -> torch.Tensor:
@@ -107,12 +110,12 @@ class PacketBuffer:
     def is_empty(self) -> torch.Tensor:
         return self.buffer[..., 0].sum(dim=1) == 0
 
-    def pop_oldest(self, mask: torch.Tensor, count: int = 1) -> torch.Tensor:
-        dirs = self.buffer[mask, :count, 0].clone()
-        self.buffer[mask] = self.buffer[mask].roll(-count, dims=1)
-        self.buffer[mask, -count:, :] = 0
+    # def pop_oldest(self, mask: torch.Tensor, count: int = 1) -> torch.Tensor:
+    #     dirs = self.buffer[mask, :count, 0].clone()
+    #     self.buffer[mask] = self.buffer[mask].roll(-count, dims=1)
+    #     self.buffer[mask, -count:, :] = 0
 
-        return dirs
+    #     return dirs
 
     @property
     def bcounts(self) -> torch.Tensor:
@@ -134,11 +137,20 @@ class PacketBuffer:
             * self.t,
         }
 
+    def append(self):
+        self._buffer_list.append(self.feature_dict)
+
+    @property
+    def history(self) -> dict[Feats, torch.Tensor]:
+        feats = [Feats.UP_BUFFER, Feats.DOWN_BUFFER, Feats.TIMES]
+        return {k: torch.cat([b[k] for b in self._buffer_list], dim=1) for k in feats}
+
 
 class TraceObservation:
     def __init__(self, B: int, L: int, device: torch.DeviceObjType):
         self.L = L
         self.X = torch.zeros((B, L, 3), device=device)  # dirs, times, padding
+        self._obs_list: list[torch.Tensor] = []
 
     @property
     def times(self) -> torch.Tensor:
@@ -191,6 +203,36 @@ class TraceObservation:
     def reset(self):
         self.X[...] = 0
 
+    def append(self):
+        self._obs_list.append(self.X.clone())
+
+    @property
+    def history(self) -> dict[Feats, torch.Tensor]:
+        Xobs = torch.cat(self._obs_list, dim=0)
+        device = Xobs.device
+        bs = Xobs.shape[0]
+
+        mask = Xobs[..., 0] != 0
+        Lmax = mask.sum(dim=1).max()
+
+        Xobsd = {}
+        for f, i in zip((Feats.DIRS, Feats.TIMES, Feats.PADDING), range(3)):
+            lens = mask.sum(dim=1)
+
+            idxs = torch.arange(Lmax, device=device).unsqueeze(0).expand(bs, -1)
+
+            new_mask = idxs < lens.unsqueeze(1)
+
+            # (B, Lmax, 3)
+            Xobs_ = torch.zeros((bs, Lmax), device=device)
+            Xobs_[new_mask] = Xobs[mask, i]
+
+            Xobsd[f] = Xobs_
+
+        Xobsd[Feats.PADDING] = Xobsd[Feats.PADDING] == 1
+
+        return Xobsd
+
 
 def step_actions(
     actions: torch.Tensor,
@@ -234,16 +276,3 @@ def step_actions(
                 raise ValueError(f"Unknown action: {action_}")
 
     return curXobs, buffer
-
-
-if __name__ == "__main__":
-    a = torch.zeros(5, 14, 2)
-
-    for i in range(3):
-        counts = torch.randint(3, (5,))
-
-        print(a[..., 0])
-        print(counts)
-        a[..., 0] = _append_to_buffer(a[..., 0], counts, 1)
-        print(a[..., 0])
-        print()
