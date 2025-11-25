@@ -18,7 +18,7 @@ from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_t
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.trgen import AGENT1
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
-from kipl_ml.tools.plottr import plot_trace
+from kipl_ml.tools.plottr import plot_packet_buffer, plot_trace
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
@@ -64,6 +64,9 @@ def _plot_set(
 
     fig, axarr = plt.subplots(ntraces, 2, figsize=(20, ntraces * 3), sharex=True)
 
+    fig = plt.figure(figsize=(20, ntraces * 3))
+    gs = GridSpec(2 * ntraces, 2)
+
     def _unsqueeze(X: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         return {k: v.unsqueeze(0) for k, v in X.items()}
 
@@ -79,35 +82,45 @@ def _plot_set(
         X = dict_to_device(X, device)
         y = y.to(device).unsqueeze(-1)
 
+        ax = fig.add_subplot(gs[2 * i : 2 * i + 2, 0])
         plot_trace(
             X,
-            ax=axrow[0],
+            ax=ax,
             cl_probs=X_to_probs(X),
             true_class=y.item(),
         )
-        axrow[0].set_title(f"True class: {y.item()}")
+        ax.set_title(f"True class: {y.item()}")
 
         with torch.no_grad():
-            Xobs = rollout(obs, clf, _unsqueeze(X), y, dt=dt, maxT=T)[0]
+            Xobs, buffer = rollout(obs, clf, _unsqueeze(X), y, dt=dt, maxT=T)[3:5]
             Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
 
         mask = Xobs[Feats.DIRS] != 0
         if mask.sum() > max_len:
-            logger.warning(f"Long seqs. detected -> truncating to {max_len}.")
+            logger.warning("Long seqs. detected -> truncating to %d.", max_len)
 
         if mask.any():
             Xobs[Feats.TIMES] = Xobs[Feats.TIMES][mask][:max_len]
             Xobs[Feats.DIRS] = Xobs[Feats.DIRS][mask][:max_len]
             Xobs[Feats.PADDING] = Xobs[Feats.PADDING][mask][:max_len]
 
+        # Plot obsfuscated
+        ax_o = fig.add_subplot(gs[2 * i : 2 * i + 1, 1])
+        ax_o.sharex(ax)
         plot_trace(
             Xobs,
-            ax=axrow[1],
+            ax=ax_o,
             cl_probs=X_to_probs(Xobs),
             true_class=y.item(),
         )
 
-        axrow[1].set_title("Obsfuscated")
+        ax_o.set_title("Obsfuscated")
+
+        # Plot buffer and actions
+        ax_b = fig.add_subplot(gs[2 * i + 1 : 2 * i + 2, 1])
+        ax_b.sharex(ax)
+
+        plot_packet_buffer(buffer, ax=ax_b)
 
     fig.canvas.draw()
 
@@ -165,9 +178,9 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
-                    _, log_ps, values, rewards = rollout(
-                        obs, discriminator, X, y, dt, T
-                    )[:4]
+                    log_ps, values, rewards = rollout(obs, discriminator, X, y, dt, T)[
+                        :3
+                    ]
 
                     G = returns(rewards, gamma=0.99)
 

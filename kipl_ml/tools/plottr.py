@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.trace.features import Feats
 
@@ -14,6 +15,10 @@ style_path = (
 )
 
 plt.style.use(style_path)
+
+UP_COLOR = "blue"
+DOWN_COLOR = "red"
+PAD_COLOR = "black"
 
 
 def _squeeze_batched(arr: np.ndarray | torch.Tensor, idx: int | None) -> np.ndarray:
@@ -101,11 +106,11 @@ def plot_trace(
 
     colors = np.empty_like(dirs, dtype=object)
     colors[:] = "cyan"
-    colors[dirs == 1] = "blue"
-    colors[dirs == -1] = "red"
+    colors[dirs == UPLOAD] = UP_COLOR
+    colors[dirs == DOWNLOAD] = DOWN_COLOR
     if Feats.PADDING in trace_dict:
         pad = _squeeze_batched(trace_dict[Feats.PADDING], idx)
-        colors[pad] = "black"
+        colors[pad] = PAD_COLOR
 
         info_d["pad nup"] = (pad & (dirs == 1)).sum()
         info_d["pad ndown"] = (pad & (dirs == -1)).sum()
@@ -135,6 +140,24 @@ def plot_trace(
 
     if cl_probs is not None:
         _plot_probs(cl_probs, times, ax, idx, true_class)
+
+    return ax
+
+
+def plot_packet_buffer(
+    buffer: dict[Feats, torch.Tensor],
+    idx: int | None = None,
+    ax: plt.Axes | None = None,
+) -> plt.Axes:
+    if ax is None:
+        _, ax = plt.subplots(figsize=(12, 3))
+
+    buffer_up = _squeeze_batched(buffer[Feats.UP_BUFFER], idx)
+    buffer_down = _squeeze_batched(buffer[Feats.DOWN_BUFFER], idx)
+    times = _squeeze_batched(buffer[Feats.TIMES], idx)
+
+    ax.step(times, buffer_up, colors="blue", where="post", lw=1)
+    ax.step(times, -buffer_down, colors="red", where="post", lw=1)
 
     return ax
 

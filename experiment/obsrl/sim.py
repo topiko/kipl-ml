@@ -65,7 +65,15 @@ def rollout(
     y: torch.Tensor,
     dt: float = 0.01,
     maxT: float = 10,
-) -> tuple[dict[Feats, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    dict[Feats, torch.Tensor],
+    dict[Feats, torch.Tensor],
+    torch.Tensor,
+    torch.Tensor,
+]:
     hobs = None
 
     buffer = PacketBuffer(dt)
@@ -148,4 +156,4 @@ def rollout(
         print(nmissing)
         breakpoint()
 
-    return Xobsd, log_ps, values, rewards, actions, times
+    return log_ps, values, rewards, Xobsd, buffer.history, times, actions
