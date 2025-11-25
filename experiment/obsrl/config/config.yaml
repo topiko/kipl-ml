@@ -6,9 +6,9 @@ defaults:
   - misc: default
 
 trace_len: 5000
-batch_size: 64
+batch_size: 16
 dropout: 0.25
-grad_norm_clip: 5
+grad_norm_clip: 1
 label_smoothing: 0.02
 
 

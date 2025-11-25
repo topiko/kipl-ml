@@ -45,12 +45,12 @@ def get_reward(
         # When you send padding w. empty buffer
         rewards[~has_buffer] -= 1 * sc * count_padding[~has_buffer]
 
-        anything_butwait_mask = torch.tensor(
+        anything_but_wait_mask = torch.tensor(
             [idx2ackts[a][0] != Actions.WAIT for a in actions], device=actions.device
         ).bool()
 
         # Small penalty for doing anything
-        rewards[anything_butwait_mask] -= 0.10 * sc
+        rewards[anything_but_wait_mask] -= 0.20 * sc
 
         # Classification reward
         count_packets = Xobs.count_send
