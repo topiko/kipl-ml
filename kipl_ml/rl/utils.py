@@ -110,29 +110,35 @@ class PacketBuffer:
     def is_empty(self) -> torch.Tensor:
         return self.buffer[..., 0].sum(dim=1) == 0
 
-    # def pop_oldest(self, mask: torch.Tensor, count: int = 1) -> torch.Tensor:
-    #     dirs = self.buffer[mask, :count, 0].clone()
-    #     self.buffer[mask] = self.buffer[mask].roll(-count, dims=1)
-    #     self.buffer[mask, -count:, :] = 0
+    def pop_oldest(self, mask: torch.Tensor, count: int = 1) -> torch.Tensor:
+        dirs = self.packets[mask, :count].clone()
+        self.buffer[mask] = self.buffer[mask].roll(-count, dims=1)
+        self.buffer[mask, -count:, :] = 0
 
-    #     return dirs
+        return dirs
+
+    @property
+    def packets(self) -> torch.Tensor:
+        return self.buffer[..., 0]
+
+    @property
+    def times(self) -> torch.Tensor:
+        return self.buffer[..., 1]
 
     @property
     def bcounts(self) -> torch.Tensor:
-        return (self.buffer[..., 0] != 0).sum(dim=1)
+        return (self.packets != 0).sum(dim=1)
 
     @property
     def btimes(self) -> torch.Tensor:
-        t = torch.where(self.buffer[..., 1] != 0, -(self.buffer[..., 1] - self.t), 0)
+        t = torch.where(self.times != 0, -(self.times - self.t), 0)
         return t.max(dim=1)[0]
 
     @property
     def feature_dict(self) -> dict[Feats, torch.Tensor]:
         return {
-            Feats.UP_BUFFER: (self.buffer[..., 0] == UPLOAD).sum(dim=1, keepdim=True),
-            Feats.DOWN_BUFFER: (self.buffer[..., 0] == DOWNLOAD).sum(
-                dim=1, keepdim=True
-            ),
+            Feats.UP_BUFFER: (self.packets == UPLOAD).sum(dim=1, keepdim=True),
+            Feats.DOWN_BUFFER: (self.packets == DOWNLOAD).sum(dim=1, keepdim=True),
             Feats.TIMES: torch.ones(self.buffer.shape[0], 1, device=self.buffer.device)
             * self.t,
         }
@@ -171,26 +177,6 @@ class TraceObservation:
     @property
     def is_waiting(self) -> torch.Tensor:
         return self.X[:, 0, 0] == 0
-
-    def pop_oldest(self) -> tuple[dict[Feats, torch.Tensor], torch.Tensor]:
-        # (B, 1)
-        dirs_ = self.X[:, 0, 0].clone()
-        times_ = self.X[:, 0, 1].clone()
-        padding_ = self.X[:, 0, 2].clone()
-
-        self.X = self.X.roll(-1, dims=1)
-        self.X[:, -1, :] = 0
-
-        # (B, 1) -> (B,)
-        mask = dirs_ == 0
-
-        # (B, 1)
-        obs = {
-            Feats.DIRS: dirs_.unsqueeze(1),
-            Feats.TIMES: times_.unsqueeze(1),
-            Feats.PADDING: padding_.unsqueeze(1),
-        }
-        return obs, mask
 
     @property
     def feature_dict(self) -> dict[Feats, torch.Tensor]:
@@ -260,10 +246,15 @@ def step_actions(
                     curXobs.X[mask, :, 2], counts[mask], 1
                 )
             case Actions.SEND_BUFFER:
+                # M = mask.sum()
+                # (M, count)
                 send = buffer.pop_oldest(mask, count)
+
+                # (M, )
+                counts_ = (send != 0).sum(dim=1)
+
                 curXobs.X[mask, :, 0] = _append_values(curXobs.X[mask, :, 0], send)
 
-                counts_ = (send != 0).sum(dim=1)
                 curXobs.X[mask, :, 1] = _append_to_buffer(
                     curXobs.X[mask, :, 1], counts_, t
                 )

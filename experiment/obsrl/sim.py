@@ -79,7 +79,10 @@ def rollout(
     Xobs = TraceObservation(B=bs, L=1024, device=device)
 
     # Dummy run to get init hdisc...
-    _, hdisc = disc(Xobs.pop_oldest()[0], None)
+    hdisc = (
+        torch.randn((disc.rnn.num_layers, bs, disc.rnn.hidden_size), device=device),
+        torch.randn((disc.rnn.num_layers, bs, disc.rnn.hidden_size), device=device),
+    )
 
     idx2ackts = obs.action_map
     packet_counts = torch.zeros(bs, device=device)
