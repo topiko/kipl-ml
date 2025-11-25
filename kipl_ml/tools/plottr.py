@@ -158,7 +158,7 @@ def plot_packet_buffer(
     times = _squeeze_batched(buffer[Feats.TIMES], idx)
 
     ax.step(times, buffer_up, c="blue", where="post", lw=1, label="Up Buffer")
-    ax.step(times, -buffer_down, c="red", where="post", lw=1, label="Down Buffer")
+    ax.step(times, buffer_down, c="red", where="post", lw=1, label="Down Buffer")
 
     return ax
 

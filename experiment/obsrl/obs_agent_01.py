@@ -142,6 +142,7 @@ def _plot_single(
 
     # Plot buffer and actions
     plot_packet_buffer(buffer, ax=ax_b)
+    ax_b.set_ylabel("Buffer size [pkts]")
 
     # Plot actions
     ax_a = ax_b.twinx()
@@ -153,6 +154,7 @@ def _plot_single(
     ax_r = ax_b.twinx()
     ax_a.axes.spines["right"].set_visible(True)
     ax_r.spines["right"].set_position(("outward", 40))  # offset by 40 points
+    ax_r.axes.spines["right"].set_visible(True)
     plot_rewards(times, rewards, ax=ax_r)
 
     ax_r.legend(frameon=False)
