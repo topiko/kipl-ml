@@ -16,7 +16,7 @@ from experiment.utils import defence_builder
 from kipl_ml.data.utils import Datasets, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
-from kipl_ml.models.trgen import AGENT1, RNNCLF1
+from kipl_ml.models.trgen import AGENT1
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
 from kipl_ml.tools.plottr import plot_trace
 from kipl_ml.trace.features import Feats, FeatureTrs
@@ -121,13 +121,12 @@ def main(cfg: DictConfig):
     experiment_name = "obsrl"
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
-    discriminator_model_id = "m-f87f760721794c8090e741cf3e2456b4"
+    discriminator_model_id = "m-126b3c004c14420a8dc098017714e23b"
 
     model_uri = mlflow.get_logged_model(discriminator_model_id).model_uri
 
     discriminator = mlflow.pytorch.load_model(model_uri, map_location="cpu")
-
-    discriminator = RNNCLF1(n_classes=95, features=[Feats.DIRS, Feats.TIMES])
+    # discriminator = RNNCLF1(n_classes=95, features=[Feats.DIRS, Feats.TIMES])
 
     feature_names = [Feats.DIRS, Feats.TIMES]
     npackets = 1000
@@ -152,7 +151,7 @@ def main(cfg: DictConfig):
 
     e = 0
     dt = 0.01
-    T = 6
+    T = 4
     i = 0
     with mlflow.start_run():
         while True:
