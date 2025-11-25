@@ -22,10 +22,13 @@ def get_reward(
     with torch.no_grad():
         rewards = torch.zeros(actions.shape[0], device=actions.device)
         has_buffer = buffer.bcounts != 0
+
         # When you delay the buffer
-        delayed_buffer_mask = has_buffer & Xobs.is_waiting
+        delayed_buffer_mask = has_buffer  # & Xobs.is_waiting
+
         rewards[delayed_buffer_mask] -= (
-            10.0
+            1.0
+            / buffer.dt
             * sc
             * buffer_times[delayed_buffer_mask]
             * buffer_counts[delayed_buffer_mask]
@@ -54,7 +57,6 @@ def get_reward(
 
             # High correct cl prob --> small reward
             rewards[has_action] += (1 - cl_probs) * sc
-        breakpoint()
 
     return rewards, hdisc
 

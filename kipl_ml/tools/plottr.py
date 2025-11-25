@@ -166,7 +166,7 @@ def plot_packet_buffer(
 def plot_actions(
     times: torch.Tensor,
     actions: torch.Tensor,
-    idx2ackt: list[(Actions, int)],
+    idx2ackt: list[tuple[Actions, int]],
     idx: int | None = None,
     ax: plt.Axes | None = None,
 ) -> plt.Axes:
@@ -205,7 +205,7 @@ def plot_actions(
             maxs,
             colors=color,
             alpha=1,
-            lw=0.5,
+            lw=1.5,
         )
 
     return ax

@@ -144,18 +144,18 @@ def _plot_single(
     plot_packet_buffer(buffer, ax=ax_b)
     ax_b.set_ylabel("Buffer size [pkts]")
 
+    # Plot rewards
+    ax_r = ax_b.twinx()
+    ax_r.spines["right"].set_position(("outward", 40))  # offset by 40 points
+    ax_r.axes.spines["right"].set_visible(True)
+    plot_rewards(times, rewards, ax=ax_r)
+
     # Plot actions
     ax_a = ax_b.twinx()
     ax_a.axes.spines["right"].set_visible(True)
     plot_actions(times, actions, idx2ackt=obs.action_map, ax=ax_a)
     ax_a.set_title("Actions, buffer, etc.")
-
-    # Plot rewards
-    ax_r = ax_b.twinx()
     ax_a.axes.spines["right"].set_visible(True)
-    ax_r.spines["right"].set_position(("outward", 40))  # offset by 40 points
-    ax_r.axes.spines["right"].set_visible(True)
-    plot_rewards(times, rewards, ax=ax_r)
 
     ax_r.legend(frameon=False)
     ax_b.legend(frameon=False)

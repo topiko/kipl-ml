@@ -131,7 +131,7 @@ class PacketBuffer:
 
     @property
     def btimes(self) -> torch.Tensor:
-        t = torch.where(self.times != 0, -(self.times - self.t), 0)
+        t = torch.where(self.times != 0, -(self.times - self.t - self.dt), 0)
         return t.max(dim=1)[0]
 
     @property
