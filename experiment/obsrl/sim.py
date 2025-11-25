@@ -81,6 +81,7 @@ def rollout(
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
+    torch.Tensor,
     dict[Feats, torch.Tensor],
     dict[Feats, torch.Tensor],
     torch.Tensor,
@@ -109,6 +110,7 @@ def rollout(
     log_ps_l = []
     values_l = []
     rewards_l = []
+    entropy_l = []
     actions_l = []
     times_l = []
     timings = []
@@ -118,12 +120,15 @@ def rollout(
         buffer.step(X)
         t1 = time.time()
 
-        actions_, log_ps_, values_, hobs = obs.act(buffer.feature_dict, hobs)
+        actions_, log_ps_, values_, entropies_, hobs = obs.act(
+            buffer.feature_dict, hobs
+        )
         t2 = time.time()
 
         log_ps_l.append(log_ps_.unsqueeze(1))
         values_l.append(values_.unsqueeze(1))
         actions_l.append(actions_.unsqueeze(1))
+        entropy_l.append(entropies_.unsqueeze(1))
         times_l.append(buffer.t)
 
         Xobs, buffer = step_actions(actions_, idx2ackts, Xobs, buffer, buffer.t)
@@ -151,6 +156,7 @@ def rollout(
     log_ps: torch.Tensor = torch.cat(log_ps_l, dim=1)
     values: torch.Tensor = torch.cat(values_l, dim=1)
     actions: torch.Tensor = torch.cat(actions_l, dim=1)
+    entropies: torch.Tensor = torch.cat(entropy_l, dim=1)
     times: torch.Tensor = torch.tensor(times_l)
     rewards: torch.Tensor = torch.cat(rewards_l, dim=1)
 
@@ -169,4 +175,4 @@ def rollout(
         print(nmissing)
         breakpoint()
 
-    return log_ps, values, rewards, Xobsd, buffer.history, times, actions
+    return log_ps, values, rewards, entropies, Xobsd, buffer.history, times, actions

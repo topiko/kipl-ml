@@ -654,15 +654,21 @@ class AGENT1(nn.Module):
 
     def act(
         self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         action_outputs, h = self(x, h)
 
         # (B, L, nactions)
         action_logits = action_outputs[Feats.ACTION_LOGITS]
         action_probs = nn.functional.softmax(action_logits, dim=-1)
 
+        # Action distribution
+        action_dist = torch.distributions.Categorical(action_probs)
+
         # (B, L)
-        actions = torch.distributions.Categorical(action_probs).sample()
+        actions = action_dist.sample()
+
+        # (B, L)
+        entropy = action_dist.entropy()
 
         # (B, L, nactions)
         log_probs = torch.log(action_probs)
@@ -680,5 +686,6 @@ class AGENT1(nn.Module):
             actions.squeeze(1),
             log_probs.squeeze(1),
             values.squeeze(1),
+            entropy.squeeze(1),
             h,
         )

@@ -116,7 +116,7 @@ def _plot_single(
     ax.set_title(f"True class: {y.item()}")
 
     with torch.no_grad():
-        rewards, Xobs, buffer, times, actions = rollout(
+        rewards, _, Xobs, buffer, times, actions = rollout(
             obs, clf, _unsqueeze(X), y, dt=dt, maxT=T
         )[2:]
         Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
@@ -199,7 +199,7 @@ def main(cfg: DictConfig):
 
     e = 0
     dt = 0.01
-    T = 4
+    T = 5
     i = 0
     with mlflow.start_run():
         while True:
@@ -213,9 +213,9 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
-                    log_ps, values, rewards = rollout(obs, discriminator, X, y, dt, T)[
-                        :3
-                    ]
+                    log_ps, values, rewards, entropies = rollout(
+                        obs, discriminator, X, y, dt, T
+                    )[:4]
 
                     G = returns(rewards, gamma=0.99)
 
@@ -224,8 +224,9 @@ def main(cfg: DictConfig):
                     # Compute losses
                     policy_loss = -(log_ps * advantages.detach()).mean()
                     value_loss = 0.5 * (values - G).pow(2).sqrt().mean()
+                    entropy_loss = -entropies.mean()
 
-                    loss = policy_loss + value_loss
+                    loss = policy_loss + value_loss + entropy_loss
 
                     loss.backward()
 
@@ -236,9 +237,10 @@ def main(cfg: DictConfig):
                         "policy_loss": policy_loss.item(),
                         "value_loss": value_loss.item(),
                         "avg_return": G.mean().item(),
+                        "entropy_loss": entropy_loss.item(),
                     }
 
-                    pbar.set_postfix(losses)
+                    pbar.set_postfix({"avg_return": losses["avg_return"]})
 
                     if (i > 10) or (e > 0):
                         mlflow.log_metrics(losses, step=i)
