@@ -109,6 +109,10 @@ def plot_trace(
 
         info_d["pad nup"] = (pad & (dirs == 1)).sum()
         info_d["pad ndown"] = (pad & (dirs == -1)).sum()
+
+        info_d["nup"] -= info_d["pad nup"]
+        info_d["ndown"] -= info_d["pad ndown"]
+
         dirs[pad] *= 0.7
 
     ax.vlines(
