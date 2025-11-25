@@ -157,16 +157,16 @@ def plot_packet_buffer(
     buffer_down = _squeeze_batched(buffer[Feats.DOWN_BUFFER], idx)
     times = _squeeze_batched(buffer[Feats.TIMES], idx)
 
-    ax.step(times, buffer_up, c="blue", where="post", lw=1)
-    ax.step(times, -buffer_down, c="red", where="post", lw=1)
+    ax.step(times, buffer_up, c="blue", where="post", lw=1, label="Up Buffer")
+    ax.step(times, -buffer_down, c="red", where="post", lw=1, label="Down Buffer")
 
     return ax
 
 
-def plot_packet_buffer(
+def plot_actions(
     times: torch.Tensor,
     actions: torch.Tensor,
-    idx2ackt: dict[int, (Actions, int)],
+    idx2ackt: list[(Actions, int)],
     idx: int | None = None,
     ax: plt.Axes | None = None,
 ) -> plt.Axes:
@@ -175,6 +175,55 @@ def plot_packet_buffer(
 
     times = _squeeze_batched(times, idx)
     actions = _squeeze_batched(actions, idx)
+
+    for a in np.unique(actions):
+        (ackt, c) = idx2ackt[a]
+        mask = actions == a
+        if mask.sum() == 0:
+            continue
+
+        if ackt == Actions.SEND_BUFFER:
+            mins = 0
+            maxs = c
+            color = "green"
+        elif ackt == Actions.SEND_PADDING_DOWN:
+            mins = -c
+            maxs = 0
+            color = DOWN_COLOR
+        elif ackt == Actions.SEND_PADDING_UP:
+            mins = 0
+            maxs = c
+            color = UP_COLOR
+        elif ackt == Actions.WAIT:
+            continue
+        else:
+            raise ValueError(f"Unknown action type: {ackt}")
+
+        ax.vlines(
+            times[mask],
+            mins,
+            maxs,
+            colors=color,
+            alpha=1,
+            lw=0.5,
+        )
+
+    return ax
+
+
+def plot_rewards(
+    times: torch.Tensor,
+    rewards: torch.Tensor,
+    idx: int | None = None,
+    ax: plt.Axes | None = None,
+) -> plt.Axes:
+    if ax is None:
+        _, ax = plt.subplots(figsize=(12, 3))
+
+    times = _squeeze_batched(times, idx)
+    rewards = _squeeze_batched(rewards, idx)
+
+    ax.step(times, rewards, c="black", where="post", lw=1, label="Rewards")
 
     return ax
 

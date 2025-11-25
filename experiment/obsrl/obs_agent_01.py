@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import torch
-from matplotlib.gridspec import GridSpec
 from omegaconf import DictConfig
 from torch import nn
 from tqdm import tqdm
@@ -19,7 +18,12 @@ from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_t
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.trgen import AGENT1
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
-from kipl_ml.tools.plottr import plot_packet_buffer, plot_trace
+from kipl_ml.tools.plottr import (
+    plot_actions,
+    plot_packet_buffer,
+    plot_rewards,
+    plot_trace,
+)
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
@@ -55,16 +59,39 @@ def _plot_set(
     dt: float,
     T: float,
     device: torch.DeviceObjType,
+    ntraces: int = 3,
     max_len: int = 10_000,
 ):
     rng = np.random.default_rng(seed=42)
 
-    ntraces = 5
+    idxs = rng.choice(len(ds), size=ntraces, replace=False)
 
-    idxs = rng.integers(0, len(ds), size=ntraces)
+    for idx in idxs:
+        _plot_single(
+            ds=ds,
+            obs=obs,
+            clf=clf,
+            e=e,
+            dt=dt,
+            T=T,
+            device=device,
+            idx=idx,
+            max_len=max_len,
+        )
 
-    fig = plt.figure(figsize=(20, ntraces * 3))
-    gs = GridSpec(2 * ntraces, 2)
+
+def _plot_single(
+    ds: WFDataset,
+    obs: nn.Module,
+    clf: nn.Module,
+    e: int,
+    dt: float,
+    T: float,
+    device: torch.DeviceObjType,
+    idx: int,
+    max_len: int = 10_000,
+):
+    fig, (ax, ax_o, ax_b) = plt.subplots(3, 1, figsize=(20, 9.0), sharex=True)
 
     def _unsqueeze(X: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         return {k: v.unsqueeze(0) for k, v in X.items()}
@@ -75,65 +102,67 @@ def _plot_set(
             probs = nn.functional.softmax(logits, dim=-1)
         return probs
 
-    for i, idx in enumerate(idxs):
-        X, y = ds[idx]
+    X, y = ds[idx]
 
-        X = dict_to_device(X, device)
-        y = y.to(device).unsqueeze(-1)
+    X = dict_to_device(X, device)
+    y = y.to(device).unsqueeze(-1)
 
-        ax = fig.add_subplot(gs[2 * i : 2 * i + 2, 0])
-        plot_trace(
-            X,
-            ax=ax,
-            cl_probs=X_to_probs(X),
-            true_class=y.item(),
-        )
-        ax.set_title(f"True class: {y.item()}")
+    plot_trace(
+        X,
+        ax=ax,
+        cl_probs=X_to_probs(X),
+        true_class=y.item(),
+    )
+    ax.set_title(f"True class: {y.item()}")
 
-        with torch.no_grad():
-            Xobs, buffer, times, actions = rollout(
-                obs, clf, _unsqueeze(X), y, dt=dt, maxT=T
-            )[3:]
-            Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
+    with torch.no_grad():
+        rewards, Xobs, buffer, times, actions = rollout(
+            obs, clf, _unsqueeze(X), y, dt=dt, maxT=T
+        )[2:]
+        Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
 
-        mask = Xobs[Feats.DIRS] != 0
-        if mask.sum() > max_len:
-            logger.warning("Long seqs. detected -> truncating to %d.", max_len)
+    mask = Xobs[Feats.DIRS] != 0
+    if mask.sum() > max_len:
+        logger.warning("Long seqs. detected -> truncating to %d.", max_len)
 
-        if mask.any():
-            Xobs[Feats.TIMES] = Xobs[Feats.TIMES][mask][:max_len]
-            Xobs[Feats.DIRS] = Xobs[Feats.DIRS][mask][:max_len]
-            Xobs[Feats.PADDING] = Xobs[Feats.PADDING][mask][:max_len]
+    if mask.any():
+        Xobs[Feats.TIMES] = Xobs[Feats.TIMES][mask][:max_len]
+        Xobs[Feats.DIRS] = Xobs[Feats.DIRS][mask][:max_len]
+        Xobs[Feats.PADDING] = Xobs[Feats.PADDING][mask][:max_len]
 
-        # Plot obsfuscated
-        ax_o = fig.add_subplot(gs[2 * i : 2 * i + 1, 1])
-        ax_o.sharex(ax)
-        plot_trace(
-            Xobs,
-            ax=ax_o,
-            cl_probs=X_to_probs(Xobs),
-            true_class=y.item(),
-        )
+    # Plot obsfuscated
+    plot_trace(
+        Xobs,
+        ax=ax_o,
+        cl_probs=X_to_probs(Xobs),
+        true_class=y.item(),
+    )
 
-        ax_o.set_title("Obsfuscated")
+    ax_o.set_title("Obsfuscated")
 
-        # Plot buffer and actions
-        ax_b = fig.add_subplot(gs[2 * i + 1 : 2 * i + 2, 1])
-        ax_b.sharex(ax)
+    # Plot buffer and actions
+    plot_packet_buffer(buffer, ax=ax_b)
 
-        plot_packet_buffer(buffer, ax=ax_b)
+    # Plot actions
+    ax_a = ax_b.twinx()
+    ax_a.axes.spines["right"].set_visible(True)
+    plot_actions(times, actions, idx2ackt=obs.action_map, ax=ax_a)
+    ax_a.set_title("Actions, buffer, etc.")
 
-        # Plot actions
-        plot_actions(times, actions, ax=ax_b)
+    # Plot rewards
+    ax_r = ax_b.twinx()
+    ax_a.axes.spines["right"].set_visible(True)
+    ax_r.spines["right"].set_position(("outward", 40))  # offset by 40 points
+    plot_rewards(times, rewards, ax=ax_r)
 
-        if idx != idxs[-1]:
-            ax.set_xticks([])
-            ax_o.set_xticks([])
-        ax_b.set_xticks([])
+    ax_r.legend(frameon=False)
+    ax_b.legend(frameon=False)
+    ax_b.set_xlabel("Time [s]")
 
     fig.canvas.draw()
 
-    mlflow.log_figure(fig, f"bursts_clf_epoch={e:03d}.png")
+    plt.show()
+    mlflow.log_figure(fig, f"trace_{idx}_clf_epoch={e:03d}.png")
 
     plt.close()
 
