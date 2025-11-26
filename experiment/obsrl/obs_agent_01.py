@@ -219,7 +219,7 @@ def main(cfg: DictConfig):
     dl_train = dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    obs = AGENT1().to(device)
+    obs = AGENT1(zero_init=True).to(device)
     discriminator = discriminator.to(device)
 
     optim = torch.optim.Adam(obs.parameters(), lr=0.001)
@@ -228,6 +228,7 @@ def main(cfg: DictConfig):
     dt = 0.01
     T = 12
     i = 0
+    detach_period = 4.0
     clf_scale = 100
     with mlflow.start_run(log_system_metrics=True):
         while True:
@@ -249,9 +250,10 @@ def main(cfg: DictConfig):
                         dt=dt,
                         maxT=T,
                         clf_scale=clf_scale,
+                        detach_every_delta_t=detach_period,
                     )[:5]
 
-                    G = returns(rewards, gamma=0.99)
+                    G = returns(rewards, gamma=0.9)
 
                     advantages = G - values
 
@@ -259,8 +261,9 @@ def main(cfg: DictConfig):
                     policy_loss = -(log_ps * advantages.detach()).mean()
                     value_loss = 0.5 * (values - G).pow(2).sqrt().mean()
                     entropy_loss = -entropies.mean()
+                    c_penalty *= 0.01
 
-                    loss = policy_loss + value_loss + entropy_loss  # + c_penalty
+                    loss = policy_loss + value_loss + entropy_loss + c_penalty
 
                     loss.backward()
 
@@ -290,7 +293,8 @@ def main(cfg: DictConfig):
                         assert_finite(k, v)
 
                     pbar.set_postfix({"avg_return": losses["avg_return"]})
-                    mlflow.log_metrics(losses, step=i)
+                    if (i > 10) or (e > 0):
+                        mlflow.log_metrics(losses, step=i)
 
                     if i % 10 == 0:
                         _plot_set(ds_valid, obs, discriminator, i, dt, T, device)

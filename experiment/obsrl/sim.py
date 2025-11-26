@@ -31,7 +31,6 @@ def get_reward(
 
         rewards[delayed_buffer_mask] -= (
             1.0
-            / buffer.dt
             * sc
             * buffer_times[delayed_buffer_mask]
             * buffer_counts[delayed_buffer_mask]
@@ -39,22 +38,23 @@ def get_reward(
 
         # Send counts:
         count_padding = Xobs.count_padding
+        count_packets = Xobs.count_send
+        count_valid = count_packets - count_padding
+
+        # When you send too much from the buffer
+        extra_send = torch.tensor(
+            [idx2ackts[actions[i]][1] - c for i, c in enumerate(count_valid) if c != 0]
+        ).to(actions.device)
+        valid_send = count_valid != 0
+        rewards[valid_send] -= 1 * sc * extra_send
 
         # When you send padding while having buffer
-        rewards[has_buffer] -= 10 * sc * count_padding[has_buffer]
+        rewards[has_buffer] -= 1 * sc * count_padding[has_buffer]
 
         # When you send padding w. empty buffer
-        rewards[~has_buffer] -= 1 * sc * count_padding[~has_buffer]
-
-        anything_but_wait_mask = torch.tensor(
-            [idx2ackts[a][0] != Actions.WAIT for a in actions], device=actions.device
-        ).bool()
-
-        # Small penalty for doing anything
-        rewards[anything_but_wait_mask] -= 0.20 * sc
+        rewards[~has_buffer] -= 0.1 * sc * count_padding[~has_buffer]
 
         # Classification reward
-        count_packets = Xobs.count_send
         if count_packets.any():
             has_action = count_packets != 0
             logits, hdisc = disc.pack_and_forward(

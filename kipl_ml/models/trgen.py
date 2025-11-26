@@ -574,11 +574,8 @@ class AGENT1(nn.Module):
             (Actions.SEND_PADDING_DOWN, count) for count in self.counts
         ]
 
-        feat_scale: int = 5
-        self.prelin = nn.Sequential(nn.Linear(nfeat, nfeat * feat_scale), nn.Tanh())
-        self.rnn = nn.LSTM(
-            nfeat * feat_scale, hsize, nlayers, batch_first=True, dropout=dropout
-        )
+        self.scaler = nn.Sequential(nn.Linear(nfeat, nfeat), nn.Tanh())
+        self.rnn = nn.LSTM(nfeat, hsize, nlayers, batch_first=True, dropout=dropout)
 
         self.actor = nn.ModuleDict(
             {
@@ -616,10 +613,6 @@ class AGENT1(nn.Module):
         fs = []
         for f in self.features:
             x_ = torch.log10(1 + x[f])
-
-            if x_.max() > 5:
-                print("Huge inputs")
-                breakpoint()
             fs.append(x_.unsqueeze(-1))
 
         if h is not None:
@@ -632,7 +625,7 @@ class AGENT1(nn.Module):
         inputs = torch.cat(fs, dim=-1)
 
         # (N, L, nfeat * feat_scale)
-        inputs = self.prelin(inputs)
+        inputs = self.scaler(inputs)
 
         # (N, L, H)
         output, h = self.rnn(inputs, h)
