@@ -148,7 +148,9 @@ class PacketBuffer:
         }
 
     def append(self):
-        self._buffer_list.append({k: v.detach() for k, v in self.feature_dict.items()})
+        self._buffer_list.append(
+            {k: v.clone().detach() for k, v in self.feature_dict.items()}
+        )
 
     @property
     def history(self) -> dict[Feats, torch.Tensor]:
@@ -194,7 +196,7 @@ class TraceObservation:
         self.X[...] = 0
 
     def append(self):
-        self._obs_list.append(self.X.detach())
+        self._obs_list.append(self.X.clone().detach())
 
     @property
     def history(self) -> dict[Feats, torch.Tensor]:
