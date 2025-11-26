@@ -80,6 +80,7 @@ def _plot_set(
         )
 
 
+@torch.no_grad()
 def _plot_single(
     ds: WFDataset,
     obs: nn.Module,
