@@ -230,6 +230,7 @@ def main(cfg: DictConfig):
     i = 0
     detach_period = 4.0
     clf_scale = 100
+    gamma = 0.8
     with mlflow.start_run(log_system_metrics=True):
         while True:
             with tqdm(
@@ -253,7 +254,7 @@ def main(cfg: DictConfig):
                         detach_every_delta_t=detach_period,
                     )[:5]
 
-                    G = returns(rewards, gamma=0.9)
+                    G = returns(rewards, gamma=gamma)
 
                     advantages = G - values
 
@@ -295,6 +296,7 @@ def main(cfg: DictConfig):
                     pbar.set_postfix({"avg_return": losses["avg_return"]})
                     if (i > 10) or (e > 0):
                         mlflow.log_metrics(losses, step=i)
+                        gamma += (1 - gamma) * 0.2
 
                     if i % 10 == 0:
                         _plot_set(ds_valid, obs, discriminator, i, dt, T, device)
