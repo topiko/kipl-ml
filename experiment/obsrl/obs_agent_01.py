@@ -275,6 +275,8 @@ def main(cfg: DictConfig):
                         obs.parameters(), cfg.grad_norm_clip, error_if_nonfinite=False
                     )
 
+                    optim.step()
+
                     losses = {
                         "loss": loss.item(),
                         "policy_loss": policy_loss.item(),
@@ -286,7 +288,6 @@ def main(cfg: DictConfig):
 
                     for k, v in losses.items():
                         assert_finite(k, v)
-                    optim.step()
 
                     pbar.set_postfix({"avg_return": losses["avg_return"]})
                     mlflow.log_metrics(losses, step=i)
@@ -294,7 +295,6 @@ def main(cfg: DictConfig):
                     if i % 10 == 0:
                         _plot_set(ds_valid, obs, discriminator, i, dt, T, device)
                         mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
-                        dt /= 2
 
                     i += 1
 
