@@ -226,7 +226,7 @@ def main(cfg: DictConfig):
 
     e = 0
     dt = 0.01
-    T = 4
+    T = 12
     i = 0
     clf_scale = 100
     with mlflow.start_run(log_system_metrics=True):
@@ -260,7 +260,7 @@ def main(cfg: DictConfig):
                     value_loss = 0.5 * (values - G).pow(2).sqrt().mean()
                     entropy_loss = -entropies.mean()
 
-                    loss = policy_loss + value_loss + entropy_loss + c_penalty
+                    loss = policy_loss + value_loss + entropy_loss  # + c_penalty
 
                     loss.backward()
 

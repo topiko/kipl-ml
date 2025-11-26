@@ -117,7 +117,7 @@ def rollout(
     timings = []
 
     i = 0
-    c_penalty = torch.Tensor(0)
+    c_penalty = torch.zeros(1, device=device)
     detach_every = detach_every_delta_t // dt
 
     while True:
