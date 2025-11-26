@@ -116,7 +116,7 @@ def _plot_single(
     ax.set_title(f"True class: {y.item()}")
 
     with torch.no_grad():
-        rewards, _, Xobs, buffer, times, actions = rollout(
+        rewards, _, _, Xobs, buffer, times, actions = rollout(
             obs, clf, _unsqueeze(X), y, dt=dt, maxT=T
         )[2:]
         Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
@@ -164,7 +164,33 @@ def _plot_single(
     plt.close()
 
 
-@hydra.main(config_path=CONFIG_DIR_PATH, config_name="battle-config", version_base=None)
+def check_grads(model, step):
+    for name, p in model.named_parameters():
+        if p.grad is None:
+            continue
+        if not torch.isfinite(p.grad).all():
+            print(f"[step {step}] Non-finite grad in {name}")
+            raise SystemExit
+        grad_norm = p.grad.data.norm(2).item()
+        if grad_norm > 1e3:  # pick a threshold
+            print(f"[step {step}] Large grad in {name}: {grad_norm:.2e}")
+
+
+def assert_finite(name, x):
+    raise_ = False
+    if isinstance(x, (float, int)):
+        if not np.isfinite(x):
+            raise_ = True
+
+    elif not torch.isfinite(x).all():
+        raise_ = True
+
+    if raise_:
+        print(f"Non-finite in {name}")
+        raise SystemExit
+
+
+@hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
 def main(cfg: DictConfig):
     experiment_name = "obsrl"
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
@@ -177,7 +203,7 @@ def main(cfg: DictConfig):
     # discriminator = RNNCLF1(n_classes=95, features=[Feats.DIRS, Feats.TIMES])
 
     feature_names = [Feats.DIRS, Feats.TIMES]
-    npackets = 1000
+    npackets = 5000
 
     ds_train, ds_valid, _ = get_train_valid_test(
         dataset=DATASET,
@@ -199,9 +225,10 @@ def main(cfg: DictConfig):
 
     e = 0
     dt = 0.01
-    T = 5
+    T = 4
     i = 0
-    with mlflow.start_run():
+    clf_scale = 100
+    with mlflow.start_run(log_system_metrics=True):
         while True:
             with tqdm(
                 dl_train,
@@ -213,9 +240,15 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
-                    log_ps, values, rewards, entropies = rollout(
-                        obs, discriminator, X, y, dt, T
-                    )[:4]
+                    log_ps, values, rewards, entropies, c_penalty = rollout(
+                        obs=obs,
+                        disc=discriminator,
+                        X=X,
+                        y=y,
+                        dt=dt,
+                        maxT=T,
+                        clf_scale=clf_scale,
+                    )[:5]
 
                     G = returns(rewards, gamma=0.99)
 
@@ -226,16 +259,20 @@ def main(cfg: DictConfig):
                     value_loss = 0.5 * (values - G).pow(2).sqrt().mean()
                     entropy_loss = -entropies.mean()
 
-                    loss = policy_loss + value_loss + entropy_loss
+                    loss = policy_loss + value_loss + entropy_loss + c_penalty
 
                     loss.backward()
+
+                    check_grads(obs, i)
+
+                    for p in obs.parameters():
+                        if p.grad is not None:
+                            assert_finite("grad", p.grad)
 
                     # Gradient clipping
                     nn.utils.clip_grad_norm_(
                         obs.parameters(), cfg.grad_norm_clip, error_if_nonfinite=False
                     )
-
-                    optim.step()
 
                     losses = {
                         "loss": loss.item(),
@@ -243,14 +280,17 @@ def main(cfg: DictConfig):
                         "value_loss": value_loss.item(),
                         "avg_return": G.mean().item(),
                         "entropy_loss": entropy_loss.item(),
+                        "c_penalty": c_penalty.item(),
                     }
 
+                    for k, v in losses.items():
+                        assert_finite(k, v)
+                    optim.step()
+
                     pbar.set_postfix({"avg_return": losses["avg_return"]})
+                    mlflow.log_metrics(losses, step=i)
 
-                    if (i > 10) or (e > 0):
-                        mlflow.log_metrics(losses, step=i)
-
-                    if i % 100 == 0:
+                    if i % 10 == 0:
                         _plot_set(ds_valid, obs, discriminator, i, dt, T, device)
                         mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
                         dt /= 2

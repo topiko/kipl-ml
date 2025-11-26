@@ -18,6 +18,7 @@ def get_reward(
     hdisc: tuple[torch.Tensor, ...],
     idx2ackts: list[tuple[Actions, int]],
     sc: float = 1.0,
+    clf_scale: float = 100,
 ) -> torch.Tensor:
     buffer_counts = buffer.bcounts
     buffer_times = buffer.btimes
@@ -65,7 +66,7 @@ def get_reward(
             cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
 
             # High correct cl prob --> small reward
-            rewards[has_action] += (1 - cl_probs) * sc
+            rewards[has_action] += (clf_scale * (1 - cl_probs) - clf_scale) * sc
 
     return rewards, hdisc
 
@@ -77,7 +78,10 @@ def rollout(
     y: torch.Tensor,
     dt: float = 0.01,
     maxT: float = 10,
+    detach_every_delta_t: float = 1,
+    clf_scale: float = 1.0,
 ) -> tuple[
+    torch.Tensor,
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
@@ -87,23 +91,20 @@ def rollout(
     torch.Tensor,
     torch.Tensor,
 ]:
-    hobs = None
-
-    buffer = PacketBuffer(dt)
-
-    if set(X.keys()) != {Feats.TIMES, Feats.DIRS}:
-        raise ValueError("Single set of features accepted!")
-
     bs = X[Feats.DIRS].shape[0]
     device = X[Feats.DIRS].device
-
-    Xobs = TraceObservation(B=bs, L=1024, device=device)
-
     # Dummy run to get init hdisc...
     hdisc = (
         torch.randn((disc.rnn.num_layers, bs, disc.rnn.hidden_size), device=device),
         torch.randn((disc.rnn.num_layers, bs, disc.rnn.hidden_size), device=device),
     )
+    hobs = None
+
+    buffer = PacketBuffer(dt)
+    Xobs = TraceObservation(B=bs, L=1024, device=device)
+
+    if set(X.keys()) != {Feats.TIMES, Feats.DIRS}:
+        raise ValueError("Single set of features accepted!")
 
     idx2ackts = obs.action_map
     packet_counts = torch.zeros(bs, device=device)
@@ -115,7 +116,11 @@ def rollout(
     times_l = []
     timings = []
 
-    while buffer.t < maxT:
+    i = 0
+    c_penalty = 0
+    detach_every = detach_every_delta_t // dt
+
+    while True:
         t0 = time.time()
         buffer.step(X)
         t1 = time.time()
@@ -123,6 +128,7 @@ def rollout(
         actions_, log_ps_, values_, entropies_, hobs = obs.act(
             buffer.feature_dict, hobs
         )
+        c_penalty = c_penalty + hobs[1].pow(2).mean()
         t2 = time.time()
 
         log_ps_l.append(log_ps_.unsqueeze(1))
@@ -140,7 +146,9 @@ def rollout(
         packet_counts += ((Xobs.X[..., 0] == 1) & (Xobs.X[..., 2] == 2)).sum(dim=1)
         t4 = time.time()
 
-        rewards_, hdisc = get_reward(actions_, Xobs, y, disc, buffer, hdisc, idx2ackts)
+        rewards_, hdisc = get_reward(
+            actions_, Xobs, y, disc, buffer, hdisc, idx2ackts, clf_scale=clf_scale
+        )
 
         Xobs.reset()
 
@@ -148,6 +156,16 @@ def rollout(
         rewards_l.append(rewards_.unsqueeze(1))
 
         timings.append([[t1 - t0, t2 - t1, t3 - t2, t4 - t3, t5 - t4]])
+
+        if buffer.t > maxT:
+            break
+
+        if (i != 0) and (i % detach_every == 0):
+            hobs = tuple(h_.detach() for h_ in hobs)
+
+        i += 1
+
+    c_penalty /= i
 
     timings = np.concat(timings, axis=0).mean(axis=0)
 
@@ -175,4 +193,14 @@ def rollout(
         print(nmissing)
         breakpoint()
 
-    return log_ps, values, rewards, entropies, Xobsd, buffer.history, times, actions
+    return (
+        log_ps,
+        values,
+        rewards,
+        entropies,
+        c_penalty,
+        Xobsd,
+        buffer.history,
+        times,
+        actions,
+    )

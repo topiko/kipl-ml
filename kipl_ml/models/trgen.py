@@ -558,7 +558,7 @@ class AGENT1(nn.Module):
         super().__init__()
 
         self.nactions = len(self.ACTIONS)
-        self.features = [Feats.UP_BUFFER, Feats.DOWN_BUFFER, Feats.TIMES]
+        self.features = [Feats.UP_BUFFER, Feats.DOWN_BUFFER]
         self.num_layers = nlayers
         self.hidden_size = hsize
         self.zero_init = zero_init
@@ -574,7 +574,11 @@ class AGENT1(nn.Module):
             (Actions.SEND_PADDING_DOWN, count) for count in self.counts
         ]
 
-        self.rnn = nn.LSTM(nfeat, hsize, nlayers, batch_first=True, dropout=dropout)
+        feat_scale: int = 5
+        self.prelin = nn.Sequential(nn.Linear(nfeat, nfeat * feat_scale), nn.Tanh())
+        self.rnn = nn.LSTM(
+            nfeat * feat_scale, hsize, nlayers, batch_first=True, dropout=dropout
+        )
 
         self.actor = nn.ModuleDict(
             {
@@ -611,14 +615,33 @@ class AGENT1(nn.Module):
         # (N, L) x nfeat
         fs = []
         for f in self.features:
-            fs.append(x[f].unsqueeze(-1))
+            x_ = torch.log10(1 + x[f])
+
+            if x_.max() > 5:
+                print("Huge inputs")
+                breakpoint()
+            fs.append(x_.unsqueeze(-1))
+
+        if h is not None:
+            h_norm = h[0].norm(2, dim=-1).max().item()
+            c_norm = h[1].norm(2, dim=-1).max().item()
+            if h_norm > 1000 or c_norm > 1000:
+                print("Huge hidden/cell:", h_norm, c_norm)
 
         # (N, L, nfeat)
         inputs = torch.cat(fs, dim=-1)
 
+        # (N, L, nfeat * feat_scale)
+        inputs = self.prelin(inputs)
+
         # (N, L, H)
         output, h = self.rnn(inputs, h)
 
+        # max_h = 10
+        # h = (
+        #     h[0].clamp(-max_h, max_h),
+        #     h[1].clamp(-max_h, max_h),
+        # )
         # (N, L, nactions)
         action_type = self.actor["action_selection"](output)
 
@@ -659,10 +682,15 @@ class AGENT1(nn.Module):
 
         # (B, L, nactions)
         action_logits = action_outputs[Feats.ACTION_LOGITS]
-        action_probs = nn.functional.softmax(action_logits, dim=-1)
+
+        if action_logits.isnan().any():
+            print()
+
+            print(action_logits.max(), action_logits.min())
+            breakpoint()
 
         # Action distribution
-        action_dist = torch.distributions.Categorical(action_probs)
+        action_dist = torch.distributions.Categorical(logits=action_logits)
 
         # (B, L)
         actions = action_dist.sample()
@@ -670,11 +698,8 @@ class AGENT1(nn.Module):
         # (B, L)
         entropy = action_dist.entropy()
 
-        # (B, L, nactions)
-        log_probs = torch.log(action_probs)
-
         # (B, L)
-        log_probs = log_probs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
+        log_probs = action_dist.log_prob(actions)
 
         # (B, L)
         values = action_outputs[Feats.STATE_VALUE]

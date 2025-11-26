@@ -73,11 +73,11 @@ def _append_values(buffer: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
 
 
 class PacketBuffer:
-    def __init__(self, dt: float):
+    def __init__(self, dt: float, blen: int = 5000):
         self.dt = dt
         self.t = -dt  # After first update self.t = 0
         self._buffer: torch.Tensor | None = None
-        self.blen: int = 1000
+        self.blen: int = blen
         self._buffer_list: list[torch.Tensor] = []
 
     @property
@@ -137,9 +137,13 @@ class PacketBuffer:
     @property
     def feature_dict(self) -> dict[Feats, torch.Tensor]:
         return {
-            Feats.UP_BUFFER: (self.packets == UPLOAD).sum(dim=1, keepdim=True),
-            Feats.DOWN_BUFFER: (self.packets == DOWNLOAD).sum(dim=1, keepdim=True),
-            Feats.TIMES: torch.ones(self.buffer.shape[0], 1, device=self.buffer.device)
+            Feats.UP_BUFFER: (self.packets == UPLOAD).sum(dim=1, keepdim=True).float(),
+            Feats.DOWN_BUFFER: (self.packets == DOWNLOAD)
+            .sum(dim=1, keepdim=True)
+            .float(),
+            Feats.TIMES: torch.ones(
+                self.buffer.shape[0], 1, device=self.buffer.device
+            ).float()
             * self.t,
         }
 
