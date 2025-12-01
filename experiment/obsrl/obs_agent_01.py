@@ -188,7 +188,7 @@ def assert_finite(name, x):
 
     if raise_:
         print(f"Non-finite in {name}")
-        raise SystemExit
+        raise ValueError
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
@@ -228,8 +228,8 @@ def main(cfg: DictConfig):
     dt = 0.01
     T = 12
     i = 0
-    detach_period = 4.0
-    clf_scale = 100
+    detach_period = 2.0
+    clf_scale = 10
     gamma = 0.8
     with mlflow.start_run(log_system_metrics=True):
         while True:
@@ -261,7 +261,7 @@ def main(cfg: DictConfig):
                     # Compute losses
                     policy_loss = -(log_ps * advantages.detach()).mean()
                     value_loss = 0.5 * (values - G).pow(2).sqrt().mean()
-                    entropy_loss = -entropies.mean()
+                    entropy_loss = -10 * entropies.mean()
                     c_penalty *= 0.01
 
                     loss = policy_loss + value_loss + entropy_loss + c_penalty
@@ -288,19 +288,24 @@ def main(cfg: DictConfig):
                         "avg_return": G.mean().item(),
                         "entropy_loss": entropy_loss.item(),
                         "c_penalty": c_penalty.item(),
+                        "gamma": gamma,
                     }
 
                     for k, v in losses.items():
-                        assert_finite(k, v)
+                        try:
+                            assert_finite(k, v)
+                        except ValueError as e:
+                            print(e)
+                            breakpoint()
 
                     pbar.set_postfix({"avg_return": losses["avg_return"]})
-                    if (i > 10) or (e > 0):
+                    if i > 10:
                         mlflow.log_metrics(losses, step=i)
-                        gamma += (1 - gamma) * 0.2
 
                     if i % 10 == 0:
+                        gamma += (1 - gamma) * 0.02
                         _plot_set(ds_valid, obs, discriminator, i, dt, T, device)
-                        mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
+                        # mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
 
                     i += 1
 
