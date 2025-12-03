@@ -45,7 +45,7 @@ def _append_to_buffer(
     return buffer
 
 
-def _push_left(
+def _flush_left(
     values: torch.Tensor, keep_mask: torch.Tensor, pad_val: float = 0
 ) -> torch.Tensor:
     if values.shape != keep_mask.shape:

@@ -2,67 +2,41 @@ import torch
 from torch import nn
 
 from kipl_ml.rl.action import ActionsExec
-from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import BaseTraceObservation
 from kipl_ml.trace.enums import Feats
 
 
+@torch.no_grad()
 def get_reward(
-    actions: torch.Tensor,
-    y: torch.Tensor,
     disc: nn.Module,
     hdisc: tuple[torch.Tensor, ...],
-    idx2ackts: list[tuple[Actions, int]],
-    sc: float = 1.0,
-    clf_scale: float = 100,
+    y: torch.Tensor,
+    actions: torch.Tensor,
+    Xobs: dict[Feats, torch.Tensor],
+    padding_scale: float = 1,
+    clf_scale: float = 10,
 ) -> torch.Tensor:
-    buffer_counts = buffer.bcounts
-    buffer_times = buffer.btimes
-    with torch.no_grad():
-        rewards = torch.zeros(actions.shape[0], device=actions.device)
-        has_buffer = buffer.bcounts != 0
+    rewards = torch.zeros(len(y), device=y.device)
 
-        # When you delay the buffer
-        delayed_buffer_mask = has_buffer  # & Xobs.is_waiting
+    packet_counts = (Xobs[Feats.DIRS] != 0).sum(dim=1)
+    padding_counts = (Xobs[Feats.PADDING] != 0).sum(dim=1)
 
-        rewards[delayed_buffer_mask] -= (
-            1.0
-            * sc
-            * buffer_times[delayed_buffer_mask]
-            * buffer_counts[delayed_buffer_mask]
-        )
+    # Padding cost
+    if padding_counts.any():
+        has_padding = padding_counts != 0
+        rewards[has_padding] -= padding_counts[has_padding].float() * padding_scale
 
-        # Send counts:
-        count_padding = Xobs.count_padding
-        count_packets = Xobs.count_send
-        count_valid = count_packets - count_padding
+    # Classification reward
+    if packet_counts.any():
+        has_action = packet_counts != 0
+        logits, hdisc = disc.pack_and_forward(Xobs, hdisc, packet_counts.cpu())
 
-        # When you send too much from the buffer
-        extra_send = torch.tensor(
-            [idx2ackts[actions[i]][1] - c for i, c in enumerate(count_valid) if c != 0]
-        ).to(actions.device)
-        valid_send = count_valid != 0
-        rewards[valid_send] -= 1 * sc * extra_send
+        probs = nn.functional.softmax(logits, dim=1)
+        # (A, )
+        cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
 
-        # When you send padding while having buffer
-        rewards[has_buffer] -= 1 * sc * count_padding[has_buffer]
-
-        # When you send padding w. empty buffer
-        rewards[~has_buffer] -= 0.1 * sc * count_padding[~has_buffer]
-
-        # Classification reward
-        if count_packets.any():
-            has_action = count_packets != 0
-            logits, hdisc = disc.pack_and_forward(
-                Xobs.feature_dict, hdisc, count_packets.cpu()
-            )
-
-            probs = nn.functional.softmax(logits, dim=1)
-            # (A, )
-            cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
-
-            # High correct cl prob --> small reward
-            rewards[has_action] += (clf_scale * (1 - cl_probs) - clf_scale) * sc
+        # Small correct cl prob --> large reward
+        rewards[has_action] += clf_scale * (1 - cl_probs) - clf_scale
 
     return rewards, hdisc
 
@@ -103,12 +77,13 @@ def rollout(
     entropy_l = []
     actions_l = []
     times_l = []
+    xobs_l = []
     timings = []
 
     i = 0
     detach_every = detach_every_delta_t // dt
 
-    ackt_exec = ActionsExec()
+    ackt_exec = ActionsExec(dt)
     bto = BaseTraceObservation(X)
 
     while True:
@@ -119,17 +94,19 @@ def rollout(
         actions_, log_ps_, values_, entropies_, hobs = obs.act(bto.feature_dict, hobs)
         # Step Various Action execs
 
-        discXobs = ackt_exec.step(dt, actions_, bto.feature_dict)
+        curXobs = ackt_exec.step(actions_, bto.feature_dict)
 
-        # rewards_, hdisc = get_reward(
-        #     actions_, discXobs, y, disc, hdisc, clf_scale=clf_scale
-        # )
+        xobs_l.append(curXobs)
+        rewards_, hdisc = get_reward(
+            disc, hdisc, y, actions_, curXobs, padding_scale=1, clf_scale=clf_scale
+        )
 
+        actions_l.append(actions_)
         log_ps_l.append(log_ps_.unsqueeze(1))
         values_l.append(values_.unsqueeze(1))
         entropy_l.append(entropies_.unsqueeze(1))
+        rewards_l.append(rewards_.unsqueeze(1))
         times_l.append(bto.t)
-        # rewards_l.append(rewards_.unsqueeze(1))
 
         if bto.t > maxT:
             break
@@ -143,7 +120,6 @@ def rollout(
 
     log_ps: torch.Tensor = torch.cat(log_ps_l, dim=1)
     values: torch.Tensor = torch.cat(values_l, dim=1)
-    actions: torch.Tensor = torch.cat(actions_l, dim=1)
     entropies: torch.Tensor = torch.cat(entropy_l, dim=1)
     times: torch.Tensor = torch.tensor(times_l)
     rewards: torch.Tensor = torch.cat(rewards_l, dim=1)
@@ -153,10 +129,7 @@ def rollout(
         values,
         rewards,
         entropies,
-        c_penalty,
-        h_penalty,
-        Xobsd,
-        buffer.history,
+        xobs_l,
         times,
-        actions,
+        actions_l,
     )
