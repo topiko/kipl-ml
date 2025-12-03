@@ -1,20 +1,16 @@
-import time
-
-import numpy as np
 import torch
 from torch import nn
 
+from kipl_ml.rl.action import ActionsExec
 from kipl_ml.rl.enums import Actions
-from kipl_ml.rl.utils import PacketBuffer, TraceObservation, step_actions
+from kipl_ml.rl.observation import BaseTraceObservation
 from kipl_ml.trace.enums import Feats
 
 
 def get_reward(
     actions: torch.Tensor,
-    Xobs: TraceObservation,
     y: torch.Tensor,
     disc: nn.Module,
-    buffer: PacketBuffer,
     hdisc: tuple[torch.Tensor, ...],
     idx2ackts: list[tuple[Actions, int]],
     sc: float = 1.0,
@@ -101,14 +97,6 @@ def rollout(
     )
     hobs = None
 
-    buffer = PacketBuffer(dt)
-    Xobs = TraceObservation(B=bs, L=1024, device=device)
-
-    if set(X.keys()) != {Feats.TIMES, Feats.DIRS}:
-        raise ValueError("Single set of features accepted!")
-
-    idx2ackts = obs.action_map
-    packet_counts = torch.zeros(bs, device=device)
     log_ps_l = []
     values_l = []
     rewards_l = []
@@ -118,60 +106,38 @@ def rollout(
     timings = []
 
     i = 0
-    c_penalty = torch.zeros(1, device=device)
-    h_penalty = torch.zeros(1, device=device)
     detach_every = detach_every_delta_t // dt
 
-    while True:
-        t0 = time.time()
-        buffer.step(X)
-        t1 = time.time()
+    ackt_exec = ActionsExec()
+    bto = BaseTraceObservation(X)
 
-        actions_, log_ps_, values_, entropies_, hobs = obs.act(
-            buffer.feature_dict, hobs
-        )
-        c_penalty = c_penalty + hobs[1].pow(2).mean()
-        h_penalty = h_penalty + hobs[0].pow(2).mean()
-        t2 = time.time()
+    while True:
+        # Step BaseTraceObservation
+        bto.step(dt)
+
+        # Step obsf.action(base_trace_obs, hobs)
+        actions_, log_ps_, values_, entropies_, hobs = obs.act(bto.feature_dict, hobs)
+        # Step Various Action execs
+
+        discXobs = ackt_exec.step(dt, actions_, bto.feature_dict)
+
+        # rewards_, hdisc = get_reward(
+        #     actions_, discXobs, y, disc, hdisc, clf_scale=clf_scale
+        # )
 
         log_ps_l.append(log_ps_.unsqueeze(1))
         values_l.append(values_.unsqueeze(1))
-        actions_l.append(actions_.unsqueeze(1))
         entropy_l.append(entropies_.unsqueeze(1))
-        times_l.append(buffer.t)
+        times_l.append(bto.t)
+        # rewards_l.append(rewards_.unsqueeze(1))
 
-        Xobs, buffer = step_actions(actions_, idx2ackts, Xobs, buffer, buffer.t)
-        t3 = time.time()
-
-        Xobs.append()
-        buffer.append()
-
-        packet_counts += ((Xobs.X[..., 0] == 1) & (Xobs.X[..., 2] == 2)).sum(dim=1)
-        t4 = time.time()
-
-        rewards_, hdisc = get_reward(
-            actions_, Xobs, y, disc, buffer, hdisc, idx2ackts, clf_scale=clf_scale
-        )
-
-        Xobs.reset()
-
-        t5 = time.time()
-        rewards_l.append(rewards_.unsqueeze(1))
-
-        timings.append([[t1 - t0, t2 - t1, t3 - t2, t4 - t3, t5 - t4]])
-
-        if buffer.t > maxT:
+        if bto.t > maxT:
             break
 
         if (i != 0) and (i % detach_every == 0):
             hobs = tuple(h_.detach() for h_ in hobs)
 
         i += 1
-
-    c_penalty /= i
-    h_penalty /= i
-
-    timings = np.concat(timings, axis=0).mean(axis=0)
 
     # print(timings / timings.sum())
 
@@ -181,21 +147,6 @@ def rollout(
     entropies: torch.Tensor = torch.cat(entropy_l, dim=1)
     times: torch.Tensor = torch.tensor(times_l)
     rewards: torch.Tensor = torch.cat(rewards_l, dim=1)
-
-    Xobsd = Xobs.history
-
-    if not (
-        ((Xobsd[Feats.DIRS] == 1) & (~Xobsd[Feats.PADDING])).sum(dim=1) == packet_counts
-    ).all():
-        print(((Xobsd[Feats.DIRS] == 1) & (~Xobsd[Feats.PADDING])).sum(dim=1))
-        print(packet_counts)
-        breakpoint()
-
-    nmissing = (X[Feats.DIRS] == 1).sum(dim=1) - packet_counts
-
-    if (nmissing < 0).any():
-        print(nmissing)
-        breakpoint()
 
     return (
         log_ps,

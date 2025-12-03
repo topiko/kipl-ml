@@ -1,7 +1,9 @@
 import torch
 from torch import nn
+from torch.distributions import Categorical, Normal, Poisson
 from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence
 
+from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.rl.enums import Actions
 from kipl_ml.trace.features import Feats
 
@@ -540,12 +542,6 @@ class ANTINCLF1(nn.Module):
 
 class AGENT1(nn.Module):
     name: str = "agent"
-    ACTIONS = (
-        Actions.WAIT,
-        Actions.SEND_BUFFER,
-        Actions.SEND_PADDING_UP,
-        Actions.SEND_PADDING_DOWN,
-    )
 
     def __init__(
         self,
@@ -553,26 +549,14 @@ class AGENT1(nn.Module):
         nlayers: int = 3,
         dropout: float = 0.2,
         zero_init: bool = False,
-        send_counts: list[int] | None = None,
     ):
         super().__init__()
 
-        self.nactions = len(self.ACTIONS)
-        self.features = [Feats.UP_BUFFER, Feats.DOWN_BUFFER]
+        self.features = [Feats.UP_COUNT, Feats.DOWN_COUNT]
         self.num_layers = nlayers
         self.hidden_size = hsize
         self.zero_init = zero_init
-        self.counts = send_counts or [1, 2, 4, 8, 16, 32, 64]
-        self.ncounts = len(self.counts)
         nfeat = len(self.features)
-
-        # Mapping from idx to (action, count)
-        self._action_map = [(Actions.WAIT, 1)]
-        self._action_map += [(Actions.SEND_BUFFER, count) for count in self.counts]
-        self._action_map += [(Actions.SEND_PADDING_UP, count) for count in self.counts]
-        self._action_map += [
-            (Actions.SEND_PADDING_DOWN, count) for count in self.counts
-        ]
 
         self.scaler = nn.Sequential(nn.Linear(nfeat, nfeat, bias=False), nn.Tanh())
         self.rnn = nn.LSTM(
@@ -582,11 +566,12 @@ class AGENT1(nn.Module):
         self.actor = nn.ModuleDict(
             {
                 "action_selection": nn.Sequential(
-                    nn.Dropout(dropout), nn.Linear(hsize, self.nactions)
+                    nn.Dropout(dropout), nn.Linear(hsize, 4)
                 ),
-                "count_selection": nn.Sequential(
-                    nn.Dropout(dropout), nn.Linear(hsize, self.ncounts)
-                ),
+                "send_count_u": nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, 1)),
+                "send_count_d": nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, 1)),
+                "send_time_u": nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, 1)),
+                "send_time_d": nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, 1)),
             }
         )
 
@@ -598,8 +583,8 @@ class AGENT1(nn.Module):
         if not self.zero_init:
             return None
 
-        bs = x[self.features[0]].shape[0]
-        device = x[self.features[0]].device
+        bs = x[Feats.DIRS].shape[0]
+        device = x[Feats.DIRS].device
         return (
             torch.zeros(self.num_layers, bs, self.hidden_size, device=device),
             torch.zeros(self.num_layers, bs, self.hidden_size, device=device),
@@ -607,11 +592,20 @@ class AGENT1(nn.Module):
 
     def forward(
         self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
-    ) -> tuple[dict[Feats, torch.Tensor], torch.Tensor]:
+    ) -> tuple[dict[Feats | Actions, torch.Tensor], torch.Tensor]:
         if h is None:
             h = self._get_init_h(x)
 
-        # (N, L) x nfeat
+        # Feature generation:
+        x[Feats.UP_COUNT] = (x[Feats.DIRS] == UPLOAD).sum(dim=1, keepdim=True).float()
+        x[Feats.DOWN_COUNT] = (
+            (x[Feats.DIRS] == DOWNLOAD).sum(dim=1, keepdim=True).float()
+        )
+
+        # Typically we have time in dim=1, here we always(?)
+        # operate on only single time step... Regardless we only
+        # squeeze the time dim out in the end.
+        # (N, 1) x nfeat
         fs = []
         for f in self.features:
             x_ = torch.log10(1 + x[f])
@@ -623,87 +617,177 @@ class AGENT1(nn.Module):
             if h_norm > 100 or c_norm > 100:
                 print("Huge hidden/cell:", h_norm, c_norm)
 
-        # (N, L, nfeat)
+        # (N, 1, nfeat)
         inputs = torch.cat(fs, dim=-1)
 
-        # (N, L, nfeat * feat_scale)
+        # (N, 1, nfeat * feat_scale)
         inputs = self.scaler(inputs)
 
-        # (N, L, H)
+        # (N, 1, H) (N, n_hidden, H)
         output, h = self.rnn(inputs, h)
 
-        # max_h = 10
-        # h = (
-        #     h[0].clamp(-max_h, max_h),
-        #     h[1].clamp(-max_h, max_h),
-        # )
-        # (N, L, nactions)
-        action_type = self.actor["action_selection"](output)
+        # (N, H)
+        output = output.squeeze(1)
 
-        # (N, L, ncounts)
-        action_count = self.actor["count_selection"](output)
+        # (N, 4) (0=WAIT, 1=SEND_UP, 2=SEND_DOWN, 3=SEND_BOTH)
+        action_selector = self.actor["action_selection"](output)
 
-        # Combine action type and count into final action logits
-        action_logits = torch.zeros(
-            (
-                action_type.shape[0],
-                action_type.shape[1],
-                (self.nactions - 1) * self.ncounts + 1,
-            ),
-            device=action_type.device,
-        )
+        # (N, 1)
+        send_count_u = self.actor["send_count_u"](output)
+        send_count_d = self.actor["send_count_d"](output)
+        send_time_u = self.actor["send_time_u"](output)
+        send_time_d = self.actor["send_time_d"](output)
 
-        action_logits[..., 0] = action_type[..., 0]  # WAIT action
-        n = 1
-        for i in range(1, self.nactions):
-            action_logits[..., n : n + self.ncounts] = (
-                action_type[..., i].unsqueeze(2) + action_count
-            )
-            n += self.ncounts
+        # (N, 1)
+        state_values = self.critic(output)
 
-        # (N, L, 1)
-        state_values = self.critic(output).squeeze(-1)
-
-        return {Feats.ACTION_LOGITS: action_logits, Feats.STATE_VALUE: state_values}, h
-
-    @property
-    def action_map(self) -> list[tuple[Actions, int]]:
-        return self._action_map
+        return {
+            Actions.SELECTOR: action_selector,
+            Actions.SEND_COUNT_UP: send_count_u,
+            Actions.SEND_TIME_UP: send_time_u,
+            Actions.SEND_COUNT_DOWN: send_count_d,
+            Actions.SEND_TIME_DOWN: send_time_d,
+            Feats.STATE_VALUE: state_values,
+        }, h
 
     def act(
         self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[
+        dict[Actions, torch.Tensor],
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
         action_outputs, h = self(x, h)
 
-        # (B, L, nactions)
-        action_logits = action_outputs[Feats.ACTION_LOGITS]
+        # Select action:
+        sel_dist = Categorical(logits=action_outputs[Actions.SELECTOR])
 
-        if action_logits.isnan().any():
-            print()
+        # (B, )
+        selections = sel_dist.sample()
+        sel_log_probs = sel_dist.log_prob(selections)
+        sel_entropy = sel_dist.entropy()
 
-            print(action_logits.max(), action_logits.min())
-            breakpoint()
+        # (B, 1)
+        selections = selections.unsqueeze(1)
+        sel_log_probs = sel_log_probs.unsqueeze(1)
+        sel_entropy = sel_entropy.unsqueeze(1)
 
-        # Action distribution
-        action_dist = torch.distributions.Categorical(logits=action_logits)
+        # Send u/d, note! These are conditional on the selection.
+        # They will be ignored if the selection is not SEND_UP/DOWN/BOTH.
+        suc = Poisson(nn.functional.softplus(action_outputs[Actions.SEND_COUNT_UP]))
+        sut = Normal(
+            0.01 + nn.functional.softplus(action_outputs[Actions.SEND_TIME_UP]), 1e-3
+        )
+        sdc = Poisson(nn.functional.softplus(action_outputs[Actions.SEND_COUNT_DOWN]))
+        sdt = Normal(
+            0.01 + nn.functional.softplus(action_outputs[Actions.SEND_TIME_DOWN]), 1e-3
+        )
 
-        # (B, L)
-        actions = action_dist.sample()
+        # (B, 1)
+        send_count_u = suc.sample()
+        send_count_u_logp = suc.log_prob(send_count_u)
 
-        # (B, L)
-        entropy = action_dist.entropy()
+        send_count_d = sdc.sample()
+        send_count_d_logp = sdc.log_prob(send_count_d)
 
-        # (B, L)
-        log_probs = action_dist.log_prob(actions)
+        send_time_u = sut.sample()
+        send_time_u_logp = sut.log_prob(send_time_u)
 
-        # (B, L)
+        send_time_d = sdt.sample()
+        send_time_d_logp = sdt.log_prob(send_time_d)
+
+        # Conditional entropy H[A|S]:
+        # =============================
+        # (B, 4)
+        # sel_probs = sel_dist.probs
+
+        # (B, 1)
+        # up_p = sel_probs[..., 1] + sel_probs[..., 3]
+        # down_p = sel_probs[..., 2] + sel_probs[..., 3]
+
+        # (B, 1)
+        # Poisson does not have entropy implemented - ignoring these for now.
+        # The correct entropy is computed as:
+        # up_p * (suc_entropy + stu_entropy) + down_p * (sdc_entropy + sdt_entropy)
+        # suc_entropy = suc.entropy()
+        # sdc_entropy = sdc.entropy()
+        # stu_entropy = sut.entropy()
+        # sdt_entropy = sdt.entropy()
+        # This cond entropy becomes redundant: if tha var of normals is fixed -> H[N] = const,
+        # so we can ignore it in the optimization.
+        # For Poisson, the entropy must be ~ to the "mean" -> however, that would only encourage
+        # Larger send values -> ignore
+        # cond_entropy = up_p * stu_entropy + down_p * sdt_entropy
+        cond_entropy = 0.0
+
+        # Entropy (B, 1)
+        entropy = sel_entropy + cond_entropy
+
+        # Use action selector to choose what to do:
+        # (B, 1)
+        log_probs = torch.zeros_like(sel_log_probs)
+        actions = {
+            Actions.SELECTOR: selections,
+            Actions.SEND_COUNT_DOWN: send_count_d,
+            Actions.SEND_COUNT_UP: send_count_u,
+            Actions.SEND_TIME_DOWN: send_time_d,
+            Actions.SEND_TIME_UP: send_time_u,
+        }
+
+        # WAIT:
+        mask = selections == 0
+
+        # (B, 1)
+        log_probs[mask] = sel_log_probs[mask]
+        actions[Actions.SEND_COUNT_UP][mask] = 0
+        actions[Actions.SEND_COUNT_DOWN][mask] = 0
+        actions[Actions.SEND_TIME_UP][mask] = 0
+        actions[Actions.SEND_TIME_DOWN][mask] = 0
+
+        # SEND UP:
+        mask = selections == 1
+
+        # (B, 1)
+        log_probs[mask] = (
+            sel_log_probs[mask] + send_count_u_logp[mask] + send_time_u_logp[mask]
+        )
+        actions[Actions.SEND_COUNT_DOWN][mask] = 0
+        actions[Actions.SEND_TIME_DOWN][mask] = 0
+
+        # SEND DOWN:
+        mask = selections == 2
+
+        # (B, 1)
+        log_probs[mask] = (
+            sel_log_probs[mask] + send_count_d_logp[mask] + send_time_d_logp[mask]
+        )
+        actions[Actions.SEND_COUNT_UP][mask] = 0
+        actions[Actions.SEND_TIME_UP][mask] = 0
+
+        # SEND BOTH:
+        mask = selections == 3
+
+        # (B, 1)
+        log_probs[mask] = (
+            sel_log_probs[mask]
+            + send_count_u_logp[mask]
+            + send_time_u_logp[mask]
+            + send_count_d_logp[mask]
+            + send_time_d_logp[mask]
+        )
+
+        # (B, 1)
         values = action_outputs[Feats.STATE_VALUE]
 
-        if actions.shape[1] != 1:
-            raise ValueError("Expected action shape (B, 1)")
+        # Squeeze the ch dim.
+        # (B, )
+        for _, v in actions.items():
+            v.squeeze_(1)
 
         return (
-            actions.squeeze(1),
+            actions,
             log_probs.squeeze(1),
             values.squeeze(1),
             entropy.squeeze(1),

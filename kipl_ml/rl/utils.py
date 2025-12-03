@@ -4,7 +4,6 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.rl.enums import Actions
 from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
@@ -46,30 +45,69 @@ def _append_to_buffer(
     return buffer
 
 
-def _append_values(buffer: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
-    if buffer.shape[0] != values.shape[0]:
-        raise ValueError("Batch size of buffer and values must match")
+def _push_left(
+    values: torch.Tensor, keep_mask: torch.Tensor, pad_val: float = 0
+) -> torch.Tensor:
+    if values.shape != keep_mask.shape:
+        raise ValueError(
+            f"Size of values and mask must match got: {values.shape} and {keep_mask.shape}."
+        )
 
-    B = buffer.shape[0]
+    B = values.shape[0]
 
     # (B, )
-    start_idxs = (buffer != 0).sum(dim=1)
+    values_pushed = torch.ones_like(values) * pad_val
 
-    if ((start_idxs + values.shape[1]) > buffer.shape[1]).any():
-        raise ValueError("Not enough space in buffer to append values")
+    # (B, M) row indices, M = values.shape[1]
+    row_idxs = (
+        torch.arange(B, device=values.device).unsqueeze(1).expand(-1, values.shape[1])
+    )
+
+    col_idxs = keep_mask.cumsum(dim=1) - 1
+
+    # (N, )
+    row_valid = row_idxs[keep_mask]
+    col_valid = col_idxs[keep_mask]
+
+    values_pushed[row_valid, col_valid] = values[keep_mask]
+
+    return values_pushed
+
+
+def _append_values(
+    base: torch.Tensor, values: torch.Tensor, on_short_base: str = "raise"
+) -> torch.Tensor:
+    if base.shape[0] != values.shape[0]:
+        raise ValueError("Batch size of buffer and values must match")
+
+    B = base.shape[0]
+
+    # (B, )
+    start_idxs = (base != 0).sum(dim=1)
+
+    if ((start_idxs + values.shape[1]) > base.shape[1]).any():
+        if on_short_base == "raise":
+            raise ValueError("Base buffer too short to append values")
+        elif on_short_base == "cat":
+            # Allow for base expansion
+            base = torch.cat(
+                (base, torch.zeros((B, values.shape[1]), device=base.device)), dim=1
+            )
+        else:
+            raise ValueError(f"Unknown on_short_base option: {on_short_base}")
 
     M = values.shape[1]
     # (B, M) column indices
-    col_idxs = torch.arange(M, device=buffer.device).unsqueeze(0).expand(
+    col_idxs = torch.arange(M, device=base.device).unsqueeze(0).expand(
         B, -1
     ) + start_idxs.unsqueeze(1)
 
     # (B, M) row indices
-    row_idxs = torch.arange(B, device=buffer.device).unsqueeze(1).expand(-1, M)
+    row_idxs = torch.arange(B, device=base.device).unsqueeze(1).expand(-1, M)
 
-    buffer[row_idxs, col_idxs] = values
+    base[row_idxs, col_idxs] = values
 
-    return buffer
+    return base
 
 
 class PacketBuffer:
@@ -104,8 +142,8 @@ class PacketBuffer:
             self._buffer[..., 1], up + down, self.t
         )
 
-    def reset(self, mask: torch.Tensor, feat: Feats):
-        self._buffer[feat][mask] = 0
+    def reset(self):
+        self._buffer[...] = 0
 
     def is_empty(self) -> torch.Tensor:
         return self.buffer[..., 0].sum(dim=1) == 0
@@ -156,121 +194,3 @@ class PacketBuffer:
     def history(self) -> dict[Feats, torch.Tensor]:
         feats = [Feats.UP_BUFFER, Feats.DOWN_BUFFER, Feats.TIMES]
         return {k: torch.cat([b[k] for b in self._buffer_list], dim=1) for k in feats}
-
-
-class TraceObservation:
-    def __init__(self, B: int, L: int, device: torch.DeviceObjType):
-        self.L = L
-        self.X = torch.zeros((B, L, 3), device=device)  # dirs, times, padding
-        self._obs_list: list[torch.Tensor] = []
-
-    @property
-    def times(self) -> torch.Tensor:
-        return self.X[..., 1]
-
-    @property
-    def dirs(self) -> torch.Tensor:
-        return self.X[..., 0]
-
-    @property
-    def count_send(self) -> torch.Tensor:
-        return (self.X[..., 0] != 0).sum(dim=1)
-
-    @property
-    def count_padding(self) -> torch.Tensor:
-        return (self.X[..., 2] == 1).sum(dim=1)
-
-    @property
-    def is_waiting(self) -> torch.Tensor:
-        return self.X[:, 0, 0] == 0
-
-    @property
-    def feature_dict(self) -> dict[Feats, torch.Tensor]:
-        return {
-            Feats.DIRS: self.X[..., 0],
-            Feats.TIMES: self.X[..., 1],
-            Feats.PADDING: self.X[..., 2],
-        }
-
-    def reset(self):
-        self.X[...] = 0
-
-    def append(self):
-        self._obs_list.append(self.X.clone().detach())
-
-    @property
-    def history(self) -> dict[Feats, torch.Tensor]:
-        Xobs = torch.cat(self._obs_list, dim=1)
-        device = Xobs.device
-        bs = Xobs.shape[0]
-
-        mask = Xobs[..., 0] != 0
-        Lmax = mask.sum(dim=1).max()
-
-        Xobsd = {}
-        for f, i in zip((Feats.DIRS, Feats.TIMES, Feats.PADDING), range(3)):
-            lens = mask.sum(dim=1)
-
-            idxs = torch.arange(Lmax, device=device).unsqueeze(0).expand(bs, -1)
-
-            new_mask = idxs < lens.unsqueeze(1)
-
-            # (B, Lmax, 3)
-            Xobs_ = torch.zeros((bs, Lmax), device=device)
-            Xobs_[new_mask] = Xobs[mask, i]
-
-            Xobsd[f] = Xobs_
-
-        Xobsd[Feats.PADDING] = Xobsd[Feats.PADDING] == 1
-
-        return Xobsd
-
-
-def step_actions(
-    actions: torch.Tensor,
-    idx2ackts: dict[int, tuple[Actions, int]],
-    curXobs: TraceObservation,
-    buffer: PacketBuffer,
-    t: float,
-) -> tuple[TraceObservation, PacketBuffer]:
-    for action in actions.unique():
-        mask = actions == action
-        action_, count = idx2ackts[action]
-        match action_:
-            case Actions.SEND_PADDING_DOWN | Actions.SEND_PADDING_UP:
-                val = DOWNLOAD if action_ == Actions.SEND_PADDING_DOWN else UPLOAD
-
-                counts = torch.zeros_like(mask, dtype=torch.int)
-                counts[mask] = count
-
-                curXobs.X[mask, :, 0] = _append_to_buffer(
-                    curXobs.X[mask, :, 0], counts[mask], val
-                )
-                curXobs.X[mask, :, 1] = _append_to_buffer(
-                    curXobs.X[mask, :, 1], counts[mask], t
-                )
-                curXobs.X[mask, :, 2] = _append_to_buffer(
-                    curXobs.X[mask, :, 2], counts[mask], 1
-                )
-            case Actions.SEND_BUFFER:
-                # M = mask.sum()
-                # (M, count)
-                send = buffer.pop_oldest(mask, count)
-
-                # (M, )
-                counts_ = (send != 0).sum(dim=1)
-
-                curXobs.X[mask, :, 0] = _append_values(curXobs.X[mask, :, 0], send)
-
-                curXobs.X[mask, :, 1] = _append_to_buffer(
-                    curXobs.X[mask, :, 1], counts_, t
-                )
-                curXobs.X[mask, :, 2] = _append_to_buffer(
-                    curXobs.X[mask, :, 2], counts_, 2
-                )
-            case Actions.WAIT:
-                pass
-            case _:
-                raise ValueError(f"Unknown action: {action_}")
-
-    return curXobs, buffer

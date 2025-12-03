@@ -52,7 +52,9 @@ class Feats(StrEnum):
     # Helpers:
     DIR_PROBS = "dir_probs"
     UP_BUFFER = "up_buffer"
+    UP_COUNT = "up_count"
     DOWN_BUFFER = "down_buffer"
+    DOWN_COUNT = "down_count"
     ACTION_LOGITS = "action_logits"
     STATE_VALUE = "state_value"
 

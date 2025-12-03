@@ -3,8 +3,9 @@ from enum import StrEnum
 
 class Actions(StrEnum):
     WAIT = "wait"
-    SEND_BUFFER = "send_from_buffer"
-    SEND_PADDING_UP = "send_padding_up"
-    SEND_PADDING_DOWN = "send_padding_down"
+    SEND_COUNT_UP = "send_up"
+    SEND_COUNT_DOWN = "send_down"
+    SEND_TIME_UP = "send_time_up"
+    SEND_TIME_DOWN = "send_time_down"
 
-    COUNT = "count_to_send"
+    SELECTOR = "selector"
