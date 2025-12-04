@@ -77,6 +77,7 @@ def rollout(
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
+    torch.Tensor,
     list[dict[Actions, torch.Tensor]],
     dict[Feats, torch.Tensor],
 ]:
@@ -101,6 +102,7 @@ def rollout(
     i = 0
     detach_every = detach_every_delta_t // dt
 
+    hidden_penalty = torch.zeros(2, device=device)
     ackt_exec = ActionsExec(dt)
     bto = BaseTraceObservation(X)
 
@@ -110,11 +112,15 @@ def rollout(
 
         # Step obsf.action(base_trace_obs, hobs)
         actions_, log_ps_, values_, entropies_, hobs = obs.act(bto.feature_dict, hobs)
+
+        hidden_penalty[0] = hidden_penalty[0] + hobs[0].pow(2).mean()
+        hidden_penalty[1] = hidden_penalty[1] + hobs[1].pow(2).mean()
+
         # Step Various Action execs
-
         curXobs = ackt_exec.step(actions_, bto.feature_dict)
-
         xobs_l.append(curXobs)
+
+        # Get rewards
         rewards_, hdisc = get_reward(
             disc, hdisc, y, actions_, curXobs, padding_scale=1, clf_scale=clf_scale
         )
@@ -136,6 +142,7 @@ def rollout(
 
     # print(timings / timings.sum())
 
+    hidden_penalty /= i
     log_ps: torch.Tensor = torch.cat(log_ps_l, dim=1)
     values: torch.Tensor = torch.cat(values_l, dim=1)
     entropies: torch.Tensor = torch.cat(entropy_l, dim=1)
@@ -149,6 +156,7 @@ def rollout(
         values,
         rewards,
         entropies,
+        hidden_penalty,
         times,
         actions_l,
         Xobs,

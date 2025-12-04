@@ -114,7 +114,7 @@ def _plot_single(
     )
     ax.set_title(f"True class: {y.item()}")
 
-    rewards, _, times, actions_l, Xobs = rollout(
+    rewards, _, _, times, actions_l, Xobs = rollout(
         obs, clf, _unsqueeze(X), y, dt=dt, maxT=T
     )[2:]
 
@@ -269,15 +269,17 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
-                    log_ps, values, rewards, entropies, _, _, Xobs = rollout(
-                        obs=obs,
-                        disc=discriminator,
-                        X=X,
-                        y=y,
-                        dt=dt,
-                        maxT=T,
-                        clf_scale=clf_scale,
-                        detach_every_delta_t=detach_period,
+                    log_ps, values, rewards, entropies, hidden_penalty, _, _, Xobs = (
+                        rollout(
+                            obs=obs,
+                            disc=discriminator,
+                            X=X,
+                            y=y,
+                            dt=dt,
+                            maxT=T,
+                            clf_scale=clf_scale,
+                            detach_every_delta_t=detach_period,
+                        )
                     )
 
                     G = returns(rewards, gamma=gamma)
@@ -288,8 +290,11 @@ def main(cfg: DictConfig):
                     policy_loss = -(log_ps * advantages.detach()).mean()
                     value_loss = 0.5 * (values - G).pow(2).sqrt().mean()
                     entropy_loss = -10 * entropies.mean()
+                    hidden_penalty = hidden_penalty * 0.1
 
-                    loss = policy_loss + value_loss + entropy_loss
+                    loss = (
+                        policy_loss + value_loss + entropy_loss + hidden_penalty.sum()
+                    )
 
                     loss.backward()
 
@@ -318,6 +323,8 @@ def main(cfg: DictConfig):
                         "value_loss": value_loss.item(),
                         "avg_return": G.mean().item(),
                         "entropy_loss": entropy_loss.item(),
+                        "h_penalty": hidden_penalty[0].item(),
+                        "c_penalty": hidden_penalty[1].item(),
                         "disc_loss": disc_loss,
                         "disc_acc": acc,
                         "gamma": gamma,
