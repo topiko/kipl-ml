@@ -338,8 +338,6 @@ def main(cfg: DictConfig):
                         _plot_set(ds_valid, obs, discriminator, i, dt, T, device)
                         # mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
 
-                    mlflow.log_metrics()
-
                     pbar.set_postfix(
                         {
                             "avg_return": losses["avg_return"],
