@@ -574,8 +574,10 @@ class AGENT1(nn.Module):
             (Actions.SEND_PADDING_DOWN, count) for count in self.counts
         ]
 
-        self.scaler = nn.Sequential(nn.Linear(nfeat, nfeat), nn.Tanh())
-        self.rnn = nn.LSTM(nfeat, hsize, nlayers, batch_first=True, dropout=dropout)
+        self.scaler = nn.Sequential(nn.Linear(nfeat, nfeat, bias=False), nn.Tanh())
+        self.rnn = nn.LSTM(
+            nfeat, hsize, nlayers, batch_first=True, dropout=dropout, bias=False
+        )
 
         self.actor = nn.ModuleDict(
             {
@@ -618,7 +620,7 @@ class AGENT1(nn.Module):
         if h is not None:
             h_norm = h[0].norm(2, dim=-1).max().item()
             c_norm = h[1].norm(2, dim=-1).max().item()
-            if h_norm > 1000 or c_norm > 1000:
+            if h_norm > 100 or c_norm > 100:
                 print("Huge hidden/cell:", h_norm, c_norm)
 
         # (N, L, nfeat)

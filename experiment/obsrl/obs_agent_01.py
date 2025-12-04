@@ -117,7 +117,7 @@ def _plot_single(
     ax.set_title(f"True class: {y.item()}")
 
     with torch.no_grad():
-        rewards, _, _, Xobs, buffer, times, actions = rollout(
+        rewards, _, _, _, Xobs, buffer, times, actions = rollout(
             obs, clf, _unsqueeze(X), y, dt=dt, maxT=T
         )[2:]
         Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
@@ -171,7 +171,7 @@ def check_grads(model, step):
             continue
         if not torch.isfinite(p.grad).all():
             print(f"[step {step}] Non-finite grad in {name}")
-            raise SystemExit
+            raise ValueError
         grad_norm = p.grad.data.norm(2).item()
         if grad_norm > 1e3:  # pick a threshold
             print(f"[step {step}] Large grad in {name}: {grad_norm:.2e}")
@@ -228,8 +228,8 @@ def main(cfg: DictConfig):
     dt = 0.01
     T = 12
     i = 0
-    detach_period = 2.0
-    clf_scale = 10
+    detach_period = 1.0
+    clf_scale = 5
     gamma = 0.8
     with mlflow.start_run(log_system_metrics=True):
         while True:
@@ -243,7 +243,7 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
-                    log_ps, values, rewards, entropies, c_penalty = rollout(
+                    log_ps, values, rewards, entropies, c_penalty, h_penalty = rollout(
                         obs=obs,
                         disc=discriminator,
                         X=X,
@@ -252,7 +252,7 @@ def main(cfg: DictConfig):
                         maxT=T,
                         clf_scale=clf_scale,
                         detach_every_delta_t=detach_period,
-                    )[:5]
+                    )[:6]
 
                     G = returns(rewards, gamma=gamma)
 
@@ -261,18 +261,23 @@ def main(cfg: DictConfig):
                     # Compute losses
                     policy_loss = -(log_ps * advantages.detach()).mean()
                     value_loss = 0.5 * (values - G).pow(2).sqrt().mean()
-                    entropy_loss = -10 * entropies.mean()
+                    entropy_loss = -5 * entropies.mean()
                     c_penalty *= 0.01
+                    h_penalty *= 0.01
 
-                    loss = policy_loss + value_loss + entropy_loss + c_penalty
+                    loss = (
+                        policy_loss + value_loss + entropy_loss + c_penalty + h_penalty
+                    )
 
                     loss.backward()
 
-                    check_grads(obs, i)
-
-                    for p in obs.parameters():
+                    for name, p in obs.named_parameters():
                         if p.grad is not None:
-                            assert_finite("grad", p.grad)
+                            try:
+                                assert_finite(f"{name}: grad", p.grad)
+                            except ValueError as er:
+                                print(er)
+                                breakpoint()
 
                     # Gradient clipping
                     nn.utils.clip_grad_norm_(
@@ -294,8 +299,8 @@ def main(cfg: DictConfig):
                     for k, v in losses.items():
                         try:
                             assert_finite(k, v)
-                        except ValueError as e:
-                            print(e)
+                        except ValueError as er:
+                            print(er)
                             breakpoint()
 
                     pbar.set_postfix({"avg_return": losses["avg_return"]})
@@ -303,7 +308,7 @@ def main(cfg: DictConfig):
                         mlflow.log_metrics(losses, step=i)
 
                     if i % 10 == 0:
-                        gamma += (1 - gamma) * 0.02
+                        gamma += (1 - gamma) * 0.05
                         _plot_set(ds_valid, obs, discriminator, i, dt, T, device)
                         # mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
 

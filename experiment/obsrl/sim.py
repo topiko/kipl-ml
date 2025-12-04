@@ -86,6 +86,7 @@ def rollout(
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
+    torch.Tensor,
     dict[Feats, torch.Tensor],
     dict[Feats, torch.Tensor],
     torch.Tensor,
@@ -118,6 +119,7 @@ def rollout(
 
     i = 0
     c_penalty = torch.zeros(1, device=device)
+    h_penalty = torch.zeros(1, device=device)
     detach_every = detach_every_delta_t // dt
 
     while True:
@@ -129,6 +131,7 @@ def rollout(
             buffer.feature_dict, hobs
         )
         c_penalty = c_penalty + hobs[1].pow(2).mean()
+        h_penalty = h_penalty + hobs[0].pow(2).mean()
         t2 = time.time()
 
         log_ps_l.append(log_ps_.unsqueeze(1))
@@ -166,6 +169,7 @@ def rollout(
         i += 1
 
     c_penalty /= i
+    h_penalty /= i
 
     timings = np.concat(timings, axis=0).mean(axis=0)
 
@@ -199,6 +203,7 @@ def rollout(
         rewards,
         entropies,
         c_penalty,
+        h_penalty,
         Xobsd,
         buffer.history,
         times,
