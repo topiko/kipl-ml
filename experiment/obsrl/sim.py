@@ -2,8 +2,26 @@ import torch
 from torch import nn
 
 from kipl_ml.rl.action import ActionsExec
+from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import BaseTraceObservation
 from kipl_ml.trace.enums import Feats
+
+
+def _unpack_xobs_l(
+    xobs_l: list[dict[Feats, torch.Tensor]],
+) -> dict[Feats, torch.Tensor]:
+    Xobs: dict[Feats, torch.Tensor] = {}
+    for k in xobs_l[0].keys():
+        vals_ = torch.cat([v[k] for v in xobs_l], dim=1)
+        Xobs[k] = vals_
+
+    mask = Xobs[Feats.DIRS] != 0
+    for k, v in Xobs.items():
+        Xobs[k] = v[mask]
+
+    Xobs[Feats.PADDING] = Xobs[Feats.PADDING].bool()
+
+    return Xobs
 
 
 @torch.no_grad()
@@ -36,7 +54,7 @@ def get_reward(
         cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
 
         # Small correct cl prob --> large reward
-        rewards[has_action] += clf_scale * (1 - cl_probs) - clf_scale
+        rewards[has_action] += clf_scale * (1 - cl_probs) - clf_scale / 2
 
     return rewards, hdisc
 
@@ -56,11 +74,8 @@ def rollout(
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
-    torch.Tensor,
+    list[dict[Actions, torch.Tensor]],
     dict[Feats, torch.Tensor],
-    dict[Feats, torch.Tensor],
-    torch.Tensor,
-    torch.Tensor,
 ]:
     bs = X[Feats.DIRS].shape[0]
     device = X[Feats.DIRS].device
@@ -124,12 +139,14 @@ def rollout(
     times: torch.Tensor = torch.tensor(times_l)
     rewards: torch.Tensor = torch.cat(rewards_l, dim=1)
 
+    Xobs = _unpack_xobs_l(xobs_l)
+
     return (
         log_ps,
         values,
         rewards,
         entropies,
-        xobs_l,
         times,
         actions_l,
+        Xobs,
     )

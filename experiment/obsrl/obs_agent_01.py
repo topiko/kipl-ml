@@ -19,8 +19,6 @@ from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.trgen import AGENT1
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
 from kipl_ml.tools.plottr import (
-    plot_actions,
-    plot_packet_buffer,
     plot_rewards,
     plot_trace,
 )
@@ -116,11 +114,9 @@ def _plot_single(
     )
     ax.set_title(f"True class: {y.item()}")
 
-    with torch.no_grad():
-        rewards, _, _, _, Xobs, buffer, times, actions = rollout(
-            obs, clf, _unsqueeze(X), y, dt=dt, maxT=T
-        )[2:]
-        Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
+    rewards, _, times, actions_l, Xobs = rollout(
+        obs, clf, _unsqueeze(X), y, dt=dt, maxT=T
+    )[2:]
 
     mask = Xobs[Feats.DIRS] != 0
     if mask.sum() > max_len:
@@ -140,11 +136,11 @@ def _plot_single(
     )
 
     # Plot actions
-    plot_actions(times, actions, idx2ackt=obs.action_map, ax=ax_a)
+    # plot_actions(times, actions_l, idx2ackt=obs.action_map, ax=ax_a)
     ax_a.set_title("Actions, buffer, etc.")
 
     # Plot buffer and rewards
-    plot_packet_buffer(buffer, ax=ax_b)
+    # plot_packet_buffer(buffer, ax=ax_b)
     ax_b.set_ylabel("Buffer size [pkts]")
     ax_o.set_title("Obsfuscated")
 
@@ -226,7 +222,7 @@ def main(cfg: DictConfig):
 
     e = 0
     dt = 0.01
-    T = 12
+    T = 4.5
     i = 0
     detach_period = 1.0
     clf_scale = 5
@@ -243,7 +239,7 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
-                    log_ps, values, rewards, entropies, c_penalty, h_penalty = rollout(
+                    log_ps, values, rewards, entropies = rollout(
                         obs=obs,
                         disc=discriminator,
                         X=X,
@@ -252,7 +248,7 @@ def main(cfg: DictConfig):
                         maxT=T,
                         clf_scale=clf_scale,
                         detach_every_delta_t=detach_period,
-                    )[:6]
+                    )[:4]
 
                     G = returns(rewards, gamma=gamma)
 
@@ -261,13 +257,9 @@ def main(cfg: DictConfig):
                     # Compute losses
                     policy_loss = -(log_ps * advantages.detach()).mean()
                     value_loss = 0.5 * (values - G).pow(2).sqrt().mean()
-                    entropy_loss = -5 * entropies.mean()
-                    c_penalty *= 0.01
-                    h_penalty *= 0.01
+                    entropy_loss = -10 * entropies.mean()
 
-                    loss = (
-                        policy_loss + value_loss + entropy_loss + c_penalty + h_penalty
-                    )
+                    loss = policy_loss + value_loss + entropy_loss
 
                     loss.backward()
 
@@ -292,7 +284,6 @@ def main(cfg: DictConfig):
                         "value_loss": value_loss.item(),
                         "avg_return": G.mean().item(),
                         "entropy_loss": entropy_loss.item(),
-                        "c_penalty": c_penalty.item(),
                         "gamma": gamma,
                     }
 

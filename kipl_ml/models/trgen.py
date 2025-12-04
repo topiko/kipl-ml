@@ -722,18 +722,19 @@ class AGENT1(nn.Module):
         # cond_entropy = up_p * stu_entropy + down_p * sdt_entropy
         cond_entropy = 0.0
 
-        # Entropy (B, 1)
+        # Entropy (B, 1) H[A] = H[S] + H[A|S]
+        # Policy, \Pi[A] = \Pi[S] * \Pi[A|S]
         entropy = sel_entropy + cond_entropy
 
         # Use action selector to choose what to do:
         # (B, 1)
         log_probs = torch.zeros_like(sel_log_probs)
         actions = {
-            Actions.SELECTOR: selections,
-            Actions.SEND_COUNT_DOWN: send_count_d,
-            Actions.SEND_COUNT_UP: send_count_u,
-            Actions.SEND_TIME_DOWN: send_time_d,
-            Actions.SEND_TIME_UP: send_time_u,
+            Actions.SELECTOR: selections.detach().clone(),
+            Actions.SEND_COUNT_DOWN: send_count_d.detach().clone(),
+            Actions.SEND_COUNT_UP: send_count_u.detach().clone(),
+            Actions.SEND_TIME_DOWN: send_time_d.detach().clone(),
+            Actions.SEND_TIME_UP: send_time_u.detach().clone(),
         }
 
         # WAIT:

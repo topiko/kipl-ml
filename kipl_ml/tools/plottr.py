@@ -165,8 +165,7 @@ def plot_packet_buffer(
 
 def plot_actions(
     times: torch.Tensor,
-    actions: torch.Tensor,
-    idx2ackt: list[tuple[Actions, int]],
+    actions: list[dict[Actions, torch.Tensor]],
     idx: int | None = None,
     ax: plt.Axes | None = None,
 ) -> plt.Axes:
@@ -177,7 +176,6 @@ def plot_actions(
     actions = _squeeze_batched(actions, idx)
 
     for a in np.unique(actions):
-        (ackt, c) = idx2ackt[a]
         mask = actions == a
         if mask.sum() == 0:
             continue
