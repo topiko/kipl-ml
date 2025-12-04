@@ -256,7 +256,7 @@ def main(cfg: DictConfig):
     i = 0
     detach_period = 1.0
     clf_scale = 5
-    gamma = 0.99
+    gamma = 0.9
     with mlflow.start_run(log_system_metrics=True):
         while True:
             with tqdm(
@@ -289,7 +289,7 @@ def main(cfg: DictConfig):
                     # Compute losses
                     policy_loss = -(log_ps * advantages.detach()).mean()
                     value_loss = 0.5 * (values - G).pow(2).sqrt().mean()
-                    entropy_loss = -10 * entropies.mean()
+                    entropy_loss = -entropies.mean() * 1
                     hidden_penalty = hidden_penalty * 1
 
                     loss = (
@@ -313,9 +313,10 @@ def main(cfg: DictConfig):
 
                     optim.step()
 
-                    disc_loss, acc = one_batch_train_disc(
-                        disc=discriminator, X=Xobs, y=y, disc_opm=disc_optim
-                    )
+                    if i % 500 == 0:
+                        disc_loss, acc = one_batch_train_disc(
+                            disc=discriminator, X=Xobs, y=y, disc_opm=disc_optim
+                        )
 
                     losses = {
                         "loss": loss.item(),
@@ -339,6 +340,7 @@ def main(cfg: DictConfig):
 
                     if i % 5 == 0:
                         mlflow.log_metrics(losses, step=i)
+                        gamma += (1 - gamma) * 0.01
 
                     if i % 25 == 0:
                         _plot_set(ds_valid, obs, discriminator, i, dt, T, device)
