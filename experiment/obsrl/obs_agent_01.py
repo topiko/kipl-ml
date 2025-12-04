@@ -83,6 +83,7 @@ def _plot_set(
     e: int,
     dt: float,
     T: float,
+    clf_scale: float,
     device: torch.DeviceObjType,
     ntraces: int = 3,
     max_len: int = 10_000,
@@ -99,6 +100,7 @@ def _plot_set(
             e=e,
             dt=dt,
             T=T,
+            clf_scale=clf_scale,
             device=device,
             idx=idx,
             max_len=max_len,
@@ -113,6 +115,7 @@ def _plot_single(
     e: int,
     dt: float,
     T: float,
+    clf_scale: float,
     device: torch.DeviceObjType,
     idx: int,
     max_len: int = 10_000,
@@ -142,7 +145,7 @@ def _plot_single(
     ax.set_title(f"True class: {y.item()}")
 
     rewards, _, _, times, actions_l, Xobs = rollout(
-        obs, clf, _unsqueeze(X), y, dt=dt, maxT=T
+        obs, clf, _unsqueeze(X), y, dt=dt, maxT=T, clf_scale=clf_scale
     )[2:]
 
     mask = Xobs[Feats.DIRS] != 0
@@ -219,20 +222,18 @@ def one_batch_train_disc(
     X: dict[Feats, torch.Tensor],
     y: torch.Tensor,
     disc_opm: torch.optim.Optimizer,
+    train: bool = True,
 ):
     disc.train()
-
     disc_opm.zero_grad()
-
     logits, _ = disc(X)
-
     loss = nn.functional.cross_entropy(
         logits.permute(0, 2, 1), y.unsqueeze(-1).repeat(1, logits.shape[1])
     )
-
     loss.backward()
 
-    disc_opm.step()
+    if train:
+        disc_opm.step()
 
     loss_val = loss.item()
 
@@ -282,7 +283,7 @@ def main(cfg: DictConfig):
     T = 20
     i = 0
     detach_period = 5.0
-    clf_scale = 5
+    clf_scale = 10
     gamma = cfg.discounting
     with mlflow.start_run(log_system_metrics=True):
         while True:
@@ -355,7 +356,11 @@ def main(cfg: DictConfig):
                     optim.step()
 
                     disc_loss, acc = one_batch_train_disc(
-                        disc=discriminator, X=Xobs, y=y, disc_opm=disc_optim
+                        disc=discriminator,
+                        X=Xobs,
+                        y=y,
+                        disc_opm=disc_optim,
+                        train=i % 5 == 0,
                     )
 
                     losses = {
@@ -382,16 +387,12 @@ def main(cfg: DictConfig):
                         mlflow.log_metrics(losses, step=i)
 
                     if i % 25 == 0:
-                        _plot_set(ds_valid, obs, discriminator, i, dt, T, device)
+                        _plot_set(
+                            ds_valid, obs, discriminator, i, dt, T, clf_scale, device
+                        )
                         # mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
 
-                    pbar.set_postfix(
-                        {
-                            "avg_return": losses["avg_return"],
-                            "disc_loss": disc_loss,
-                            "disc_acc": acc,
-                        }
-                    )
+                    pbar.set_postfix({"avg_return": losses["avg_return"]})
                     i += 1
 
             e += 1
