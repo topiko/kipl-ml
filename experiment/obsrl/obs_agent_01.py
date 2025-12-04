@@ -187,6 +187,35 @@ def assert_finite(name, x):
         raise ValueError
 
 
+def one_batch_train_disc(
+    disc: nn.Module,
+    X: dict[Feats, torch.Tensor],
+    y: torch.Tensor,
+    disc_opm: torch.optim.Optimizer,
+):
+    disc.train()
+
+    disc_opm.zero_grad()
+
+    logits, _ = disc(X)
+
+    loss = nn.functional.cross_entropy(
+        logits.permute(0, 2, 1), y.unsqueeze(-1).repeat(1, logits.shape[1])
+    )
+
+    loss.backward()
+
+    disc_opm.step()
+
+    loss_val = loss.item()
+
+    disc.eval()
+
+    accuracy = (disc.predict(X)[1] == y).float().mean().item()
+
+    return loss_val, accuracy
+
+
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
 def main(cfg: DictConfig):
     experiment_name = "obsrl"
@@ -219,10 +248,11 @@ def main(cfg: DictConfig):
     discriminator = discriminator.to(device)
 
     optim = torch.optim.Adam(obs.parameters(), lr=0.001)
+    disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
 
     e = 0
-    dt = 0.01
-    T = 4.5
+    dt = 0.05
+    T = 20
     i = 0
     detach_period = 1.0
     clf_scale = 5
@@ -239,7 +269,7 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
-                    log_ps, values, rewards, entropies = rollout(
+                    log_ps, values, rewards, entropies, _, _, Xobs = rollout(
                         obs=obs,
                         disc=discriminator,
                         X=X,
@@ -248,7 +278,7 @@ def main(cfg: DictConfig):
                         maxT=T,
                         clf_scale=clf_scale,
                         detach_every_delta_t=detach_period,
-                    )[:4]
+                    )
 
                     G = returns(rewards, gamma=gamma)
 
@@ -278,12 +308,18 @@ def main(cfg: DictConfig):
 
                     optim.step()
 
+                    disc_loss, acc = one_batch_train_disc(
+                        disc=discriminator, X=Xobs, y=y, disc_opm=disc_optim
+                    )
+
                     losses = {
                         "loss": loss.item(),
                         "policy_loss": policy_loss.item(),
                         "value_loss": value_loss.item(),
                         "avg_return": G.mean().item(),
                         "entropy_loss": entropy_loss.item(),
+                        "disc_loss": disc_loss,
+                        "disc_acc": acc,
                         "gamma": gamma,
                     }
 
@@ -294,7 +330,6 @@ def main(cfg: DictConfig):
                             print(er)
                             breakpoint()
 
-                    pbar.set_postfix({"avg_return": losses["avg_return"]})
                     if i > 10:
                         mlflow.log_metrics(losses, step=i)
 
@@ -303,6 +338,15 @@ def main(cfg: DictConfig):
                         _plot_set(ds_valid, obs, discriminator, i, dt, T, device)
                         # mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
 
+                    mlflow.log_metrics()
+
+                    pbar.set_postfix(
+                        {
+                            "avg_return": losses["avg_return"],
+                            "disc_loss": disc_loss,
+                            "disc_acc": acc,
+                        }
+                    )
                     i += 1
 
             e += 1

@@ -4,6 +4,7 @@ from torch import nn
 from kipl_ml.rl.action import ActionsExec
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import BaseTraceObservation
+from kipl_ml.rl.utils import _flush_left
 from kipl_ml.trace.enums import Feats
 
 
@@ -16,8 +17,10 @@ def _unpack_xobs_l(
         Xobs[k] = vals_
 
     mask = Xobs[Feats.DIRS] != 0
+    max_len = mask.sum(dim=1).max().item()
+
     for k, v in Xobs.items():
-        Xobs[k] = v[mask]
+        Xobs[k] = _flush_left(v, mask)[:, :max_len]
 
     Xobs[Feats.PADDING] = Xobs[Feats.PADDING].bool()
 

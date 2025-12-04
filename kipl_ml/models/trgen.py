@@ -411,7 +411,7 @@ class RNNCLF1(nn.Module):
         fs = []
         for f in self.features:
             if (not isinstance(x[f], PackedSequence)) and (x[f].ndim != 2):
-                raise ValueError("Inputs should be (B, L) tensors.")
+                raise ValueError(f"Inputs should be (B, L) tensors, got {x[f].shape}.")
             fs.append(x[f].unsqueeze(-1))
 
         # (B, L, nfeat)
@@ -425,6 +425,7 @@ class RNNCLF1(nn.Module):
 
         return logits, h
 
+    @torch.no_grad()
     def predict(
         self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
