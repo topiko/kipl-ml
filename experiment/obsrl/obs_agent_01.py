@@ -37,7 +37,7 @@ TARGET = assets.PAGE_LABEL
 DATASET = Datasets.BIGENOUGH
 
 
-def returns(rewards: torch.Tensor, gamma: float) -> torch.Tensor:
+def get_returns(rewards: torch.Tensor, gamma: float) -> torch.Tensor:
     G = torch.zeros_like(rewards)
     R = 0
     i = 0
@@ -47,6 +47,26 @@ def returns(rewards: torch.Tensor, gamma: float) -> torch.Tensor:
         G[:, -1 - i] = R
         i += 1
     return G
+
+
+def get_gae(
+    rewards: torch.Tensor, values: torch.Tensor, lambda_: float, gamma: float
+) -> torch.Tensor:
+    # delta = r_t + gamma * V_t+1 - V_t
+    deltas = torch.zeros_like(rewards)
+    deltas[:, :-1] = rewards[:, :-1] + gamma * values[:, 1:] - values[:, :-1]
+    # V_t+1 for last times step = 0
+    deltas[-1] = rewards[-1] - values[-1]
+
+    y = lambda_ * gamma
+    GAE = torch.zeros_like(rewards)
+
+    gae_ = 0
+    for i, delta in enumerate(reversed(deltas)):
+        gae_ = delta + gae_ * y
+        GAE[-i - 1] = gae_
+
+    return GAE
 
 
 def _plot_set(
@@ -254,9 +274,9 @@ def main(cfg: DictConfig):
     dt = 0.05
     T = 20
     i = 0
-    detach_period = 1.0
+    detach_period = 5.0
     clf_scale = 5
-    gamma = 0.99
+    gamma = cfg.discounting
     with mlflow.start_run(log_system_metrics=True):
         while True:
             with tqdm(
@@ -282,9 +302,22 @@ def main(cfg: DictConfig):
                         )
                     )
 
-                    G = returns(rewards, gamma=gamma)
+                    G = get_returns(rewards, gamma=gamma)
+                    if cfg.advantages.type == "mc":
+                        advantages = G - values
+                    elif cfg.advantages.type == "gae":
+                        advantages = get_gae(
+                            rewards, values, lambda_=cfg.advantages.lambda_, gamma=gamma
+                        )
+                    else:
+                        raise NotImplementedError(
+                            "Invalid advantage type: {cfg.advantages.type}"
+                        )
 
-                    advantages = G - values
+                    if cfg.advantages.standardize:
+                        advantages = (advantages - advantages.mean()) / (
+                            advantages.std() + 1e-8
+                        )
 
                     # Compute losses
                     policy_loss = -(log_ps * advantages.detach()).mean()

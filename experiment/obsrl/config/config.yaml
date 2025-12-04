@@ -5,6 +5,13 @@ defaults:
   - network: infinite
   - misc: default
 
+
+advantages:
+  type: "gae"
+  lambda_: 0.95
+  standardize: True
+
+discounting: 0.99
 trace_len: 5000
 batch_size: 64
 dropout: 0.25
