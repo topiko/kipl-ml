@@ -256,7 +256,7 @@ def main(cfg: DictConfig):
     i = 0
     detach_period = 1.0
     clf_scale = 5
-    gamma = 0.8
+    gamma = 0.99
     with mlflow.start_run(log_system_metrics=True):
         while True:
             with tqdm(
@@ -341,7 +341,6 @@ def main(cfg: DictConfig):
                         mlflow.log_metrics(losses, step=i)
 
                     if i % 10 == 0:
-                        gamma += (1 - gamma) * 0.05
                         _plot_set(ds_valid, obs, discriminator, i, dt, T, device)
                         # mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
 
