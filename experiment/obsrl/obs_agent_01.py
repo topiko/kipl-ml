@@ -290,7 +290,7 @@ def main(cfg: DictConfig):
                     policy_loss = -(log_ps * advantages.detach()).mean()
                     value_loss = 0.5 * (values - G).pow(2).sqrt().mean()
                     entropy_loss = -10 * entropies.mean()
-                    hidden_penalty = hidden_penalty * 0.1
+                    hidden_penalty = hidden_penalty * 1
 
                     loss = (
                         policy_loss + value_loss + entropy_loss + hidden_penalty.sum()
@@ -337,10 +337,10 @@ def main(cfg: DictConfig):
                             print(er)
                             breakpoint()
 
-                    if i > 10:
+                    if i % 5 == 0:
                         mlflow.log_metrics(losses, step=i)
 
-                    if i % 10 == 0:
+                    if i % 25 == 0:
                         _plot_set(ds_valid, obs, discriminator, i, dt, T, device)
                         # mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
 
