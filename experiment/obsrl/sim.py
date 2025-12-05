@@ -58,7 +58,7 @@ def get_reward(
         cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
 
         # Small correct cl prob --> large reward
-        rewards[has_action] += clf_scale * (1 - cl_probs) - clf_scale / 2
+        rewards[has_action] += clf_scale * (0.1 - cl_probs)
 
     return rewards, hdisc
 
