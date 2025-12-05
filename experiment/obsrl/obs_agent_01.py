@@ -282,11 +282,23 @@ def main(cfg: DictConfig):
     dt = 0.05
     T = 20
     i = 0
-    detach_period = 5.0
-    clf_scale = 10
+    detach_period = 4.0
+    clf_scale = 100
     gamma = cfg.discounting
     with mlflow.start_run(log_system_metrics=True):
         while True:
+            losses: dict[str, list[float]] = {
+                "loss": [],
+                "policy_loss": [],
+                "value_loss": [],
+                "avg_return": [],
+                "entropy_loss": [],
+                "h_penalty": [],
+                "c_penalty": [],
+                "disc_loss": [],
+                "disc_acc": [],
+            }
+
             with tqdm(
                 dl_train,
                 desc=f"epoch {e:02d}",
@@ -360,31 +372,33 @@ def main(cfg: DictConfig):
                         X=Xobs,
                         y=y,
                         disc_opm=disc_optim,
-                        train=i % 5 == 0,
+                        train=i % 25 == 0,
                     )
 
-                    losses = {
-                        "loss": loss.item(),
-                        "policy_loss": policy_loss.item(),
-                        "value_loss": value_loss.item(),
-                        "avg_return": G.mean().item(),
-                        "entropy_loss": entropy_loss.item(),
-                        "h_penalty": hidden_penalty[0].item(),
-                        "c_penalty": hidden_penalty[1].item(),
-                        "disc_loss": disc_loss,
-                        "disc_acc": acc,
-                        "gamma": gamma,
-                    }
+                    losses["loss"].append(loss.item())
+                    losses["policy_loss"].append(policy_loss.item())
+                    losses["value_loss"].append(value_loss.item())
+                    losses["avg_return"].append(G.mean().item())
+                    losses["entropy_loss"].append(entropy_loss.item())
+                    losses["h_penalty"].append(hidden_penalty[0].item())
+                    losses["c_penalty"].append(hidden_penalty[1].item())
+                    losses["disc_loss"].append(disc_loss)
+                    losses["disc_acc"].append(acc)
 
                     for k, v in losses.items():
                         try:
-                            assert_finite(k, v)
+                            assert_finite(k, v[-1])
                         except ValueError as er:
                             print(er)
                             breakpoint()
 
+                    pbar.set_postfix({"avg_return": losses["avg_return"][-1]})
+
                     if i % 5 == 0:
-                        mlflow.log_metrics(losses, step=i)
+                        mlflow.log_metrics(
+                            {k: np.mean(l_) for k, l_ in losses.items()}, step=i
+                        )
+                        losses = {k: [] for k in losses}
 
                     if i % 50 == 0:
                         _plot_set(
@@ -392,7 +406,6 @@ def main(cfg: DictConfig):
                         )
                         # mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
 
-                    pbar.set_postfix({"avg_return": losses["avg_return"]})
                     i += 1
 
             e += 1
