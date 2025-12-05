@@ -36,7 +36,7 @@ def get_reward(
     Xobs: dict[Feats, torch.Tensor],
     padding_scale: float = 1,
     clf_scale: float = 10,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, tuple[torch.Tensor, ...]]:
     rewards = torch.zeros(len(y), device=y.device)
 
     packet_counts = (Xobs[Feats.DIRS] != 0).sum(dim=1)
@@ -53,6 +53,7 @@ def get_reward(
         logits, hdisc = disc.pack_and_forward(Xobs, hdisc, packet_counts.cpu())
 
         probs = nn.functional.softmax(logits, dim=1)
+
         # (A, )
         cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
 
@@ -81,13 +82,9 @@ def rollout(
     list[dict[Actions, torch.Tensor]],
     dict[Feats, torch.Tensor],
 ]:
-    bs = X[Feats.DIRS].shape[0]
     device = X[Feats.DIRS].device
     # Dummy run to get init hdisc...
-    hdisc = (
-        torch.randn((disc.rnn.num_layers, bs, disc.rnn.hidden_size), device=device),
-        torch.randn((disc.rnn.num_layers, bs, disc.rnn.hidden_size), device=device),
-    )
+    hdisc = None
     hobs = None
 
     log_ps_l = []

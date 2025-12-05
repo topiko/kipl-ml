@@ -15,9 +15,15 @@ def _sort_feature_dict(
     feature_dict: dict[Feats, torch.Tensor],
 ) -> dict[Feats, torch.Tensor]:
     sorted_times, indices = torch.sort(feature_dict[Feats.TIMES], dim=1)
+
+    dirs = feature_dict[Feats.DIRS].gather(1, indices)
+    sorted_times = _flush_left(sorted_times, dirs != 0)
+    dirs = _flush_left(dirs, dirs != 0)
+    padding = _flush_left(feature_dict[Feats.PADDING].gather(1, indices), dirs != 0)
+
     feature_dict[Feats.TIMES] = sorted_times
-    feature_dict[Feats.DIRS] = feature_dict[Feats.DIRS].gather(1, indices)
-    feature_dict[Feats.PADDING] = feature_dict[Feats.PADDING].gather(1, indices)
+    feature_dict[Feats.DIRS] = dirs
+    feature_dict[Feats.PADDING] = padding
 
     if set(feature_dict.keys()) != {Feats.TIMES, Feats.DIRS, Feats.PADDING}:
         raise NotImplementedError(

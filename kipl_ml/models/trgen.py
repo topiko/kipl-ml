@@ -362,9 +362,15 @@ class RNNCLF1(nn.Module):
     def pack_and_forward(
         self,
         x: dict[Feats, torch.Tensor],
-        h: tuple[torch.Tensor, ...],
+        h: tuple[torch.Tensor, ...] | None,
         seq_lens: torch.Tensor,
     ) -> tuple[torch.Tensor, tuple[torch.Tensor]]:
+        if h is None:
+            if (seq_lens == 0).any():
+                raise ValueError(
+                    "Initial hidden state must be provided when seq_lens has zeros."
+                )
+
         fs = []
         for f in self.features:
             if x[f].ndim != 2:
@@ -387,7 +393,10 @@ class RNNCLF1(nn.Module):
         )
 
         # Only select the needed h states:
-        h_ = _hidden_w_mask(h, mask)
+        if h is not None:
+            h_ = _hidden_w_mask(h, mask)
+        else:
+            h_ = None
 
         # (M, L, H), hidden
         _, h_ = self.rnn(packed_inputs, h_)
@@ -398,7 +407,10 @@ class RNNCLF1(nn.Module):
         logits = self.final_lin(h_[0][-1])
 
         # Update the hidden state:
-        h = _hidden_w_mask(h, mask, h_)
+        if h is not None:
+            h = _hidden_w_mask(h, mask, h_)
+        else:
+            h = h_
 
         return logits, h
 
