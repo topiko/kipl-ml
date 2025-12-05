@@ -213,12 +213,12 @@ class ActionsExec:
         self.send_ackts_down.update(
             counts=actions[Actions.SEND_COUNT_DOWN],
             decaytimes=actions[Actions.SEND_TIME_DOWN],
-            action_mask=~actions[Actions.WAIT],
+            update_mask=~actions[Actions.WAIT],
         )
         self.send_ackts_up.update(
             counts=actions[Actions.SEND_COUNT_UP],
             decaytimes=actions[Actions.SEND_TIME_UP],
-            action_mask=~actions[Actions.WAIT],
+            update_mask=~actions[Actions.WAIT],
         )
 
         self.send_ackts_up.step(curXobs)
