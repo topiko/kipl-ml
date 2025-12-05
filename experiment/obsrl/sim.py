@@ -58,7 +58,7 @@ def get_reward(
         cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
 
         # Small correct cl prob --> large reward
-        rewards[has_action] += clf_scale * (0.1 - cl_probs)
+        rewards[has_action] += clf_scale * (0.1 - cl_probs) * packet_counts[has_action]
 
     return rewards, hdisc
 
@@ -71,7 +71,7 @@ def rollout(
     dt: float = 0.01,
     maxT: float = 10,
     detach_every_delta_t: float = 1,
-    clf_scale: float = 1.0,
+    reward_scales: dict[str, float] = {"clf_scale": 1.0, "padding_scale": 1.0},
 ) -> tuple[
     torch.Tensor,
     torch.Tensor,
@@ -118,9 +118,7 @@ def rollout(
         xobs_l.append(curXobs)
 
         # Get rewards
-        rewards_, hdisc = get_reward(
-            disc, hdisc, y, actions_, curXobs, padding_scale=1, clf_scale=clf_scale
-        )
+        rewards_, hdisc = get_reward(disc, hdisc, y, actions_, curXobs, **reward_scales)
 
         actions_l.append(actions_)
         log_ps_l.append(log_ps_.unsqueeze(1))

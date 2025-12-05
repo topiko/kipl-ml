@@ -83,7 +83,7 @@ def _plot_set(
     e: int,
     dt: float,
     T: float,
-    clf_scale: float,
+    reward_scales: dict[str, float],
     device: torch.DeviceObjType,
     ntraces: int = 3,
     max_len: int = 10_000,
@@ -100,7 +100,7 @@ def _plot_set(
             e=e,
             dt=dt,
             T=T,
-            clf_scale=clf_scale,
+            reward_scales=reward_scales,
             device=device,
             idx=idx,
             max_len=max_len,
@@ -115,7 +115,7 @@ def _plot_single(
     e: int,
     dt: float,
     T: float,
-    clf_scale: float,
+    reward_scales: dict[str, float],
     device: torch.DeviceObjType,
     idx: int,
     max_len: int = 10_000,
@@ -145,7 +145,7 @@ def _plot_single(
     ax.set_title(f"True class: {y.item()}")
 
     rewards, _, _, times, actions_l, Xobs = rollout(
-        obs, clf, _unsqueeze(X), y, dt=dt, maxT=T, clf_scale=clf_scale
+        obs, clf, _unsqueeze(X), y, dt=dt, maxT=T, reward_scales=reward_scales
     )[2:]
 
     mask = Xobs[Feats.DIRS] != 0
@@ -298,6 +298,7 @@ def main(cfg: DictConfig):
                 "disc_loss": [],
                 "disc_acc": [],
             }
+            reward_scales = {"clf_scale": 10.0, "padding_scale": 0.0}
 
             with tqdm(
                 dl_train,
@@ -317,8 +318,8 @@ def main(cfg: DictConfig):
                             y=y,
                             dt=dt,
                             maxT=T,
-                            clf_scale=clf_scale,
                             detach_every_delta_t=detach_period,
+                            reward_scales=reward_scales,
                         )
                     )
 
@@ -372,7 +373,7 @@ def main(cfg: DictConfig):
                         X=Xobs,
                         y=y,
                         disc_opm=disc_optim,
-                        train=i % 25 == 0,
+                        train=i % 50 == 0,
                     )
 
                     losses["loss"].append(loss.item())
@@ -400,13 +401,24 @@ def main(cfg: DictConfig):
                         )
                         losses = {k: [] for k in losses}
 
-                    if i % 50 == 0:
-                        _plot_set(
-                            ds_valid, obs, discriminator, i, dt, T, clf_scale, device
-                        )
                         # mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
 
                     i += 1
+
+            _plot_set(
+                ds=ds_valid,
+                obs=obs,
+                clf=discriminator,
+                e=e,
+                dt=dt,
+                T=T,
+                reward_scales=reward_scales,
+                device=device,
+                ntraces=20,
+            )
+
+            if reward_scales["padding_scale"] > -1.0:
+                reward_scales["padding_scale"] -= 0.02
 
             e += 1
 
