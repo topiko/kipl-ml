@@ -386,7 +386,7 @@ def main(cfg: DictConfig):
                     if i % 5 == 0:
                         mlflow.log_metrics(losses, step=i)
 
-                    if i % 25 == 0:
+                    if i % 50 == 0:
                         _plot_set(
                             ds_valid, obs, discriminator, i, dt, T, clf_scale, device
                         )
