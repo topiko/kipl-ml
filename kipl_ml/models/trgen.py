@@ -744,6 +744,7 @@ class AGENT1(nn.Module):
         log_probs = torch.zeros_like(sel_log_probs)
         actions = {
             Actions.SELECTOR: selections.detach().clone(),
+            Actions.WAIT: torch.zeros_like(selections),
             Actions.SEND_COUNT_DOWN: send_count_d.detach().clone(),
             Actions.SEND_COUNT_UP: send_count_u.detach().clone(),
             Actions.SEND_TIME_DOWN: send_time_d.detach().clone(),
@@ -755,6 +756,7 @@ class AGENT1(nn.Module):
 
         # (B, 1)
         log_probs[mask] = sel_log_probs[mask]
+        actions[Actions.WAIT][mask] = 1
         actions[Actions.SEND_COUNT_UP][mask] = 0
         actions[Actions.SEND_COUNT_DOWN][mask] = 0
         actions[Actions.SEND_TIME_UP][mask] = 0

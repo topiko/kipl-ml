@@ -169,11 +169,16 @@ class SendActionExec:
     def unsorted_feature_dict(self) -> dict[Feats, torch.Tensor]:
         return self._unsorted_feature_dict
 
-    def update(self, counts: torch.Tensor, decaytimes: torch.Tensor):
+    def update(
+        self,
+        counts: torch.Tensor,
+        decaytimes: torch.Tensor,
+        update_mask: torch.Tensor,
+    ):
         if self.t == 0:
             self._init_tensors(counts)
 
-        mask = counts != 0
+        mask = counts != 0 & update_mask
         self._counts[mask] = counts[mask]
         self._update_times[mask] = self.t
         self._decaytimes[mask] = decaytimes[mask]
@@ -208,10 +213,12 @@ class ActionsExec:
         self.send_ackts_down.update(
             counts=actions[Actions.SEND_COUNT_DOWN],
             decaytimes=actions[Actions.SEND_TIME_DOWN],
+            action_mask=~actions[Actions.WAIT],
         )
         self.send_ackts_up.update(
             counts=actions[Actions.SEND_COUNT_UP],
             decaytimes=actions[Actions.SEND_TIME_UP],
+            action_mask=~actions[Actions.WAIT],
         )
 
         self.send_ackts_up.step(curXobs)
