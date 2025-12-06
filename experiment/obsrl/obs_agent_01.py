@@ -44,7 +44,7 @@ def get_returns(rewards: torch.Tensor, gamma: float) -> torch.Tensor:
 
     # for r in rewards.flip(dims=(1,)).T:
     for t in reversed(range(T)):
-        R = rewards[t] + gamma * R
+        R = rewards[:, t] + gamma * R
         G[:, t] = R
     return G
 
@@ -280,10 +280,9 @@ def main(cfg: DictConfig):
 
     e = 0
     dt = 0.05
-    T = 20
+    T = 30
     i = 0
-    detach_period = 4.0
-    clf_scale = 100
+    detach_period = 5.0
     gamma = cfg.discounting
     with mlflow.start_run(log_system_metrics=True):
         while True:
@@ -297,8 +296,10 @@ def main(cfg: DictConfig):
                 "c_penalty": [],
                 "disc_loss": [],
                 "disc_acc": [],
+                "padding_count": [],
+                "len_xobs": [],
             }
-            reward_scales = {"clf_scale": 10.0, "padding_scale": 0.0}
+            reward_scales = {"clf_scale": 1.0, "padding_scale": 0.01}
 
             with tqdm(
                 dl_train,
@@ -344,11 +345,14 @@ def main(cfg: DictConfig):
                     # Compute losses
                     policy_loss = -(log_ps * advantages.detach()).mean()
                     value_loss = 0.5 * (values - G).pow(2).mean()
-                    entropy_loss = -10 * entropies.mean()
-                    hidden_penalty = hidden_penalty * 1
+                    entropy_loss = -entropies.mean()
+                    hidden_penalty = hidden_penalty
 
                     loss = (
-                        policy_loss + value_loss + entropy_loss + hidden_penalty.sum()
+                        policy_loss
+                        + value_loss
+                        + 0.0 * entropy_loss
+                        + 1.0 * hidden_penalty.sum()
                     )
 
                     loss.backward()
@@ -385,6 +389,8 @@ def main(cfg: DictConfig):
                     losses["c_penalty"].append(hidden_penalty[1].item())
                     losses["disc_loss"].append(disc_loss)
                     losses["disc_acc"].append(acc)
+                    losses["padding_count"].append(Xobs[Feats.PADDING].sum().item())
+                    losses["len_xobs"].append(Xobs[Feats.DIRS].shape[1])
 
                     for k, v in losses.items():
                         try:

@@ -689,13 +689,17 @@ class AGENT1(nn.Module):
 
         # Send u/d, note! These are conditional on the selection.
         # They will be ignored if the selection is not SEND_UP/DOWN/BOTH.
-        suc = Poisson(nn.functional.softplus(action_outputs[Actions.SEND_COUNT_UP]))
+        suc = Poisson(1 + nn.functional.softplus(action_outputs[Actions.SEND_COUNT_UP]))
         sut = Normal(
-            0.01 + nn.functional.softplus(action_outputs[Actions.SEND_TIME_UP]), 1e-3
+            0.01 + nn.functional.softplus(action_outputs[Actions.SEND_TIME_UP]) / 10,
+            1e-3,
         )
-        sdc = Poisson(nn.functional.softplus(action_outputs[Actions.SEND_COUNT_DOWN]))
+        sdc = Poisson(
+            1 + nn.functional.softplus(action_outputs[Actions.SEND_COUNT_DOWN])
+        )
         sdt = Normal(
-            0.01 + nn.functional.softplus(action_outputs[Actions.SEND_TIME_DOWN]), 1e-3
+            0.01 + nn.functional.softplus(action_outputs[Actions.SEND_TIME_DOWN]) / 10,
+            1e-3,
         )
 
         # (B, 1)
