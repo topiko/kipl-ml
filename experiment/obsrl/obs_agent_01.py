@@ -257,7 +257,6 @@ def main(cfg: DictConfig):
     # discriminator = RNNCLF1(n_classes=95, features=[Feats.DIRS, Feats.TIMES])
 
     feature_names = [Feats.DIRS, Feats.TIMES]
-    npackets = 5000
 
     ds_train, ds_valid, _ = get_train_valid_test(
         dataset=DATASET,
@@ -265,7 +264,7 @@ def main(cfg: DictConfig):
         n_splits=N_SPLITS,
         test_xv=TEST_XV,
         random_state=42,
-        feature_trs=FeatureTrs(feature_names=feature_names, n_packets=npackets),
+        feature_trs=FeatureTrs(feature_names=feature_names, n_packets=cfg.trace_len),
         **defence_builder.get_defence(cfg),
     )
 
@@ -282,7 +281,7 @@ def main(cfg: DictConfig):
     dt = 0.05
     T = 30
     i = 0
-    detach_period = 5.0
+    detach_period = 20.0
     gamma = cfg.discounting
     with mlflow.start_run(log_system_metrics=True):
         while True:
@@ -296,10 +295,10 @@ def main(cfg: DictConfig):
                 "c_penalty": [],
                 "disc_loss": [],
                 "disc_acc": [],
-                "padding_count": [],
+                "mean_padding_count": [],
                 "len_xobs": [],
             }
-            reward_scales = {"clf_scale": 1.0, "padding_scale": 0.01}
+            reward_scales = {"clf_scale": 1.0, "padding_scale": 0.0}
 
             with tqdm(
                 dl_train,
@@ -389,7 +388,9 @@ def main(cfg: DictConfig):
                     losses["c_penalty"].append(hidden_penalty[1].item())
                     losses["disc_loss"].append(disc_loss)
                     losses["disc_acc"].append(acc)
-                    losses["padding_count"].append(Xobs[Feats.PADDING].sum().item())
+                    losses["mean_padding_count"].append(
+                        Xobs[Feats.PADDING].sum(dim=1).float().mean().item()
+                    )
                     losses["len_xobs"].append(Xobs[Feats.DIRS].shape[1])
 
                     for k, v in losses.items():

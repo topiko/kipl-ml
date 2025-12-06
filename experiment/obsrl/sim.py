@@ -57,8 +57,12 @@ def get_reward(
         # (A, )
         cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
 
-        # Small correct cl prob --> large reward
-        rewards[has_action] += clf_scale * (0.1 - cl_probs) * packet_counts[has_action]
+        # Small correct cl prob --> large reward, exclude padding packets
+        rewards[has_action] += (
+            clf_scale
+            * (0.1 - cl_probs)
+            * (packet_counts[has_action] - padding_counts[has_action])
+        )
 
     return rewards, hdisc
 
