@@ -281,7 +281,7 @@ def main(cfg: DictConfig):
     dt = 0.05
     T = 30
     i = 0
-    detach_period = 20.0
+    detach_period = 2.0
     gamma = cfg.discounting
     with mlflow.start_run(log_system_metrics=True):
         while True:
@@ -298,25 +298,16 @@ def main(cfg: DictConfig):
                 "mean_padding_count": [],
                 "mean_trace_len": [],
             }
-            reward_scales = {"clf_scale": 1.0, "padding_scale": -0.1}
+            reward_scales = {"clf_scale": 1.0, "padding_scale": 0.01}
 
             with tqdm(
                 dl_train,
                 desc=f"epoch {e:02d}",
                 ncols=2 * TQDM_W,
             ) as pbar:
-                Xobs = None
                 for X, y in pbar:
                     X = dict_to_device(X, device)
                     y = y.to(device)
-
-                    disc_loss, acc = one_batch_train_disc(
-                        disc=discriminator,
-                        X=Xobs or X,
-                        y=y,
-                        disc_opm=disc_optim,
-                        train=i % 1 == 0,
-                    )
 
                     optim.zero_grad()
 
@@ -355,7 +346,6 @@ def main(cfg: DictConfig):
                     policy_loss = -(log_ps * advantages.detach()).mean()
                     value_loss = 0.5 * (values - G).pow(2).mean()
                     entropy_loss = -entropies.mean()
-                    hidden_penalty = hidden_penalty
 
                     loss = (
                         policy_loss
@@ -366,13 +356,24 @@ def main(cfg: DictConfig):
 
                     loss.backward()
 
+                    skip = False
                     for name, p in obs.named_parameters():
                         if p.grad is not None:
                             try:
                                 assert_finite(f"{name}: grad", p.grad)
                             except ValueError as er:
-                                print(er)
-                                breakpoint()
+                                logger.warning(er)
+                                print(
+                                    value_loss,
+                                    policy_loss,
+                                    entropy_loss,
+                                    hidden_penalty,
+                                )
+                                skip = True
+                                break
+
+                    if skip:
+                        continue
 
                     # Gradient clipping
                     nn.utils.clip_grad_norm_(
@@ -380,6 +381,14 @@ def main(cfg: DictConfig):
                     )
 
                     optim.step()
+
+                    disc_loss, acc = one_batch_train_disc(
+                        disc=discriminator,
+                        X=Xobs,
+                        y=y,
+                        disc_opm=disc_optim,
+                        train=i % 1 == 0,
+                    )
 
                     losses["loss"].append(loss.item())
                     losses["policy_loss"].append(policy_loss.item())
