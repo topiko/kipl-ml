@@ -296,19 +296,29 @@ def main(cfg: DictConfig):
                 "disc_loss": [],
                 "disc_acc": [],
                 "mean_padding_count": [],
-                "len_xobs": [],
+                "mean_trace_len": [],
             }
-            reward_scales = {"clf_scale": 1.0, "padding_scale": 0.0}
+            reward_scales = {"clf_scale": 1.0, "padding_scale": -0.1}
 
             with tqdm(
                 dl_train,
                 desc=f"epoch {e:02d}",
                 ncols=2 * TQDM_W,
             ) as pbar:
+                Xobs = None
                 for X, y in pbar:
-                    optim.zero_grad()
                     X = dict_to_device(X, device)
                     y = y.to(device)
+
+                    disc_loss, acc = one_batch_train_disc(
+                        disc=discriminator,
+                        X=Xobs or X,
+                        y=y,
+                        disc_opm=disc_optim,
+                        train=i % 1 == 0,
+                    )
+
+                    optim.zero_grad()
 
                     log_ps, values, rewards, entropies, hidden_penalty, _, _, Xobs = (
                         rollout(
@@ -371,14 +381,6 @@ def main(cfg: DictConfig):
 
                     optim.step()
 
-                    disc_loss, acc = one_batch_train_disc(
-                        disc=discriminator,
-                        X=Xobs,
-                        y=y,
-                        disc_opm=disc_optim,
-                        train=i % 50 == 0,
-                    )
-
                     losses["loss"].append(loss.item())
                     losses["policy_loss"].append(policy_loss.item())
                     losses["value_loss"].append(value_loss.item())
@@ -391,7 +393,9 @@ def main(cfg: DictConfig):
                     losses["mean_padding_count"].append(
                         Xobs[Feats.PADDING].sum(dim=1).float().mean().item()
                     )
-                    losses["len_xobs"].append(Xobs[Feats.DIRS].shape[1])
+                    losses["mean_trace_len"].append(
+                        (Xobs[Feats.DIRS] != 0).sum(dim=1).float().mean().item()
+                    )
 
                     for k, v in losses.items():
                         try:
