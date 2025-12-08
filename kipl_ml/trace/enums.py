@@ -57,6 +57,7 @@ class Feats(StrEnum):
     DOWN_COUNT = "down_count"
     ACTION_LOGITS = "action_logits"
     STATE_VALUE = "state_value"
+    Dt: "Delta time"
 
     def __str__(self) -> str:
         return self.value

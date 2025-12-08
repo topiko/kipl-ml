@@ -320,6 +320,15 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
+                    from kipl_ml.rl.observation import get_feature_dict
+
+                    fd = get_feature_dict(
+                        X,
+                        dt=0.05,
+                        max_silence_s=1.0,
+                        features=[Feats.UP_COUNT, Feats.DOWN_COUNT],
+                    )
+
                     if train_obs:
                         optim.zero_grad()
                         (

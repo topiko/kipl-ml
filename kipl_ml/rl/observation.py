@@ -2,78 +2,62 @@ from __future__ import annotations
 
 import torch
 
+from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
 
 
-class DiscTraceObservation:
-    def __init__(self, B: int, L: int, device: torch.DeviceObjType):
-        self.L = L
-        self.X = torch.zeros((B, L, 3), device=device)  # dirs, times, padding
-        self._obs_list: list[torch.Tensor] = []
+def get_feature_dict(
+    X: dict[Feats, torch.Tensor], dt: float, max_silence_s: float, features: list[Feats]
+) -> dict[Feats, torch.Tensor]:
+    # (B, L)
+    times = X[Feats.TIMES]
+    max_t = times.max().item()
 
-    @property
-    def times(self) -> torch.Tensor:
-        return self.X[..., 1]
+    feature_dict: dict[Feats, list[torch.Tensor]] = {}
+    for t in torch.arange(0, max_t + dt, dt, device=times.device):
+        t1 = t
+        t2 = t + dt
+        mask = torch.where((times >= t1) & (times < t2))
 
-    @property
-    def dirs(self) -> torch.Tensor:
-        return self.X[..., 0]
+        n_cols = mask.sum(dim=1).max()
+        n_rows = times.shape[0]
 
-    @property
-    def count_send(self) -> torch.Tensor:
-        return (self.X[..., 0] != 0).sum(dim=1)
+        row_idxs = (
+            torch.arange(n_rows, device=times.device).unsqueeze(1).expand(-1, n_cols)
+        )
+        col_idxs = mask.cumsum(dim=1) - 1
 
-    @property
-    def count_padding(self) -> torch.Tensor:
-        return (self.X[..., 2] == 1).sum(dim=1)
+        fdirs = torch.zeros((n_rows, n_cols), device=times.device)
+        fdirs[row_idxs, col_idxs] = X[Feats.DIRS][mask]
 
-    @property
-    def is_waiting(self) -> torch.Tensor:
-        return self.X[:, 0, 0] == 0
+        ftimes = torch.zeros((n_rows, n_cols), device=times.device)
+        ftimes[row_idxs, col_idxs] = X[Feats.TIMES][mask]
 
-    @property
-    def feature_dict(self) -> dict[Feats, torch.Tensor]:
-        return {
-            Feats.DIRS: self.X[..., 0],
-            Feats.TIMES: self.X[..., 1],
-            Feats.PADDING: self.X[..., 2],
-        }
+        fpadding = torch.zeros((n_rows, n_cols), device=times.device)
 
-    def reset(self):
-        self.X[...] = 0
+        if Feats.UP_COUNT in features:
+            feature_dict.setdefault(Feats.UP_COUNT, []).append(
+                (fdirs == UPLOAD).sum(dim=1, keepdim=True)
+            )
+        if Feats.DOWN_COUNT in features:
+            feature_dict.setdefault(Feats.DOWN_COUNT, []).append(
+                (fdirs == DOWNLOAD).sum(dim=1, keepdim=True)
+            )
+        if Feats.Dt in features:
+            feature_dict.setdefault(Feats.TIMES, []).append(
+                ftimes.min(dim=1).values.unsqueeze(1)
+            )
 
-    def append(self):
-        self._obs_list.append(self.X.clone().detach())
+    feature_dict = {k: torch.cat(v, dim=1) for k, v in feature_dict.items()}
 
-    @property
-    def history(self) -> dict[Feats, torch.Tensor]:
-        Xobs = torch.cat(self._obs_list, dim=1)
-        device = Xobs.device
-        bs = Xobs.shape[0]
+    breakpoint()
+    if set(feature_dict.keys()) != set(features):
+        raise ValueError("Some requested features are missing!")
 
-        mask = Xobs[..., 0] != 0
-        Lmax = mask.sum(dim=1).max()
-
-        Xobsd = {}
-        for f, i in zip((Feats.DIRS, Feats.TIMES, Feats.PADDING), range(3)):
-            lens = mask.sum(dim=1)
-
-            idxs = torch.arange(Lmax, device=device).unsqueeze(0).expand(bs, -1)
-
-            new_mask = idxs < lens.unsqueeze(1)
-
-            # (B, Lmax, 3)
-            Xobs_ = torch.zeros((bs, Lmax), device=device)
-            Xobs_[new_mask] = Xobs[mask, i]
-
-            Xobsd[f] = Xobs_
-
-        Xobsd[Feats.PADDING] = Xobsd[Feats.PADDING] == 1
-
-        return Xobsd
+    return feature_dict
 
 
 class BaseTraceObservation:
