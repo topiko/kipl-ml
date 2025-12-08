@@ -223,7 +223,7 @@ def one_batch_train_disc(
     y: torch.Tensor,
     disc_opm: torch.optim.Optimizer,
     train: bool = True,
-):
+) -> tuple[float, float]:
     disc.train()
     disc_opm.zero_grad()
     logits, _ = disc(X)
@@ -300,6 +300,12 @@ def main(cfg: DictConfig):
             }
             reward_scales = {"clf_scale": 1.0, "padding_scale": 0.01}
 
+            train_obs = True
+            train_disc = False
+            if i % 5 == 0:
+                train_disc = True
+                train_obs = False
+
             with tqdm(
                 dl_train,
                 desc=f"epoch {e:02d}",
@@ -309,10 +315,18 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
-                    optim.zero_grad()
-
-                    log_ps, values, rewards, entropies, hidden_penalty, _, _, Xobs = (
-                        rollout(
+                    if train_obs:
+                        optim.zero_grad()
+                        (
+                            log_ps,
+                            values,
+                            rewards,
+                            entropies,
+                            hidden_penalty,
+                            _,
+                            _,
+                            Xobs,
+                        ) = rollout(
                             obs=obs,
                             disc=discriminator,
                             X=X,
@@ -322,83 +336,107 @@ def main(cfg: DictConfig):
                             detach_every_delta_t=detach_period,
                             reward_scales=reward_scales,
                         )
-                    )
 
-                    if cfg.advantages.type == "mc":
-                        G = get_returns(rewards, gamma=gamma)
-                        advantages = G - values
-                    elif cfg.advantages.type == "gae":
-                        advantages = get_gae(
-                            rewards, values, lambda_=cfg.advantages.lambda_, gamma=gamma
+                        if cfg.advantages.type == "mc":
+                            G = get_returns(rewards, gamma=gamma)
+                            advantages = G - values
+                        elif cfg.advantages.type == "gae":
+                            advantages = get_gae(
+                                rewards,
+                                values,
+                                lambda_=cfg.advantages.lambda_,
+                                gamma=gamma,
+                            )
+                            G = advantages + values
+                        else:
+                            raise NotImplementedError(
+                                "Invalid advantage type: {cfg.advantages.type}"
+                            )
+
+                        if cfg.advantages.standardize:
+                            advantages = (advantages - advantages.mean()) / (
+                                advantages.std() + 1e-8
+                            )
+
+                        # Compute losses
+                        policy_loss = -(log_ps * advantages.detach()).mean()
+                        value_loss = 0.5 * (values - G).pow(2).mean()
+                        entropy_loss = -entropies.mean()
+
+                        loss = (
+                            policy_loss
+                            + value_loss
+                            + 0.0 * entropy_loss
+                            + 1.0 * hidden_penalty.sum()
                         )
-                        G = advantages + values
-                    else:
-                        raise NotImplementedError(
-                            "Invalid advantage type: {cfg.advantages.type}"
+
+                        loss.backward()
+
+                        skip = False
+                        for name, p in obs.named_parameters():
+                            if p.grad is not None:
+                                try:
+                                    assert_finite(f"{name}: grad", p.grad)
+                                except ValueError as er:
+                                    logger.warning(er)
+                                    print(
+                                        value_loss,
+                                        policy_loss,
+                                        entropy_loss,
+                                        hidden_penalty,
+                                    )
+                                    skip = True
+                                    break
+
+                        if skip:
+                            continue
+
+                        # Gradient clipping
+                        nn.utils.clip_grad_norm_(
+                            obs.parameters(),
+                            cfg.grad_norm_clip,
+                            error_if_nonfinite=False,
                         )
 
-                    if cfg.advantages.standardize:
-                        advantages = (advantages - advantages.mean()) / (
-                            advantages.std() + 1e-8
-                        )
+                        optim.step()
 
-                    # Compute losses
-                    policy_loss = -(log_ps * advantages.detach()).mean()
-                    value_loss = 0.5 * (values - G).pow(2).mean()
-                    entropy_loss = -entropies.mean()
-
-                    loss = (
-                        policy_loss
-                        + value_loss
-                        + 0.0 * entropy_loss
-                        + 1.0 * hidden_penalty.sum()
-                    )
-
-                    loss.backward()
-
-                    skip = False
-                    for name, p in obs.named_parameters():
-                        if p.grad is not None:
+                        losses["loss"].append(loss.item())
+                        losses["policy_loss"].append(policy_loss.item())
+                        losses["value_loss"].append(value_loss.item())
+                        losses["avg_return"].append(G.mean().item())
+                        losses["entropy_loss"].append(entropy_loss.item())
+                        losses["h_penalty"].append(hidden_penalty[0].item())
+                        losses["c_penalty"].append(hidden_penalty[1].item())
+                        for k, v in losses.items():
                             try:
-                                assert_finite(f"{name}: grad", p.grad)
+                                assert_finite(k, v[-1])
                             except ValueError as er:
-                                logger.warning(er)
-                                print(
-                                    value_loss,
-                                    policy_loss,
-                                    entropy_loss,
-                                    hidden_penalty,
-                                )
-                                skip = True
-                                break
+                                print(er)
+                                breakpoint()
 
-                    if skip:
-                        continue
+                    # mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
 
-                    # Gradient clipping
-                    nn.utils.clip_grad_norm_(
-                        obs.parameters(), cfg.grad_norm_clip, error_if_nonfinite=False
-                    )
-
-                    optim.step()
-
+                    elif train_disc:
+                        with torch.no_grad():
+                            Xobs = rollout(
+                                obs=obs,
+                                disc=discriminator,
+                                X=X,
+                                y=y,
+                                dt=dt,
+                                maxT=T,
+                                detach_every_delta_t=detach_period,
+                                reward_scales=reward_scales,
+                            )[-1]
                     disc_loss, acc = one_batch_train_disc(
                         disc=discriminator,
                         X=Xobs,
                         y=y,
                         disc_opm=disc_optim,
-                        train=i % 1 == 0,
+                        train=train_disc,
                     )
-
-                    losses["loss"].append(loss.item())
-                    losses["policy_loss"].append(policy_loss.item())
-                    losses["value_loss"].append(value_loss.item())
-                    losses["avg_return"].append(G.mean().item())
-                    losses["entropy_loss"].append(entropy_loss.item())
-                    losses["h_penalty"].append(hidden_penalty[0].item())
-                    losses["c_penalty"].append(hidden_penalty[1].item())
-                    losses["disc_loss"].append(disc_loss)
                     losses["disc_acc"].append(acc)
+                    losses["disc_loss"].append(disc_loss)
                     losses["mean_padding_count"].append(
                         Xobs[Feats.PADDING].sum(dim=1).float().mean().item()
                     )
@@ -406,22 +444,16 @@ def main(cfg: DictConfig):
                         (Xobs[Feats.DIRS] != 0).sum(dim=1).float().mean().item()
                     )
 
-                    for k, v in losses.items():
-                        try:
-                            assert_finite(k, v[-1])
-                        except ValueError as er:
-                            print(er)
-                            breakpoint()
+                    if train_obs:
+                        pbar.set_postfix({"avg_return": np.mean(losses["avg_return"])})
+                    elif train_disc:
+                        pbar.set_postfix({"dacc": np.mean(losses["disc_acc"])})
 
-                    pbar.set_postfix({"avg_return": losses["avg_return"][-1]})
-
-                    if i % 5 == 0:
+                    if train_obs and (i % 10 == 0):
                         mlflow.log_metrics(
                             {k: np.mean(l_) for k, l_ in losses.items()}, step=i
                         )
                         losses = {k: [] for k in losses}
-
-                        # mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
 
                     i += 1
 
@@ -437,8 +469,8 @@ def main(cfg: DictConfig):
                 ntraces=20,
             )
 
-            if reward_scales["padding_scale"] > -1.0:
-                reward_scales["padding_scale"] -= 0.02
+            # if reward_scales["padding_scale"] > -1.0:
+            #     reward_scales["padding_scale"] -= 0.02
 
             e += 1
 

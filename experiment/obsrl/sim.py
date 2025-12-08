@@ -54,15 +54,19 @@ def get_reward(
 
         probs = nn.functional.softmax(logits, dim=1)
 
-        # (A, )
-        cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
-
-        # Small correct cl prob --> large reward, exclude padding packets
-        rewards[has_action] += (
-            clf_scale
-            * (0.1 - cl_probs)
-            * (packet_counts[has_action] - padding_counts[has_action])
+        rewards[has_action] = (
+            clf_scale * probs.var(dim=1) * (packet_counts - padding_counts)[has_action]
         )
+
+        # (A, )
+        # cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
+
+        # # Small correct cl prob --> large reward, exclude padding packets
+        # rewards[has_action] += (
+        #     clf_scale
+        #     * (0.1 - cl_probs)
+        #     * (packet_counts[has_action] - padding_counts[has_action])
+        # )
 
     return rewards, hdisc
 
@@ -121,14 +125,17 @@ def rollout(
         curXobs = ackt_exec.step(actions_, bto.feature_dict)
         xobs_l.append(curXobs)
 
-        # Get rewards
-        rewards_, hdisc = get_reward(disc, hdisc, y, actions_, curXobs, **reward_scales)
+        # Get rewards (we only need the when we are interested in grads..)
+        if torch.is_grad_enabled():
+            rewards_, hdisc = get_reward(
+                disc, hdisc, y, actions_, curXobs, **reward_scales
+            )
+            rewards_l.append(rewards_.unsqueeze(1))
 
         actions_l.append(actions_)
         log_ps_l.append(log_ps_.unsqueeze(1))
         values_l.append(values_.unsqueeze(1))
         entropy_l.append(entropies_.unsqueeze(1))
-        rewards_l.append(rewards_.unsqueeze(1))
         times_l.append(bto.t)
 
         if bto.t > maxT:
@@ -146,7 +153,10 @@ def rollout(
     values: torch.Tensor = torch.cat(values_l, dim=1)
     entropies: torch.Tensor = torch.cat(entropy_l, dim=1)
     times: torch.Tensor = torch.tensor(times_l)
-    rewards: torch.Tensor = torch.cat(rewards_l, dim=1)
+    if torch.is_grad_enabled():
+        rewards: torch.Tensor = torch.cat(rewards_l, dim=1)
+    else:
+        rewards = torch.zeros_like(values)
 
     Xobs = _unpack_xobs_l(xobs_l)
 

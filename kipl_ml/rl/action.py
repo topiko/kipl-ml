@@ -40,7 +40,7 @@ class DelayActionExec:
         self._counts: torch.Tensor
         self.dt: float = dt
         self.t: float = 0.0
-        logger.warning("DelayActionExec has dummy implementation.")
+        # logger.warning("DelayActionExec has dummy implementation.")
 
     def step(self, curXobs: dict[Feats, torch.Tensor]):
         self._feature_dict: dict[Feats, torch.Tensor] = curXobs
