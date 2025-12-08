@@ -79,7 +79,8 @@ def get_gae(
 def _plot_set(
     ds: WFDataset,
     obs: nn.Module,
-    clf: nn.Module,
+    clf_orig: nn.Module,
+    clf_trained: nn.Module,
     e: int,
     dt: float,
     T: float,
@@ -96,7 +97,8 @@ def _plot_set(
         _plot_single(
             ds=ds,
             obs=obs,
-            clf=clf,
+            clf_orig=clf_orig,
+            clf_trained=clf_trained,
             e=e,
             dt=dt,
             T=T,
@@ -111,7 +113,8 @@ def _plot_set(
 def _plot_single(
     ds: WFDataset,
     obs: nn.Module,
-    clf: nn.Module,
+    clf_orig: nn.Module,
+    clf_trained: nn.Module,
     e: int,
     dt: float,
     T: float,
@@ -125,7 +128,7 @@ def _plot_single(
     def _unsqueeze(X: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         return {k: v.unsqueeze(0) for k, v in X.items()}
 
-    def X_to_probs(X: dict[Feats, torch.Tensor]) -> torch.Tensor:
+    def X_to_probs(clf: nn.Module, X: dict[Feats, torch.Tensor]) -> torch.Tensor:
         with torch.no_grad():
             logits, _ = clf(_unsqueeze(X))
             probs = nn.functional.softmax(logits, dim=-1)
@@ -139,13 +142,13 @@ def _plot_single(
     plot_trace(
         X,
         ax=ax,
-        cl_probs=X_to_probs(X),
+        cl_probs=X_to_probs(clf_orig, X),
         true_class=y.item(),
     )
     ax.set_title(f"True class: {y.item()}")
 
     rewards, _, _, times, actions_l, Xobs = rollout(
-        obs, clf, _unsqueeze(X), y, dt=dt, maxT=T, reward_scales=reward_scales
+        obs, clf_trained, _unsqueeze(X), y, dt=dt, maxT=T, reward_scales=reward_scales
     )[2:]
 
     mask = Xobs[Feats.DIRS] != 0
@@ -161,7 +164,7 @@ def _plot_single(
     plot_trace(
         Xobs,
         ax=ax_o,
-        cl_probs=X_to_probs(Xobs),
+        cl_probs=X_to_probs(clf_trained, Xobs),
         true_class=y.item(),
     )
 
@@ -253,6 +256,7 @@ def main(cfg: DictConfig):
 
     model_uri = mlflow.get_logged_model(discriminator_model_id).model_uri
 
+    discriminator_orig = mlflow.pytorch.load_model(model_uri, map_location="cpu")
     discriminator = mlflow.pytorch.load_model(model_uri, map_location="cpu")
     # discriminator = RNNCLF1(n_classes=95, features=[Feats.DIRS, Feats.TIMES])
 
@@ -273,6 +277,7 @@ def main(cfg: DictConfig):
 
     obs = AGENT1(zero_init=True).to(device)
     discriminator = discriminator.to(device)
+    discriminator_orig = discriminator_orig.to(device)
 
     optim = torch.optim.Adam(obs.parameters(), lr=0.001)
     disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
@@ -408,6 +413,9 @@ def main(cfg: DictConfig):
                         losses["h_penalty"].append(hidden_penalty[0].item())
                         losses["c_penalty"].append(hidden_penalty[1].item())
                         for k, v in losses.items():
+                            if len(v) == 0:
+                                continue
+
                             try:
                                 assert_finite(k, v[-1])
                             except ValueError as er:
@@ -460,7 +468,8 @@ def main(cfg: DictConfig):
             _plot_set(
                 ds=ds_valid,
                 obs=obs,
-                clf=discriminator,
+                clf_orig=discriminator_orig,
+                clf_trained=discriminator,
                 e=e,
                 dt=dt,
                 T=T,
