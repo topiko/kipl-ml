@@ -3,7 +3,6 @@ from torch import nn
 from torch.distributions import Categorical, Normal, Poisson
 from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence
 
-from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.rl.enums import Actions
 from kipl_ml.trace.features import Feats
 
@@ -565,7 +564,7 @@ class AGENT1(nn.Module):
     ):
         super().__init__()
 
-        self.features = [Feats.UP_COUNT, Feats.DOWN_COUNT]
+        self.features = [Feats.UP_COUNT, Feats.DOWN_COUNT, Feats.Dt]
         self.num_layers = nlayers
         self.hidden_size = hsize
         self.zero_init = zero_init
@@ -596,8 +595,8 @@ class AGENT1(nn.Module):
         if not self.zero_init:
             return None
 
-        bs = x[Feats.DIRS].shape[0]
-        device = x[Feats.DIRS].device
+        bs = x[Feats.UP_COUNT].shape[0]
+        device = x[Feats.UP_COUNT].device
         return (
             torch.zeros(self.num_layers, bs, self.hidden_size, device=device),
             torch.zeros(self.num_layers, bs, self.hidden_size, device=device),
@@ -609,16 +608,8 @@ class AGENT1(nn.Module):
         if h is None:
             h = self._get_init_h(x)
 
-        # Feature generation:
-        x[Feats.UP_COUNT] = (x[Feats.DIRS] == UPLOAD).sum(dim=1, keepdim=True).float()
-        x[Feats.DOWN_COUNT] = (
-            (x[Feats.DIRS] == DOWNLOAD).sum(dim=1, keepdim=True).float()
-        )
-
         # Typically we have time in dim=1, here we always(?)
-        # operate on only single time step... Regardless we only
-        # squeeze the time dim out in the end.
-        # (N, 1) x nfeat
+        # (N, L) x nfeat
         fs = []
         for f in self.features:
             x_ = torch.log10(1 + x[f])
@@ -630,29 +621,26 @@ class AGENT1(nn.Module):
             if h_norm > 100 or c_norm > 100:
                 print("Huge hidden/cell:", h_norm, c_norm)
 
-        # (N, 1, nfeat)
+        # (N, L, nfeat)
         inputs = torch.cat(fs, dim=-1)
 
-        # (N, 1, nfeat * feat_scale)
+        # (N, L, nfeat * feat_scale)
         inputs = self.scaler(inputs)
 
-        # (N, 1, H) (N, n_hidden, H)
+        # (N, L, H) (N, n_hidden, H)
         output, h = self.rnn(inputs, h)
 
-        # (N, H)
-        output = output.squeeze(1)
-
-        # (N, 4) (0=WAIT, 1=SEND_UP, 2=SEND_DOWN, 3=SEND_BOTH)
+        # (N, L, 4) (0=WAIT, 1=SEND_UP, 2=SEND_DOWN, 3=SEND_BOTH)
         action_selector = self.actor["action_selection"](output)
 
-        # (N, 1)
-        send_count_u = self.actor["send_count_u"](output)
-        send_count_d = self.actor["send_count_d"](output)
-        send_time_u = self.actor["send_time_u"](output)
-        send_time_d = self.actor["send_time_d"](output)
+        # (N, L)
+        send_count_u = self.actor["send_count_u"](output).squeeze(-1)
+        send_count_d = self.actor["send_count_d"](output).squeeze(-1)
+        send_time_u = self.actor["send_time_u"](output).squeeze(-1)
+        send_time_d = self.actor["send_time_d"](output).squeeze(-1)
 
-        # (N, 1)
-        state_values = self.critic(output)
+        # (N, L)
+        state_values = self.critic(output).squeeze(-1)
 
         return {
             Actions.SELECTOR: action_selector,
@@ -677,15 +665,10 @@ class AGENT1(nn.Module):
         # Select action:
         sel_dist = Categorical(logits=action_outputs[Actions.SELECTOR])
 
-        # (B, )
+        # (B, L)
         selections = sel_dist.sample()
         sel_log_probs = sel_dist.log_prob(selections)
         sel_entropy = sel_dist.entropy()
-
-        # (B, 1)
-        selections = selections.unsqueeze(1)
-        sel_log_probs = sel_log_probs.unsqueeze(1)
-        sel_entropy = sel_entropy.unsqueeze(1)
 
         # Send u/d, note! These are conditional on the selection.
         # They will be ignored if the selection is not SEND_UP/DOWN/BOTH.
@@ -702,7 +685,7 @@ class AGENT1(nn.Module):
             1e-3,
         )
 
-        # (B, 1)
+        # (B, L)
         send_count_u = suc.sample()
         send_count_u_logp = suc.log_prob(send_count_u)
 
@@ -744,8 +727,9 @@ class AGENT1(nn.Module):
         entropy = sel_entropy + cond_entropy
 
         # Use action selector to choose what to do:
-        # (B, 1)
+        # (B, L)
         log_probs = torch.zeros_like(sel_log_probs)
+
         actions = {
             Actions.SELECTOR: selections.detach().clone(),
             Actions.WAIT: torch.zeros_like(selections),
@@ -756,9 +740,10 @@ class AGENT1(nn.Module):
         }
 
         # WAIT:
+        # (B, L)
         mask = selections == 0
 
-        # (B, 1)
+        # (B, L)
         log_probs[mask] = sel_log_probs[mask]
         actions[Actions.WAIT][mask] = 1
         actions[Actions.SEND_COUNT_UP][mask] = 0
@@ -767,9 +752,10 @@ class AGENT1(nn.Module):
         actions[Actions.SEND_TIME_DOWN][mask] = 0
 
         # SEND UP:
+        # (B, L)
         mask = selections == 1
 
-        # (B, 1)
+        # (B, L)
         log_probs[mask] = (
             sel_log_probs[mask] + send_count_u_logp[mask] + send_time_u_logp[mask]
         )
@@ -777,9 +763,10 @@ class AGENT1(nn.Module):
         actions[Actions.SEND_TIME_DOWN][mask] = 0
 
         # SEND DOWN:
+        # (B, L)
         mask = selections == 2
 
-        # (B, 1)
+        # (B, L)
         log_probs[mask] = (
             sel_log_probs[mask] + send_count_d_logp[mask] + send_time_d_logp[mask]
         )
@@ -787,9 +774,10 @@ class AGENT1(nn.Module):
         actions[Actions.SEND_TIME_UP][mask] = 0
 
         # SEND BOTH:
+        # (B, L)
         mask = selections == 3
 
-        # (B, 1)
+        # (B, L)
         log_probs[mask] = (
             sel_log_probs[mask]
             + send_count_u_logp[mask]
@@ -798,18 +786,7 @@ class AGENT1(nn.Module):
             + send_time_d_logp[mask]
         )
 
-        # (B, 1)
+        # (B, L)
         values = action_outputs[Feats.STATE_VALUE]
 
-        # Squeeze the ch dim.
-        # (B, )
-        for _, v in actions.items():
-            v.squeeze_(1)
-
-        return (
-            actions,
-            log_probs.squeeze(1),
-            values.squeeze(1),
-            entropy.squeeze(1),
-            h,
-        )
+        return actions, log_probs, values, entropy, h

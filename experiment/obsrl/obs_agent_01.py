@@ -275,7 +275,7 @@ def main(cfg: DictConfig):
     dl_train = dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    obs = AGENT1(zero_init=True).to(device)
+    obs = AGENT1(zero_init=False).to(device)
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
 
@@ -319,15 +319,6 @@ def main(cfg: DictConfig):
                 for X, y in pbar:
                     X = dict_to_device(X, device)
                     y = y.to(device)
-
-                    from kipl_ml.rl.observation import get_feature_dict
-
-                    fd = get_feature_dict(
-                        X,
-                        dt=0.05,
-                        max_silence_s=1.0,
-                        features=[Feats.UP_COUNT, Feats.DOWN_COUNT],
-                    )
 
                     if train_obs:
                         optim.zero_grad()

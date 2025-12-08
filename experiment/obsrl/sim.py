@@ -3,7 +3,7 @@ from torch import nn
 
 from kipl_ml.rl.action import ActionsExec
 from kipl_ml.rl.enums import Actions
-from kipl_ml.rl.observation import BaseTraceObservation
+from kipl_ml.rl.observation import BaseTraceObservation, get_window_feature_dict
 from kipl_ml.rl.utils import _flush_left
 from kipl_ml.trace.enums import Feats
 
@@ -110,6 +110,14 @@ def rollout(
     hidden_penalty = torch.zeros(2, device=device)
     ackt_exec = ActionsExec(dt)
     bto = BaseTraceObservation(X)
+
+    fd = get_window_feature_dict(
+        X, dt, 1.0, [Feats.DOWN_COUNT, Feats.UP_COUNT, Feats.Dt]
+    )
+
+    obs.act(fd)
+
+    return
 
     while True:
         # Step BaseTraceObservation
