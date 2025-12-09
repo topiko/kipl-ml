@@ -83,7 +83,6 @@ def _plot_set(
     clf_trained: nn.Module,
     e: int,
     dt: float,
-    T: float,
     reward_scales: dict[str, float],
     device: torch.DeviceObjType,
     ntraces: int = 3,
@@ -101,7 +100,6 @@ def _plot_set(
             clf_trained=clf_trained,
             e=e,
             dt=dt,
-            T=T,
             reward_scales=reward_scales,
             device=device,
             idx=idx,
@@ -146,7 +144,7 @@ def _plot_single(
     )
     ax.set_title(f"True class: {y.item()}")
 
-    rewards, _, _, times, actions_l, Xobs = rollout(
+    rewards, _, times, actions, Xobs = rollout(
         obs, clf_trained, _unsqueeze(X), y, dt=dt, reward_scales=reward_scales
     )[2:]
 

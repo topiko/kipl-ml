@@ -48,7 +48,9 @@ def get_window_feature_dict(
                 (fdirs == DOWNLOAD).sum(dim=1, keepdim=True)
             )
 
-        feature_dict_l.setdefault(Feats.TIMES, []).append(torch.ones((n_rows, 1)) * t)
+        feature_dict_l.setdefault(Feats.TIMES, []).append(
+            torch.ones((n_rows, 1), device=times.device) * t
+        )
 
     feature_dict: dict[Feats, torch.Tensor] = {
         k: torch.cat(v, dim=1) for k, v in feature_dict_l.items()

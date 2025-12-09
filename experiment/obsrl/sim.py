@@ -23,7 +23,7 @@ def get_rewards(
 
     # (B, N)
     times = X[Feats.TIMES]
-    padding = X[Feats.PADDING]
+    padding = X[Feats.PADDING].bool()
 
     # (B, N, C)
     probs = nn.functional.softmax(disc_logits, dim=1)
@@ -41,7 +41,7 @@ def get_rewards(
         # (B, )
         npad = (padding * mask).sum(dim=1)
 
-        mean_p = (target_probs * mask).mean(dim=1)
+        mean_p = (target_probs * (mask & ~padding)).mean(dim=1)
 
         rewards[:, i] -= npad * reward_scales["padding_scale"]
         rewards[:, i] += (1 - mean_p) * reward_scales["clf_scale"]
@@ -60,7 +60,7 @@ def rollout(
 ) -> tuple[
     torch.Tensor,
     torch.Tensor,
-    torch.Tensor,
+    torch.Tensor | None,
     torch.Tensor,
     torch.Tensor,
     dict[Actions, torch.Tensor],
@@ -70,10 +70,11 @@ def rollout(
     hdisc = None
     hobs = None
 
+    rewards = None
     detach_every = detach_every_delta_t // dt
 
     fd = get_window_feature_dict(
-        X, dt, 1.0, [Feats.DOWN_COUNT, Feats.UP_COUNT, Feats.Dt]
+        X, dt, 100.0, [Feats.DOWN_COUNT, Feats.UP_COUNT, Feats.Dt]
     )
 
     t0 = time.time()
@@ -83,12 +84,13 @@ def rollout(
     Xobs = send_exec(X, act_times, actions)
 
     t2 = time.time()
-    with torch.no_grad():
-        logits, hdisc = disc(Xobs, hdisc)
+    if torch.is_grad_enabled():
+        with torch.no_grad():
+            logits, hdisc = disc(Xobs, hdisc)
 
-    t3 = time.time()
+        t3 = time.time()
 
-    rewards = get_rewards(act_times, Xobs, y, logits, reward_scales=reward_scales)
+        rewards = get_rewards(act_times, Xobs, y, logits, reward_scales=reward_scales)
     t4 = time.time()
 
     # print(
