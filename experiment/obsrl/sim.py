@@ -86,6 +86,9 @@ def rollout(
     values = []
     entropies = []
     for i in range(T // detach_period + 1):
+        if i * detach_period == T:
+            break
+
         fd_chunk = {
             k: v[:, i * detach_period : (i + 1) * detach_period] for k, v in fd.items()
         }

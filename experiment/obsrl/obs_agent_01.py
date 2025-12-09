@@ -299,11 +299,11 @@ def main(cfg: DictConfig):
                 "mean_padding_count": [],
                 "mean_trace_len": [],
             }
-            reward_scales = {"clf_scale": 1.0, "padding_scale": 0.01}
+            reward_scales = {"clf_scale": 1.0, "padding_scale": 0.05}
 
             train_obs = True
             train_disc = False
-            if i % 5 == 0:
+            if e % 2 == 0:
                 train_disc = True
                 train_obs = False
 
@@ -439,13 +439,8 @@ def main(cfg: DictConfig):
                     elif train_disc:
                         pbar.set_postfix({"dacc": np.mean(losses["disc_acc"])})
 
-                    if train_obs and (i % 10 == 0):
-                        mlflow.log_metrics(
-                            {k: np.mean(l_) for k, l_ in losses.items()}, step=i
-                        )
-                        losses = {k: [] for k in losses}
-
-                    i += 1
+            mlflow.log_metrics({k: np.mean(l_) for k, l_ in losses.items()}, step=e)
+            losses = {k: [] for k in losses}
 
             _plot_set(
                 ds=ds_valid,
@@ -458,9 +453,6 @@ def main(cfg: DictConfig):
                 device=device,
                 ntraces=20,
             )
-
-            # if reward_scales["padding_scale"] > -1.0:
-            #     reward_scales["padding_scale"] -= 0.02
 
             e += 1
 
