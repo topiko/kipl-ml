@@ -23,10 +23,11 @@ def get_rewards(
 
     # (B, N)
     times = X[Feats.TIMES]
-    padding = X[Feats.PADDING].bool()
+    padding = X[Feats.PADDING]
 
     # (B, N, C)
     probs = nn.functional.softmax(disc_logits, dim=1)
+
     # (B, N)
     target_probs = probs.gather(2, y.unsqueeze(1).expand(-1, N).unsqueeze(-1)).squeeze(
         -1
@@ -41,10 +42,19 @@ def get_rewards(
         # (B, )
         npad = (padding * mask).sum(dim=1)
 
-        mean_p = (target_probs * (mask & ~padding)).mean(dim=1)
+        mean_p = (target_probs * (mask - padding).clip(0, 1)).mean(dim=1)
+
+        print(times[:, :10])
+        print(mask[:, :10])
+        print(t0, t1)
+        print(mask.sum(dim=1))
+        print((mask - padding).clip(0, 1).sum(dim=1))
+        print(i, (target_probs * (mask - padding).clip(0, 1)).max(dim=1))
 
         rewards[:, i] -= npad * reward_scales["padding_scale"]
         rewards[:, i] += (1 - mean_p) * reward_scales["clf_scale"]
+
+        breakpoint()
 
     return rewards
 
@@ -56,7 +66,7 @@ def rollout(
     y: torch.Tensor,
     dt: float = 0.01,
     detach_every_delta_t: float = 1,
-    reward_scales: dict[str, float] = {"clf_scale": 1.0, "padding_scale": 1.0},
+    reward_scales: dict[str, float] | None = {"clf_scale": 1.0, "padding_scale": 1.0},
 ) -> tuple[
     torch.Tensor,
     torch.Tensor,
@@ -84,7 +94,7 @@ def rollout(
     Xobs = send_exec(X, act_times, actions)
 
     t2 = time.time()
-    if torch.is_grad_enabled():
+    if reward_scales is not None:
         with torch.no_grad():
             logits, hdisc = disc(Xobs, hdisc)
 

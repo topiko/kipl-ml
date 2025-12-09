@@ -303,10 +303,10 @@ def main(cfg: DictConfig):
             reward_scales = {"clf_scale": 1.0, "padding_scale": 0.01}
 
             train_obs = True
-            train_disc = False
-            if i % 5 == 0:
-                train_disc = True
-                train_obs = False
+            train_disc = True
+            # if i % 5 == 0:
+            #    train_disc = True
+            #    train_obs = False
 
             with tqdm(
                 dl_train,
@@ -324,7 +324,7 @@ def main(cfg: DictConfig):
                             values,
                             rewards,
                             entropies,
-                            hidden_penalty,
+                            _,
                             _,
                             Xobs,
                         ) = rollout(
@@ -363,12 +363,7 @@ def main(cfg: DictConfig):
                         value_loss = 0.5 * (values - G).pow(2).mean()
                         entropy_loss = -entropies.mean()
 
-                        loss = (
-                            policy_loss
-                            + value_loss
-                            + 0.0 * entropy_loss
-                            + 1.0 * hidden_penalty.sum()
-                        )
+                        loss = policy_loss + value_loss + 0.05 * entropy_loss
 
                         loss.backward()
 
@@ -379,12 +374,7 @@ def main(cfg: DictConfig):
                                     assert_finite(f"{name}: grad", p.grad)
                                 except ValueError as er:
                                     logger.warning(er)
-                                    print(
-                                        value_loss,
-                                        policy_loss,
-                                        entropy_loss,
-                                        hidden_penalty,
-                                    )
+                                    print(value_loss, policy_loss, entropy_loss)
                                     skip = True
                                     break
 
@@ -405,8 +395,6 @@ def main(cfg: DictConfig):
                         losses["value_loss"].append(value_loss.item())
                         losses["avg_return"].append(G.mean().item())
                         losses["entropy_loss"].append(entropy_loss.item())
-                        losses["h_penalty"].append(hidden_penalty[0].item())
-                        losses["c_penalty"].append(hidden_penalty[1].item())
                         for k, v in losses.items():
                             if len(v) == 0:
                                 continue
@@ -428,7 +416,7 @@ def main(cfg: DictConfig):
                                 y=y,
                                 dt=dt,
                                 detach_every_delta_t=detach_period,
-                                reward_scales=reward_scales,
+                                reward_scales=None,
                             )[-1]
 
                     disc_loss, acc = one_batch_train_disc(

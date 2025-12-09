@@ -63,7 +63,11 @@ def send_exec(
             ) * decay_times[mask].unsqueeze(1) + start_times.unsqueeze(1)
             send_times_l.append(send_times.flatten())
 
-        send_times = torch.cat(send_times_l, dim=0)
+        if send_times_l:
+            send_times = torch.cat(send_times_l, dim=0)
+        else:
+            send_times = torch.zeros(0, device=send_counts.device)
+
         return send_times
 
     def _build_tensors(send_times_list: list[torch.Tensor], dir_: int):
