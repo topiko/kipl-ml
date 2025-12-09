@@ -5,7 +5,7 @@ import torch
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.enums import Actions
-from kipl_ml.rl.utils import _append_values, _flush_left
+from kipl_ml.rl.utils import _flush_left
 from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
@@ -33,207 +33,83 @@ def _sort_feature_dict(
     return feature_dict
 
 
-class DelayActionExec:
-    def __init__(self, dt: float):
-        self._delay_times: torch.Tensor
-        self._update_times: torch.Tensor
-        self._counts: torch.Tensor
-        self.dt: float = dt
-        self.t: float = 0.0
-        # logger.warning("DelayActionExec has dummy implementation.")
+def send_exec(
+    X: dict[Feats, torch.Tensor],
+    times: torch.Tensor,
+    actions: dict[Actions, torch.Tensor],
+) -> dict[Feats, torch.Tensor]:
+    # TODO: improve this by removing the batch dim loops...
+    send_up_c = actions[Actions.SEND_COUNT_UP]
+    times_up = actions[Actions.SEND_TIME_UP]
+    send_down_c = actions[Actions.SEND_COUNT_DOWN]
+    times_down = actions[Actions.SEND_TIME_DOWN]
 
-    def step(self, curXobs: dict[Feats, torch.Tensor]):
-        self._feature_dict: dict[Feats, torch.Tensor] = curXobs
-        self.t += self.dt
+    if Feats.PADDING not in X:
+        X[Feats.PADDING] = torch.zeros_like(X[Feats.TIMES])
 
-    def update(self, counts: torch.Tensor, delays: torch.Tensor):
-        if self.t == 0:
-            self._init_tensors(counts)
-
-        mask = counts != 0
-
-        self._counts[mask] = counts[mask]
-        self._update_times[mask] = self.t
-        self._delay_times[mask] = delays[mask]
-
-    @property
-    def feature_dict(self) -> dict[Feats, torch.Tensor]:
-        return self._feature_dict
-
-    def _init_tensors(self, mask: torch.Tensor):
-        device = mask.device
-        self._counts = torch.zeros_like(mask, dtype=torch.float, device=device)
-        self._update_times = torch.zeros_like(mask, dtype=torch.float, device=device)
-        self._delay_times = torch.zeros_like(mask, dtype=torch.float, device=device)
-
-
-class SendActionExec:
-    def __init__(self, dir_: int, dt: float):
-        self.dir_ = dir_
-        self.dt = dt
-        self.t = 0.0
-
-        self._counts: torch.Tensor
-        self._update_times: torch.Tensor
-        self._decaytimes: torch.Tensor
-        self._X = torch.Tensor
-        self._unsorted_feature_dict: dict[Feats, torch.Tensor]
-
-    def step(self, curXobs: dict[Feats, torch.Tensor]):
-        if self._counts is None:
-            raise ValueError("No counts set. Call update() before step().")
-
-        # (B, ) we sample from uniform..
-        density_p_send = torch.where(
-            self._counts != 0, self._counts / self._decaytimes, 0.0
-        )
-
-        resolution = 1e-6  # microsecond
-
-        # Total number of time steps [unitless]
-        T = self.dt / resolution
-        # (B, T)
-        times = (
-            torch.arange(0, T, step=1.0, device=self._counts.device)
-            .unsqueeze(0)
-            .expand(self._counts.shape[0], -1)
-        )
-
-        # (B, T)
-        mask = torch.rand_like(times) < resolution * density_p_send.unsqueeze(1)
-
-        # Padding and normal
-        # (B, )
-        send_normal = (curXobs[Feats.DIRS] == self.dir_).sum(dim=1)
-
-        # (1, )
-        npackets = (mask.sum(dim=1) + send_normal).max()
-        npad_packets = mask.sum(dim=1).max()
-
-        # (B, npackets)
-        send_times = torch.zeros(
-            (self._counts.shape[0], npackets), device=self._counts.device
-        )
-        packets = torch.zeros_like(send_times)
-        padding = torch.zeros_like(send_times)
-
-        if npackets > 0:
-            if npad_packets > 0:
-                # (B, npackets)
-                send_times = _flush_left(times, mask)[:, :npackets]
-                # Return to absolute time
-                send_times[send_times != 0] *= resolution
-                # Move to current time frame
-                send_times[send_times != 0] += self.t
-
-                # (B, npackets) padding mask
-                padding[send_times != 0] = 1.0
-
-                # (B, npackets)
-                packets[send_times != 0] = self.dir_
-
-            # (B, npackets) observed packets to send
-            send_times = _append_values(
-                send_times,
-                _flush_left(
-                    curXobs[Feats.TIMES],
-                    curXobs[Feats.DIRS] == self.dir_,
-                ),
-                on_short_base="cat",
-            )[:, :npackets]
-
-            # (B, npackets) sampled packets to send
-            packets = _append_values(
-                packets,
-                _flush_left(curXobs[Feats.DIRS], curXobs[Feats.DIRS] == self.dir_),
-                on_short_base="cat",
-            )[:, :npackets]
-
-            # We still need to sort everything according to time:
-            if (curXobs[Feats.TIMES] > (self.t + self.dt)).any():
-                raise ValueError("Trying to send packets beyond current time + dt.")
-            if (curXobs[Feats.TIMES][curXobs[Feats.DIRS] != 0] < self.t).any():
-                print(self.t)
-                print(curXobs[Feats.TIMES])
-                breakpoint()
-                raise ValueError("Trying to send packets before current time.")
-
-        self._unsorted_feature_dict = {
-            Feats.DIRS: packets[:, :npackets],
-            Feats.TIMES: send_times[:, :npackets],
-            Feats.PADDING: padding[:, :npackets],
-        }
-        self.t += self.dt
-
-    @property
-    def unsorted_feature_dict(self) -> dict[Feats, torch.Tensor]:
-        return self._unsorted_feature_dict
-
-    def update(
-        self,
-        counts: torch.Tensor,
-        decaytimes: torch.Tensor,
-        update_mask: torch.Tensor,
+    def _sample_send_times(
+        send_counts: torch.Tensor,
+        times: torch.Tensor,
+        decay_times: torch.Tensor,
     ):
-        if self.t == 0:
-            self._init_tensors(counts)
+        send_times_l = []
+        for c in range(1, send_counts.max().int() + 1):
+            mask = send_counts == c
 
-        mask = counts != 0 & update_mask
-        self._counts[mask] = counts[mask]
-        self._update_times[mask] = self.t
-        self._decaytimes[mask] = decaytimes[mask]
+            start_times = times[mask]
+            # (L, c)
+            send_times = torch.rand(
+                (start_times.shape[0], c), device=times.device
+            ) * decay_times[mask].unsqueeze(1) + start_times.unsqueeze(1)
+            send_times_l.append(send_times.flatten())
 
-        # (B, )
-        time_passed = self.t - self._update_times
+        send_times = torch.cat(send_times_l, dim=0)
+        return send_times
 
-        # (B, ) reset counts where time passed > decay_time
-        reset_mask = time_passed > self._decaytimes
+    def _build_tensors(send_times_list: list[torch.Tensor], dir_: int):
+        max_len = max(len(t_) for t_ in send_times_list)
+        times_tensor = torch.zeros((len(send_times_list), max_len), device=times.device)
+        dirs_tensor = torch.zeros((len(send_times_list), max_len), device=times.device)
+        padding_tensor = torch.zeros(
+            (len(send_times_list), max_len), device=times.device
+        )
 
-        self._counts[reset_mask] = 0
-        self._decaytimes[reset_mask] = 0
-        self._update_times[mask] = self.t
+        for i in range(len(send_times_list)):
+            send_times_ = send_times_list[i]
+            times_tensor[i, : len(send_times_)] = send_times_
+            dirs_tensor[i, : len(send_times_)] = dir_
+            padding_tensor[i, : len(send_times_)] = 1.0
 
-    def _init_tensors(self, counts: torch.Tensor):
-        device = counts.device
-        self._counts = torch.zeros_like(counts, dtype=torch.float, device=device)
-        self._update_times = torch.zeros_like(counts, dtype=torch.float, device=device)
-        self._decaytimes = torch.zeros_like(counts, dtype=torch.float, device=device)
+        return times_tensor, dirs_tensor, padding_tensor
 
+    send_times_up_l = []
+    send_times_down_l = []
+    for i in range(times.shape[0]):
+        times_ = times[i]
+        sup_c = send_up_c[i]
+        sdown_c = send_down_c[i]
+        t_up = times_up[i]
+        t_down = times_down[i]
 
-class ActionsExec:
-    def __init__(self, dt: float):
-        self.send_ackts_up = SendActionExec(dir_=UPLOAD, dt=dt)
-        self.send_ackts_down = SendActionExec(dir_=DOWNLOAD, dt=dt)
-        self.delay_ackts = DelayActionExec(dt=dt)
+        send_times_up = _sample_send_times(
+            send_counts=sup_c, times=times_, decay_times=t_up
+        )
 
-    def step(
-        self, actions: dict[Actions, torch.Tensor], curXobs: dict[Feats, torch.Tensor]
+        send_times_down = _sample_send_times(
+            send_counts=sdown_c, times=times_, decay_times=t_down
+        )
+
+        send_times_up_l.append(send_times_up)
+        send_times_down_l.append(send_times_down)
+
+    for send_times, dir_ in zip(
+        [send_times_up_l, send_times_down_l], [UPLOAD, DOWNLOAD]
     ):
-        # Update the action executors
-        self.send_ackts_down.update(
-            counts=actions[Actions.SEND_COUNT_DOWN],
-            decaytimes=actions[Actions.SEND_TIME_DOWN],
-            update_mask=~actions[Actions.WAIT],
-        )
-        self.send_ackts_up.update(
-            counts=actions[Actions.SEND_COUNT_UP],
-            decaytimes=actions[Actions.SEND_TIME_UP],
-            update_mask=~actions[Actions.WAIT],
-        )
+        times_, dirs_, padding_ = _build_tensors(send_times, dir_)
+        X[Feats.TIMES] = torch.cat([X[Feats.TIMES], times_], dim=1)
+        X[Feats.DIRS] = torch.cat([X[Feats.DIRS], dirs_], dim=1)
+        X[Feats.PADDING] = torch.cat([X[Feats.PADDING], padding_], dim=1)
 
-        self.send_ackts_up.step(curXobs)
-        self.send_ackts_down.step(curXobs)
+    X = _sort_feature_dict(X)
 
-        fd_u = self.send_ackts_up.unsorted_feature_dict
-        fd_d = self.send_ackts_down.unsorted_feature_dict
-
-        unsorted_feature_dict: dict[Feats, torch.Tensor] = {
-            k: torch.cat([fd_u[k], fd_d[k]], dim=1) for k in fd_u
-        }
-
-        feature_dict = _sort_feature_dict(unsorted_feature_dict)
-
-        # self.delay_ackts.update()
-        self.delay_ackts.step(feature_dict)
-
-        return self.delay_ackts.feature_dict
+    return X

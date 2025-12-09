@@ -117,7 +117,6 @@ def _plot_single(
     clf_trained: nn.Module,
     e: int,
     dt: float,
-    T: float,
     reward_scales: dict[str, float],
     device: torch.DeviceObjType,
     idx: int,
@@ -148,7 +147,7 @@ def _plot_single(
     ax.set_title(f"True class: {y.item()}")
 
     rewards, _, _, times, actions_l, Xobs = rollout(
-        obs, clf_trained, _unsqueeze(X), y, dt=dt, maxT=T, reward_scales=reward_scales
+        obs, clf_trained, _unsqueeze(X), y, dt=dt, reward_scales=reward_scales
     )[2:]
 
     mask = Xobs[Feats.DIRS] != 0
@@ -329,7 +328,6 @@ def main(cfg: DictConfig):
                             entropies,
                             hidden_penalty,
                             _,
-                            _,
                             Xobs,
                         ) = rollout(
                             obs=obs,
@@ -337,7 +335,6 @@ def main(cfg: DictConfig):
                             X=X,
                             y=y,
                             dt=dt,
-                            maxT=T,
                             detach_every_delta_t=detach_period,
                             reward_scales=reward_scales,
                         )
@@ -432,10 +429,10 @@ def main(cfg: DictConfig):
                                 X=X,
                                 y=y,
                                 dt=dt,
-                                maxT=T,
                                 detach_every_delta_t=detach_period,
                                 reward_scales=reward_scales,
                             )[-1]
+
                     disc_loss, acc = one_batch_train_disc(
                         disc=discriminator,
                         X=Xobs,
@@ -472,7 +469,6 @@ def main(cfg: DictConfig):
                 clf_trained=discriminator,
                 e=e,
                 dt=dt,
-                T=T,
                 reward_scales=reward_scales,
                 device=device,
                 ntraces=20,

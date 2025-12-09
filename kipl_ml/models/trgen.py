@@ -654,6 +654,7 @@ class AGENT1(nn.Module):
     def act(
         self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
     ) -> tuple[
+        torch.Tensor,
         dict[Actions, torch.Tensor],
         torch.Tensor,
         torch.Tensor,
@@ -789,4 +790,6 @@ class AGENT1(nn.Module):
         # (B, L)
         values = action_outputs[Feats.STATE_VALUE]
 
-        return actions, log_probs, values, entropy, h
+        times = x[Feats.TIMES]
+
+        return times, actions, log_probs, values, entropy, h

@@ -1,74 +1,52 @@
+import time
+
 import torch
 from torch import nn
 
-from kipl_ml.rl.action import ActionsExec
+from kipl_ml.rl.action import send_exec
 from kipl_ml.rl.enums import Actions
-from kipl_ml.rl.observation import BaseTraceObservation, get_window_feature_dict
-from kipl_ml.rl.utils import _flush_left
+from kipl_ml.rl.observation import get_window_feature_dict
 from kipl_ml.trace.enums import Feats
 
 
-def _unpack_xobs_l(
-    xobs_l: list[dict[Feats, torch.Tensor]],
-) -> dict[Feats, torch.Tensor]:
-    Xobs: dict[Feats, torch.Tensor] = {}
-    for k in xobs_l[0].keys():
-        vals_ = torch.cat([v[k] for v in xobs_l], dim=1)
-        Xobs[k] = vals_
-
-    mask = Xobs[Feats.DIRS] != 0
-    max_len = mask.sum(dim=1).max().item()
-
-    for k, v in Xobs.items():
-        Xobs[k] = _flush_left(v, mask)[:, :max_len]
-
-    Xobs[Feats.PADDING] = Xobs[Feats.PADDING].bool()
-
-    return Xobs
-
-
-@torch.no_grad()
-def get_reward(
-    disc: nn.Module,
-    hdisc: tuple[torch.Tensor, ...],
+def get_rewards(
+    action_times: torch.Tensor,
+    X: dict[Feats, torch.Tensor],
     y: torch.Tensor,
-    actions: torch.Tensor,
-    Xobs: dict[Feats, torch.Tensor],
-    padding_scale: float = 1,
-    clf_scale: float = 10,
-) -> tuple[torch.Tensor, tuple[torch.Tensor, ...]]:
-    rewards = torch.zeros(len(y), device=y.device)
+    disc_logits: torch.Tensor,
+    reward_scales: dict[str, float] = {"clf_scale": 1.0, "padding_scale": 1.0},
+) -> torch.Tensor:
+    N = disc_logits.shape[1]
 
-    packet_counts = (Xobs[Feats.DIRS] != 0).sum(dim=1)
-    padding_counts = (Xobs[Feats.PADDING] != 0).sum(dim=1)
+    # (B, T)
+    rewards = torch.zeros_like(action_times)
 
-    # Padding cost
-    if padding_counts.any():
-        has_padding = padding_counts != 0
-        rewards[has_padding] -= padding_counts[has_padding].float() * padding_scale
+    # (B, N)
+    times = X[Feats.TIMES]
+    padding = X[Feats.PADDING]
 
-    # Classification reward
-    if packet_counts.any():
-        has_action = packet_counts != 0
-        logits, hdisc = disc.pack_and_forward(Xobs, hdisc, packet_counts.cpu())
+    # (B, N, C)
+    probs = nn.functional.softmax(disc_logits, dim=1)
+    # (B, N)
+    target_probs = probs.gather(2, y.unsqueeze(1).expand(-1, N).unsqueeze(-1)).squeeze(
+        -1
+    )
 
-        probs = nn.functional.softmax(logits, dim=1)
+    for i in range(action_times.shape[1] - 1):
+        # (B, 1)
+        t0 = action_times[:, i].unsqueeze(1)
+        t1 = action_times[:, i + 1].unsqueeze(1)
+        mask = ((times >= t0) & (times < t1)).float()
 
-        rewards[has_action] = (
-            clf_scale * probs.var(dim=1) * (packet_counts - padding_counts)[has_action]
-        )
+        # (B, )
+        npad = (padding * mask).sum(dim=1)
 
-        # (A, )
-        # cl_probs = probs.gather(1, y[has_action].unsqueeze(1)).squeeze(1)
+        mean_p = (target_probs * mask).mean(dim=1)
 
-        # # Small correct cl prob --> large reward, exclude padding packets
-        # rewards[has_action] += (
-        #     clf_scale
-        #     * (0.1 - cl_probs)
-        #     * (packet_counts[has_action] - padding_counts[has_action])
-        # )
+        rewards[:, i] -= npad * reward_scales["padding_scale"]
+        rewards[:, i] += (1 - mean_p) * reward_scales["clf_scale"]
 
-    return rewards, hdisc
+    return rewards
 
 
 def rollout(
@@ -77,7 +55,6 @@ def rollout(
     X: dict[Feats, torch.Tensor],
     y: torch.Tensor,
     dt: float = 0.01,
-    maxT: float = 10,
     detach_every_delta_t: float = 1,
     reward_scales: dict[str, float] = {"clf_scale": 1.0, "padding_scale": 1.0},
 ) -> tuple[
@@ -86,95 +63,44 @@ def rollout(
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
-    torch.Tensor,
-    list[dict[Actions, torch.Tensor]],
+    dict[Actions, torch.Tensor],
     dict[Feats, torch.Tensor],
 ]:
-    device = X[Feats.DIRS].device
     # Dummy run to get init hdisc...
     hdisc = None
     hobs = None
 
-    log_ps_l = []
-    values_l = []
-    rewards_l = []
-    entropy_l = []
-    actions_l = []
-    times_l = []
-    xobs_l = []
-    timings = []
-
-    i = 0
     detach_every = detach_every_delta_t // dt
-
-    hidden_penalty = torch.zeros(2, device=device)
-    ackt_exec = ActionsExec(dt)
-    bto = BaseTraceObservation(X)
 
     fd = get_window_feature_dict(
         X, dt, 1.0, [Feats.DOWN_COUNT, Feats.UP_COUNT, Feats.Dt]
     )
 
-    obs.act(fd)
+    t0 = time.time()
+    act_times, actions, log_ps, values, entropies, hobs = obs.act(fd)
 
-    return
+    t1 = time.time()
+    Xobs = send_exec(X, act_times, actions)
 
-    while True:
-        # Step BaseTraceObservation
-        bto.step(dt)
+    t2 = time.time()
+    with torch.no_grad():
+        logits, hdisc = disc(Xobs, hdisc)
 
-        # Step obsf.action(base_trace_obs, hobs)
-        actions_, log_ps_, values_, entropies_, hobs = obs.act(bto.feature_dict, hobs)
+    t3 = time.time()
 
-        hidden_penalty[0] = hidden_penalty[0] + hobs[0].pow(2).mean()
-        hidden_penalty[1] = hidden_penalty[1] + hobs[1].pow(2).mean()
+    rewards = get_rewards(act_times, Xobs, y, logits, reward_scales=reward_scales)
+    t4 = time.time()
 
-        # Step Various Action execs
-        curXobs = ackt_exec.step(actions_, bto.feature_dict)
-        xobs_l.append(curXobs)
-
-        # Get rewards (we only need the when we are interested in grads..)
-        if torch.is_grad_enabled():
-            rewards_, hdisc = get_reward(
-                disc, hdisc, y, actions_, curXobs, **reward_scales
-            )
-            rewards_l.append(rewards_.unsqueeze(1))
-
-        actions_l.append(actions_)
-        log_ps_l.append(log_ps_.unsqueeze(1))
-        values_l.append(values_.unsqueeze(1))
-        entropy_l.append(entropies_.unsqueeze(1))
-        times_l.append(bto.t)
-
-        if bto.t > maxT:
-            break
-
-        if (i != 0) and (i % detach_every == 0):
-            hobs = tuple(h_.detach() for h_ in hobs)
-
-        i += 1
-
-    # print(timings / timings.sum())
-
-    hidden_penalty /= i
-    log_ps: torch.Tensor = torch.cat(log_ps_l, dim=1)
-    values: torch.Tensor = torch.cat(values_l, dim=1)
-    entropies: torch.Tensor = torch.cat(entropy_l, dim=1)
-    times: torch.Tensor = torch.tensor(times_l)
-    if torch.is_grad_enabled():
-        rewards: torch.Tensor = torch.cat(rewards_l, dim=1)
-    else:
-        rewards = torch.zeros_like(values)
-
-    Xobs = _unpack_xobs_l(xobs_l)
+    # print(
+    #     f"Obs: {t1 - t0:.4f}, Act: {t2 - t1:.4f}, Disc: {t3 - t2:.4f}, Rew: {t4 - t3:.4f}"
+    # )
 
     return (
         log_ps,
         values,
         rewards,
         entropies,
-        hidden_penalty,
-        times,
-        actions_l,
+        act_times,
+        actions,
         Xobs,
     )
