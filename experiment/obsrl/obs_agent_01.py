@@ -303,10 +303,10 @@ def main(cfg: DictConfig):
             reward_scales = {"clf_scale": 1.0, "padding_scale": 0.01}
 
             train_obs = True
-            train_disc = True
-            # if i % 5 == 0:
-            #    train_disc = True
-            #    train_obs = False
+            train_disc = False
+            if i % 5 == 0:
+                train_disc = True
+                train_obs = False
 
             with tqdm(
                 dl_train,
