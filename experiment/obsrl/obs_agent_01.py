@@ -281,9 +281,8 @@ def main(cfg: DictConfig):
 
     e = 0
     dt = 0.05
-    T = 30
     i = 0
-    detach_period = 2.0
+    detach_period = 20
     gamma = cfg.discounting
     with mlflow.start_run(log_system_metrics=True):
         while True:
@@ -333,7 +332,7 @@ def main(cfg: DictConfig):
                             X=X,
                             y=y,
                             dt=dt,
-                            detach_every_delta_t=detach_period,
+                            detach_period=detach_period,
                             reward_scales=reward_scales,
                         )
 
@@ -415,7 +414,7 @@ def main(cfg: DictConfig):
                                 X=X,
                                 y=y,
                                 dt=dt,
-                                detach_every_delta_t=detach_period,
+                                detach_period=detach_period,
                                 reward_scales=None,
                             )[-1]
 

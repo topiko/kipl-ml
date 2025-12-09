@@ -56,7 +56,7 @@ def rollout(
     X: dict[Feats, torch.Tensor],
     y: torch.Tensor,
     dt: float = 0.01,
-    detach_every_delta_t: float = 1,
+    detach_period: int = 20,
     reward_scales: dict[str, float] | None = {"clf_scale": 1.0, "padding_scale": 1.0},
 ) -> tuple[
     torch.Tensor,
@@ -72,14 +72,40 @@ def rollout(
     hobs = None
 
     rewards = None
-    detach_every = detach_every_delta_t // dt
 
-    fd = get_window_feature_dict(
-        X, dt, 100.0, [Feats.DOWN_COUNT, Feats.UP_COUNT, Feats.Dt]
-    )
+    features = [Feats.DOWN_COUNT, Feats.UP_COUNT, Feats.Dt]
+    fd = get_window_feature_dict(X, dt, 100.0, features=features)
 
     t0 = time.time()
-    act_times, actions, log_ps, values, entropies, hobs = obs.act(fd)
+
+    T = fd[features[0]].shape[1]
+
+    act_times = []
+    actions = []
+    log_ps = []
+    values = []
+    entropies = []
+    for i in range(T // detach_period + 1):
+        fd_chunk = {
+            k: v[:, i * detach_period : (i + 1) * detach_period] for k, v in fd.items()
+        }
+        act_times_, actions_, log_ps_, values_, entropies_, hobs = obs.act(
+            fd_chunk, hobs
+        )
+
+        hobs = tuple(v.detach() for v in hobs)
+
+        act_times.append(act_times_)
+        actions.append(actions_)
+        log_ps.append(log_ps_)
+        values.append(values_)
+        entropies.append(entropies_)
+
+    act_times = torch.cat(act_times, dim=1)
+    actions = {k: torch.cat([a[k] for a in actions], dim=1) for k in actions_.keys()}
+    log_ps = torch.cat(log_ps, dim=1)
+    values = torch.cat(values, dim=1)
+    entropies = torch.cat(entropies, dim=1)
 
     t1 = time.time()
     Xobs = send_exec(X, act_times, actions)
