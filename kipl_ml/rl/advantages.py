@@ -32,9 +32,8 @@ def get_gae(
     running = torch.zeros(B, device=rewards.device)
 
     y = lambda_ * gamma
-    gae_ = 0
     for t in reversed(range(T)):
-        gae_ = deltas[:, t] + running * y
-        gae[:, t] = gae_
+        running = deltas[:, t] + running * y
+        gae[:, t] = running
 
     return gae

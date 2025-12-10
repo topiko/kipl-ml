@@ -173,7 +173,7 @@ def get_advantages(
         )
         G = advantages + values
     else:
-        raise NotImplementedError("Invalid advantage type: {cfg.advantages.type}")
+        raise NotImplementedError(f"Invalid advantage type: {cfg.advantages.type}")
 
     if cfg.advantages.standardize:
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
