@@ -45,7 +45,7 @@ def get_rewards(
         mean_p = (target_probs * (mask - padding).clip(0, 1)).mean(dim=1)
 
         rewards[:, i] -= npad * reward_scales["padding_scale"]
-        rewards[:, i] += (1 - mean_p) * reward_scales["clf_scale"]
+        rewards[:, i] += (0.1 - mean_p) * reward_scales["clf_scale"]
 
     return rewards
 
