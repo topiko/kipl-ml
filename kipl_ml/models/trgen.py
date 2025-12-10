@@ -3,8 +3,11 @@ from torch import nn
 from torch.distributions import Categorical, Normal, Poisson
 from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence
 
+from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.enums import Actions
 from kipl_ml.trace.features import Feats
+
+logger = get_logger(__name__)
 
 
 def _hidden_w_mask(
@@ -284,7 +287,7 @@ class AGENT1(nn.Module):
             if bs != v.shape[0]:
                 raise ValueError("Batch size mismatch after concat.")
             if v.shape[1] != T:
-                raise ValueError("Times dim mismatch after concat.")
+                logger.warning("Times len mismatch")
 
         return actions_concat, h
 
@@ -484,6 +487,6 @@ class AGENT1(nn.Module):
         # (B, L)
         values = action_outputs[Feats.STATE_VALUE]
 
-        times = x[Feats.TIMES]
+        times = x[Feats.TIMES][:, : values.shape[1]]
 
         return times, actions, log_probs, values, entropy, h

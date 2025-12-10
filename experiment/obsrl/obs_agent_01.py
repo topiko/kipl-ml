@@ -345,7 +345,6 @@ def main(cfg: DictConfig):
                         )
 
                         logger.warning("padding rewards issues")
-                        breakpoint()
                     # ==========================================
 
                     # Gradient clipping
