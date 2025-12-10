@@ -228,8 +228,9 @@ class AGENT1(nn.Module):
             seq_lens = torch.ones(x[self.features[0]].shape[0], dtype=torch.long) * T
 
         actions = []
-        for i in range(T // h_detach_period + 1):
-            if i * h_detach_period == T:
+        i = 0
+        while True:
+            if i * h_detach_period >= T:
                 break
 
             active_seqs = seq_lens > i * h_detach_period
@@ -277,6 +278,7 @@ class AGENT1(nn.Module):
                 actions_[k] = t_
 
             actions.append(actions_)
+            i += 1
 
         # Concatenate actions:
         actions_concat = {
