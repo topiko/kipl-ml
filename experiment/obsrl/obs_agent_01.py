@@ -262,7 +262,7 @@ def main(cfg: DictConfig):
     detach_period = 20
     with mlflow.start_run(log_system_metrics=True):
         while True:
-            reward_scales = {"clf_scale": 1.0, "padding_scale": 0.01}
+            reward_scales = {"clf_scale": 1.0, "padding_scale": 0.001}
             losses_metrics_d: dict[str, list[float]] = {
                 "loss": [],
                 "policy_loss": [],
