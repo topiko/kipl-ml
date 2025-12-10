@@ -21,313 +21,6 @@ def _hidden_w_mask(
     return h
 
 
-class _ConvBlock(nn.Module):
-    def __init__(
-        self, in_dim: int, out_dim: int, ks: int, stride: int = 1, padding: int = 0
-    ):
-        super().__init__()
-
-        self.block = nn.Sequential(
-            nn.ConvTranspose1d(
-                in_dim, out_dim, ks, stride=stride, padding=padding, bias=False
-            ),
-            nn.BatchNorm1d(out_dim),
-            nn.Tanh(),
-        )
-
-    def forward(self, x: torch.tensor) -> torch.tensor:
-        print(x.shape)
-        x = self.block(x)
-        print(x.shape)
-        print()
-        return x
-
-
-class TRGEN1(nn.Module):
-    name: str = "trgen1"
-
-    def __init__(
-        self,
-        trace_len: int,
-        features: list[Feats],
-        seed_dim: int = 100,
-        expand_fac: int = 128,
-    ):
-        if features != [Feats.DIRS]:
-            raise ValueError("TRGEN1 only supports 'dirs' feature.")
-
-        super().__init__()
-
-        self.features = features
-        self.trace_len = trace_len
-
-        self.generator = nn.Sequential(
-            # nn.Linear(seed_dim, 5000),
-            _ConvBlock(seed_dim, 8 * expand_fac, ks=6, stride=1, padding=0),
-            # size [B, 1024, 6]
-            _ConvBlock(8 * expand_fac, 7 * expand_fac, ks=6, stride=2, padding=0),
-            # size [B, 896, 16]
-            _ConvBlock(7 * expand_fac, 6 * expand_fac, ks=6, stride=2, padding=0),
-            # size [B, 768, 36]
-            _ConvBlock(6 * expand_fac, 5 * expand_fac, ks=6, stride=2, padding=0),
-            # size [B, 640, 76]
-            _ConvBlock(5 * expand_fac, 4 * expand_fac, ks=6, stride=2, padding=0),
-            # size [B, 512, 156]
-            _ConvBlock(4 * expand_fac, 3 * expand_fac, ks=6, stride=2, padding=0),
-            # size [B, 384, 316]
-            _ConvBlock(3 * expand_fac, 2 * expand_fac, ks=6, stride=2, padding=0),
-            # size [B, 256, 636]
-            _ConvBlock(2 * expand_fac, 1 * expand_fac, ks=6, stride=2, padding=0),
-            # size [B, 128, 1276]
-            _ConvBlock(expand_fac, 64, ks=6, stride=2, padding=0),
-            # size [B, 64, 2556]
-            _ConvBlock(64, 1, ks=6, stride=2, padding=0),
-            # size [B, 1, 5116]
-            nn.Flatten(1, -1),
-            # dim = 100
-            # _ConvBlock(expand_fac, 2 * expand_fac, ks=21),
-            # dim = 200 - 20 = 180
-            # _ConvBlock(2 * expand_fac, 1, ks=21),
-            # dim = 180 * 3 - 20 = 520
-            # _ConvBlock(3 * expand_fac, 4 * expand_fac, ks=21),
-            # dim = 1020
-            # _ConvBlock(4 * expand_fac, 1, ks=101),
-            nn.Tanh(),
-        )
-
-    def forward(self, seed: torch.Tensor) -> dict[Feats, torch.tensor]:
-        gen_trace = self.generator(seed).squeeze(1)
-
-        return {Feats.DIRS: gen_trace}
-
-
-class TRGEN2(nn.Module):
-    name: str = "trgen2"
-
-    def __init__(
-        self,
-        features: list[Feats],
-        in_channels: int = 2,
-        nfeat: int = 64,
-        hsize: int = 128,
-        nlayer: int = 2,
-    ):
-        super().__init__()
-
-        self.rnn = nn.LSTM(nfeat, hsize, nlayer, batch_first=True)
-
-        self.feat_lin = nn.Sequential(
-            nn.Linear(in_channels, nfeat),
-            nn.LayerNorm(nfeat),
-            nn.GELU(),
-        )
-
-        self.dir_lin = nn.Linear(hsize, 3)
-        self.len_lin = nn.Linear(hsize, 1)
-
-    def forward(
-        self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
-    ) -> tuple[tuple[torch.Tensor, torch.Tensor], torch.Tensor | None]:
-        dirs = x[Feats.BURST_DIRS]
-        lens = x[Feats.BURST_LENS]
-
-        # (N, L, 2)
-        X = torch.stack([dirs, lens], dim=-1)
-
-        # (N, L, nfeat)
-        X = self.feat_lin(X)
-
-        # (N, L, H)
-        output, h = self.rnn(X, h)
-
-        dirs = self.dir_lin(output).squeeze(-1)
-
-        lens = self.len_lin(output).squeeze(-1)
-        lens = torch.relu(lens) + 1
-
-        return (dirs, lens), h
-
-
-class TRGEN3(nn.Module):
-    name: str = "trgen3"
-
-    def __init__(
-        self,
-        features: list[Feats],
-        in_channels: int = 2,
-        nfeat: int = 64,
-        hsize: int = 128,
-        nlayer: int = 2,
-    ):
-        super().__init__()
-
-        self.rnn = nn.LSTM(nfeat + 1, hsize, nlayer, batch_first=True)
-
-        self.feat_lin = nn.Sequential(
-            nn.Linear(in_channels, nfeat),
-            nn.LayerNorm(nfeat),
-            nn.GELU(),
-        )
-
-        self.dir_lin = nn.Linear(hsize, 3)
-        self.len_lin = nn.Linear(hsize, 1)
-
-    def forward(
-        self,
-        x: dict[Feats, torch.Tensor],
-        y: torch.Tensor,
-        h: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        dirs = x[Feats.DIRS]
-        iats = x[Feats.IATS_MAX_NORMALIZED]
-
-        # (N, L, 2)
-        X = torch.stack([dirs, iats], dim=-1)
-
-        # (N, L, nfeat)
-        X = self.feat_lin(X)
-
-        y_ = y.reshape(-1, 1).repeat(1, X.shape[1]).unsqueeze(2)
-
-        # (N, L, nfeat + 1)
-        X = torch.cat([X, y_], dim=-1)
-
-        # (N, L, H)
-        output, h = self.rnn(X, h)
-
-        dirs = self.dir_lin(output).squeeze(-1)
-
-        return dirs, h
-
-
-class TRGEN4(nn.Module):
-    name: str = "trgen3"
-
-    def __init__(
-        self,
-        features: list[Feats],
-        nfeat: int = 64,
-        hsize: int = 128,
-        nlayer: int = 2,
-        dir_activation: str = "gumbel_softmax",
-    ):
-        super().__init__()
-
-        if set(features) != {Feats.DIR_PROBS, Feats.IATS_MAX_NORMALIZED}:
-            raise ValueError(
-                "TRGEN4 only supports 'dir_probs' and 'iats_max_normalized' features."
-            )
-
-        self.rnn = nn.LSTM(nfeat + 1, hsize, nlayer, batch_first=True)
-
-        self.feat_lin = nn.Sequential(
-            nn.Linear(4, nfeat),
-            nn.LayerNorm(nfeat),
-            nn.GELU(),
-        )
-
-        self.dir_lin = nn.Linear(hsize, 3)
-
-        self.dir_activation = dir_activation
-        self.len_lin = nn.Linear(hsize, 1)
-
-    def forward(
-        self,
-        x: dict[Feats, torch.Tensor],
-        y: torch.Tensor,
-        h: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        # (N, L, 3)
-        dir_probs = x[Feats.DIR_PROBS]
-
-        # (N, L, 1)
-        iats = x[Feats.IATS_MAX_NORMALIZED].unsqueeze(-1)
-
-        # (N, L, 4)
-        X = torch.cat([dir_probs, iats], dim=-1)
-
-        # (N, L, nfeat)
-        X = self.feat_lin(X)
-
-        y_ = y.reshape(-1, 1).repeat(1, X.shape[1]).unsqueeze(2)
-
-        # (N, L, nfeat + 1)
-        X = torch.cat([X, y_], dim=-1)
-
-        # (N, L, H)
-        output, h = self.rnn(X, h)
-
-        dirs = self.dir_lin(output).squeeze(-1)
-
-        if self.dir_activation == "gumbel_softmax":
-            dir_probs = nn.functional.gumbel_softmax(dirs, tau=1.0, hard=False, dim=-1)
-        else:
-            raise NotImplementedError(f"Unknown dir_activation: {self.dir_activation}")
-
-        dir_log_probs = torch.log(dir_probs)
-
-        return dir_log_probs, h
-
-
-class TRGEN5(nn.Module):
-    name: str = "trgen5"
-
-    def __init__(
-        self,
-        features: list[Feats],
-        nfeat: int = 64,
-        hsize: int = 128,
-        nlayer: int = 2,
-        dir_activation: str = "gumbel_softmax",
-    ):
-        super().__init__()
-
-        if set(features) != {Feats.DIR_PROBS}:
-            raise ValueError("TRGEN5 only supports 'dir_probs'")
-
-        self.rnn = nn.LSTM(nfeat + 1, hsize, nlayer, batch_first=True)
-
-        self.feat_lin = nn.Sequential(
-            nn.Linear(3, nfeat),
-            nn.LayerNorm(nfeat),
-            nn.GELU(),
-        )
-
-        self.dir_lin = nn.Linear(hsize, 3)
-
-        self.dir_activation = dir_activation
-        self.len_lin = nn.Linear(hsize, 1)
-
-    def forward(
-        self,
-        x: dict[Feats, torch.Tensor],
-        y: torch.Tensor,
-        h: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        # (N, L, 3)
-        dir_probs = x[Feats.DIR_PROBS]
-
-        # (N, L, nfeat)
-        X = self.feat_lin(dir_probs)
-
-        y_ = y.reshape(-1, 1).repeat(1, X.shape[1]).unsqueeze(2)
-
-        # (N, L, nfeat + 1)
-        X = torch.cat([X, y_], dim=-1)
-
-        # (N, L, H)
-        output, h = self.rnn(X, h)
-
-        dirs = self.dir_lin(output).squeeze(-1)
-
-        if self.dir_activation == "gumbel_softmax":
-            dir_probs = nn.functional.gumbel_softmax(dirs, tau=1.0, hard=False, dim=-1)
-        else:
-            raise NotImplementedError(f"Unknown dir_activation: {self.dir_activation}")
-
-        return dir_probs, h
-
-
 class RNNCLF1(nn.Module):
     name: str = "rnnclf1"
 
@@ -417,6 +110,7 @@ class RNNCLF1(nn.Module):
         self,
         x: dict[Feats, torch.Tensor | PackedSequence],
         h: torch.Tensor | None = None,
+        h_detach_period: int | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # (B, L) x nfeat
         fs = []
@@ -481,77 +175,6 @@ class RNNCLF1(nn.Module):
         return logits, preds
 
 
-class ANTINCLF1(nn.Module):
-    name: str = "anticlf1"
-
-    def __init__(
-        self,
-        features: list[Feats],
-        hsize: int = 256,
-        nlayers: int = 3,
-        dropout: float = 0.2,
-        zero_init: bool = False,
-    ):
-        super().__init__()
-
-        if not set(features).issubset(
-            {Feats.BURST_LENS, Feats.BURST_DURS, Feats.BURST_RELDURS}
-        ):
-            raise ValueError("Invalid set of feats.")
-
-        self.features = features
-        self.num_layers = nlayers
-        self.hidden_size = hsize
-        self.zero_init = zero_init
-        nfeat = len(features)
-        self.rnn = nn.LSTM(nfeat, hsize, nlayers, batch_first=True, dropout=dropout)
-
-        self.final_lin = nn.Sequential(
-            nn.Dropout(dropout), nn.Linear(hsize, len(features))
-        )
-
-    def _get_init_h(self, x: dict[Feats, torch.Tensor]) -> torch.Tensor | None:
-        if not self.zero_init:
-            return None
-
-        bs = x[self.features[0]].shape[0]
-        device = x[self.features[0]].device
-        return (
-            torch.zeros(self.num_layers, bs, self.hidden_size, device=device),
-            torch.zeros(self.num_layers, bs, self.hidden_size, device=device),
-        )
-
-    def forward(
-        self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
-    ) -> torch.Tensor:
-        if h is None:
-            h = self._get_init_h(x)
-
-        # (N, L) x nfeat
-        fs = []
-        for f in self.features:
-            fs.append(x[f].unsqueeze(-1))
-
-        # (N, L, nfeat)
-        inputs = torch.cat(fs, dim=-1)
-
-        # (N, L, H)
-        output, h = self.rnn(inputs, h)
-
-        # (N, L, n_classes)
-        addons = self.final_lin(output)
-
-        # vals \in ]0, inf[
-        scales = torch.nn.functional.elu(addons) + 1
-
-        # The model tells how to modify the _next_ burst, not the current one.
-        xobs = {k: v.clone() for k, v in x.items()}
-        for i, f in enumerate(self.features):
-            xobs[f][:, 1:] = x[f][:, :-1] * scales[:, :-1, i] + x[f][:, 1:]
-
-        return xobs
-
-
 class AGENT1(nn.Module):
     name: str = "agent"
 
@@ -589,24 +212,49 @@ class AGENT1(nn.Module):
 
         self.critic = nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, 1))
 
-    def _get_init_h(
-        self, x: dict[Feats, torch.Tensor]
-    ) -> tuple[torch.Tensor, torch.Tensor] | None:
-        if not self.zero_init:
-            return None
+    def _forward_w_detach(
+        self,
+        x: dict[Feats, torch.Tensor],
+        h: torch.Tensor | None,
+        h_detach_period: int,
+    ) -> tuple[dict[Feats | Actions, torch.Tensor], torch.Tensor]:
+        T = x[self.features[0]].shape[1]
 
-        bs = x[Feats.UP_COUNT].shape[0]
-        device = x[Feats.UP_COUNT].device
-        return (
-            torch.zeros(self.num_layers, bs, self.hidden_size, device=device),
-            torch.zeros(self.num_layers, bs, self.hidden_size, device=device),
-        )
+        actions = []
+        for i in range(T // h_detach_period + 1):
+            if i * h_detach_period == T:
+                break
+
+            # (N, h_detach_period)
+            x_chunk = {
+                k: v[:, i * h_detach_period : (i + 1) * h_detach_period]
+                for k, v in x.items()
+            }
+
+            actions_, h = self.forward(x_chunk, h)
+
+            if isinstance(h, tuple):
+                h = tuple(v.detach() for v in h)
+            else:
+                h = h.detach()
+
+            actions.append(actions_)
+
+        # Concatenate actions:
+        actions_concat = {
+            k: torch.cat([a[k] for a in actions], dim=1) for k in actions[0].keys()
+        }
+
+        return actions_concat, h
 
     def forward(
-        self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
+        self,
+        x: dict[Feats, torch.Tensor],
+        h: torch.Tensor | None = None,
+        h_detach_period: int | None = None,
     ) -> tuple[dict[Feats | Actions, torch.Tensor], torch.Tensor]:
-        if h is None:
-            h = self._get_init_h(x)
+        if h_detach_period is not None:
+            return self._forward_w_detach(x, h, h_detach_period)
 
         # Typically we have time in dim=1, here we always(?)
         # (N, L) x nfeat
@@ -652,7 +300,10 @@ class AGENT1(nn.Module):
         }, h
 
     def act(
-        self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
+        self,
+        x: dict[Feats, torch.Tensor],
+        h: torch.Tensor | None = None,
+        h_detach_period: int | None = None,
     ) -> tuple[
         torch.Tensor,
         dict[Actions, torch.Tensor],
@@ -661,7 +312,7 @@ class AGENT1(nn.Module):
         torch.Tensor,
         torch.Tensor,
     ]:
-        action_outputs, h = self(x, h)
+        action_outputs, h = self(x, h, h_detach_period)
 
         # Select action:
         sel_dist = Categorical(logits=action_outputs[Actions.SELECTOR])

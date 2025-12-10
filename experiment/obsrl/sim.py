@@ -78,37 +78,9 @@ def rollout(
 
     t0 = time.time()
 
-    T = fd[features[0]].shape[1]
-
-    act_times = []
-    actions = []
-    log_ps = []
-    values = []
-    entropies = []
-    for i in range(T // detach_period + 1):
-        if i * detach_period == T:
-            break
-
-        fd_chunk = {
-            k: v[:, i * detach_period : (i + 1) * detach_period] for k, v in fd.items()
-        }
-        act_times_, actions_, log_ps_, values_, entropies_, hobs = obs.act(
-            fd_chunk, hobs
-        )
-
-        hobs = tuple(v.detach() for v in hobs)
-
-        act_times.append(act_times_)
-        actions.append(actions_)
-        log_ps.append(log_ps_)
-        values.append(values_)
-        entropies.append(entropies_)
-
-    act_times = torch.cat(act_times, dim=1)
-    actions = {k: torch.cat([a[k] for a in actions], dim=1) for k in actions_.keys()}
-    log_ps = torch.cat(log_ps, dim=1)
-    values = torch.cat(values, dim=1)
-    entropies = torch.cat(entropies, dim=1)
+    act_times, actions, log_ps, values, entropies, hobs = obs.act(
+        fd, hobs, h_detach_period=detach_period
+    )
 
     t1 = time.time()
     Xobs = send_exec(X, act_times, actions)
