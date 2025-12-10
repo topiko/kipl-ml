@@ -21,6 +21,17 @@ def _sort_feature_dict(
     padding = _flush_left(feature_dict[Feats.PADDING].gather(1, indices), dirs != 0)
     dirs = _flush_left(dirs, dirs != 0)
 
+    # The times are zero padded in the end. Fix this here.
+    # ====================================
+    rows, cols = torch.where(sorted_times.diff(dim=1) < 0)
+
+    if rows.unique().numel() != len(rows):
+        raise ValueError("Invalid times detected")
+
+    for idx_r, idx_c in zip(rows, cols):
+        sorted_times[idx_r, idx_c:] = sorted_times[idx_r, idx_c]
+    # ====================================
+
     feature_dict[Feats.TIMES] = sorted_times
     feature_dict[Feats.DIRS] = dirs
     feature_dict[Feats.PADDING] = padding

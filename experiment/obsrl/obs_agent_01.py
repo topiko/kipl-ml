@@ -154,8 +154,13 @@ def _plot_single(
 
 
 def get_advantages(
-    rewards: torch.Tensor, values: torch.Tensor, cfg: DictConfig
+    rewards: torch.Tensor | dict[str, torch.Tensor],
+    values: torch.Tensor,
+    cfg: DictConfig,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    if isinstance(rewards, dict):
+        rewards = sum(rewards.values())
+
     if cfg.advantages.type == "mc":
         G = get_returns(rewards, gamma=cfg.discounting)
         advantages = G - values
@@ -164,7 +169,7 @@ def get_advantages(
             rewards,
             values,
             lambda_=cfg.advantages.lambda_,
-            gamma=cfg.discounting.gamma,
+            gamma=cfg.discounting,
         )
         G = advantages + values
     else:
@@ -257,7 +262,8 @@ def main(cfg: DictConfig):
     detach_period = 20
     with mlflow.start_run(log_system_metrics=True):
         while True:
-            losses: dict[str, list[float]] = {
+            reward_scales = {"clf_scale": 1.0, "padding_scale": 0.01}
+            losses_metrics_d: dict[str, list[float]] = {
                 "loss": [],
                 "policy_loss": [],
                 "value_loss": [],
@@ -270,7 +276,9 @@ def main(cfg: DictConfig):
                 "mean_padding_count": [],
                 "mean_trace_len": [],
             }
-            reward_scales = {"clf_scale": 1.0, "padding_scale": 0.05}
+            losses_metrics_d.update(
+                {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
+            )
 
             train_disc = e % cfg.disc_train_period == 0
 
@@ -284,15 +292,7 @@ def main(cfg: DictConfig):
                     y = y.to(device)
 
                     optim.zero_grad()
-                    (
-                        log_ps,
-                        values,
-                        rewards,
-                        entropies,
-                        _,
-                        _,
-                        Xobs,
-                    ) = rollout(
+                    log_ps, values, rewards, entropies, _, _, Xobs = rollout(
                         obs=obs,
                         disc=discriminator,
                         X=X,
@@ -313,35 +313,9 @@ def main(cfg: DictConfig):
 
                     loss.backward()
 
-                    skip = False
-                    for name, p in obs.named_parameters():
-                        if p.grad is not None:
-                            try:
-                                assert_finite(f"{name}: grad", p.grad)
-                            except ValueError as er:
-                                logger.warning(er)
-                                print(value_loss, policy_loss, entropy_loss)
-                                skip = True
-                                break
-
-                    if skip:
-                        continue
-
-                    # Gradient clipping
-                    nn.utils.clip_grad_norm_(
-                        obs.parameters(),
-                        cfg.grad_norm_clip,
-                        error_if_nonfinite=False,
-                    )
-
-                    optim.step()
-
-                    losses["loss"].append(loss.item())
-                    losses["policy_loss"].append(policy_loss.item())
-                    losses["value_loss"].append(value_loss.item())
-                    losses["avg_return"].append(G.mean().item())
-                    losses["entropy_loss"].append(entropy_loss.item())
-                    for k, v in losses.items():
+                    # Sanity checks:
+                    # ==========================================
+                    for k, v in losses_metrics_d.items():
                         if len(v) == 0:
                             continue
 
@@ -351,6 +325,30 @@ def main(cfg: DictConfig):
                             print(er)
                             breakpoint()
 
+                    for name, p in obs.named_parameters():
+                        if p.grad is not None:
+                            try:
+                                assert_finite(f"{name}: grad", p.grad)
+                            except ValueError:
+                                print(value_loss, policy_loss, entropy_loss)
+                                breakpoint()
+
+                    if not (
+                        rewards["padding"].sum(dim=1)
+                        == -Xobs[Feats.PADDING].sum(dim=1)
+                        * reward_scales["padding_scale"]
+                    ).all():
+                        logger.warning("padding rewards issues")
+                    # ==========================================
+
+                    # Gradient clipping
+                    nn.utils.clip_grad_norm_(
+                        obs.parameters(), cfg.grad_norm_clip, error_if_nonfinite=True
+                    )
+
+                    if not train_disc:
+                        optim.step()
+
                     disc_loss, acc = one_batch_train_disc(
                         disc=discriminator,
                         X=Xobs,
@@ -358,24 +356,35 @@ def main(cfg: DictConfig):
                         disc_opm=disc_optim,
                         train=train_disc,
                     )
-                    losses["disc_acc"].append(acc)
-                    losses["disc_loss"].append(disc_loss)
-                    losses["mean_padding_count"].append(
+
+                    losses_metrics_d["loss"].append(loss.item())
+                    losses_metrics_d["policy_loss"].append(policy_loss.item())
+                    losses_metrics_d["value_loss"].append(value_loss.item())
+                    losses_metrics_d["avg_return"].append(G.mean().item())
+                    losses_metrics_d["entropy_loss"].append(entropy_loss.item())
+                    losses_metrics_d["disc_acc"].append(acc)
+                    losses_metrics_d["disc_loss"].append(disc_loss)
+                    losses_metrics_d["mean_padding_count"].append(
                         Xobs[Feats.PADDING].sum(dim=1).float().mean().item()
                     )
-                    losses["mean_trace_len"].append(
+                    losses_metrics_d["mean_trace_len"].append(
                         (Xobs[Feats.DIRS] != 0).sum(dim=1).float().mean().item()
                     )
+                    if rewards is not None:
+                        for k, v in rewards.items():
+                            losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
 
                     pbar.set_postfix(
                         {
-                            "avg_return": np.mean(losses["avg_return"][-10:]),
-                            "dacc": np.mean(losses["disc_acc"][-10:]),
+                            "avg_return": np.mean(losses_metrics_d["avg_return"][-10:]),
+                            "dacc": np.mean(losses_metrics_d["disc_acc"][-10:]),
                         }
                     )
 
-            mlflow.log_metrics({k: np.mean(l_) for k, l_ in losses.items()}, step=e)
-            losses = {k: [] for k in losses}
+            mlflow.log_metrics(
+                {k: np.mean(l_) for k, l_ in losses_metrics_d.items()}, step=e
+            )
+            losses_metrics_d = {k: [] for k in losses_metrics_d}
             # mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
 
             _plot_set(

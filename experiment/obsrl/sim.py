@@ -15,15 +15,17 @@ def get_rewards(
     y: torch.Tensor,
     disc_logits: torch.Tensor,
     reward_scales: dict[str, float] = {"clf_scale": 1.0, "padding_scale": 1.0},
-) -> torch.Tensor:
+) -> dict[str, torch.Tensor]:
     N = disc_logits.shape[1]
 
     # (B, T)
-    rewards = torch.zeros_like(action_times)
+    rewards: dict[str, torch.Tensor] = {
+        k.replace("_scale", ""): torch.zeros_like(action_times) for k in reward_scales
+    }
 
     # (B, N)
     times = X[Feats.TIMES]
-    padding = X[Feats.PADDING]
+    padding = X[Feats.PADDING].bool()
 
     # (B, N, C)
     probs = nn.functional.softmax(disc_logits, dim=-1)
@@ -37,15 +39,16 @@ def get_rewards(
         # (B, 1)
         t0 = action_times[:, i].unsqueeze(1)
         t1 = action_times[:, i + 1].unsqueeze(1)
-        mask = ((times >= t0) & (times < t1)).float()
+
+        # From the last action we take rewards all the way to end of times.
+        mask = (times >= t0) & (times < t1)
 
         # (B, )
-        npad = (padding * mask).sum(dim=1)
+        npad = (padding & mask).sum(dim=1).float()
+        rewards["padding"][:, i] -= npad * reward_scales["padding_scale"]
 
-        mean_p = (target_probs * (mask - padding).clip(0, 1)).mean(dim=1)
-
-        rewards[:, i] -= npad * reward_scales["padding_scale"]
-        rewards[:, i] += (0.1 - mean_p) * reward_scales["clf_scale"]
+        mean_p = (target_probs * (mask & ~padding).float()).mean(dim=1)
+        rewards["clf"][:, i] += (0.1 - mean_p) * reward_scales["clf_scale"]
 
     return rewards
 
@@ -57,17 +60,16 @@ def rollout(
     y: torch.Tensor,
     dt: float = 0.01,
     detach_period: int = 20,
-    reward_scales: dict[str, float] | None = {"clf_scale": 1.0, "padding_scale": 1.0},
+    reward_scales: dict[str, float] | None = None,
 ) -> tuple[
     torch.Tensor,
     torch.Tensor,
-    torch.Tensor | None,
+    dict[str, torch.Tensor] | None,
     torch.Tensor,
     torch.Tensor,
     dict[Actions, torch.Tensor],
     dict[Feats, torch.Tensor],
 ]:
-    # Dummy run to get init hdisc...
     hdisc = None
     hobs = None
 

@@ -211,7 +211,7 @@ def plot_actions(
 
 def plot_rewards(
     times: torch.Tensor,
-    rewards: torch.Tensor,
+    rewards: dict[str, torch.Tensor],
     idx: int | None = None,
     ax: plt.Axes | None = None,
 ) -> plt.Axes:
@@ -219,9 +219,11 @@ def plot_rewards(
         _, ax = plt.subplots(figsize=(12, 3))
 
     times = _squeeze_batched(times, idx)
-    rewards = _squeeze_batched(rewards, idx)
+    rewards["sum"] = sum(rewards.values())
 
-    ax.step(times, rewards, c="black", where="post", lw=1, label="Rewards")
+    for k, r in rewards.items():
+        r_ = _squeeze_batched(r, idx)
+        ax.plot(times, r_, lw=1, label=f"rewards, {k}")
 
     return ax
 
