@@ -64,6 +64,16 @@ def get_window_feature_dict(
     # dict[Feats, Tensor (B, max_l)]
     feature_dict = {k: _flush_left(v, mask)[:, :max_l] for k, v in feature_dict.items()}
 
+    # There are cases where the UP_COUNT and DOWN_COUNT are intertwined
+    # That is, max_l in previous step is larger than needed.
+    # (B, max_l)
+    mask = (feature_dict[Feats.UP_COUNT] != 0) | (feature_dict[Feats.DOWN_COUNT] != 0)
+
+    mask = mask.all(dim=0)
+    feature_dict = {k: v[:, mask] for k, v in feature_dict.items()}
+    if not mask.all():
+        logger.warning("Some time windows are empty after flushing!")
+
     # Fix the zero padding at the end of time seqs.
     feature_dict[Feats.TIMES] = _fill_w_last(feature_dict[Feats.TIMES], pad_val=0)
 
