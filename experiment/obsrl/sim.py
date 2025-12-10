@@ -100,30 +100,15 @@ def rollout(
     bs, L = fd[Feats.Dt].shape
 
     # Due to different seq. lens, run each seq. separately.
-    act_times = torch.zeros((bs, L), device=fd[Feats.Dt].device)
-    log_ps = torch.zeros_like(act_times)
-    values = torch.zeros_like(act_times)
-    entropies = torch.zeros_like(act_times)
-    actions: dict[Actions, torch.Tensor] = {}
     seq_lens = torch.zeros((bs,), dtype=torch.long)
     for i in range(bs):
         padc = (fd[Feats.Dt][i] == 0).sum()
         L_ = L - padc
-        fd_ = {k: v[i : i + 1, :L_] for k, v in fd.items()}
-
-        act_times_, actions_, log_ps_, values_, entropies_, _ = obs.act(
-            fd_, hobs, h_detach_period=detach_period
-        )
-
-        act_times[i, :L_] = act_times_
-        for k, v in actions_.items():
-            if k not in actions:
-                actions[k] = torch.zeros_like(act_times)
-            actions[k][i, :L_] = v
-        log_ps[i, :L_] = log_ps_
-        values[i, :L_] = values_
-        entropies[i, :L_] = entropies_
         seq_lens[i] = L_
+
+    act_times, actions, log_ps, values, entropies, _ = obs.act(
+        fd, hobs, h_detach_period=detach_period, seq_lens=seq_lens
+    )
 
     t1 = time.time()
     Xobs = send_exec(X, act_times, actions)

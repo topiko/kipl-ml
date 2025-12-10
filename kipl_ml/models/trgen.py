@@ -217,26 +217,61 @@ class AGENT1(nn.Module):
         x: dict[Feats, torch.Tensor],
         h: torch.Tensor | None,
         h_detach_period: int,
+        seq_lens: torch.Tensor | None = None,
     ) -> tuple[dict[Feats | Actions, torch.Tensor], torch.Tensor]:
-        T = x[self.features[0]].shape[1]
+        bs, T = x[self.features[0]].shape
+
+        if seq_lens is None:
+            seq_lens = torch.ones(x[self.features[0]].shape[0], dtype=torch.long) * T
 
         actions = []
         for i in range(T // h_detach_period + 1):
             if i * h_detach_period == T:
                 break
 
+            active_seqs = seq_lens > i * h_detach_period
+
+            if active_seqs.sum() == 0:
+                break
+
             # (N, h_detach_period)
             x_chunk = {
-                k: v[:, i * h_detach_period : (i + 1) * h_detach_period]
+                k: v[active_seqs, i * h_detach_period : (i + 1) * h_detach_period]
                 for k, v in x.items()
             }
 
-            actions_, h = self.forward(x_chunk, h)
+            if h is not None:
+                h_active = _hidden_w_mask(h, active_seqs)
+            else:
+                h_active = None
+                if active_seqs.sum() != bs:
+                    raise ValueError(
+                        "Initial hidden state must be provided when some sequences are inactive."
+                    )
+
+            actions_, h_active = self.forward(x_chunk, h_active)
+
+            # Update h, i.e., place the updated h_active back to h:
+            if h is None:
+                h = h_active
+            else:
+                h = _hidden_w_mask(h, active_seqs, h_active)
 
             if isinstance(h, tuple):
                 h = tuple(v.detach() for v in h)
             else:
                 h = h.detach()
+
+            # Place actions back to full size:
+            for k, v in actions_.items():
+                if v.ndim == 2:
+                    t_ = torch.zeros((bs, v.shape[1]), device=v.device)
+                elif v.ndim == 3:
+                    t_ = torch.zeros((bs, v.shape[1], v.shape[2]), device=v.device)
+                else:
+                    raise ValueError("Invalid action tensor shape.")
+                t_[active_seqs, ...] = v
+                actions_[k] = t_
 
             actions.append(actions_)
 
@@ -252,9 +287,10 @@ class AGENT1(nn.Module):
         x: dict[Feats, torch.Tensor],
         h: torch.Tensor | None = None,
         h_detach_period: int | None = None,
+        seq_lens: torch.Tensor | None = None,
     ) -> tuple[dict[Feats | Actions, torch.Tensor], torch.Tensor]:
         if h_detach_period is not None:
-            return self._forward_w_detach(x, h, h_detach_period)
+            return self._forward_w_detach(x, h, h_detach_period, seq_lens)
 
         # Typically we have time in dim=1, here we always(?)
         # (N, L) x nfeat
@@ -304,6 +340,7 @@ class AGENT1(nn.Module):
         x: dict[Feats, torch.Tensor],
         h: torch.Tensor | None = None,
         h_detach_period: int | None = None,
+        seq_lens: torch.Tensor | None = None,
     ) -> tuple[
         torch.Tensor,
         dict[Actions, torch.Tensor],
@@ -312,7 +349,7 @@ class AGENT1(nn.Module):
         torch.Tensor,
         torch.Tensor,
     ]:
-        action_outputs, h = self(x, h, h_detach_period)
+        action_outputs, h = self(x, h, h_detach_period, seq_lens)
 
         # Select action:
         sel_dist = Categorical(logits=action_outputs[Actions.SELECTOR])
