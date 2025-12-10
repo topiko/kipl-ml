@@ -19,6 +19,8 @@ def get_rewards(
 ) -> dict[str, torch.Tensor]:
     N = disc_logits.shape[1]
 
+    bs, T = action_times.shape
+
     # (B, T)
     rewards: dict[str, torch.Tensor] = {
         k.replace("_scale", ""): torch.zeros_like(action_times) for k in reward_scales
@@ -36,15 +38,24 @@ def get_rewards(
         -1
     )
 
-    for i in range(action_times.shape[1] - 1):
+    for i in range(T):
         # (B, 1)
         t0 = action_times[:, i].unsqueeze(1)
-        t1 = action_times[:, i + 1].unsqueeze(1)
 
-        len_mask = (seq_lens - 1) <= i
+        # t1 is now at last step or beyond
+        len_mask = (seq_lens - 1) <= i + 1
+
+        if i < T - 1:
+            t1 = action_times[:, i + 1].unsqueeze(1)
+        else:
+            t1 = torch.ones_like(t0) * torch.inf
+
         if len_mask.any():
-            t1[seq_lens - 1 <= i] = torch.inf
-            t0[seq_lens - 1 < i] = torch.inf
+            t1[len_mask, :] = torch.inf
+
+            # t0 is now at last step or beyond
+            t0_beyond_last = (seq_lens - 1) <= i
+            t0[t0_beyond_last, :] = torch.inf
 
         # From the last action we take rewards all the way to end of times.
         mask = (times >= t0) & (times < t1)
@@ -99,10 +110,10 @@ def rollout(
 
     bs, L = fd[Feats.Dt].shape
 
-    # Due to different seq. lens, run each seq. separately.
+    # We need the seq. lens in forward.
     seq_lens = torch.zeros((bs,), dtype=torch.long)
     for i in range(bs):
-        padc = (fd[Feats.Dt][i] == 0).sum()
+        padc = (fd[Feats.Dt][i] == 0).sum() - 1
         L_ = L - padc
         seq_lens[i] = L_
 

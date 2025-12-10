@@ -289,7 +289,7 @@ class AGENT1(nn.Module):
             if bs != v.shape[0]:
                 raise ValueError("Batch size mismatch after concat.")
             if v.shape[1] != T:
-                logger.warning(f"Times len mismatch, {v.shape[1]} vs. {T}")
+                raise ValueError(f"Times len mismatch, {v.shape[1]} vs. {T}")
 
         return actions_concat, h
 
