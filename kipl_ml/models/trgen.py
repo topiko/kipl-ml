@@ -280,6 +280,12 @@ class AGENT1(nn.Module):
             k: torch.cat([a[k] for a in actions], dim=1) for k in actions[0].keys()
         }
 
+        for k, v in actions_concat.items():
+            if bs != v.shape[0]:
+                raise ValueError("Batch size mismatch after concat.")
+            if v.shape[1] != T:
+                raise ValueError("Times dim mismatch after concat.")
+
         return actions_concat, h
 
     def forward(
