@@ -14,6 +14,7 @@ def get_rewards(
     X: dict[Feats, torch.Tensor],
     y: torch.Tensor,
     disc_logits: torch.Tensor,
+    seq_lens: torch.Tensor,
     reward_scales: dict[str, float] = {"clf_scale": 1.0, "padding_scale": 1.0},
 ) -> dict[str, torch.Tensor]:
     N = disc_logits.shape[1]
@@ -40,11 +41,17 @@ def get_rewards(
         t0 = action_times[:, i].unsqueeze(1)
         t1 = action_times[:, i + 1].unsqueeze(1)
 
+        len_mask = (seq_lens - 1) <= i
+        if len_mask.any():
+            t1[seq_lens - 1 <= i] = torch.inf
+            t0[seq_lens - 1 < i] = torch.inf
+
         # From the last action we take rewards all the way to end of times.
         mask = (times >= t0) & (times < t1)
 
         # (B, )
         npad = (padding & mask).sum(dim=1).float()
+
         rewards["padding"][:, i] -= npad * reward_scales["padding_scale"]
 
         mean_p = (target_probs * (mask & ~padding).float()).mean(dim=1)
@@ -80,9 +87,33 @@ def rollout(
 
     t0 = time.time()
 
-    act_times, actions, log_ps, values, entropies, hobs = obs.act(
-        fd, hobs, h_detach_period=detach_period
-    )
+    bs, L = fd[Feats.Dt].shape
+
+    # Due to different seq. lens, run each seq. separately.
+    act_times = torch.zeros((bs, L), device=fd[Feats.Dt].device)
+    log_ps = torch.zeros_like(act_times)
+    values = torch.zeros_like(act_times)
+    entropies = torch.zeros_like(act_times)
+    actions: dict[Actions, torch.Tensor] = {}
+    seq_lens = torch.zeros((bs,), dtype=torch.long)
+    for i in range(bs):
+        padc = (fd[Feats.Dt][i] == 0).sum()
+        L_ = L - padc
+        fd_ = {k: v[i : i + 1, :L_] for k, v in fd.items()}
+
+        act_times_, actions_, log_ps_, values_, entropies_, _ = obs.act(
+            fd_, hobs, h_detach_period=detach_period
+        )
+
+        act_times[i, :L_] = act_times_
+        for k, v in actions_.items():
+            if k not in actions:
+                actions[k] = torch.zeros_like(act_times)
+            actions[k][i, :L_] = v
+        log_ps[i, :L_] = log_ps_
+        values[i, :L_] = values_
+        entropies[i, :L_] = entropies_
+        seq_lens[i] = L_
 
     t1 = time.time()
     Xobs = send_exec(X, act_times, actions)
@@ -94,12 +125,14 @@ def rollout(
 
         t3 = time.time()
 
-        rewards = get_rewards(act_times, Xobs, y, logits, reward_scales=reward_scales)
+        rewards = get_rewards(
+            act_times, Xobs, y, logits, seq_lens, reward_scales=reward_scales
+        )
     t4 = time.time()
 
-    # print(
-    #     f"Obs: {t1 - t0:.4f}, Act: {t2 - t1:.4f}, Disc: {t3 - t2:.4f}, Rew: {t4 - t3:.4f}"
-    # )
+    print(
+        f"Obs: {t1 - t0:.4f}, Act: {t2 - t1:.4f}, Disc: {t3 - t2:.4f}, Rew: {t4 - t3:.4f}"
+    )
 
     return (
         log_ps,
