@@ -338,12 +338,6 @@ def main(cfg: DictConfig):
                         -Xobs[Feats.PADDING].sum(dim=1)
                         * reward_scales["padding_scale"],
                     ).all():
-                        print(rewards["padding"].sum(dim=1))
-                        print(
-                            -Xobs[Feats.PADDING].sum(dim=1)
-                            * reward_scales["padding_scale"]
-                        )
-
                         logger.warning("padding rewards issues")
                     # ==========================================
 
