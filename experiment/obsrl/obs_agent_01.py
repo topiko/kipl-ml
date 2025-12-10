@@ -202,19 +202,23 @@ def one_batch_train_disc(
     disc_opm: torch.optim.Optimizer,
     train: bool = True,
 ) -> tuple[float, float]:
-    disc.train()
-    disc_opm.zero_grad()
-    logits, _ = disc(X)
-    loss = nn.functional.cross_entropy(
-        logits.permute(0, 2, 1), y.unsqueeze(-1).repeat(1, logits.shape[1])
-    )
-    loss.backward()
-
     if train:
+        disc.train()
+        disc_opm.zero_grad()
+        logits, _ = disc(X)
+        loss = nn.functional.cross_entropy(
+            logits.permute(0, 2, 1), y.unsqueeze(-1).repeat(1, logits.shape[1])
+        )
+        loss.backward()
         disc_opm.step()
+    else:
+        disc.eval()
+        logits, _ = disc(X)
+        loss = nn.functional.cross_entropy(
+            logits.permute(0, 2, 1), y.unsqueeze(-1).repeat(1, logits.shape[1])
+        )
 
     loss_val = loss.item()
-
     disc.eval()
 
     accuracy = (disc.predict(X)[1] == y).float().mean().item()
