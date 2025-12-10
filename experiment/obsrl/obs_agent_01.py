@@ -273,8 +273,6 @@ def main(cfg: DictConfig):
                 "value_loss": [],
                 "avg_return": [],
                 "entropy_loss": [],
-                "h_penalty": [],
-                "c_penalty": [],
                 "disc_loss": [],
                 "disc_acc": [],
                 "mean_padding_count": [],

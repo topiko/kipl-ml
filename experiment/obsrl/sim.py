@@ -46,7 +46,7 @@ def get_rewards(
         # and when i = 9, i + 1 = 10 -> t1 = inf
         len_mask = (seq_lens - 1) < i + 1
 
-        if i <= T - 1:
+        if i < T - 1:
             t1 = action_times[:, i + 1].unsqueeze(1)
         else:
             t1 = torch.ones_like(t0) * torch.inf
