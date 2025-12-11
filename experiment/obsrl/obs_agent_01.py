@@ -264,7 +264,10 @@ def main(cfg: DictConfig):
     e = 0
     dt = 0.05
     detach_period = 20
+    d_tr_count = 0
+    d_thres = 0.9
     with mlflow.start_run(log_system_metrics=True):
+        train_disc = True
         while True:
             reward_scales = {"clf_scale": 1.0, "padding_scale": 0.001}
             losses_metrics_d: dict[str, list[float]] = {
@@ -281,8 +284,6 @@ def main(cfg: DictConfig):
             losses_metrics_d.update(
                 {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
             )
-
-            train_disc = e % cfg.disc_train_period == 0
 
             with tqdm(
                 dl_train,
@@ -378,16 +379,36 @@ def main(cfg: DictConfig):
 
                     pbar.set_postfix(
                         {
-                            "avg_return": np.mean(losses_metrics_d["avg_return"][-10:]),
-                            "dacc": np.mean(losses_metrics_d["disc_acc"][-10:]),
+                            "avg_return": np.mean(losses_metrics_d["avg_return"][-30:]),
+                            "dacc": np.mean(losses_metrics_d["disc_acc"][-30:]),
                         }
                     )
 
             mlflow.log_metrics(
                 {k: np.mean(l_) for k, l_ in losses_metrics_d.items()}, step=e
             )
+            mlflow.log_metric("train_disc", float(train_disc), step=e)
+            mlflow.log_metric("train_disc_epochs", d_tr_count, step=e)
+            mlflow.log_metric("train_disc_accthres", d_thres, step=e)
+
+            if not train_disc:
+                d_tr_count = 0
+
+            d_tr_count += train_disc
+
+            train_disc = np.mean(losses_metrics_d["disc_acc"]) < d_thres
+
+            # If we have trained disc for several epochs in a row and it still is lost
+            # -> lower the expectations.
+            if d_tr_count > 10:
+                d_thres *= 0.9
+                d_tr_count = 0
+
             losses_metrics_d = {k: [] for k in losses_metrics_d}
-            # mlflow.pytorch.log_model(obs, name=f"rlobs-{i}")
+
+            if e % 10 == 0:
+                mlflow.pytorch.log_model(obs, name=f"rlobs-{e}")
+                mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}")
 
             _plot_set(
                 ds=ds_valid,
