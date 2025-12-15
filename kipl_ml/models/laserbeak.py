@@ -42,7 +42,7 @@ class WrapDFNet(DFNet):
         logits = self.forward(x_, sample_sizes, return_feats, *args, **kwargs)
 
         preds = torch.argmax(logits, dim=-1)
-        return preds
+        return logits, preds
 
 
 class CNNVisTransformer(ConvolutionalVisionTransformer):
