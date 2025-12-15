@@ -45,7 +45,7 @@ class ColorFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         log_fmt = self.FORMATS.get(record.levelno)
-        formatter = logging.Formatter(log_fmt, datefmt="%H:%M:%S")
+        formatter = logging.Formatter(log_fmt, datefmt="%a %H:%M:%S")
 
         if "kipl_ml." in record.name:
             record.name = "".join(record.name.replace("kipl_ml.", ""))
