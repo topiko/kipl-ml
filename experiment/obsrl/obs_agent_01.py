@@ -349,8 +349,7 @@ def main(cfg: DictConfig):
                         obs.parameters(), cfg.grad_norm_clip, error_if_nonfinite=True
                     )
 
-                    if not train_disc:
-                        optim.step()
+                    optim.step()
 
                     disc_loss, acc = one_batch_train_disc(
                         disc=discriminator,
