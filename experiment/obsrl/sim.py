@@ -116,9 +116,15 @@ def rollout(
         L_ = L - padc
         seq_lens[i] = L_
 
-    act_times, actions, log_ps, values, entropies, _ = obs.act(
+    act_times, actions, log_ps, values, entropies, h = obs.act(
         fd, hobs, h_detach_period=detach_period, seq_lens=seq_lens
     )
+
+    if h is not None:
+        h_norm = h[0].norm(2, dim=-1).max().item()
+        c_norm = h[1].norm(2, dim=-1).max().item()
+        if h_norm > 100 or c_norm > 100:
+            print("Huge hidden/cell:", h_norm, c_norm)
 
     t1 = time.time()
     Xobs = send_exec(X, act_times, actions)

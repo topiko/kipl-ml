@@ -312,12 +312,6 @@ class AGENT1(nn.Module):
             x_ = torch.log10(1 + x[f])
             fs.append(x_.unsqueeze(-1))
 
-        if h is not None:
-            h_norm = h[0].norm(2, dim=-1).max().item()
-            c_norm = h[1].norm(2, dim=-1).max().item()
-            if h_norm > 100 or c_norm > 100:
-                print("Huge hidden/cell:", h_norm, c_norm)
-
         # (N, L, nfeat)
         inputs = torch.cat(fs, dim=-1)
 
