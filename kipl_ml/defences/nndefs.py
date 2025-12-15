@@ -100,13 +100,19 @@ class _NNDef(_Def):
 
 
 class RNNDef(_NNDef):
+    def __init__(self, *args, n_packets: int = 5000, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._n_packets = n_packets
+
     def _run_model(
         self, trace_d: dict[Feats, torch.Tensor]
     ) -> dict[Feats, torch.Tensor]:
         # Implement RNN specific logic
         h = None
 
-        trace_d = {k: v.unsqueeze(0).float() for k, v in trace_d.items()}
+        trace_d = {
+            k: v[: self._n_packets].unsqueeze(0).float() for k, v in trace_d.items()
+        }
 
         fd = get_window_feature_dict(
             trace_d,

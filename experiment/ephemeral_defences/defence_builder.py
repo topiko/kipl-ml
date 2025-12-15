@@ -234,6 +234,7 @@ def rlobs(cfg: OmegaConf) -> dict[str, RNNDef]:
             network_delay_millis=netwk_delay,
             network_pps=netwk_pps,
             obs_model=cfg.defence.model_id,
+            n_packets=cfg.model.trace_len,
             seed=seed,
             fixed_per_trace=False,
             simul_kwargs=_get_simul_kwargs(cfg),
