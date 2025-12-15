@@ -37,9 +37,7 @@ class WrapDFNet(DFNet):
         *args,
         **kwargs,
     ):
-        x_ = torch.cat([x_.unsqueeze(1) for x_ in x.values()], dim=1)
-
-        logits = self.forward(x_, sample_sizes, return_feats, *args, **kwargs)
+        logits = self.forward(x, sample_sizes, return_feats, *args, **kwargs)
 
         preds = torch.argmax(logits, dim=-1)
         return logits, preds
