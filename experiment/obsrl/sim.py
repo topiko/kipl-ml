@@ -87,7 +87,6 @@ def rollout(
     disc: nn.Module,
     X: dict[Feats, torch.Tensor],
     y: torch.Tensor,
-    dt: float = 0.01,
     detach_period: int = 20,
     reward_scales: dict[str, float] | None = None,
 ) -> tuple[
@@ -104,8 +103,7 @@ def rollout(
 
     rewards = None
 
-    features = [Feats.DOWN_COUNT, Feats.UP_COUNT, Feats.Dt]
-    fd = get_window_feature_dict(X, dt, 100.0, features=features)
+    fd = get_window_feature_dict(X, obs.time_step, 100.0, features=obs.features)
 
     t0 = time.time()
 

@@ -15,6 +15,7 @@ from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
 from kipl_ml.tools.rng_samplers import MachineRng
+from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.params import EVENTS_MULTIPLIER, MAX_TRACE_LENGTH
 
 dotenv.load_dotenv()

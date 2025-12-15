@@ -11,6 +11,7 @@ advantages:
   lambda_: 0.95
   standardize: True
 
+obs_time_step: 0.05
 discounting: 0.99
 trace_len: 5_000
 batch_size: 32

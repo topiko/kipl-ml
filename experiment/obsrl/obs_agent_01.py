@@ -44,7 +44,6 @@ def _plot_set(
     clf_orig: nn.Module,
     clf_trained: nn.Module,
     e: int,
-    dt: float,
     reward_scales: dict[str, float],
     device: torch.DeviceObjType,
     ntraces: int = 3,
@@ -61,7 +60,6 @@ def _plot_set(
             clf_orig=clf_orig,
             clf_trained=clf_trained,
             e=e,
-            dt=dt,
             reward_scales=reward_scales,
             device=device,
             idx=idx,
@@ -76,7 +74,6 @@ def _plot_single(
     clf_orig: nn.Module,
     clf_trained: nn.Module,
     e: int,
-    dt: float,
     reward_scales: dict[str, float],
     device: torch.DeviceObjType,
     idx: int,
@@ -107,7 +104,11 @@ def _plot_single(
     ax.set_title(f"True class: {y.item()}")
 
     rewards, _, times, actions, Xobs = rollout(
-        obs, clf_trained, _unsqueeze(X), y, dt=dt, reward_scales=reward_scales
+        obs,
+        clf_trained,
+        _unsqueeze(X),
+        y,
+        reward_scales=reward_scales,
     )[2:]
 
     mask = Xobs[Feats.DIRS] != 0
@@ -254,7 +255,7 @@ def main(cfg: DictConfig):
     dl_train = dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    obs = AGENT1(zero_init=False).to(device)
+    obs = AGENT1(time_step=cfg.obs_time_step, zero_init=False).to(device)
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
 
@@ -262,7 +263,6 @@ def main(cfg: DictConfig):
     disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
 
     e = 0
-    dt = 0.05
     detach_period = 20
     d_tr_count = 0
     d_thres = 0.9
@@ -300,7 +300,6 @@ def main(cfg: DictConfig):
                         disc=discriminator,
                         X=X,
                         y=y,
-                        dt=dt,
                         detach_period=detach_period,
                         reward_scales=reward_scales,
                     )
@@ -415,7 +414,6 @@ def main(cfg: DictConfig):
                 clf_orig=discriminator_orig,
                 clf_trained=discriminator,
                 e=e,
-                dt=dt,
                 reward_scales=reward_scales,
                 device=device,
                 ntraces=20,

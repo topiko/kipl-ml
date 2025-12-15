@@ -183,6 +183,7 @@ class AGENT1(nn.Module):
 
     def __init__(
         self,
+        time_step: float = 0.05,
         hsize: int = 256,
         nlayers: int = 3,
         dropout: float = 0.2,
@@ -190,6 +191,7 @@ class AGENT1(nn.Module):
     ):
         super().__init__()
 
+        self.time_step = time_step
         self.features = [Feats.UP_COUNT, Feats.DOWN_COUNT, Feats.Dt]
         self.num_layers = nlayers
         self.hidden_size = hsize
