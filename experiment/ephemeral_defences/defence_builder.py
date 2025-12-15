@@ -5,6 +5,7 @@ from kipl_ml.defences.breakpad import Breakpad
 from kipl_ml.defences.front import FRONT
 from kipl_ml.defences.interspace import Interspace
 from kipl_ml.defences.maybenot import Maybenot
+from kipl_ml.defences.nndefs import RNNDef
 from kipl_ml.defences.regulator import Regulator
 from kipl_ml.defences.tamaraw import Tamaraw
 from kipl_ml.logging.logger import get_logger
@@ -27,7 +28,6 @@ def _get_simul_kwargs(cfg: OmegaConf) -> dict:
 
 
 def no_def(cfg: OmegaConf) -> dict[str, NoDefence]:
-
     netwk_delay, netwk_pps = _parse_netwk(cfg)
     no_defence = NoDefence(
         network_delay_millis=netwk_delay,
@@ -174,7 +174,6 @@ def front(cfg: OmegaConf) -> dict[str, FRONT]:
 
 
 def ephemeral(cfg: OmegaConf) -> dict[str, Maybenot]:
-
     mbnt_conf = dict(cfg.defence)
     mbnt_conf.pop("type")
 
@@ -222,4 +221,26 @@ def ephemeral(cfg: OmegaConf) -> dict[str, Maybenot]:
         "defence_train": _ephemeral(n_train_machines, seed + 1),
         "defence_valid": _ephemeral(n_valid_machines, seed + 2),
         "defence_test": _ephemeral(n_test_machines, seed + 3),
+    }
+
+
+def rlobs(cfg: OmegaConf) -> dict[str, RNNDef]:
+    netwk_delay, netwk_pps = _parse_netwk(cfg)
+
+    seed = cfg.misc.seed
+
+    def _rlobs(seed: int):
+        return RNNDef(
+            network_delay_millis=netwk_delay,
+            network_pps=netwk_pps,
+            obs_model=cfg.defence.model_id,
+            seed=seed,
+            fixed_per_trace=False,
+            simul_kwargs=_get_simul_kwargs(cfg),
+        )
+
+    return {
+        "defence_train": _rlobs(seed + 1),
+        "defence_valid": _rlobs(seed + 2),
+        "defence_test": _rlobs(seed + 3),
     }
