@@ -89,8 +89,8 @@ def send_exec(
             (len(send_times_list), max_len), device=times.device
         )
 
-        for i in range(len(send_times_list)):
-            send_times_ = send_times_list[i]
+        for i, v in enumerate(send_times_list):
+            send_times_ = v
             times_tensor[i, : len(send_times_)] = send_times_
             dirs_tensor[i, : len(send_times_)] = dir_
             padding_tensor[i, : len(send_times_)] = 1.0

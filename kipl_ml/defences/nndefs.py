@@ -34,6 +34,10 @@ class _NNDef(_Def):
             logger.warning(
                 "NNdefs do not use the network simulator -> params. ignored."
             )
+        if fixed_per_trace:
+            logger.warning(
+                "NNdefs do not use fixed_per_trace parameter -> param. ignored."
+            )
 
         super().__init__(
             network_delay_millis=network_delay_millis,
@@ -42,7 +46,9 @@ class _NNDef(_Def):
             fixed_per_trace=fixed_per_trace,
         )
 
+        self._model_id = None
         if isinstance(obs_model, str):
+            self._model_id = obs_model
             self.defense_model = mlflow.pytorch.load_model(
                 f"models:/{obs_model}", map_location="cpu"
             )
@@ -79,14 +85,16 @@ class _NNDef(_Def):
             )
         trace_d = get_std_trace_dict(trace_path)
 
+        trace_d.pop(Feats.SIZES)
+
         trace_d = self._run_model(trace_d)
 
         return trace_d
 
     def _mlflow_log_params(self) -> dict[str, str]:
-        d = {k: str(v) for k, v in self.machination_kwargs.items()}
+        d = {}
         d[DEFENCE_TYPE_KW] = self.__class__.__name__.lower()
-        d["fixed_per_trace"] = str(self.FIXED_PER_TRACE)
+        d["model-id"] = str(self._model_id)
 
         return d
 
@@ -97,14 +105,17 @@ class RNNDef(_NNDef):
     ) -> dict[Feats, torch.Tensor]:
         # Implement RNN specific logic
         h = None
+
+        trace_d = {k: v.unsqueeze(0).float() for k, v in trace_d.items()}
+
         fd = get_window_feature_dict(
             trace_d,
-            self.defense_model.dt,
+            self.defense_model.time_step,
             100.0,
             features=self.defense_model.features,
         )
 
-        seq_lens = torch.Tensor([fd.values[0].shape[0]], dtype=torch.long)
+        seq_lens = torch.Tensor([fd[self.defense_model.features[0]].shape[1]]).long()
 
         with torch.no_grad():
             act_times, actions = self.defense_model.act(
@@ -112,5 +123,9 @@ class RNNDef(_NNDef):
             )[:2]
 
         trace_d = send_exec(trace_d, act_times, actions)
+
+        trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
+
+        trace_d[Feats.SIZES] = torch.ones_like(trace_d[Feats.TIMES])
 
         return trace_d
