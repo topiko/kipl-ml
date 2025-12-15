@@ -8,6 +8,7 @@ from torch import nn
 
 from kipl_ml.data.wf_dataset import WFDataset
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
 
@@ -17,8 +18,7 @@ def count_parameters(model) -> str:
     return f"{np:.02f} M"
 
 
-def unsqueeze_batch(x: dict[str, torch.tensor]) -> dict[str, torch.tensor]:
-
+def unsqueeze_batch(x: dict[Feats, torch.tensor]) -> dict[Feats, torch.tensor]:
     X_ = {k: v.unsqueeze(0) for k, v in x.items()}
     return X_
 
@@ -36,8 +36,8 @@ def get_laserbeak_model_config(model_name: str) -> dict:
 
 
 def get_signature(model: nn.Module, ds: WFDataset) -> ModelSignature:
-
     model.eval()
+    model.to("cpu")
     with torch.no_grad():
         X_ = model.example_input(ds[0][0])
         y_ = model(X_).detach().cpu().numpy()
