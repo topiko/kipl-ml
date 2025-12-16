@@ -184,6 +184,7 @@ class AGENT1(nn.Module):
     def __init__(
         self,
         time_step: float = 0.05,
+        max_silence_s: float = 0.5,
         hsize: int = 256,
         nlayers: int = 3,
         dropout: float = 0.2,
@@ -191,7 +192,11 @@ class AGENT1(nn.Module):
     ):
         super().__init__()
 
+        # Time step between feature extractions.
         self.time_step = time_step
+        # Maximum silence the model tolerates before acting.
+        self.max_silence_s = max_silence_s
+
         self.features = [Feats.UP_COUNT, Feats.DOWN_COUNT, Feats.Dt]
         self.num_layers = nlayers
         self.hidden_size = hsize

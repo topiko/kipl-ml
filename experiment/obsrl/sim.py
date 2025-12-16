@@ -103,18 +103,16 @@ def rollout(
 
     rewards = None
 
-    fd = get_window_feature_dict(X, obs.time_step, 100.0, features=obs.features)
+    fd = get_window_feature_dict(
+        X, obs.time_step, obs.max_silence_s, features=obs.features
+    )
 
     t0 = time.time()
 
-    bs, L = fd[Feats.Dt].shape
+    bs, _ = fd[Feats.Dt].shape
 
     # We need the seq. lens in forward.
-    seq_lens = torch.zeros((bs,), dtype=torch.long)
-    for i in range(bs):
-        padc = (fd[Feats.Dt][i] == 0).sum() - 1
-        L_ = L - padc
-        seq_lens[i] = L_
+    seq_lens = (fd[Feats.Dt] != 0).sum(dim=1) + 1
 
     act_times, actions, log_ps, values, entropies, h = obs.act(
         fd, hobs, h_detach_period=detach_period, seq_lens=seq_lens
