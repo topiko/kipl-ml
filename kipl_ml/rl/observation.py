@@ -43,6 +43,10 @@ def _add_actions_to_silence_periods(
                 torch.arange(1, count + 1, device=times.device) * max_silence_s + start
             )
             new_times_l.append(new_times)
+
+        if not new_times_l:
+            continue
+
         new_times = torch.cat(new_times_l)
         add_action_times[row, :] = times[row, -1]
         add_action_times[row, : new_times.shape[0]] = new_times
