@@ -12,7 +12,7 @@ logger = get_logger(__name__)
 
 def _add_actions_to_silence_periods(
     feature_dict: dict[Feats, torch.Tensor], max_silence_s: float
-) -> tuple[dict[Feats, torch.Tensor], bool]:
+) -> dict[Feats, torch.Tensor]:
     times = feature_dict[Feats.TIMES]
     dts = times.diff(
         dim=1, prepend=torch.zeros((times.shape[0], 1), device=times.device)
@@ -20,12 +20,10 @@ def _add_actions_to_silence_periods(
 
     dt_ = 1e-3
     if dts.max() <= max_silence_s + dt_:
-        return feature_dict, False
+        return feature_dict
 
-    add_action_times = torch.zeros(
-        (times.shape[0], (dts > max_silence_s + dt_).sum(dim=1).max()),
-        device=times.device,
-    )
+    lt = (dts // max_silence_s).sum(dim=1).max().ceil().int()
+    add_action_times = torch.zeros((times.shape[0], lt), device=times.device)
 
     add_feature_dict: dict[Feats, torch.Tensor] = {
         Feats.UP_COUNT: add_action_times.clone(),
@@ -34,13 +32,20 @@ def _add_actions_to_silence_periods(
     }
     for row in range(dts.shape[0]):
         mask = dts[row] > max_silence_s + dt_
-        n = mask.sum()
         silence_starts = times[row, mask.roll(-1)]
-        add_action_times[row, :] = times[row, -1]
-        add_action_times[row, :n] = silence_starts + max_silence_s
+        deltas = times[row, mask] - silence_starts
 
-        add_feature_dict[Feats.UP_COUNT][row, :n] = 0
-        add_feature_dict[Feats.DOWN_COUNT][row, :n] = 0
+        counts = deltas // max_silence_s
+
+        new_times_l = []
+        for start, count in zip(silence_starts, counts):
+            new_times = (
+                torch.arange(1, count + 1, device=times.device) * max_silence_s + start
+            )
+            new_times_l.append(new_times)
+        new_times = torch.cat(new_times_l)
+        add_action_times[row, :] = times[row, -1]
+        add_action_times[row, : new_times.shape[0]] = new_times
 
     feature_dict = {
         k: torch.cat([v, add_feature_dict[k]], dim=1) for k, v in feature_dict.items()
@@ -48,7 +53,7 @@ def _add_actions_to_silence_periods(
     sort_idx = torch.argsort(feature_dict[Feats.TIMES], dim=1)
     feature_dict = {k: torch.gather(v, 1, sort_idx) for k, v in feature_dict.items()}
 
-    return feature_dict, True
+    return feature_dict
 
 
 def get_window_feature_dict(
@@ -56,11 +61,8 @@ def get_window_feature_dict(
 ) -> dict[Feats, torch.Tensor]:
     # (B, L)
     times = X[Feats.TIMES]
-    max_t = times.max().item()
-    bs = times.shape[0]
 
     bin_idx = (times // dt).long()
-    M = bin_idx.max().item() + 1
 
     feature_dict: dict[Feats, torch.Tensor] = {}
 
@@ -71,7 +73,6 @@ def get_window_feature_dict(
         1, bin_idx, (X[Feats.DIRS] == DOWNLOAD).float()
     )
     times_ = torch.zeros_like(times).scatter_(1, bin_idx, bin_idx.float() * dt)
-    # Fix the zero padding at the end of time seqs.
 
     mask = (up_counts != 0) | (down_counts != 0)
     max_l = mask.sum(dim=1).max()
@@ -82,16 +83,7 @@ def get_window_feature_dict(
     times_ = _fill_w_last(times_, pad_val=0)
     feature_dict[Feats.TIMES] = times_
 
-    updated = True
-    while updated:
-        feature_dict, updated = _add_actions_to_silence_periods(
-            feature_dict, max_silence_s
-        )
-        # for k, v in feature_dict.items():
-        # print(k, v.shape)
-        # if k == Feats.TIMES:
-        #     print(v.diff(dim=1).max(), updated)
-        # print()
+    feature_dict = _add_actions_to_silence_periods(feature_dict, max_silence_s)
 
     dts = feature_dict[Feats.TIMES].diff(
         dim=1, prepend=torch.zeros((times.shape[0], 1), device=times.device)
