@@ -301,6 +301,7 @@ def main(cfg: DictConfig):
                 for X, y in pbar:
                     X = dict_to_device(X, device)
                     y = y.to(device)
+                    obs.train()
 
                     optim.zero_grad()
                     log_ps, values, rewards, entropies, _, _, Xobs = rollout(
