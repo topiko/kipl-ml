@@ -190,6 +190,8 @@ def assert_finite(name, x):
 
     elif not torch.isfinite(x).all():
         raise_ = True
+    elif torch.isnan(x).any():
+        raise_ = True
 
     if raise_:
         print(f"Non-finite in {name}")
@@ -264,8 +266,6 @@ def main(cfg: DictConfig):
 
     e = 0
     detach_period = 20
-    d_tr_count = 0
-    d_thres = 0.9
     with mlflow.start_run(log_system_metrics=True):
         train_disc = True
         while True:
@@ -317,6 +317,10 @@ def main(cfg: DictConfig):
 
                     # Sanity checks:
                     # ==========================================
+                    assert_finite("rewards", rewards)
+                    assert_finite("values", values)
+                    assert_finite("log_ps", log_ps)
+
                     for k, v in losses_metrics_d.items():
                         if len(v) == 0:
                             continue
@@ -385,22 +389,6 @@ def main(cfg: DictConfig):
             mlflow.log_metrics(
                 {k: np.mean(l_) for k, l_ in losses_metrics_d.items()}, step=e
             )
-            mlflow.log_metric("train_disc", float(train_disc), step=e)
-            mlflow.log_metric("train_disc_epochs", d_tr_count, step=e)
-            mlflow.log_metric("train_disc_accthres", d_thres, step=e)
-
-            if not train_disc:
-                d_tr_count = 0
-
-            d_tr_count += train_disc
-
-            train_disc = np.mean(losses_metrics_d["disc_acc"]) < d_thres
-
-            # If we have trained disc for several epochs in a row and it still is lost
-            # -> lower the expectations.
-            if d_tr_count > 10:
-                d_thres *= 0.9
-                d_tr_count = 0
 
             losses_metrics_d = {k: [] for k in losses_metrics_d}
 
