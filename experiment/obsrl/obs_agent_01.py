@@ -257,7 +257,11 @@ def main(cfg: DictConfig):
     dl_train = dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    obs = AGENT1(time_step=cfg.obs_time_step, zero_init=False).to(device)
+    obs = AGENT1(
+        time_step=cfg.obs_time_step_s,
+        max_silence_s=cfg.obs_max_silence_s,
+        zero_init=False,
+    ).to(device)
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
 
@@ -269,7 +273,7 @@ def main(cfg: DictConfig):
     with mlflow.start_run(log_system_metrics=True):
         train_disc = True
         while True:
-            reward_scales = {"clf_scale": 1.0, "padding_scale": 0.0001}
+            reward_scales = {"clf_scale": 1.0, "padding_scale": -0.0001}
             losses_metrics_d: dict[str, list[float]] = {
                 "loss": [],
                 "policy_loss": [],
