@@ -265,11 +265,11 @@ def main(cfg: DictConfig):
     disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
 
     e = 0
-    detach_period = 20
+    detach_period = 50
     with mlflow.start_run(log_system_metrics=True):
         train_disc = True
         while True:
-            reward_scales = {"clf_scale": 1.0, "padding_scale": 0.001}
+            reward_scales = {"clf_scale": 1.0, "padding_scale": 0.0001}
             losses_metrics_d: dict[str, list[float]] = {
                 "loss": [],
                 "policy_loss": [],
@@ -317,7 +317,8 @@ def main(cfg: DictConfig):
 
                     # Sanity checks:
                     # ==========================================
-                    assert_finite("rewards", rewards)
+                    for k, v in rewards.items():
+                        assert_finite(f"rewards-{k}", v)
                     assert_finite("values", values)
                     assert_finite("log_ps", log_ps)
 
