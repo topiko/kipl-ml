@@ -65,10 +65,19 @@ def get_rewards(
         npad = (padding & mask).sum(dim=1).float()
         rewards["padding"][:, i] -= npad * reward_scales["padding_scale"]
 
-        # Count the "clf reward"
-        mean_p = (target_probs * mask.float()).mean(dim=1)
+        # Count the "clf reward" only from the normal packets.
+        float_mltp = (mask & ~padding).float()
+        nnormal = float_mltp.sum(dim=1)
+        normal_mask = nnormal > 0
+        mean_p = torch.where(
+            nnormal > 0,
+            (target_probs * (mask & ~padding).float()).sum(dim=1) / nnormal,
+            0,
+        )
 
-        rewards["clf"][:, i] += (0.1 - mean_p) * reward_scales["clf_scale"]
+        rewards["clf"][normal_mask, i] += (0.1 - mean_p[normal_mask]) * reward_scales[
+            "clf_scale"
+        ]
 
     return rewards
 
