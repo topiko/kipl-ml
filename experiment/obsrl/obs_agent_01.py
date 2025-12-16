@@ -273,7 +273,7 @@ def main(cfg: DictConfig):
     with mlflow.start_run(log_system_metrics=True):
         train_disc = True
         while True:
-            reward_scales = {"clf_scale": 1.0, "padding_scale": -0.0001}
+            reward_scales = {"clf_scale": 1.0, "padding_scale": -0.001}
             losses_metrics_d: dict[str, list[float]] = {
                 "loss": [],
                 "policy_loss": [],
@@ -315,7 +315,7 @@ def main(cfg: DictConfig):
                     value_loss = 0.5 * (values - G).pow(2).mean()
                     entropy_loss = -entropies.mean()
 
-                    loss = policy_loss + value_loss + 0.05 * entropy_loss
+                    loss = policy_loss + value_loss + 0.0 * entropy_loss
 
                     loss.backward()
 
