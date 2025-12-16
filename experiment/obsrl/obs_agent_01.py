@@ -81,6 +81,10 @@ def _plot_single(
 ):
     fig, (ax, ax_o, ax_a, ax_b) = plt.subplots(4, 1, figsize=(20, 9.0), sharex=True)
 
+    clf_orig.eval()
+    clf_trained.eval()
+    obs.eval()
+
     def _unsqueeze(X: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         return {k: v.unsqueeze(0) for k, v in X.items()}
 

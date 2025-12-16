@@ -52,6 +52,10 @@ class _NNDef(_Def):
             self.defense_model = mlflow.pytorch.load_model(
                 f"models:/{obs_model}", map_location="cpu"
             )
+        else:
+            self.defense_model = obs_model
+
+        self.defense_model.eval()
 
         self.simul_kwargs = simul_kwargs or {}
 
