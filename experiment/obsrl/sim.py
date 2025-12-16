@@ -132,6 +132,7 @@ def rollout(
 
     t3 = time.time()
     if reward_scales is not None:
+        disc.eval()
         with torch.no_grad():
             logits, hdisc = disc(Xobs, hdisc)
 
