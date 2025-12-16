@@ -57,56 +57,30 @@ def get_window_feature_dict(
     # (B, L)
     times = X[Feats.TIMES]
     max_t = times.max().item()
+    bs = times.shape[0]
 
-    feature_dict_l: dict[Feats, list[torch.Tensor]] = {}
-    for t in torch.arange(0, max_t + dt, dt, device=times.device):
-        t1 = t
-        t2 = t + dt
-        mask = (times >= t1) & (times < t2)
+    bin_idx = (times // dt).long()
+    M = bin_idx.max().item() + 1
 
-        n_rows = times.shape[0]
-        n_cols = mask.sum(dim=1).max()
+    feature_dict: dict[Feats, torch.Tensor] = {}
 
-        row_idxs = (
-            torch.arange(n_rows, device=times.device)
-            .unsqueeze(1)
-            .expand(-1, times.shape[1])
-        )[mask]
-        col_idxs = (mask.cumsum(dim=1) - 1)[mask]
-
-        fdirs = torch.zeros((n_rows, n_cols), device=times.device)
-        fdirs[row_idxs, col_idxs] = X[Feats.DIRS][mask]
-
-        ftimes = torch.zeros((n_rows, n_cols), device=times.device)
-        ftimes[row_idxs, col_idxs] = X[Feats.TIMES][mask]
-
-        if Feats.UP_COUNT in features:
-            feature_dict_l.setdefault(Feats.UP_COUNT, []).append(
-                (fdirs == UPLOAD).sum(dim=1, keepdim=True)
-            )
-        if Feats.DOWN_COUNT in features:
-            feature_dict_l.setdefault(Feats.DOWN_COUNT, []).append(
-                (fdirs == DOWNLOAD).sum(dim=1, keepdim=True)
-            )
-
-        feature_dict_l.setdefault(Feats.TIMES, []).append(
-            torch.ones((n_rows, 1), device=times.device) * t
-        )
-
-    feature_dict: dict[Feats, torch.Tensor] = {
-        k: torch.cat(v, dim=1) for k, v in feature_dict_l.items()
-    }
-
-    # (B, L)
-    mask = (feature_dict[Feats.UP_COUNT] != 0) | (feature_dict[Feats.DOWN_COUNT] != 0)
-
-    max_l = mask.sum(dim=1).max()
-
-    # dict[Feats, Tensor (B, max_l)]
-    feature_dict = {k: _flush_left(v, mask)[:, :max_l] for k, v in feature_dict.items()}
-
+    up_counts = torch.zeros_like(times).scatter_add_(
+        1, bin_idx, (X[Feats.DIRS] == UPLOAD).float()
+    )
+    down_counts = torch.zeros_like(times).scatter_add_(
+        1, bin_idx, (X[Feats.DIRS] == DOWNLOAD).float()
+    )
+    times_ = torch.zeros_like(times).scatter_(1, bin_idx, bin_idx.float() * dt)
     # Fix the zero padding at the end of time seqs.
-    feature_dict[Feats.TIMES] = _fill_w_last(feature_dict[Feats.TIMES], pad_val=0)
+
+    mask = (up_counts != 0) | (down_counts != 0)
+    max_l = mask.sum(dim=1).max()
+    feature_dict[Feats.UP_COUNT] = _flush_left(up_counts, mask)[:, :max_l]
+    feature_dict[Feats.DOWN_COUNT] = _flush_left(down_counts, mask)[:, :max_l]
+
+    times_ = _flush_left(times_, mask)[:, :max_l]
+    times_ = _fill_w_last(times_, pad_val=0)
+    feature_dict[Feats.TIMES] = times_
 
     updated = True
     while updated:
