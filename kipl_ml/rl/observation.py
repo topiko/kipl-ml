@@ -107,4 +107,8 @@ def get_window_feature_dict(
     if not all(f in feature_dict for f in features):
         raise ValueError("Some requested features are missing!")
 
+    for f, k in zip((Feats.UP_COUNT, Feats.DOWN_COUNT), (UPLOAD, DOWNLOAD)):
+        if (feature_dict[f].sum(dim=1) != (X[Feats.DIRS] == k).sum(dim=1)).any():
+            raise ValueError("Missing packets")
+
     return feature_dict

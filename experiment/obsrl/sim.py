@@ -69,13 +69,14 @@ def get_rewards(
         p_lvl = 0.1
         float_mltp = (mask & ~padding).float()
         nnormal = float_mltp.sum(dim=1)
-        normal_mask = nnormal > 0
         sum_p = torch.where(
             nnormal > 0,
             ((p_lvl - target_probs) * (mask & ~padding).float()).sum(dim=1),
             0,
         )
 
+        #
+        normal_mask = (nnormal > 0) & ~len_mask
         rewards["clf"][normal_mask, i] += (
             sum_p[normal_mask] * reward_scales["clf_scale"]
         )
@@ -104,11 +105,12 @@ def rollout(
 
     rewards = None
 
+    t0 = time.time()
     fd = get_window_feature_dict(
         X, obs.time_step, obs.max_silence_s, features=obs.features
     )
 
-    t0 = time.time()
+    t1 = time.time()
 
     bs, _ = fd[Feats.Dt].shape
 
@@ -122,26 +124,26 @@ def rollout(
     if h is not None:
         h_norm = h[0].norm(2, dim=-1).max().item()
         c_norm = h[1].norm(2, dim=-1).max().item()
-        if h_norm > 100 or c_norm > 100:
+        if h_norm > 100 or c_norm > 10000:
             print("Huge hidden/cell:", h_norm, c_norm)
 
-    t1 = time.time()
+    t2 = time.time()
     Xobs = send_exec(X, act_times, actions)
 
-    t2 = time.time()
+    t3 = time.time()
     if reward_scales is not None:
         with torch.no_grad():
             logits, hdisc = disc(Xobs, hdisc)
 
-        t3 = time.time()
-
+        t4 = time.time()
         rewards = get_rewards(
             act_times, Xobs, y, logits, seq_lens, reward_scales=reward_scales
         )
-    t4 = time.time()
+    t5 = time.time()
 
+    # print()
     # print(
-    #     f"Obs: {t1 - t0:.4f}, Act: {t2 - t1:.4f}, Disc: {t3 - t2:.4f}, Rew: {t4 - t3:.4f}"
+    #     f"Extr: {t1 - t0:.4f}, Act: {t2 - t1:.4f}, Exec: {t3 - t2:.4f}, Disc: {t4 - t3:.4f}, Rew: {t5 - t4:.4f}"
     # )
 
     return (
