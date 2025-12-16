@@ -312,7 +312,7 @@ def main(cfg: DictConfig):
 
                     # Compute losses
                     policy_loss = -(log_ps * advantages.detach()).mean()
-                    value_loss = 0.5 * (values - G).pow(2).mean()
+                    value_loss = 0.5 * (values - G.detach()).pow(2).mean()
                     entropy_loss = -entropies.mean()
 
                     loss = policy_loss + value_loss + 0.0 * entropy_loss
