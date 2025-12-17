@@ -76,6 +76,21 @@ def _plot_probs(
     ax3.spines["right"].set_visible(True)
 
 
+def _plot_boxes(
+    x: np.ndarray, widths: np.ndarray, heights: np.ndarray, ax: plt.Axes, **kwargs
+) -> None:
+    for xi, w, h in zip(x, widths, heights):
+        if h == 0:
+            continue
+        rect = plt.Rectangle(
+            (xi - w / 2, 0),
+            w,
+            h,
+            **kwargs,
+        )
+        ax.add_patch(rect)
+
+
 def plot_trace(
     trace_dict: dict[Feats, torch.tensor],
     idx: int | None = None,
@@ -165,7 +180,7 @@ def plot_packet_buffer(
 
 def plot_actions(
     times: torch.Tensor,
-    actions: list[dict[Actions, torch.Tensor]],
+    actions: dict[Actions, torch.Tensor],
     idx: int | None = None,
     ax: plt.Axes | None = None,
 ) -> plt.Axes:
@@ -173,38 +188,34 @@ def plot_actions(
         _, ax = plt.subplots(figsize=(12, 3))
 
     times = _squeeze_batched(times, idx)
-    actions = _squeeze_batched(actions, idx)
+    actions = {k: _squeeze_batched(v, idx) for k, v in actions.items()}
 
-    for a in np.unique(actions):
-        mask = actions == a
-        if mask.sum() == 0:
-            continue
+    for ackt in (
+        Actions.WAIT,
+        (Actions.SEND_COUNT_UP, Actions.SEND_TIME_UP),
+        (Actions.SEND_COUNT_DOWN, Actions.SEND_TIME_DOWN),
+    ):
+        if isinstance(ackt, tuple):
+            counts = actions[ackt[0]]
+            durs = actions[ackt[1]]
 
-        if ackt == Actions.SEND_BUFFER:
-            mins = 0
-            maxs = c
-            color = "green"
-        elif ackt == Actions.SEND_PADDING_DOWN:
-            mins = -c
-            maxs = 0
-            color = DOWN_COLOR
-        elif ackt == Actions.SEND_PADDING_UP:
-            mins = 0
-            maxs = c
-            color = UP_COLOR
+            match ackt[0]:
+                case Actions.SEND_COUNT_UP:
+                    color = UP_COLOR
+                case Actions.SEND_COUNT_DOWN:
+                    color = DOWN_COLOR
+                case _:
+                    raise ValueError(f"Unknown action type: {ackt[0]}")
+
+            _plot_boxes(
+                x=times, widths=durs, heights=counts, color=color, alpha=0.2, ax=ax
+            )
         elif ackt == Actions.WAIT:
-            continue
-        else:
-            raise ValueError(f"Unknown action type: {ackt}")
+            counts = np.zeros_like(times)
+            durs = np.diff(times, prepend=np.array([0]), axis=0)
+            counts[actions[ackt] == 1] = 1
 
-        ax.vlines(
-            times[mask],
-            mins,
-            maxs,
-            colors=color,
-            alpha=1,
-            lw=1.5,
-        )
+            _plot_boxes(times, durs, counts, color="gray", alpha=0.2, ax=ax)
 
     return ax
 

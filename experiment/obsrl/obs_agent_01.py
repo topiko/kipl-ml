@@ -20,6 +20,7 @@ from kipl_ml.models.trgen import AGENT1
 from kipl_ml.rl.advantages import get_gae, get_returns
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
 from kipl_ml.tools.plottr import (
+    plot_actions,
     plot_rewards,
     plot_trace,
 )
@@ -133,7 +134,7 @@ def _plot_single(
     )
 
     # Plot actions
-    # plot_actions(times, actions_l, idx2ackt=obs.action_map, ax=ax_a)
+    plot_actions(times, actions, ax=ax_a)
     ax_a.set_title("Actions, buffer, etc.")
 
     # Plot buffer and rewards
@@ -399,6 +400,8 @@ def main(cfg: DictConfig):
                             "dacc": np.mean(losses_metrics_d["disc_acc"][-30:]),
                         }
                     )
+
+                    break
 
             mlflow.log_metrics(
                 {k: np.mean(l_) for k, l_ in losses_metrics_d.items()}, step=e
