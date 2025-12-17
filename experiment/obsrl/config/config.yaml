@@ -11,6 +11,7 @@ advantages:
   lambda_: 0.95
   standardize: True
 
+test_run: True
 obs_time_step_s: 0.03
 obs_max_silence_s: 0.3
 discounting: 0.99

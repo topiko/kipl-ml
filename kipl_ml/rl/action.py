@@ -49,6 +49,8 @@ def send_exec(
     times: torch.Tensor,
     actions: dict[Actions, torch.Tensor],
 ) -> dict[Feats, torch.Tensor]:
+    X = {k: v.clone() for k, v in X.items()}
+
     # TODO: improve this by removing the batch dim loops...
     send_up_c = actions[Actions.SEND_COUNT_UP]
     times_up = actions[Actions.SEND_TIME_UP]
@@ -100,11 +102,13 @@ def send_exec(
     send_times_up_l = []
     send_times_down_l = []
     for i in range(times.shape[0]):
-        times_ = times[i]
-        sup_c = send_up_c[i]
-        sdown_c = send_down_c[i]
-        t_up = times_up[i]
-        t_down = times_down[i]
+        # NAN time signals seq has ended.
+        mask = times[i].isfinite()
+        times_ = times[i][mask]
+        sup_c = send_up_c[i][mask]
+        sdown_c = send_down_c[i][mask]
+        t_up = times_up[i][mask]
+        t_down = times_down[i][mask]
 
         send_times_up = _sample_send_times(
             send_counts=sup_c, times=times_, decay_times=t_up

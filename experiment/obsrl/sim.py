@@ -99,6 +99,7 @@ def rollout(
     torch.Tensor,
     dict[Actions, torch.Tensor],
     dict[Feats, torch.Tensor],
+    dict[Feats, torch.Tensor],
 ]:
     hdisc = None
     hobs = None
@@ -106,16 +107,21 @@ def rollout(
     rewards = None
 
     t0 = time.time()
+    if X[Feats.TIMES].isnan().any():
+        raise ValueError("NaN in times feature")
+
     fd = get_window_feature_dict(
         X, obs.time_step, obs.max_silence_s, features=obs.features
     )
+    if X[Feats.TIMES].isnan().any():
+        raise ValueError("NaN in times feature")
 
     t1 = time.time()
 
     bs, _ = fd[Feats.Dt].shape
 
     # We need the seq. lens in forward.
-    seq_lens = (fd[Feats.Dt] != 0).sum(dim=1) + 1
+    seq_lens = fd.pop(Feats.SEQ_LENS)
 
     act_times, actions, log_ps, values, entropies, h = obs.act(
         fd, hobs, h_detach_period=detach_period, seq_lens=seq_lens
@@ -140,6 +146,7 @@ def rollout(
         rewards = get_rewards(
             act_times, Xobs, y, logits, seq_lens, reward_scales=reward_scales
         )
+
     t5 = time.time()
 
     # print()
@@ -155,4 +162,5 @@ def rollout(
         act_times,
         actions,
         Xobs,
+        fd,
     )

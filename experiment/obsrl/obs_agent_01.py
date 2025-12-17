@@ -21,6 +21,7 @@ from kipl_ml.rl.advantages import get_gae, get_returns
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
 from kipl_ml.tools.plottr import (
     plot_actions,
+    plot_obs_features,
     plot_rewards,
     plot_trace,
 )
@@ -32,7 +33,6 @@ dotenv.load_dotenv()
 WORKING_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR_PATH = os.path.join(WORKING_DIR, "config")
 
-
 N_SPLITS = 5
 TEST_XV = 0
 TARGET = assets.PAGE_LABEL
@@ -40,6 +40,7 @@ DATASET = Datasets.BIGENOUGH
 
 
 def _plot_set(
+    cfg: DictConfig,
     ds: WFDataset,
     obs: nn.Module,
     clf_orig: nn.Module,
@@ -56,6 +57,7 @@ def _plot_set(
 
     for idx in idxs:
         _plot_single(
+            cfg=cfg,
             ds=ds,
             obs=obs,
             clf_orig=clf_orig,
@@ -70,6 +72,7 @@ def _plot_set(
 
 @torch.no_grad()
 def _plot_single(
+    cfg: DictConfig,
     ds: WFDataset,
     obs: nn.Module,
     clf_orig: nn.Module,
@@ -80,7 +83,9 @@ def _plot_single(
     idx: int,
     max_len: int = 10_000,
 ):
-    fig, (ax, ax_o, ax_a, ax_b) = plt.subplots(4, 1, figsize=(20, 9.0), sharex=True)
+    fig, (ax, ax_o, ax_fd, ax_a, ax_b) = plt.subplots(
+        5, 1, figsize=(20, 12.0), sharex=True
+    )
 
     clf_orig.eval()
     clf_trained.eval()
@@ -108,13 +113,15 @@ def _plot_single(
     )
     ax.set_title(f"True class: {y.item()}")
 
-    rewards, _, times, actions, Xobs = rollout(
+    _, values, rewards, _, times, actions, Xobs, fd = rollout(
         obs,
         clf_trained,
         _unsqueeze(X),
         y,
         reward_scales=reward_scales,
-    )[2:]
+    )
+
+    G, _ = get_advantages(rewards, values, cfg)
 
     mask = Xobs[Feats.DIRS] != 0
     if mask.sum() > max_len:
@@ -132,20 +139,31 @@ def _plot_single(
         cl_probs=X_to_probs(clf_trained, Xobs),
         true_class=y.item(),
     )
+    ax_o.set_title("Obs. trace, disc trained")
+
+    # Plot obs inputs
+    plot_obs_features(fd, ax=ax_fd)
+    ax_fd.set_title("Obs. features")
 
     # Plot actions
     plot_actions(times, actions, ax=ax_a)
-    ax_a.set_title("Actions, buffer, etc.")
-
-    # Plot buffer and rewards
-    # plot_packet_buffer(buffer, ax=ax_b)
-    ax_b.set_ylabel("Buffer size [pkts]")
-    ax_o.set_title("Obsfuscated")
+    ax_a.set_title("Actions")
 
     # Plot rewards
+    plot_rewards(times, rewards, ax=ax_b)
+    ax_b.set_title("Rewards, returns")
+
+    # Plot returns
     ax_r = ax_b.twinx()
     ax_r.axes.spines["right"].set_visible(True)
-    plot_rewards(times, rewards, ax=ax_r)
+    ax_r.plot(
+        times.squeeze().cpu().numpy(),
+        G.squeeze().cpu().numpy(),
+        "k-",
+        label="Return",
+        lw=1,
+    )
+    ax_r.set_ylabel("Return", color="k")
 
     ax_r.legend(frameon=False, loc=1)
     ax_b.legend(frameon=False, loc=2)
@@ -262,6 +280,10 @@ def main(cfg: DictConfig):
     dl_train = dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    if np.isclose((cfg.obs_max_silence_s % cfg.obs_time_step_s), 0.0):
+        raise ValueError(
+            f"obs_max_silence_s must be multiple of obs_time_step_s, got {cfg.obs_max_silence_s} and {cfg.obs_time_step_s}"
+        )
     obs = AGENT1(
         time_step=cfg.obs_time_step_s,
         max_silence_s=cfg.obs_max_silence_s,
@@ -306,7 +328,7 @@ def main(cfg: DictConfig):
                     obs.train()
 
                     optim.zero_grad()
-                    log_ps, values, rewards, entropies, _, _, Xobs = rollout(
+                    log_ps, values, rewards, entropies, _, _, Xobs, _ = rollout(
                         obs=obs,
                         disc=discriminator,
                         X=X,
@@ -414,6 +436,7 @@ def main(cfg: DictConfig):
                 mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}")
 
             _plot_set(
+                cfg=cfg,
                 ds=ds_valid,
                 obs=obs,
                 clf_orig=discriminator_orig,

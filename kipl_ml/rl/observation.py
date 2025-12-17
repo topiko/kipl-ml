@@ -18,11 +18,17 @@ def _add_actions_to_silence_periods(
         dim=1, prepend=torch.zeros((times.shape[0], 1), device=times.device)
     )
 
-    dt_ = 1e-3
-    if dts.max() <= max_silence_s + dt_:
+    if dts[dts.isfinite()].max() <= max_silence_s:
         return feature_dict
 
-    lt = (dts // max_silence_s).sum(dim=1).max().ceil().int()
+    lt = (
+        torch.where(dts.isfinite(), dts // max_silence_s, 0)
+        .sum(dim=1)
+        .max()
+        .ceil()
+        .int()
+    )
+
     add_action_times = torch.zeros((times.shape[0], lt), device=times.device)
 
     add_feature_dict: dict[Feats, torch.Tensor] = {
@@ -30,32 +36,36 @@ def _add_actions_to_silence_periods(
         Feats.DOWN_COUNT: add_action_times.clone(),
         Feats.TIMES: add_action_times,
     }
+    dt_ = 1e-3
     for row in range(dts.shape[0]):
-        mask = dts[row] > max_silence_s + dt_
+        mask = dts[row] > (max_silence_s + dt_)
         silence_starts = times[row, mask.roll(-1)]
         deltas = times[row, mask] - silence_starts
 
-        counts = deltas // max_silence_s
+        counts = deltas // (max_silence_s + dt_)
 
         new_times_l = []
         for start, count in zip(silence_starts, counts):
             new_times = (
                 torch.arange(1, count + 1, device=times.device) * max_silence_s + start
             )
+            if torch.isin(new_times, feature_dict[Feats.TIMES][row]).any():
+                raise ValueError("New times collide with existing times!")
+
             new_times_l.append(new_times)
 
         if not new_times_l:
             continue
 
         new_times = torch.cat(new_times_l)
-        add_action_times[row, :] = times[row, -1]
+        add_action_times[row, :] = torch.nan
         add_action_times[row, : new_times.shape[0]] = new_times
 
     feature_dict = {
         k: torch.cat([v, add_feature_dict[k]], dim=1) for k, v in feature_dict.items()
     }
     sort_idx = torch.argsort(feature_dict[Feats.TIMES], dim=1)
-    feature_dict = {k: torch.gather(v, 1, sort_idx) for k, v in feature_dict.items()}
+    feature_dict = {k: v.gather(1, sort_idx) for k, v in feature_dict.items()}
 
     return feature_dict
 
@@ -68,7 +78,16 @@ def get_window_feature_dict(
 
     bin_idx = (times // dt).long()
 
+    if times.shape[1] < bin_idx.max() + 1:
+        raise ValueError("Not enough time bins to cover the times!")
+    if bin_idx.min() < 0:
+        raise ValueError("Negative bin indices found!")
+
     feature_dict: dict[Feats, torch.Tensor] = {}
+
+    times = X[Feats.TIMES]
+    bin_idx = (times // dt).long()
+    B, L = times.shape
 
     up_counts = torch.zeros_like(times).scatter_add_(
         1, bin_idx, (X[Feats.DIRS] == UPLOAD).float()
@@ -84,9 +103,9 @@ def get_window_feature_dict(
     feature_dict[Feats.DOWN_COUNT] = _flush_left(down_counts, mask)[:, :max_l]
 
     times_ = _flush_left(times_, mask)[:, :max_l]
+
     times_ = _fill_w_last(times_, pad_val=0)
     feature_dict[Feats.TIMES] = times_
-
     feature_dict = _add_actions_to_silence_periods(feature_dict, max_silence_s)
 
     dts = feature_dict[Feats.TIMES].diff(
@@ -94,11 +113,15 @@ def get_window_feature_dict(
     )
 
     feature_dict[Feats.Dt] = dts
-    mask = dts != 0
-    mask[:, 0] = True  # Keep the first time point.
+    mask = feature_dict[Feats.TIMES].isfinite()
     max_l = mask.sum(dim=1).max()
     # dict[Feats, Tensor (B, max_l)]
-    feature_dict = {k: _flush_left(v, mask)[:, :max_l] for k, v in feature_dict.items()}
+    feature_dict = {
+        k: _flush_left(v, mask, pad_val=torch.nan)[:, :max_l]
+        for k, v in feature_dict.items()
+    }
+
+    feature_dict[Feats.SEQ_LENS] = mask.sum(dim=1)
 
     if (feature_dict[Feats.Dt].diff(dim=1).max()) > max_silence_s:
         breakpoint()
@@ -108,7 +131,13 @@ def get_window_feature_dict(
         raise ValueError("Some requested features are missing!")
 
     for f, k in zip((Feats.UP_COUNT, Feats.DOWN_COUNT), (UPLOAD, DOWNLOAD)):
-        if (feature_dict[f].sum(dim=1) != (X[Feats.DIRS] == k).sum(dim=1)).any():
+        if (
+            torch.where(feature_dict[f].isfinite(), feature_dict[f], 0).sum(dim=1)
+            != (X[Feats.DIRS] == k).sum(dim=1)
+        ).any():
+            print(f, k)
+            print(feature_dict[f].sum(dim=1), (X[Feats.DIRS] == k).sum(dim=1))
+            breakpoint()
             raise ValueError("Missing packets")
 
     return feature_dict

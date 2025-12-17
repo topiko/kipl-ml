@@ -16,7 +16,7 @@ def _fill_w_last(values: torch.Tensor, pad_val: float) -> torch.Tensor:
         raise ValueError("More than one val -> pad_val detected!")
 
     for idx_r, idx_c in zip(rows, cols):
-        values[idx_r, idx_c:] = values[idx_r, idx_c]
+        values[idx_r, (idx_c + 1) :] = torch.nan  # values[idx_r, idx_c]
 
     return values
 

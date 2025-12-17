@@ -47,19 +47,23 @@ def _plot_probs(
     cl_probs = _squeeze_batched(cl_probs, idx)
 
     ax2 = ax.twinx()
-    max_p = cl_probs.max(axis=1)
+    if true_class is not None:
+        max_p = cl_probs[:, true_class]
+        label = f"Class {true_class} prob."
+    else:
+        max_p = cl_probs.max(axis=1).numpy()
+        label = "Max class prob."
 
     x = xs
 
-    ax2.plot(x, max_p, "-", lw=0.5)
-
-    ax3 = ax.twinx()
-    ax3.spines["right"].set_position(("outward", 40))  # offset by 40 points
+    ax2.plot(x, max_p, "-", lw=0.5, color="gray", alpha=1, label=label)
 
     preds = cl_probs.argmax(axis=1)
-    ax3.plot(x, preds, color="black", lw=1)
+    if true_class is None:
+        ax3 = ax.twinx()
+        ax3.spines["right"].set_position(("outward", 40))  # offset by 40 points
+        ax3.plot(x, preds, color="black", lw=1)
 
-    if true_class is not None:
         ax3.hlines(
             true_class,
             ls="--",
@@ -69,11 +73,14 @@ def _plot_probs(
             alpha=1.0,
             lw=0.5,
         )
-        mask = preds == true_class
-        ax3.scatter(x[mask], preds[mask], marker="*", color="green")
+        ax3.spines["right"].set_visible(True)
 
     ax2.spines["right"].set_visible(True)
-    ax3.spines["right"].set_visible(True)
+
+    mask = preds == true_class
+    ax2.scatter(x[mask], max_p[mask], marker="D", color="green", s=10)
+
+    ax2.legend(frameon=False, loc=4)
 
 
 def _plot_boxes(
@@ -82,12 +89,13 @@ def _plot_boxes(
     for xi, w, h in zip(x, widths, heights):
         if h == 0:
             continue
-        rect = plt.Rectangle(
-            (xi - w / 2, 0),
-            w,
-            h,
-            **kwargs,
-        )
+        if h < 0:
+            y = h
+            h = -h
+        else:
+            y = 0
+
+        rect = plt.Rectangle((xi, y), w, h, **kwargs)
         ax.add_patch(rect)
 
 
@@ -190,6 +198,7 @@ def plot_actions(
     times = _squeeze_batched(times, idx)
     actions = {k: _squeeze_batched(v, idx) for k, v in actions.items()}
 
+    max_c = 0
     for ackt in (
         Actions.WAIT,
         (Actions.SEND_COUNT_UP, Actions.SEND_TIME_UP),
@@ -197,6 +206,7 @@ def plot_actions(
     ):
         if isinstance(ackt, tuple):
             counts = actions[ackt[0]]
+            counts[counts == 0] = 0.05
             durs = actions[ackt[1]]
 
             match ackt[0]:
@@ -204,18 +214,47 @@ def plot_actions(
                     color = UP_COLOR
                 case Actions.SEND_COUNT_DOWN:
                     color = DOWN_COLOR
+                    counts = -counts
                 case _:
                     raise ValueError(f"Unknown action type: {ackt[0]}")
+
+            max_c = max(max_c, np.absolute(counts).max())
 
             _plot_boxes(
                 x=times, widths=durs, heights=counts, color=color, alpha=0.2, ax=ax
             )
         elif ackt == Actions.WAIT:
             counts = np.zeros_like(times)
-            durs = np.diff(times, prepend=np.array([0]), axis=0)
+            durs = np.diff(times, append=np.array([times[-1]]), axis=0)
             counts[actions[ackt] == 1] = 1
 
             _plot_boxes(times, durs, counts, color="gray", alpha=0.2, ax=ax)
+
+        ax.vlines(times, -0.1, 0.1, color="black", lw=0.5)
+
+    ax.set_ylim(-max_c * 1.1, max_c * 1.1)
+    return ax
+
+
+def plot_obs_features(
+    fd: dict[Feats, torch.Tensor], idx: int | None = None, ax: plt.Axes | None = None
+) -> plt.Axes:
+    if ax is None:
+        _, ax = plt.subplots(figsize=(12, 3))
+
+    fd_ = {k: _squeeze_batched(v, idx) for k, v in fd.items()}
+
+    times = fd_[Feats.TIMES]
+    up_count = fd_[Feats.UP_COUNT]
+    down_count = fd_[Feats.DOWN_COUNT]
+    Dt = fd_[Feats.Dt]
+
+    _plot_boxes(times[:-1], Dt[1:], up_count[:-1], color=UP_COLOR, alpha=0.5, ax=ax)
+    _plot_boxes(
+        times[:-1], Dt[1:], -down_count[:-1], color=DOWN_COLOR, alpha=0.5, ax=ax
+    )
+
+    ax.set_ylim(-down_count.max() * 1.1, up_count.max() * 1.1)
 
     return ax
 

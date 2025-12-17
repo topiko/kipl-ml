@@ -247,7 +247,13 @@ class AGENT1(nn.Module):
 
             # (N, h_detach_period)
             x_chunk = {
-                k: v[active_seqs, i * h_detach_period : (i + 1) * h_detach_period]
+                k: torch.where(
+                    v[
+                        active_seqs, i * h_detach_period : (i + 1) * h_detach_period
+                    ].isfinite(),
+                    v[active_seqs, i * h_detach_period : (i + 1) * h_detach_period],
+                    0,
+                )
                 for k, v in x.items()
             }
 
