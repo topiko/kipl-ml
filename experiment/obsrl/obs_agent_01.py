@@ -280,13 +280,16 @@ def main(cfg: DictConfig):
     dl_train = dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    if not np.isclose((cfg.obs_max_silence_s % cfg.obs_time_step_s), 0.0):
+    k = round(cfg.obs_max_silence_s / cfg.obs_time_step_s)
+    obs_max_silence_s = k * cfg.obs_time_step_s
+    if not np.isclose(cfg.obs_max_silence_s, obs_max_silence_s).all():
         raise ValueError(
             f"obs_max_silence_s must be multiple of obs_time_step_s, got {cfg.obs_max_silence_s} and {cfg.obs_time_step_s}"
         )
+
     obs = AGENT1(
         time_step=cfg.obs_time_step_s,
-        max_silence_s=cfg.obs_max_silence_s,
+        max_silence_s=obs_max_silence_s,
         zero_init=False,
     ).to(device)
     discriminator = discriminator.to(device)
