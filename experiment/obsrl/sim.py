@@ -140,7 +140,16 @@ def rollout(
     if reward_scales is not None:
         disc.eval()
         with torch.no_grad():
-            logits, hdisc = disc(Xobs, hdisc)
+            logits_l = []
+            i = 0
+            max_t = 100
+            while True:
+                if i * max_t >= Xobs[Feats.TIMES].shape[1]:
+                    break
+                Xobs_ = {k: v[:, i * max_t : (i + 1) * max_t] for k, v in Xobs.items()}
+                logits_, hdisc = disc(Xobs_, hdisc)
+                logits_l.append(logits_)
+            logits = torch.cat(logits_l, dim=1)
 
         t4 = time.time()
         rewards = get_rewards(
