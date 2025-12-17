@@ -280,7 +280,7 @@ def main(cfg: DictConfig):
     dl_train = dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    if np.isclose((cfg.obs_max_silence_s % cfg.obs_time_step_s), 0.0):
+    if not np.isclose((cfg.obs_max_silence_s % cfg.obs_time_step_s), 0.0):
         raise ValueError(
             f"obs_max_silence_s must be multiple of obs_time_step_s, got {cfg.obs_max_silence_s} and {cfg.obs_time_step_s}"
         )
@@ -422,8 +422,6 @@ def main(cfg: DictConfig):
                             "dacc": np.mean(losses_metrics_d["disc_acc"][-30:]),
                         }
                     )
-
-                    break
 
             mlflow.log_metrics(
                 {k: np.mean(l_) for k, l_ in losses_metrics_d.items()}, step=e
