@@ -299,7 +299,7 @@ def main(cfg: DictConfig):
     disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
 
     e = 0
-    detach_period = 50
+    detach_period = cfg.h_detach_period
     with mlflow.start_run(log_system_metrics=True):
         train_disc = True
         while True:

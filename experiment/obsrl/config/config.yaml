@@ -11,9 +11,10 @@ advantages:
   lambda_: 0.95
   standardize: True
 
-test_run: True
-obs_time_step_s: 0.03
-obs_max_silence_s: 0.3
+
+obs_time_step_s: 0.02
+obs_max_silence_s: 0.24
+h_detach_period: 50
 discounting: 0.99
 trace_len: 5_000
 batch_size: 32
