@@ -163,6 +163,15 @@ def _plot_single(
         label="Return",
         lw=1,
     )
+    ax_r.plot(
+        times.squeeze().cpu().numpy(),
+        values.squeeze().cpu().numpy(),
+        "--",
+        label="Values estim.",
+        color="black",
+        lw=1,
+    )
+
     ax_r.set_ylabel("Return", color="k")
 
     ax_r.legend(frameon=False, loc=1)
