@@ -227,6 +227,7 @@ def one_batch_train_disc(
     y: torch.Tensor,
     disc_opm: torch.optim.Optimizer,
     train: bool = True,
+    grad_clip: float = 3.0,
 ) -> tuple[float, float]:
     if train:
         disc.train()
@@ -236,6 +237,10 @@ def one_batch_train_disc(
             logits.permute(0, 2, 1), y.unsqueeze(-1).repeat(1, logits.shape[1])
         )
         loss.backward()
+
+        # Gradient clipping
+        nn.utils.clip_grad_norm_(disc.parameters(), grad_clip, error_if_nonfinite=True)
+
         disc_opm.step()
     else:
         disc.eval()
