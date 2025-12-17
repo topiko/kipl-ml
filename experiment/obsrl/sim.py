@@ -69,16 +69,16 @@ def get_rewards(
         p_lvl = 0.1
         float_mltp = (mask & ~padding).float()
         nnormal = float_mltp.sum(dim=1)
-        sum_p = torch.where(
+        mean_p = torch.where(
             nnormal > 0,
-            ((p_lvl - target_probs) * (mask & ~padding).float()).sum(dim=1),
+            ((p_lvl - target_probs) * (mask & ~padding).float()).sum(dim=1) / nnormal,
             0,
         )
 
         #
         normal_mask = (nnormal > 0) & ~len_mask
         rewards["clf"][normal_mask, i] += (
-            sum_p[normal_mask] * reward_scales["clf_scale"]
+            mean_p[normal_mask] * reward_scales["clf_scale"]
         )
 
     return rewards

@@ -277,7 +277,7 @@ def main(cfg: DictConfig):
     with mlflow.start_run(log_system_metrics=True):
         train_disc = True
         while True:
-            reward_scales = {"clf_scale": 1.0, "padding_scale": -0.001}
+            reward_scales = {"clf_scale": 10.0, "padding_scale": 0.001}
             losses_metrics_d: dict[str, list[float]] = {
                 "loss": [],
                 "policy_loss": [],
@@ -293,6 +293,7 @@ def main(cfg: DictConfig):
                 {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
             )
 
+            train_disc = (e // 10) % 2 == 0
             with tqdm(
                 dl_train,
                 desc=f"epoch {e:02d}",
@@ -320,14 +321,17 @@ def main(cfg: DictConfig):
                     value_loss = 0.5 * (values - G.detach()).pow(2).mean()
                     entropy_loss = -entropies.mean()
 
-                    loss = policy_loss + value_loss + 0.0 * entropy_loss
+                    loss = policy_loss + value_loss + 0.01 * entropy_loss
 
                     loss.backward()
 
                     # Sanity checks:
                     # ==========================================
                     for k, v in rewards.items():
-                        assert_finite(f"rewards-{k}", v)
+                        try:
+                            assert_finite(f"rewards-{k}", v)
+                        except ValueError:
+                            breakpoint()
                     assert_finite("values", values)
                     assert_finite("log_ps", log_ps)
 
