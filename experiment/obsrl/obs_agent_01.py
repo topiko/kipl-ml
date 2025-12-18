@@ -15,6 +15,7 @@ from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import Datasets, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
+from kipl_ml.defences.base import NoDefence
 from kipl_ml.defences.nndefs import RNNDef
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.metrics.clf_metrics import Accuracy
@@ -302,6 +303,10 @@ def valid_metrics(
         disc, dl_valid, metrics=[Accuracy()], key=key, loss_fn=nn.CrossEntropyLoss()
     )
 
+    # Restore no defence
+    ds_valid.defence = NoDefence(
+        network_delay_millis=(0, 0), network_pps=(40_000, 40_000)
+    )
     obs.to(device)
 
     return d
