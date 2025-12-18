@@ -365,8 +365,8 @@ def main(cfg: DictConfig):
                 "value_loss": [],
                 "avg_return": [],
                 "entropy_loss": [],
-                "disc_loss": [],
-                "disc_acc": [],
+                "disc_train_loss": [],
+                "disc_train_acc": [],
                 "mean_padding_count": [],
                 "mean_trace_len": [],
             }
@@ -461,8 +461,8 @@ def main(cfg: DictConfig):
                     losses_metrics_d["value_loss"].append(value_loss.item())
                     losses_metrics_d["avg_return"].append(G.mean().item())
                     losses_metrics_d["entropy_loss"].append(entropy_loss.item())
-                    losses_metrics_d["disc_acc"].append(acc)
-                    losses_metrics_d["disc_loss"].append(disc_loss)
+                    losses_metrics_d["disc_train_acc"].append(acc)
+                    losses_metrics_d["disc_train_loss"].append(disc_loss)
                     losses_metrics_d["mean_padding_count"].append(
                         Xobs[Feats.PADDING].sum(dim=1).float().mean().item()
                     )
@@ -476,7 +476,7 @@ def main(cfg: DictConfig):
                     pbar.set_postfix(
                         {
                             "avg_return": np.mean(losses_metrics_d["avg_return"][-30:]),
-                            "dacc": np.mean(losses_metrics_d["disc_acc"][-30:]),
+                            "dacc": np.mean(losses_metrics_d["disc_train_acc"][-30:]),
                         }
                     )
 
