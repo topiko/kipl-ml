@@ -237,20 +237,36 @@ def one_batch_train_disc(
     disc_opm: torch.optim.Optimizer,
     train: bool = True,
     grad_clip: float = 3.0,
+    detach_period: int = 500,
 ) -> tuple[float, float]:
     if train:
         disc.train()
-        disc_opm.zero_grad()
-        logits, _ = disc(X)
-        loss = nn.functional.cross_entropy(
-            logits.permute(0, 2, 1), y.unsqueeze(-1).repeat(1, logits.shape[1])
-        )
-        loss.backward()
 
-        # Gradient clipping
-        nn.utils.clip_grad_norm_(disc.parameters(), grad_clip, error_if_nonfinite=True)
+        h = None
+        i = 0
+        while True:
+            if i * detach_period >= X[Feats.DIRS].shape[1]:
+                break
+            disc_opm.zero_grad()
 
-        disc_opm.step()
+            X_chunk = {
+                k: v[:, i * detach_period : (i + 1) * detach_period]
+                for k, v in X.items()
+            }
+            logits, h = disc(X_chunk, h)
+            h = tuple(h_.detach() for h_ in h)
+            loss = nn.functional.cross_entropy(
+                logits.permute(0, 2, 1), y.unsqueeze(-1).repeat(1, logits.shape[1])
+            )
+            loss.backward()
+
+            # Gradient clipping
+            nn.utils.clip_grad_norm_(
+                disc.parameters(), grad_clip, error_if_nonfinite=True
+            )
+
+            disc_opm.step()
+            i += 1
     else:
         disc.eval()
         logits, _ = disc(X)
