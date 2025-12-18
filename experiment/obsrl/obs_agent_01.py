@@ -374,6 +374,10 @@ def main(cfg: DictConfig):
                 {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
             )
 
+            obs.train()
+            if train_disc:
+                discriminator.train()
+
             with tqdm(
                 dl_train,
                 desc=f"epoch {e:02d}",
@@ -382,7 +386,6 @@ def main(cfg: DictConfig):
                 for X, y in pbar:
                     X = dict_to_device(X, device)
                     y = y.to(device)
-                    obs.train()
 
                     optim.zero_grad()
                     log_ps, values, rewards, entropies, _, _, Xobs, _ = rollout(
