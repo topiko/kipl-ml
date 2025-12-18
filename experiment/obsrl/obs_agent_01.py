@@ -240,7 +240,7 @@ def one_batch_train_disc(
     disc_opm: torch.optim.Optimizer,
     train: bool = True,
     grad_clip: float = 3.0,
-    detach_period: int = 1000,
+    detach_period: int = 500,
 ) -> tuple[float, float]:
     if train:
         disc.train()

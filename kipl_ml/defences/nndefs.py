@@ -127,6 +127,7 @@ class RNNDef(_NNDef):
 
         seq_lens = fd.pop(Feats.SEQ_LENS)
 
+        self.defense_model.eval()
         with torch.no_grad():
             act_times, actions = self.defense_model.act(
                 fd, h, h_detach_period=100, seq_lens=seq_lens
