@@ -349,7 +349,6 @@ def main(cfg: DictConfig):
                 {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
             )
 
-            train_disc = (e // 10) % 2 == 0
             with tqdm(
                 dl_train,
                 desc=f"epoch {e:02d}",
@@ -466,19 +465,20 @@ def main(cfg: DictConfig):
                 mlflow.pytorch.log_model(obs, name=f"rlobs-{e}")
                 mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}")
 
-            _plot_set(
-                cfg=cfg,
-                ds=ds_valid,
-                obs=obs,
-                clf_orig=discriminator_orig,
-                clf_trained=discriminator,
-                e=e,
-                reward_scales=reward_scales,
-                device=device,
-                ntraces=20,
-            )
+                _plot_set(
+                    cfg=cfg,
+                    ds=ds_valid,
+                    obs=obs,
+                    clf_orig=discriminator_orig,
+                    clf_trained=discriminator,
+                    e=e,
+                    reward_scales=reward_scales,
+                    device=device,
+                    ntraces=20,
+                )
 
             e += 1
+            train_disc = (e // 10) % 2 == 0
 
 
 if __name__ == "__main__":
