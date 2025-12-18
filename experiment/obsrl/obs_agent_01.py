@@ -286,17 +286,25 @@ def one_batch_train_disc(
 
 
 def valid_metrics(
-    disc: nn.Module, obs: nn.Module, ds_valid: WFDataset
+    disc: nn.Module,
+    obs: nn.Module,
+    ds_valid: WFDataset,
+    key: str = "valid:obs_vs._disc",
+    device: torch.DeviceObjType = "cpu",
 ) -> dict[str, float]:
-    def_ = RNNDef((0, 0), (40_000, 40_000), obs, n_packets=10000)
+    def_ = RNNDef((0, 0), (40_000, 40_000), obs.to("cpu"), n_packets=10000)
 
     ds_valid.defence = def_
 
-    dl_valid = dl_(ds_valid, bs=32, collate_fn=None, shuffle=False, nworkers=0)
+    dl_valid = dl_(ds_valid, bs=32, collate_fn=None, shuffle=False, nworkers=None)
 
-    return evaluate_model(
-        disc, dl_valid, metrics=[Accuracy()], key="valid", loss_fn=nn.CrossEntropyLoss()
+    d = evaluate_model(
+        disc, dl_valid, metrics=[Accuracy()], key=key, loss_fn=nn.CrossEntropyLoss()
     )
+
+    obs.to(device)
+
+    return d
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
@@ -365,13 +373,6 @@ def main(cfg: DictConfig):
             losses_metrics_d.update(
                 {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
             )
-
-            d = valid_metrics(
-                disc=discriminator,
-                obs=obs,
-                ds_valid=ds_valid,
-            )
-            print(d)
 
             with tqdm(
                 dl_train,
@@ -482,8 +483,12 @@ def main(cfg: DictConfig):
             mlflow.log_metrics(
                 {k: np.mean(l_) for k, l_ in losses_metrics_d.items()}, step=e
             )
-
             losses_metrics_d = {k: [] for k in losses_metrics_d}
+
+            d = valid_metrics(
+                disc=discriminator, obs=obs, ds_valid=ds_valid, device=device
+            )
+            mlflow.log_metrics(d)
 
             if e % 10 == 0:
                 mlflow.pytorch.log_model(obs, name=f"rlobs-{e}")
