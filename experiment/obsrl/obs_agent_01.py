@@ -329,6 +329,7 @@ def main(cfg: DictConfig):
         test_xv=TEST_XV,
         random_state=42,
         feature_trs=FeatureTrs(feature_names=feature_names, n_packets=cfg.trace_len),
+        defence_aug_valid=0,
         **defence_builder.get_defence(cfg),
     )
 
