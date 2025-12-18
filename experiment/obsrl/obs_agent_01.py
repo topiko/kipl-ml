@@ -15,7 +15,10 @@ from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import Datasets, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
+from kipl_ml.defences.nndefs import RNNDef
 from kipl_ml.logging.logger import TQDM_W, get_logger
+from kipl_ml.metrics.clf_metrics import Accuracy
+from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.trgen import AGENT1
 from kipl_ml.rl.advantages import get_gae, get_returns
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
@@ -282,6 +285,20 @@ def one_batch_train_disc(
     return loss_val, accuracy
 
 
+def valid_metrics(
+    disc: nn.Module, obs: nn.Module, ds_valid: WFDataset
+) -> dict[str, float]:
+    def_ = RNNDef((0, 0), (40_000, 40_000), obs, n_packets=10000)
+
+    ds_valid.defence = def_
+
+    dl_valid = dl_(ds_valid, bs=32, collate_fn=None, shuffle=False, nworkers=0)
+
+    return evaluate_model(
+        disc, dl_valid, metrics=[Accuracy()], key="valid", loss_fn=nn.CrossEntropyLoss()
+    )
+
+
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
 def main(cfg: DictConfig):
     experiment_name = "obsrl"
@@ -348,6 +365,13 @@ def main(cfg: DictConfig):
             losses_metrics_d.update(
                 {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
             )
+
+            d = valid_metrics(
+                disc=discriminator,
+                obs=obs,
+                ds_valid=ds_valid,
+            )
+            print(d)
 
             with tqdm(
                 dl_train,
@@ -477,8 +501,8 @@ def main(cfg: DictConfig):
                     ntraces=20,
                 )
 
-            e += 1
             train_disc = (e // 10) % 2 == 0
+            e += 1
 
 
 if __name__ == "__main__":

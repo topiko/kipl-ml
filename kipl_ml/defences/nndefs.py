@@ -121,11 +121,11 @@ class RNNDef(_NNDef):
         fd = get_window_feature_dict(
             trace_d,
             self.defense_model.time_step,
-            100.0,
+            self.defense_model.max_silence_s,
             features=self.defense_model.features,
         )
 
-        seq_lens = torch.Tensor([fd[self.defense_model.features[0]].shape[1]]).long()
+        seq_lens = fd.pop(Feats.SEQ_LENS)
 
         with torch.no_grad():
             act_times, actions = self.defense_model.act(

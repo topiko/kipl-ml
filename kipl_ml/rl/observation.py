@@ -75,27 +75,24 @@ def get_window_feature_dict(
 ) -> dict[Feats, torch.Tensor]:
     # (B, L)
     times = X[Feats.TIMES]
-
     bin_idx = (times // dt).long()
 
-    if times.shape[1] < bin_idx.max() + 1:
-        raise ValueError("Not enough time bins to cover the times!")
     if bin_idx.min() < 0:
         raise ValueError("Negative bin indices found!")
 
     feature_dict: dict[Feats, torch.Tensor] = {}
+    device = times.device
+    shape = (times.shape[0], bin_idx.max() + 1)
 
-    times = X[Feats.TIMES]
-    bin_idx = (times // dt).long()
-    B, L = times.shape
-
-    up_counts = torch.zeros_like(times).scatter_add_(
+    up_counts = torch.zeros(shape, device=device).scatter_add_(
         1, bin_idx, (X[Feats.DIRS] == UPLOAD).float()
     )
-    down_counts = torch.zeros_like(times).scatter_add_(
+    down_counts = torch.zeros(shape, device=device).scatter_add_(
         1, bin_idx, (X[Feats.DIRS] == DOWNLOAD).float()
     )
-    times_ = torch.zeros_like(times).scatter_(1, bin_idx, bin_idx.float() * dt)
+    times_ = torch.zeros(shape, device=device).scatter_(
+        1, bin_idx, bin_idx.float() * dt
+    )
 
     mask = (up_counts != 0) | (down_counts != 0)
     max_l = mask.sum(dim=1).max()
