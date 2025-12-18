@@ -491,7 +491,7 @@ def main(cfg: DictConfig):
             d = valid_metrics(
                 disc=discriminator, obs=obs, ds_valid=ds_valid, device=device
             )
-            mlflow.log_metrics(d)
+            mlflow.log_metrics(d, step=e)
 
             if e % 10 == 0:
                 mlflow.pytorch.log_model(obs, name=f"rlobs-{e}")
