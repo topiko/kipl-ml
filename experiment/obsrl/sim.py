@@ -3,10 +3,13 @@ import time
 import torch
 from torch import nn
 
+from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.action import send_exec
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import get_window_feature_dict
 from kipl_ml.trace.enums import Feats
+
+logger = get_logger(__name__)
 
 
 def get_rewards(
@@ -119,6 +122,7 @@ def rollout(
     t1 = time.time()
 
     bs, _ = fd[Feats.Dt].shape
+    device = fd[Feats.Dt].device
 
     # We need the seq. lens in forward.
     seq_lens = fd.pop(Feats.SEQ_LENS)
@@ -143,11 +147,36 @@ def rollout(
             logits_l = []
             i = 0
             max_t = 100
+            if (max_l := (Xobs[Feats.DIRS] == 0).sum(dim=1).max()) > 10000:
+                min_p = (Xobs[Feats.DIRS] != 0).sum(dim=1).min()
+                logger.warning(
+                    f"Huge ({min_p} -> {max_l}, {Xobs[Feats.DIRS].shape[1]}) seq. of zeros fed to disc. --> issues"
+                )
+
             while True:
                 if i * max_t >= Xobs[Feats.TIMES].shape[1]:
                     break
                 Xobs_ = {k: v[:, i * max_t : (i + 1) * max_t] for k, v in Xobs.items()}
                 logits_, hdisc = disc(Xobs_, hdisc)
+
+                # mask = (Xobs_[Feats.DIRS] != 0).any(dim=1)
+                # logits_ = torch.zeros(
+                #     (bs, Xobs_[Feats.TIMES].shape[1], 95), device=device
+                # )
+
+                # Xobs_ = {k: v[mask] for k, v in Xobs_.items()}
+
+                # if hdisc is not None:
+                #     hdisc_ = _hidden_w_mask(hdisc, mask)
+                # else:
+                #     hdisc_ = hdisc
+                # logits_[mask], hdisc_ = disc(Xobs_, hdisc_)
+
+                # if hdisc is None:
+                #     hdisc = hdisc_
+
+                # hdisc = _hidden_w_mask(hdisc, mask, hdisc_)
+
                 if logits_.isnan().any():
                     breakpoint()
                     raise ValueError("NaN in disc logits")
