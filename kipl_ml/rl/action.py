@@ -131,7 +131,14 @@ def send_exec(
 
     # In the above cat, the max in up/down padding does not
     # coinside on the same row -> the tensor becomes zero padded.
+    mask = X[Feats.DIRS] != 0
+    X = {k: _flush_left(v, mask, pad_val=0) for k, v in X.items()}
+
     max_l = (X[Feats.DIRS] != 0).sum(dim=1).max()
+
+    if ((X[Feats.DIRS] != 0).diff(dim=1).sum(dim=1) > 1).any():
+        raise ValueError("Non contiguous send actions detected")
+
     X = {k: v[:, :max_l] for k, v in X.items()}
 
     X = _sort_feature_dict(X)
