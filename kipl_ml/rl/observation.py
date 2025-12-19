@@ -120,9 +120,10 @@ def get_window_feature_dict(
 
     feature_dict[Feats.SEQ_LENS] = mask.sum(dim=1)
 
-    if (feature_dict[Feats.Dt].diff(dim=1).max()) > max_silence_s:
-        breakpoint()
-        logger.warning("max_silence_s is not implemented yet in get_feature_dict!")
+    if (max_s := feature_dict[Feats.Dt].diff(dim=1).max()) > max_silence_s:
+        logger.warning(
+            f"Found max silence {max_s:.4f}, whereas you wish max silence = {max_silence_s:.4f}."
+        )
 
     if not all(f in feature_dict for f in features):
         raise ValueError("Some requested features are missing!")

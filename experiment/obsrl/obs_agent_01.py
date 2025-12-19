@@ -241,7 +241,7 @@ def one_batch_train_disc(
     disc_opm: torch.optim.Optimizer,
     train: bool = True,
     grad_clip: float = 3.0,
-    detach_period: int = 500,
+    detach_period: int = 1000,
 ) -> tuple[float, float]:
     if train:
         disc.train()
@@ -266,7 +266,7 @@ def one_batch_train_disc(
 
             # Gradient clipping
             nn.utils.clip_grad_norm_(
-                disc.parameters(), grad_clip, error_if_nonfinite=True
+                disc.parameters(), grad_clip, error_if_nonfinite=False
             )
 
             disc_opm.step()

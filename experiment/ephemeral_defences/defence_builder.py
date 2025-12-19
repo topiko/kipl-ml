@@ -229,11 +229,11 @@ def rlobs(cfg: OmegaConf) -> dict[str, RNNDef]:
 
     seed = cfg.misc.seed
 
-    def _rlobs(seed: int):
+    def _rlobs(seed: int, idx: int):
         return RNNDef(
             network_delay_millis=netwk_delay,
             network_pps=netwk_pps,
-            obs_model=cfg.defence.model_id,
+            obs_model=cfg.defence.model_id[idx],
             n_packets=cfg.model.trace_len,
             seed=seed,
             fixed_per_trace=False,
@@ -241,7 +241,7 @@ def rlobs(cfg: OmegaConf) -> dict[str, RNNDef]:
         )
 
     return {
-        "defence_train": _rlobs(seed + 1),
-        "defence_valid": _rlobs(seed + 2),
-        "defence_test": _rlobs(seed + 3),
+        "defence_train": _rlobs(seed + 1, 0),
+        "defence_valid": _rlobs(seed + 2, 1),
+        "defence_test": _rlobs(seed + 3, 2),
     }

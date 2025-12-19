@@ -1,2 +1,6 @@
 type: "rlobs"
-model_id: "model-id"
+model_id:
+  - m-031c44a86c8a4a37a882fbdb18454526
+  - m-ae0449070c074e788e8ac02d4d89a309
+  - m-ae0449070c074e788e8ac02d4d89a309
+

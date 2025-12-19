@@ -64,6 +64,10 @@ class _NNDef(_Def):
         str_ += f"\t{self.network_delay_millis}\n"
         str_ += f"\t{self.network_pps}\n"
         str_ += f"\tFixed per trace: {self.FIXED_PER_TRACE}\n"
+        str_ += f"\tModel ({self._model_id}):\n"
+
+        str_ += f"\t\tTime step: {self.defense_model.time_step}\n"
+        str_ += f"\t\tMax silence: {self.defense_model.max_silence_s}\n"
 
         if self.simul_kwargs:
             str_ += "Simul. args\n"
