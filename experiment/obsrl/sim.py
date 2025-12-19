@@ -148,6 +148,9 @@ def rollout(
                     break
                 Xobs_ = {k: v[:, i * max_t : (i + 1) * max_t] for k, v in Xobs.items()}
                 logits_, hdisc = disc(Xobs_, hdisc)
+                if logits_.isnan().any():
+                    breakpoint()
+                    raise ValueError("NaN in disc logits")
                 logits_l.append(logits_)
                 i += 1
             logits = torch.cat(logits_l, dim=1)
