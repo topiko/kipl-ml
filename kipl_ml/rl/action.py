@@ -129,6 +129,11 @@ def send_exec(
         X[Feats.DIRS] = torch.cat([X[Feats.DIRS], dirs_], dim=1)
         X[Feats.PADDING] = torch.cat([X[Feats.PADDING], padding_], dim=1)
 
+    # In the above cat, the max in up/down padding does not
+    # coinside on the same row -> the tensor becomes zero padded.
+    max_l = (X[Feats.DIRS] != 0).sum(dim=1).max()
+    X = {k: v[:, :max_l] for k, v in X.items()}
+
     X = _sort_feature_dict(X)
 
     return X
