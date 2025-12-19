@@ -13,4 +13,5 @@ DEFENCE_NAME_MAP = {
     "nodefence": "Undefended",
     "no_defence": "Undefended",
     "tamaraw": "Tamaraw",
+    "rnndef": "RLObs",
 }
