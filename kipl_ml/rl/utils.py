@@ -7,7 +7,9 @@ from kipl_ml.logging.logger import get_logger
 logger = get_logger(__name__)
 
 
-def _fill_w_last(values: torch.Tensor, pad_val: float) -> torch.Tensor:
+def _fill_after_seq_end(
+    values: torch.Tensor, pad_val: float, fill_val: str = "nan"
+) -> torch.Tensor:
     mask = (values != pad_val).float()
 
     rows, cols = torch.where(mask.diff(dim=1) < 0)
@@ -16,7 +18,12 @@ def _fill_w_last(values: torch.Tensor, pad_val: float) -> torch.Tensor:
         raise ValueError("More than one val -> pad_val detected!")
 
     for idx_r, idx_c in zip(rows, cols):
-        values[idx_r, (idx_c + 1) :] = torch.nan  # values[idx_r, idx_c]
+        if fill_val == "nan":
+            values[idx_r, (idx_c + 1) :] = torch.nan
+        elif fill_val == "last":
+            values[idx_r, (idx_c + 1) :] = values[idx_r, idx_c]
+        else:
+            raise ValueError(f"Unknown fill_val option: {fill_val}")
 
     return values
 

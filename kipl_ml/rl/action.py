@@ -5,7 +5,7 @@ import torch
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.enums import Actions
-from kipl_ml.rl.utils import _flush_left
+from kipl_ml.rl.utils import _fill_after_seq_end, _flush_left
 from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
@@ -23,6 +23,9 @@ def _sort_feature_dict(
 
     # The times are zero padded in the end. Fix this here.
     # ====================================
+    if sorted_times.isnan().any():
+        raise NotImplementedError("NaN times not supported in sorting yet.")
+
     rows, cols = torch.where(sorted_times.diff(dim=1) < 0)
 
     if rows.unique().numel() != len(rows):
@@ -141,6 +144,11 @@ def send_exec(
 
     X = {k: v[:, :max_l] for k, v in X.items()}
 
+    X[Feats.TIMES] = _fill_after_seq_end(X[Feats.TIMES], pad_val=0, fill_val="last")
+
     X = _sort_feature_dict(X)
+
+    if (X[Feats.TIMES].diff(dim=1) < 0).any():
+        raise ValueError("Unsorted times detected after send_exec")
 
     return X

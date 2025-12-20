@@ -4,7 +4,7 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.rl.utils import _fill_w_last, _flush_left
+from kipl_ml.rl.utils import _fill_after_seq_end, _flush_left
 from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
@@ -101,7 +101,7 @@ def get_window_feature_dict(
 
     times_ = _flush_left(times_, mask)[:, :max_l]
 
-    times_ = _fill_w_last(times_, pad_val=0)
+    times_ = _fill_after_seq_end(times_, pad_val=0)
     feature_dict[Feats.TIMES] = times_
     feature_dict = _add_actions_to_silence_periods(feature_dict, max_silence_s)
 
