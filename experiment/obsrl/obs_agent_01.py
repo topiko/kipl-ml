@@ -266,7 +266,7 @@ def one_batch_train_disc(
 
             # Gradient clipping
             nn.utils.clip_grad_norm_(
-                disc.parameters(), grad_clip, error_if_nonfinite=False
+                disc.parameters(), grad_clip, error_if_nonfinite=True
             )
 
             disc_opm.step()
