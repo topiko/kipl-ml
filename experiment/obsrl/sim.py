@@ -114,9 +114,6 @@ def rollout(
 
     t1 = time.time()
 
-    bs, _ = fd[Feats.Dt].shape
-    device = fd[Feats.Dt].device
-
     # We need the seq. lens in forward.
     seq_lens = fd.pop(Feats.SEQ_LENS)
 
@@ -137,7 +134,6 @@ def rollout(
     if reward_scales is not None:
         disc.eval()
         with torch.no_grad():
-            seq_lens = (Xobs[Feats.DIRS] != 0).sum(dim=1).long()
             logits, hdisc = disc.pack_and_forward(Xobs, hdisc, seq_lens)
 
             if logits.isnan().any():
@@ -151,10 +147,13 @@ def rollout(
 
     t5 = time.time()
 
-    # print()
-    # print(
-    #     f"Extr: {t1 - t0:.4f}, Act: {t2 - t1:.4f}, Exec: {t3 - t2:.4f}, Disc: {t4 - t3:.4f}, Rew: {t5 - t4:.4f}"
-    # )
+    timings = {
+        "Extr": t1 - t0,
+        "Act": t2 - t1,
+        "Exec": t3 - t2,
+        "Disc": t4 - t3,
+        "Rew": t5 - t4,
+    }
 
     return (
         log_ps,
