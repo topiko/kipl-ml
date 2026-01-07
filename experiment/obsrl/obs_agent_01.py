@@ -257,10 +257,21 @@ def one_batch_train_disc(
                 k: v[:, i * detach_period : (i + 1) * detach_period]
                 for k, v in X.items()
             }
-            logits, h = disc(X_chunk, h)
+            seq_lens = (X_chunk[Feats.DIRS] != 0).sum(dim=1)
+
+            logits, h = disc.pack_and_forward(X_chunk, h, seq_lens)
             h = tuple(h_.detach() for h_ in h)
+
+            # (B, T)
+            target = y[seq_lens != 0].unsqueeze(-1).repeat(1, logits.shape[1])
+            # Use PAD value to ignore loss on padded tokens
+            for b in range(target.shape[0]):
+                target[b, seq_lens[b] :] = -100
+
             loss = nn.functional.cross_entropy(
-                logits.permute(0, 2, 1), y.unsqueeze(-1).repeat(1, logits.shape[1])
+                logits.permute(0, 2, 1),
+                target,
+                ignore_index=-100,
             )
             loss.backward()
 
@@ -447,6 +458,7 @@ def main(cfg: DictConfig):
                         -Xobs[Feats.PADDING].sum(dim=1)
                         * reward_scales["padding_scale"],
                     ).all():
+                        breakpoint()
                         logger.warning("padding rewards issues")
                     # ==========================================
 

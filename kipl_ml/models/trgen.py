@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.distributions import Categorical, Normal, Poisson
-from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence
+from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence, pad_packed_sequence
 
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.enums import Actions
@@ -11,10 +11,17 @@ logger = get_logger(__name__)
 
 
 def _hidden_w_mask(
-    h: tuple[torch.Tensor, ...],
+    h: tuple[torch.Tensor, ...] | None,
     mask: torch.Tensor,
     hmasked: tuple[torch.Tensor, ...] | None = None,
-) -> tuple[torch.Tensor, ...]:
+) -> tuple[torch.Tensor, ...] | None:
+    if h is None:
+        if not mask.all():
+            raise ValueError("Hidden is none, but only a subet is selected")
+        if hmasked is not None:
+            return hmasked
+        return None
+
     if hmasked is None:
         return tuple(h_[:, mask] for h_ in h)
 
@@ -88,24 +95,20 @@ class RNNCLF1(nn.Module):
         )
 
         # Only select the needed h states:
-        if h is not None:
-            h_ = _hidden_w_mask(h, mask)
-        else:
-            h_ = None
+        h_ = _hidden_w_mask(h, mask)
 
         # (M, L, H), hidden
-        _, h_ = self.rnn(packed_inputs, h_)
+        output_packed, h_ = self.rnn(packed_inputs, h_)
+
+        output, lens = pad_packed_sequence(output_packed, batch_first=True)
 
         # h_[0].shape = (nhidden, B, hidden_size)
-        # In the last index we have the last rnn output.
-        # (M, H)
-        logits = self.final_lin(h_[0][-1])
+
+        # (M, L, n_classes)
+        logits = self.final_lin(output)
 
         # Update the hidden state:
-        if h is not None:
-            h = _hidden_w_mask(h, mask, h_)
-        else:
-            h = h_
+        h = _hidden_w_mask(h, mask, h_)
 
         return logits, h
 

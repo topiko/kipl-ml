@@ -45,21 +45,14 @@ def get_rewards(
         # (B, 1)
         t0 = action_times[:, i].unsqueeze(1)
 
-        # t1 is now beyond last step, e.g., seq_len = 10, i = 8, i + 1 = 9,
-        # and when i = 9, i + 1 = 10 -> t1 = inf
-        len_mask = (seq_lens - 1) < i + 1
-
-        if i < T - 1:
-            t1 = action_times[:, i + 1].unsqueeze(1)
+        # (B, 1)
+        if i + 1 == T:
+            t1 = torch.full_like(t0, torch.inf)
         else:
-            t1 = torch.ones_like(t0) * torch.inf
+            t1 = action_times[:, i + 1].unsqueeze(1)
 
-        if len_mask.any():
-            t1[len_mask, :] = torch.inf
-
-            # t0 is now at last step or beyond
-            t0_beyond_last = (seq_lens - 1) < i
-            t0[t0_beyond_last, :] = torch.inf
+        t0 = t0.nan_to_num(nan=torch.inf)
+        t1 = t1.nan_to_num(nan=torch.inf, posinf=torch.inf)
 
         # From the last action we take rewards all the way to end of times.
         mask = (times >= t0) & (times < t1)
@@ -79,7 +72,7 @@ def get_rewards(
         )
 
         #
-        normal_mask = (nnormal > 0) & ~len_mask
+        normal_mask = nnormal > 0
         rewards["clf"][normal_mask, i] += (
             mean_p[normal_mask] * reward_scales["clf_scale"]
         )
@@ -144,45 +137,12 @@ def rollout(
     if reward_scales is not None:
         disc.eval()
         with torch.no_grad():
-            logits_l = []
-            i = 0
-            max_t = 100
-            if (max_l := (Xobs[Feats.DIRS] == 0).sum(dim=1).max()) > 10000:
-                min_p = (Xobs[Feats.DIRS] != 0).sum(dim=1).min()
-                logger.warning(
-                    f"Huge ({min_p} -> {max_l}, {Xobs[Feats.DIRS].shape[1]}) seq. of zeros fed to disc. --> issues"
-                )
+            seq_lens = (Xobs[Feats.DIRS] != 0).sum(dim=1).long()
+            logits, hdisc = disc.pack_and_forward(Xobs, hdisc, seq_lens)
 
-            while True:
-                if i * max_t >= Xobs[Feats.TIMES].shape[1]:
-                    break
-                Xobs_ = {k: v[:, i * max_t : (i + 1) * max_t] for k, v in Xobs.items()}
-                logits_, hdisc = disc(Xobs_, hdisc)
-
-                # mask = (Xobs_[Feats.DIRS] != 0).any(dim=1)
-                # logits_ = torch.zeros(
-                #     (bs, Xobs_[Feats.TIMES].shape[1], 95), device=device
-                # )
-
-                # Xobs_ = {k: v[mask] for k, v in Xobs_.items()}
-
-                # if hdisc is not None:
-                #     hdisc_ = _hidden_w_mask(hdisc, mask)
-                # else:
-                #     hdisc_ = hdisc
-                # logits_[mask], hdisc_ = disc(Xobs_, hdisc_)
-
-                # if hdisc is None:
-                #     hdisc = hdisc_
-
-                # hdisc = _hidden_w_mask(hdisc, mask, hdisc_)
-
-                if logits_.isnan().any():
-                    breakpoint()
-                    raise ValueError("NaN in disc logits")
-                logits_l.append(logits_)
-                i += 1
-            logits = torch.cat(logits_l, dim=1)
+            if logits.isnan().any():
+                breakpoint()
+                raise ValueError("NaN in disc logits")
 
         t4 = time.time()
         rewards = get_rewards(
