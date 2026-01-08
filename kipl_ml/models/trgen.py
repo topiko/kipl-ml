@@ -138,39 +138,49 @@ class RNNCLF1(nn.Module):
 
     @torch.no_grad()
     def predict(
-        self, x: dict[Feats, torch.Tensor], h: torch.Tensor | None = None
+        self,
+        x: dict[Feats, torch.Tensor],
+        h: torch.Tensor | None = None,
+        seq_lens: torch.Tensor | None = None,
+        ks: int = 21,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if x[self.features[0]].ndim != 2:
             raise ValueError("Batched inputs expected!")
 
         # (N, nt, n_classes)
         logits, _ = self(x)
+        bs, nt, n_classes = logits.shape
 
         # (N, nt, n_classes)
         probs = nn.functional.softmax(logits, dim=2)
 
         # (N, nt)
         max_p = probs.max(dim=2)[0]
-        k = 21
 
         # (N, nt)
         max_p = nn.functional.conv1d(
             max_p.unsqueeze(1),
-            weight=torch.Tensor([1.0 / k] * k)
+            weight=torch.Tensor([1.0 / ks] * ks)
             .to(max_p.device)
             .unsqueeze(0)
             .unsqueeze(0),
             padding="same",
         ).squeeze(1)
 
+        if seq_lens is None:
+            seq_lens = (x[Feats.DIRS] != 0).sum(dim=1)
+
+        # (N, nt)
+        seq_lens_mask = torch.arange(nt).unsqueeze(0).repeat(
+            bs, 1
+        ) < seq_lens.unsqueeze(1)
+        # We are only interested in the domain of valid packets...
+        max_p = max_p.masked_fill(seq_lens_mask, 0.0)
+
         # (N, )
         col_idxs = max_p.argmax(dim=1)
 
-        bs = len(logits)
         row_idxs = torch.arange(bs).long()
-        # col_idxs = torch.clip(
-        #     (x[Feats.BURST_LENS] != 0).sum(dim=1).long(), 0, seq_len - 1
-        # )
 
         # (N, n_classes)
         logits = logits[row_idxs, col_idxs, :]
