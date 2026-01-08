@@ -41,6 +41,7 @@ class RNNCLF1(nn.Module):
         hsize: int = 256,
         nlayer: int = 3,
         dropout: float = 0.2,
+        predict_ks: int = 21,
     ):
         super().__init__()
 
@@ -60,6 +61,7 @@ class RNNCLF1(nn.Module):
         self.rnn = nn.LSTM(nfeat, hsize, nlayer, batch_first=True, dropout=dropout)
 
         self.final_lin = nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, n_classes))
+        self.predict_ks = predict_ks
 
     def pack_and_forward(
         self,
@@ -142,10 +144,12 @@ class RNNCLF1(nn.Module):
         x: dict[Feats, torch.Tensor],
         h: torch.Tensor | None = None,
         seq_lens: torch.Tensor | None = None,
-        ks: int = 21,
+        ks: int | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if x[self.features[0]].ndim != 2:
             raise ValueError("Batched inputs expected!")
+
+        ks = ks or self.predict_ks
 
         # (N, nt, n_classes)
         logits, _ = self(x)
@@ -171,15 +175,15 @@ class RNNCLF1(nn.Module):
             seq_lens = (x[Feats.DIRS] != 0).sum(dim=1)
 
         # (N, nt)
-        seq_lens_mask = torch.arange(nt).unsqueeze(0).repeat(
-            bs, 1
-        ) < seq_lens.unsqueeze(1)
+        seq_lens_mask = (
+            torch.arange(nt, device=max_p.device).unsqueeze(0).repeat(bs, 1)
+            > seq_lens.unsqueeze(1) - 1
+        )
         # We are only interested in the domain of valid packets...
         max_p = max_p.masked_fill(seq_lens_mask, 0.0)
 
         # (N, )
         col_idxs = max_p.argmax(dim=1)
-
         row_idxs = torch.arange(bs).long()
 
         # (N, n_classes)

@@ -23,3 +23,4 @@ grad_norm_clip: 5
 label_smoothing: 0.02
 disc_train_period: 5
 
+predict_ks: 1

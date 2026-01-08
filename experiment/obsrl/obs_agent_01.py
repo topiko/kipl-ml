@@ -249,7 +249,7 @@ def one_batch_train_disc(
         h = None
         i = 0
         while True:
-            if i * detach_period >= X[Feats.DIRS].shape[1]:
+            if i * detach_period >= X[Feats.DIRS].shape[1] - 1:
                 break
             disc_opm.zero_grad()
 
@@ -260,6 +260,9 @@ def one_batch_train_disc(
             seq_lens = (X_chunk[Feats.DIRS] != 0).sum(dim=1).cpu()
 
             logits, h = disc.pack_and_forward(X_chunk, h, seq_lens)
+            if logits is None:
+                breakpoint()
+
             h = tuple(h_.detach() for h_ in h)
 
             # (B, T)
@@ -335,6 +338,7 @@ def main(cfg: DictConfig):
 
     discriminator_orig = mlflow.pytorch.load_model(model_uri, map_location="cpu")
     discriminator = mlflow.pytorch.load_model(model_uri, map_location="cpu")
+    discriminator.predict_ks = cfg.predict_ks
     # discriminator = RNNCLF1(n_classes=95, features=[Feats.DIRS, Feats.TIMES])
 
     feature_names = [Feats.DIRS, Feats.TIMES]
@@ -528,7 +532,7 @@ def main(cfg: DictConfig):
                     ntraces=20,
                 )
 
-            train_disc = (e // 10) % 2 == 0
+            # train_disc = (e // 10) % 2 == 0
             e += 1
 
 
