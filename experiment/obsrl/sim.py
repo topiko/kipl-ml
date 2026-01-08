@@ -134,6 +134,7 @@ def rollout(
     if reward_scales is not None:
         disc.eval()
         with torch.no_grad():
+            seq_lens = (Xobs[Feats.DIRS] != 0).sum(dim=1).long().cpu()
             logits, hdisc = disc.pack_and_forward(Xobs, hdisc, seq_lens)
 
             if logits.isnan().any():
