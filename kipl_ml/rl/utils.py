@@ -15,6 +15,7 @@ def _fill_after_seq_end(
     rows, cols = torch.where(mask.diff(dim=1) < 0)
 
     if rows.unique().numel() != len(rows):
+        breakpoint()
         raise ValueError("More than one val -> pad_val detected!")
 
     for idx_r, idx_c in zip(rows, cols):
@@ -22,6 +23,8 @@ def _fill_after_seq_end(
             values[idx_r, (idx_c + 1) :] = torch.nan
         elif fill_val == "last":
             values[idx_r, (idx_c + 1) :] = values[idx_r, idx_c]
+        elif fill_val == "max":
+            values[idx_r, (idx_c + 1) :] = values[idx_r, :].max()
         else:
             raise ValueError(f"Unknown fill_val option: {fill_val}")
 

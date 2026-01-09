@@ -137,14 +137,14 @@ def send_exec(
     mask = X[Feats.DIRS] != 0
     X = {k: _flush_left(v, mask, pad_val=0) for k, v in X.items()}
 
-    max_l = (X[Feats.DIRS] != 0).sum(dim=1).max()
-
     if ((X[Feats.DIRS] != 0).diff(dim=1).sum(dim=1) > 1).any():
         raise ValueError("Non contiguous send actions detected")
 
+    max_l = (X[Feats.DIRS] != 0).sum(dim=1).max()
     X = {k: v[:, :max_l] for k, v in X.items()}
 
-    X[Feats.TIMES] = _fill_after_seq_end(X[Feats.TIMES], pad_val=0, fill_val="last")
+    # The times are not sorted as of now, we pad w. max val.
+    X[Feats.TIMES] = _fill_after_seq_end(X[Feats.TIMES], pad_val=0, fill_val="max")
 
     X = _sort_feature_dict(X)
 
