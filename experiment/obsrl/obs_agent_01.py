@@ -427,7 +427,7 @@ def main(cfg: DictConfig):
                     ]
                     if len(league) > 1:
                         league_states += random.sample(
-                            league[1:], min(cfg.league_size - 1, len(league) - 1)
+                            league[1:], min(cfg.league_size - 2, 0)
                         )
 
                     log_ps, values, rewards, entropies, _, _, Xobs, _ = rollout(
