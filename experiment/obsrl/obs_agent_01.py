@@ -123,6 +123,7 @@ def _plot_single(
         clf_trained,
         _unsqueeze(X),
         y,
+        disc_state_dicts=[clf_trained.state_dict()],
         reward_scales=reward_scales,
     )
 
