@@ -418,7 +418,10 @@ def main(cfg: DictConfig):
                     y = y.to(device)
 
                     optim.zero_grad()
-                    league_states = [
+
+                    # League handling:
+                    # =======================================
+                    league_ = [
                         league[0],
                         {
                             k: v.detach().clone()
@@ -426,16 +429,18 @@ def main(cfg: DictConfig):
                         },
                     ]
                     if len(league) > 1:
-                        league_states += random.sample(
-                            league[1:], min(cfg.league_size - 2, 0)
+                        league_ += random.sample(
+                            league[1:],
+                            max(0, min(cfg.league_size - 2, len(league) - 1)),
                         )
+                    # =======================================
 
                     log_ps, values, rewards, entropies, _, _, Xobs, _ = rollout(
                         obs=obs,
                         disc=discriminator,
                         X=X,
                         y=y,
-                        disc_state_dicts=league_states,
+                        disc_state_dicts=league_,
                         detach_period=detach_period,
                         reward_scales=reward_scales,
                     )
@@ -453,39 +458,40 @@ def main(cfg: DictConfig):
 
                     # Sanity checks:
                     # ==========================================
-                    for k, v in rewards.items():
-                        try:
-                            assert_finite(f"rewards-{k}", v)
-                        except ValueError:
-                            breakpoint()
-                    assert_finite("values", values)
-                    assert_finite("log_ps", log_ps)
-
-                    for k, v in losses_metrics_d.items():
-                        if len(v) == 0:
-                            continue
-
-                        try:
-                            assert_finite(k, v[-1])
-                        except ValueError as er:
-                            print(er)
-                            breakpoint()
-
-                    for name, p in obs.named_parameters():
-                        if p.grad is not None:
+                    if cfg.debug:
+                        for k, v in rewards.items():
                             try:
-                                assert_finite(f"{name}: grad", p.grad)
+                                assert_finite(f"rewards-{k}", v)
                             except ValueError:
-                                print(value_loss, policy_loss, entropy_loss)
+                                breakpoint()
+                        assert_finite("values", values)
+                        assert_finite("log_ps", log_ps)
+
+                        for k, v in losses_metrics_d.items():
+                            if len(v) == 0:
+                                continue
+
+                            try:
+                                assert_finite(k, v[-1])
+                            except ValueError as er:
+                                print(er)
                                 breakpoint()
 
-                    if not torch.isclose(
-                        rewards["padding"].sum(dim=1),
-                        -Xobs[Feats.PADDING].sum(dim=1)
-                        * reward_scales["padding_scale"],
-                    ).all():
-                        breakpoint()
-                        logger.warning("padding rewards issues")
+                        for name, p in obs.named_parameters():
+                            if p.grad is not None:
+                                try:
+                                    assert_finite(f"{name}: grad", p.grad)
+                                except ValueError:
+                                    print(value_loss, policy_loss, entropy_loss)
+                                    breakpoint()
+
+                        if not torch.isclose(
+                            rewards["padding"].sum(dim=1),
+                            -Xobs[Feats.PADDING].sum(dim=1)
+                            * reward_scales["padding_scale"],
+                        ).all():
+                            breakpoint()
+                            logger.warning("padding rewards issues")
                     # ==========================================
 
                     # Gradient clipping
@@ -532,6 +538,10 @@ def main(cfg: DictConfig):
                         }
                     )
 
+            print(len(league_))
+
+            # Logging:
+            # =============================================
             mlflow.log_metrics(
                 {k: np.mean(l_) for k, l_ in losses_metrics_d.items()}, step=e
             )
@@ -542,7 +552,7 @@ def main(cfg: DictConfig):
             )
             mlflow.log_metrics(d, step=e)
 
-            if e % 1 == 0:
+            if e % 10 == 0:
                 mlflow.pytorch.log_model(obs, name=f"rlobs-{e}")
                 mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}")
 
@@ -557,6 +567,7 @@ def main(cfg: DictConfig):
                     device=device,
                     ntraces=20,
                 )
+            # =============================================
 
             # Append current discriminator to league
             _append_to_league(league, discriminator.state_dict())
