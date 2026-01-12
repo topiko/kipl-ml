@@ -13,7 +13,7 @@ advantages:
 
 league_size: 5
 obs_time_step_s: 0.02
-obs_max_silence_s: 0.24
+obs_max_silence_s: 0.50
 h_detach_period: 50
 discounting: 0.99
 trace_len: 7_000
@@ -21,6 +21,5 @@ batch_size: 32
 dropout: 0.25
 grad_norm_clip: 5
 label_smoothing: 0.02
-disc_train_period: 5
 
-predict_ks: 1
+predict_ks: 21
