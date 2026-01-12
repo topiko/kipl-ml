@@ -98,7 +98,6 @@ def rollout(
     dict[Feats, torch.Tensor],
     dict[Feats, torch.Tensor],
 ]:
-    hdisc = None
     hobs = None
 
     rewards = None
@@ -142,6 +141,7 @@ def rollout(
         for state_d in disc_state_dicts:
             disc.load_state_dict(state_d)
 
+            hdisc = None
             disc.eval()
             with torch.no_grad():
                 logits, hdisc = disc.pack_and_forward(Xobs, hdisc, seq_lens)
