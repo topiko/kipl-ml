@@ -282,7 +282,7 @@ def one_batch_train_disc(
 
             # Gradient clipping
             nn.utils.clip_grad_norm_(
-                disc.parameters(), grad_clip, error_if_nonfinite=True
+                disc.parameters(), grad_clip, error_if_nonfinite=False
             )
 
             disc_opm.step()
@@ -390,7 +390,7 @@ def main(cfg: DictConfig):
                 "entropy_loss": [],
                 "disc_train_loss": [],
                 "disc_train_acc": [],
-                "mean_padding_count": [],
+                "mean_padding_frac": [],
                 "mean_trace_len": [],
             }
             losses_metrics_d.update(
@@ -491,8 +491,13 @@ def main(cfg: DictConfig):
                     losses_metrics_d["entropy_loss"].append(entropy_loss.item())
                     losses_metrics_d["disc_train_acc"].append(acc)
                     losses_metrics_d["disc_train_loss"].append(disc_loss)
-                    losses_metrics_d["mean_padding_count"].append(
-                        Xobs[Feats.PADDING].sum(dim=1).float().mean().item()
+                    losses_metrics_d["mean_padding_frac"].append(
+                        (
+                            Xobs[Feats.PADDING].sum(dim=1).float()
+                            / (Xobs[Feats.DIRS] != 0).sum(dim=1)
+                        )
+                        .mean()
+                        .item()
                     )
                     losses_metrics_d["mean_trace_len"].append(
                         (Xobs[Feats.DIRS] != 0).sum(dim=1).float().mean().item()
