@@ -1,5 +1,6 @@
 import copy
 import os
+import random
 
 import dotenv
 import hydra
@@ -417,12 +418,17 @@ def main(cfg: DictConfig):
                     y = y.to(device)
 
                     optim.zero_grad()
-                    league_states = league + [
+                    league_states = [
+                        league[0],
                         {
                             k: v.detach().clone()
                             for k, v in discriminator.state_dict().items()
-                        }
+                        },
                     ]
+                    if len(league) > 1:
+                        league_states += random.sample(
+                            league[1:], min(cfg.league_size - 1, len(league) - 1)
+                        )
 
                     log_ps, values, rewards, entropies, _, _, Xobs, _ = rollout(
                         obs=obs,
@@ -536,7 +542,7 @@ def main(cfg: DictConfig):
             )
             mlflow.log_metrics(d, step=e)
 
-            if e % 10 == 0:
+            if e % 1 == 0:
                 mlflow.pytorch.log_model(obs, name=f"rlobs-{e}")
                 mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}")
 
@@ -552,9 +558,9 @@ def main(cfg: DictConfig):
                     ntraces=20,
                 )
 
+            # Append current discriminator to league
             _append_to_league(league, discriminator.state_dict())
 
-            # train_disc = (e // 10) % 2 == 0
             e += 1
 
 

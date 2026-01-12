@@ -11,7 +11,7 @@ advantages:
   lambda_: 0.95
   standardize: True
 
-
+league_size: 5
 obs_time_step_s: 0.02
 obs_max_silence_s: 0.24
 h_detach_period: 50
