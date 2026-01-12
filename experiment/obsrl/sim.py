@@ -87,7 +87,7 @@ def rollout(
     y: torch.Tensor,
     detach_period: int = 20,
     reward_scales: dict[str, float] | None = None,
-    disc_state_dicts: dict | None = None,
+    disc_state_dicts: list | None = None,
 ) -> tuple[
     torch.Tensor,
     torch.Tensor,
@@ -133,7 +133,7 @@ def rollout(
 
     t3 = time.time()
 
-    if disc_state_dicts is None:
+    if (disc_state_dicts is None) or (len(disc_state_dicts) == 0):
         disc_state_dicts = [disc.state_dict()]
     else:
         disc_state_dicts.append(disc.state_dict())
