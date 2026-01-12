@@ -160,6 +160,9 @@ def rollout(
             for k in rewards_l[0].keys()
         }
 
+        # Ensure we are back to the last disc.
+        disc.load_state_dict(disc_state_dicts[-1])
+
     t4 = time.time()
 
     timings = {
