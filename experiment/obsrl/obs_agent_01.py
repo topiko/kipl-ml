@@ -236,6 +236,10 @@ def assert_finite(name, x):
         raise ValueError
 
 
+def _append_to_league(league: list[dict], state_dict: dict):
+    league.append({k: v.cpu() for k, v in copy.deepcopy(state_dict).items()})
+
+
 def one_batch_train_disc(
     disc: nn.Module,
     X: dict[Feats, torch.Tensor],
@@ -372,7 +376,7 @@ def main(cfg: DictConfig):
     ).to(device)
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
-    disc_state_dicts = []
+    league = _append_to_league([], discriminator_orig.state_dict())
 
     optim = torch.optim.Adam(obs.parameters(), lr=0.001)
     disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
@@ -412,7 +416,7 @@ def main(cfg: DictConfig):
                     y = y.to(device)
 
                     optim.zero_grad()
-                    league_states = disc_state_dicts + [
+                    league_states = league + [
                         {
                             k: v.detach().clone()
                             for k, v in discriminator.state_dict().items()
@@ -547,7 +551,8 @@ def main(cfg: DictConfig):
                     ntraces=20,
                 )
 
-            disc_state_dicts.append(copy.deepcopy(discriminator.state_dict()))
+            _append_to_league(league, discriminator.state_dict())
+
             # train_disc = (e // 10) % 2 == 0
             e += 1
 

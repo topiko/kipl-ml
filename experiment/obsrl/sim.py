@@ -99,8 +99,8 @@ def rollout(
     dict[Feats, torch.Tensor],
 ]:
     hobs = None
-
     rewards = None
+    device = y.device
 
     t0 = time.time()
     if X[Feats.TIMES].isnan().any():
@@ -139,7 +139,7 @@ def rollout(
         rewards_l = []
         seq_lens = (Xobs[Feats.DIRS] != 0).sum(dim=1).long().cpu()
         for state_d in disc_state_dicts:
-            disc.load_state_dict(state_d)
+            disc.load_state_dict(state_d.to(device))
 
             hdisc = None
             disc.eval()
