@@ -376,7 +376,8 @@ def main(cfg: DictConfig):
     ).to(device)
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
-    league = _append_to_league([], discriminator_orig.state_dict())
+    league: list[dict] = []
+    _append_to_league(league, discriminator_orig.state_dict())
 
     optim = torch.optim.Adam(obs.parameters(), lr=0.001)
     disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)

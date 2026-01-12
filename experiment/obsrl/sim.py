@@ -139,7 +139,7 @@ def rollout(
         rewards_l = []
         seq_lens = (Xobs[Feats.DIRS] != 0).sum(dim=1).long().cpu()
         for state_d in disc_state_dicts:
-            disc.load_state_dict(state_d.to(device))
+            disc.load_state_dict({k: v.to(device) for k, v in state_d.items()})
 
             hdisc = None
             disc.eval()
