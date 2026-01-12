@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import random
+from collections.abc import Sequence
 
 import dotenv
 import mlflow
@@ -20,12 +22,21 @@ dotenv.load_dotenv()
 logger = get_logger(__name__)
 
 
+def _load_model(model: str | nn.Module) -> nn.Module:
+    if isinstance(model, nn.Module):
+        return model
+
+    model = mlflow.pytorch.load_model(f"models:/{model}", map_location="cpu")
+    model.eval()
+    return model
+
+
 class _NNDef(_Def):
     def __init__(
         self,
         network_delay_millis: tuple[int, int],
         network_pps: tuple[int, int],
-        obs_model: nn.Module | str,
+        obs_model: Sequence[nn.Module | str] | nn.Module | str,
         seed: int | None = 42,
         fixed_per_trace: bool = False,
         simul_kwargs: dict | None = None,
@@ -46,16 +57,20 @@ class _NNDef(_Def):
             fixed_per_trace=fixed_per_trace,
         )
 
-        self._model_id = None
+        self._model_ids: list[str | None] = [None]
         if isinstance(obs_model, str):
-            self._model_id = obs_model
-            self.defense_model = mlflow.pytorch.load_model(
-                f"models:/{obs_model}", map_location="cpu"
-            )
+            self._model_ids = [obs_model]
+            self.defense_models = [_load_model(obs_model)]
+        elif isinstance(obs_model, nn.Module):
+            self.defense_models = [obs_model]
         else:
-            self.defense_model = obs_model
+            self.defense_models = [_load_model(obs) for obs in obs_model]
+            self._model_ids = [
+                obs if isinstance(obs, str) else None for obs in obs_model
+            ]
 
-        self.defense_model.eval()
+        for defense_model in self.defense_models:
+            defense_model.eval()
 
         self.simul_kwargs = simul_kwargs or {}
 
@@ -64,10 +79,11 @@ class _NNDef(_Def):
         str_ += f"\t{self.network_delay_millis}\n"
         str_ += f"\t{self.network_pps}\n"
         str_ += f"\tFixed per trace: {self.FIXED_PER_TRACE}\n"
-        str_ += f"\tModel ({self._model_id}):\n"
 
-        str_ += f"\t\tTime step: {self.defense_model.time_step}\n"
-        str_ += f"\t\tMax silence: {self.defense_model.max_silence_s}\n"
+        for i, dm in enumerate(self.defense_models):
+            str_ += f"\t\t{i} - {dm.__class__.__name__}, id: {self._model_ids[i]}\n"
+            str_ += f"\t\t\tTime step: {dm.time_step}\n"
+            str_ += f"\t\t\tMax silence: {dm.max_silence_s}\n"
 
         if self.simul_kwargs:
             str_ += "Simul. args\n"
@@ -102,7 +118,7 @@ class _NNDef(_Def):
     def _mlflow_log_params(self) -> dict[str, str]:
         d = {}
         d[DEFENCE_TYPE_KW] = self.__class__.__name__.lower()
-        d["model-id"] = str(self._model_id)
+        d["model-id"] = str(self._model_ids)
 
         return d
 
@@ -122,18 +138,20 @@ class RNNDef(_NNDef):
             k: v[: self._n_packets].unsqueeze(0).float() for k, v in trace_d.items()
         }
 
+        defense_model = random.choice(self.defense_models)
+
         fd = get_window_feature_dict(
             trace_d,
-            self.defense_model.time_step,
-            self.defense_model.max_silence_s,
-            features=self.defense_model.features,
+            defense_model.time_step,
+            defense_model.max_silence_s,
+            features=defense_model.features,
         )
 
         seq_lens = fd.pop(Feats.SEQ_LENS)
 
-        self.defense_model.eval()
+        defense_model.eval()
         with torch.no_grad():
-            act_times, actions = self.defense_model.act(
+            act_times, actions = defense_model.act(
                 fd, h, h_detach_period=100, seq_lens=seq_lens
             )[:2]
 
