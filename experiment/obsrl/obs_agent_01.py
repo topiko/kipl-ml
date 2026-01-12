@@ -1,3 +1,4 @@
+import copy
 import os
 
 import dotenv
@@ -339,7 +340,6 @@ def main(cfg: DictConfig):
     discriminator_orig = mlflow.pytorch.load_model(model_uri, map_location="cpu")
     discriminator = mlflow.pytorch.load_model(model_uri, map_location="cpu")
     discriminator.predict_ks = cfg.predict_ks
-    # discriminator = RNNCLF1(n_classes=95, features=[Feats.DIRS, Feats.TIMES])
 
     feature_names = [Feats.DIRS, Feats.TIMES]
 
@@ -371,6 +371,7 @@ def main(cfg: DictConfig):
     ).to(device)
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
+    disc_state_dicts = []
 
     optim = torch.optim.Adam(obs.parameters(), lr=0.001)
     disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
@@ -532,6 +533,7 @@ def main(cfg: DictConfig):
                     ntraces=20,
                 )
 
+            disc_state_dicts.append(copy.deepcopy(discriminator.state_dict()))
             # train_disc = (e // 10) % 2 == 0
             e += 1
 

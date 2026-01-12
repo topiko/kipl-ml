@@ -87,6 +87,7 @@ def rollout(
     y: torch.Tensor,
     detach_period: int = 20,
     reward_scales: dict[str, float] | None = None,
+    disc_state_dicts: dict | None = None,
 ) -> tuple[
     torch.Tensor,
     torch.Tensor,
@@ -131,29 +132,41 @@ def rollout(
     Xobs = send_exec(X, act_times, actions)
 
     t3 = time.time()
+
+    if disc_state_dicts is None:
+        disc_state_dicts = [disc.state_dict()]
+    else:
+        disc_state_dicts.append(disc.state_dict())
+
     if reward_scales is not None:
-        disc.eval()
-        with torch.no_grad():
-            seq_lens = (Xobs[Feats.DIRS] != 0).sum(dim=1).long().cpu()
-            logits, hdisc = disc.pack_and_forward(Xobs, hdisc, seq_lens)
+        rewards_l = []
+        seq_lens = (Xobs[Feats.DIRS] != 0).sum(dim=1).long().cpu()
+        for state_d in disc_state_dicts:
+            disc.load_state_dict(state_d)
 
-            if logits.isnan().any():
-                breakpoint()
-                raise ValueError("NaN in disc logits")
+            disc.eval()
+            with torch.no_grad():
+                logits, hdisc = disc.pack_and_forward(Xobs, hdisc, seq_lens)
 
-        t4 = time.time()
-        rewards = get_rewards(
-            act_times, Xobs, y, logits, seq_lens, reward_scales=reward_scales
-        )
+            rewards_ = get_rewards(
+                act_times, Xobs, y, logits, seq_lens, reward_scales=reward_scales
+            )
 
-    t5 = time.time()
+            rewards_l.append(rewards_)
+
+        # Average the rewards from different disc. checkpoints.
+        rewards = {
+            k: torch.stack([r[k] for r in rewards_l], dim=-1).mean(dim=-1)
+            for k in rewards_l[0].keys()
+        }
+
+    t4 = time.time()
 
     timings = {
         "Extr": t1 - t0,
         "Act": t2 - t1,
         "Exec": t3 - t2,
-        "Disc": t4 - t3,
-        "Rew": t5 - t4,
+        "Disc+rew": t4 - t3,
     }
 
     return (
