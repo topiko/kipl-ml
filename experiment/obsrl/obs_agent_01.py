@@ -416,9 +416,10 @@ def main(cfg: DictConfig):
                         disc=discriminator,
                         X=X,
                         y=y,
+                        disc_state_dicts=disc_state_dicts
+                        + [discriminator.state_dict()],
                         detach_period=detach_period,
                         reward_scales=reward_scales,
-                        disc_state_dicts=disc_state_dicts,
                     )
 
                     G, advantages = get_advantages(rewards, values, cfg)
