@@ -411,13 +411,19 @@ def main(cfg: DictConfig):
                     y = y.to(device)
 
                     optim.zero_grad()
+                    league_states = disc_state_dicts + [
+                        {
+                            k: v.detach().clone()
+                            for k, v in discriminator.state_dict().items()
+                        }
+                    ]
+
                     log_ps, values, rewards, entropies, _, _, Xobs, _ = rollout(
                         obs=obs,
                         disc=discriminator,
                         X=X,
                         y=y,
-                        disc_state_dicts=disc_state_dicts
-                        + [discriminator.state_dict()],
+                        disc_state_dicts=league_states,
                         detach_period=detach_period,
                         reward_scales=reward_scales,
                     )

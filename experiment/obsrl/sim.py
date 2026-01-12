@@ -134,6 +134,9 @@ def rollout(
     t3 = time.time()
 
     if reward_scales is not None:
+        current_disc_state = {
+            k: v.detach().clone() for k, v in disc.state_dict().items()
+        }
         rewards_l = []
         seq_lens = (Xobs[Feats.DIRS] != 0).sum(dim=1).long().cpu()
         for state_d in disc_state_dicts:
@@ -155,8 +158,8 @@ def rollout(
             for k in rewards_l[0].keys()
         }
 
-        # Ensure we are back to the last disc.
-        disc.load_state_dict(disc_state_dicts[-1])
+        # Make sure correct state is restored.
+        disc.load_state_dict(current_disc_state)
 
     t4 = time.time()
 
