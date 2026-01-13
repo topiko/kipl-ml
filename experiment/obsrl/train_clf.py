@@ -94,7 +94,7 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
-                    loss, acc = one_batch_train_disc(
+                    loss, _ = one_batch_train_disc(
                         clf,
                         X,
                         y,

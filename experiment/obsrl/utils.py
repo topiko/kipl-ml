@@ -49,7 +49,7 @@ def one_batch_train_disc(
             # (B, T)
             mask = torch.arange(logits.shape[1], device=seq_lens.device).unsqueeze(
                 0
-            ).repeat(logits.shape[0], 1) >= seq_lens.unsqueeze(1)
+            ) >= seq_lens.unsqueeze(1)
 
             # Where we are over seq. len --> ignore
             target = target.masked_fill(mask, -100)
