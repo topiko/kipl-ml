@@ -51,7 +51,7 @@ class RNNCLF1(nn.Module):
             )
         ) and (
             not set(features).issubset(
-                {Feats.DIRS, Feats.DIR_PROBS, Feats.IATS, Feats.TIMES}
+                {Feats.DIRS, Feats.DIR_PROBS, Feats.IATS, Feats.TIMES, Feats.LOG1P_IATS}
             )
         ):
             raise ValueError(f"Invalid set of feats. {'-'.join(features)}")

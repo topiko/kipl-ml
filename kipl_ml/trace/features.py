@@ -521,6 +521,22 @@ class LogInv(_TR):
         return {self.name: log_inv}
 
 
+class Log1p(_TR):
+    NAME = "log1p"
+
+    def __init__(self, asset: Feats):
+        self.asset = asset
+
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> LogInv:
+        self._output_sizes = {self.name: trace[self.asset].shape[0]}
+        return self
+
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
+        log_inv = torch.log1p(torch.nan_to_num(1 / trace[self.asset] + 1, posinf=1e4))
+
+        return {self.name: log_inv}
+
+
 class RunningRate(_TR):
     NAME = "running_rate"
 
@@ -770,6 +786,12 @@ def get_feature_tr(feature_name: Feats, n_packets: int | None) -> _TR:
             return Compose(
                 PadOrCutTrace(n_packets),
                 IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
+            )
+        case Feats.LOG1P_IATS:
+            return Compose(
+                PadOrCutTrace(n_packets),
+                IAT("any", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
+                Log1p(Feats.IATS),
             )
         case Feats.TIMES_NORMALIZED:
             return Compose(

@@ -17,6 +17,7 @@ class Feats(StrEnum):
     IATS = "iats"
     IATS_NORMALIZED = f"normalized_{IATS}"
     IATS_MAX_NORMALIZED = f"max_normalized_{IATS}"
+    LOG1P_IATS = f"log1p_{IATS}"
     UP_IATS = f"up_{IATS}"
     UP_IATS_NORMALIZED = f"up_{IATS_NORMALIZED}"
     DOWN_IATS = f"down_{IATS}"

@@ -46,7 +46,7 @@ def main(cfg: DictConfig):
     dataset = cfg.dataset.name
     npackets = cfg.trace_len
 
-    feature_names = [Feats.DIRS, Feats.IATS]
+    feature_names = [Feats.DIRS, Feats.LOG1P_IATS]
 
     ds_train, ds_valid, _ = get_train_valid_test(
         dataset=dataset,
