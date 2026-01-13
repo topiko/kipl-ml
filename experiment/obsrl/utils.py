@@ -47,6 +47,7 @@ def one_batch_train_disc(
             logits, h = disc.pack_and_forward(X_chunk, h, seq_lens.cpu())
 
             if logits is None:
+                breakpoint()
                 raise ValueError("None logits...")
 
             h = tuple(h_.detach() for h_ in h)
@@ -58,7 +59,7 @@ def one_batch_train_disc(
             # (B, T)
             mask = torch.arange(logits.shape[1], device=seq_lens.device).unsqueeze(
                 0
-            ) >= (seq_lens + 1).unsqueeze(1)  # +1 for EOS
+            ) >= (seq_lens + (seq_lens != 0)).unsqueeze(1)  # +1 for EOS
 
             # Where we are over seq. len --> ignore
             target = target.masked_fill(mask, -100)
