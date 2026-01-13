@@ -136,7 +136,7 @@ def main(cfg: DictConfig):
             if c > patience:
                 break
 
-            if e % 10 != 0:
+            if (e - 1) % 10 == 0:
                 train_metrics_d = evaluate_model(
                     clf, dl_train, [Accuracy()], loss_fn, key="train"
                 )
