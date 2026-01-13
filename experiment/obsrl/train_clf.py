@@ -91,7 +91,7 @@ def main(cfg: DictConfig):
             clf.train()
             with tqdm(dl_train, desc=f"epoch {e:02d}", ncols=TQDM_W) as pbar:
                 for X, y in pbar:
-                    X = dict_to_device(X, device)
+                    X = dict_to_device(X, device, non_blocking=True)
                     y = y.to(device)
 
                     loss, _ = one_batch_train_disc(

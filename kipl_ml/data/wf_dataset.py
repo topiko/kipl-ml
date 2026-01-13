@@ -191,9 +191,9 @@ class WFDataset(Dataset):
 
 
 def dict_to_device(
-    X: dict[Feats, torch.tensor], device: torch.DeviceObjType
+    X: dict[Feats, torch.tensor], device: torch.DeviceObjType, **kwargs
 ) -> dict[Feats, torch.tensor]:
-    return {k: v.to(device) for k, v in X.items()}
+    return {k: v.to(device, **kwargs) for k, v in X.items()}
 
 
 def get_train_valid_test(
