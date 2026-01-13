@@ -125,7 +125,7 @@ def _plot_single(
         clf_trained,
         _unsqueeze(X),
         y,
-        disc_state_dicts=[clf_trained.state_dict()],
+        disc_league=[clf_trained.state_dict()],
         reward_scales=reward_scales,
     )
 
@@ -273,7 +273,7 @@ def main(cfg: DictConfig):
     experiment_name = "obsrl"
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
-    discriminator_model_id = "m-126b3c004c14420a8dc098017714e23b"
+    discriminator_model_id = "m-a1bec780ec314b95b4f0caac4dec5f46"
 
     model_uri = mlflow.get_logged_model(discriminator_model_id).model_uri
 
@@ -378,7 +378,8 @@ def main(cfg: DictConfig):
                         disc=discriminator,
                         X=X,
                         y=y,
-                        disc_state_dicts=league_,
+                        disc_league=league_,
+                        feature_trs=ds_valid.feature_trs,
                         detach_period=detach_period,
                         reward_scales=reward_scales,
                     )

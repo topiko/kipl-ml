@@ -86,7 +86,7 @@ def rollout(
     disc: nn.Module,
     X: dict[Feats, torch.Tensor],
     y: torch.Tensor,
-    disc_state_dicts: list,
+    disc_league: list,
     feature_trs: FeatureTrs | None = None,
     detach_period: int = 20,
     reward_scales: dict[str, float] | None = None,
@@ -146,7 +146,7 @@ def rollout(
         else:
             X_ = Xobs
 
-        for state_d in disc_state_dicts:
+        for state_d in disc_league:
             disc.load_state_dict({k: v.to(device) for k, v in state_d.items()})
 
             hdisc = None
