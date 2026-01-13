@@ -33,9 +33,10 @@ def one_batch_train_disc(
     i = 0
     loss_mean = 0.0
     context = torch.enable_grad() if train else torch.inference_mode()
+    max_len = (X[Feats.DIRS] != 0).sum(dim=1).max()
     with context:
         while True:
-            if i * detach_period >= X[Feats.DIRS].shape[1] - 1:
+            if i * detach_period >= max_len - 1:
                 break
             disc_opm.zero_grad()
 

@@ -294,8 +294,9 @@ def main(cfg: DictConfig):
         **defence_builder.get_defence(cfg),
     )
 
+    # Temporary hack to utilize different features for disc...
     ds_valid.feature_trs = FeatureTrs(
-        feature_names=discriminator.features, n_packets=None
+        feature_names=discriminator.features, n_packets=cfg.trace_len * 3
     )
 
     dl_train = dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True)

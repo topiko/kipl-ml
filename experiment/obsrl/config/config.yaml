@@ -19,7 +19,7 @@ obs_time_step_s: 0.02
 obs_max_silence_s: 0.30
 h_detach_period: 50
 discounting: 0.99
-trace_len: 7_000
+trace_len: 5_000
 batch_size: 32
 dropout: 0.25
 grad_norm_clip: 5
