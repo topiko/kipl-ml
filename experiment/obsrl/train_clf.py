@@ -121,62 +121,62 @@ def main(cfg: DictConfig):
             valid_metrics_d = evaluate_model(
                 clf, dl_valid, [Accuracy()], loss_fn, key="valid"
             )
-            train_metrics_d = evaluate_model(
-                clf, dl_train, [Accuracy()], loss_fn, key="train"
-            )
 
             logger.info("Valid metrics:")
             log_dict(valid_metrics_d)
-
-            logger.info("Train metrics:")
-            log_dict(train_metrics_d)
-
             mlflow.log_metrics(valid_metrics_d, step=e)
-            mlflow.log_metrics(train_metrics_d, step=e)
             mlflow.log_metric("learning_rate", lr_scheduler.get_last_lr()[0], step=e)
 
-            if (loss_mean := valid_metrics_d["valid-loss"]) < min_loss:
-                logger.info("Improved loss! %.4f -> %.4f", min_loss, loss_mean)
-                min_loss = loss_mean
+            if (valid_loss := valid_metrics_d["valid-loss"]) < min_loss:
+                logger.info("Improved loss! %.4f -> %.4f", min_loss, valid_loss)
+                min_loss = valid_loss
                 c = 0
 
             if c > patience:
                 break
 
-            rng = np.random.default_rng(seed=42)
-
-            ntraces = 5
-
-            idxs = rng.integers(0, len(ds_valid), size=ntraces)
-
-            fig, axarr = plt.subplots(
-                ntraces, 1, figsize=(10, ntraces * 3), sharex=True
-            )
-
-            for i, ax in zip(idxs, axarr):
-                X, y = ds_valid[i]
-
-                X = dict_to_device(X, device)
-                y = y.to(device)
-
-                logits, _ = clf({k: v.unsqueeze(0) for k, v in X.items()})
-
-                ax = plot_trace(
-                    X,
-                    ax=ax,
-                    cl_probs=nn.functional.softmax(logits, dim=-1),
-                    true_class=y.item(),
+            if e % 10 != 0:
+                train_metrics_d = evaluate_model(
+                    clf, dl_train, [Accuracy()], loss_fn, key="train"
                 )
-                ax.set_title(f"True class: {y.item()}")
+                logger.info("Train metrics:")
+                log_dict(train_metrics_d)
 
-            fig.canvas.draw()
+                mlflow.log_metrics(train_metrics_d, step=e)
 
-            if (e - 1) % 10 == 0:
+                rng = np.random.default_rng(seed=42)
+
+                ntraces = 5
+
+                idxs = rng.integers(0, len(ds_valid), size=ntraces)
+
+                fig, axarr = plt.subplots(
+                    ntraces, 1, figsize=(10, ntraces * 3), sharex=True
+                )
+
+                for i, ax in zip(idxs, axarr):
+                    X, y = ds_valid[i]
+
+                    X = dict_to_device(X, device)
+                    y = y.to(device)
+
+                    logits, _ = clf({k: v.unsqueeze(0) for k, v in X.items()})
+
+                    ax = plot_trace(
+                        X,
+                        ax=ax,
+                        cl_probs=nn.functional.softmax(logits, dim=-1),
+                        true_class=y.item(),
+                    )
+                    ax.set_title(f"True class: {y.item()}")
+
+                fig.canvas.draw()
+
                 mlflow.log_figure(fig, f"bursts_clf_epoch={e:03d}.png")
 
-            plt.show()
+                plt.show()
 
-            plt.close()
+                plt.close()
 
         model_info = mlflow.pytorch.log_model(pytorch_model=clf, name="rnnclf")
 
