@@ -17,7 +17,8 @@ def one_batch_train_disc(
     train: bool = True,
     grad_clip: float = 3.0,
     detach_period: int = 1000,
-) -> tuple[float, float]:
+    get_accuracy: bool = True,
+) -> tuple[float, float | None]:
     if train:
         disc.train()
 
@@ -43,8 +44,16 @@ def one_batch_train_disc(
             # (B, T)
             target = y.unsqueeze(-1).repeat(1, logits.shape[1])
             # Use PAD value to ignore loss on padded tokens
-            for b in range(target.shape[0]):
-                target[b, seq_lens[b] :] = -100
+
+            # (B, T)
+            mask = torch.arange(logits.shape[1], device=seq_lens.device).unsqueeze(
+                0
+            ).repeat(logits.shape[0], 1) >= seq_lens.unsqueeze(1)
+
+            # Where we are over seq. len --> ignore
+            target = target.masked_fill(mask, -100)
+
+            # Only operate on the seqs. that still are valid
             target = target[seq_lens != 0]
 
             loss = nn.functional.cross_entropy(
@@ -71,6 +80,8 @@ def one_batch_train_disc(
     loss_val = loss.item()
     disc.eval()
 
-    accuracy = (disc.predict(X)[1] == y).float().mean().item()
+    accuracy = None
+    if get_accuracy:
+        accuracy = (disc.predict(X)[1] == y).float().mean().item()
 
     return loss_val, accuracy

@@ -58,7 +58,9 @@ def main(cfg: DictConfig):
         **defence_builder.get_defence(cfg),
     )
 
-    dl_train = dl_(ds_train, cfg.batch_size, None, shuffle=True, nworkers=None)
+    dl_train = dl_(
+        ds_train, cfg.batch_size, None, shuffle=True, nworkers=None, pin_memory=True
+    )
     dl_valid = dl_(ds_valid, 256, None, nworkers=None)
 
     clf = RNNCLF1(ds_train.n_classes, feature_names, dropout=cfg.dropout)
@@ -99,7 +101,8 @@ def main(cfg: DictConfig):
                         optimG,
                         train=True,
                         grad_clip=cfg.grad_norm_clip,
-                        detach_period=1000,
+                        detach_period=10000,
+                        get_accuracy=False,
                     )
 
                     loss_mean += (loss - loss_mean) / n

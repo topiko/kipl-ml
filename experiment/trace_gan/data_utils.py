@@ -41,6 +41,7 @@ def dl_(
     collate_fn: callable | None,
     shuffle: bool = False,
     nworkers: int | None = None,
+    **kwargs,
 ) -> DataLoader:
     if nworkers is None:
         nworkers = multiprocessing.cpu_count() // 8 * 7
@@ -51,6 +52,7 @@ def dl_(
         shuffle=shuffle,
         num_workers=nworkers,
         collate_fn=collate_fn,
+        **kwargs,
     )
 
 
