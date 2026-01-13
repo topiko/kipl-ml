@@ -42,11 +42,7 @@ def one_batch_train_disc(
                 k: v[:, i * detach_period : (i + 1) * detach_period]
                 for k, v in X.items()
             }
-            seq_lens = torch.clamp(
-                (X_chunk[Feats.DIRS] != 0).sum(dim=1) + 1,
-                0,
-                X_chunk[Feats.DIRS].shape[1],
-            )  # +1 for EOS
+            seq_lens = (X_chunk[Feats.DIRS] != 0).sum(dim=1)
 
             logits, h = disc.pack_and_forward(X_chunk, h, seq_lens.cpu())
 
@@ -62,13 +58,13 @@ def one_batch_train_disc(
             # (B, T)
             mask = torch.arange(logits.shape[1], device=seq_lens.device).unsqueeze(
                 0
-            ) >= seq_lens.unsqueeze(1)
+            ) >= (seq_lens + 1).unsqueeze(1)  # +1 for EOS
 
             # Where we are over seq. len --> ignore
             target = target.masked_fill(mask, -100)
 
             # Only operate on the seqs. that still are valid
-            target = target[seq_lens != 0]
+            target = target[seq_lens > 0]
 
             loss = nn.functional.cross_entropy(
                 logits.permute(0, 2, 1),
