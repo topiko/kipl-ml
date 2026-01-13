@@ -33,11 +33,12 @@ def one_batch_train_disc(
                 k: v[:, i * detach_period : (i + 1) * detach_period]
                 for k, v in X.items()
             }
-            seq_lens = (X_chunk[Feats.DIRS] != 0).sum(dim=1).cpu()
+            seq_lens = (X_chunk[Feats.DIRS] != 0).sum(dim=1)
 
-            logits, h = disc.pack_and_forward(X_chunk, h, seq_lens)
+            logits, h = disc.pack_and_forward(X_chunk, h, seq_lens.cpu())
+
             if logits is None:
-                breakpoint()
+                raise ValueError("None logits...")
 
             h = tuple(h_.detach() for h_ in h)
 
