@@ -1,0 +1,14 @@
+defaults:
+  - _self_
+  - defence: no_defence
+  - dataset: bigenough
+  - network: infinite
+  - misc: default
+
+trace_len: 5000
+batch_size: 32
+dropout: 0.25
+grad_norm_clip: 5
+label_smoothing: 0.02
+
+
