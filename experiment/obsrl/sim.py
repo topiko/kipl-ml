@@ -8,6 +8,7 @@ from kipl_ml.rl.action import send_exec
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import get_window_feature_dict
 from kipl_ml.trace.enums import Feats
+from kipl_ml.trace.features import FeatureTrs
 
 logger = get_logger(__name__)
 
@@ -86,6 +87,7 @@ def rollout(
     X: dict[Feats, torch.Tensor],
     y: torch.Tensor,
     disc_state_dicts: list,
+    feature_trs: FeatureTrs | None = None,
     detach_period: int = 20,
     reward_scales: dict[str, float] | None = None,
 ) -> tuple[
@@ -138,13 +140,19 @@ def rollout(
         }
         rewards_l = []
         seq_lens = (Xobs[Feats.DIRS] != 0).sum(dim=1).long().cpu()
+
+        if feature_trs is not None:
+            X_ = feature_trs.transform_batch(Xobs)
+        else:
+            X_ = Xobs
+
         for state_d in disc_state_dicts:
             disc.load_state_dict({k: v.to(device) for k, v in state_d.items()})
 
             hdisc = None
             disc.eval()
             with torch.no_grad():
-                logits, hdisc = disc.pack_and_forward(Xobs, hdisc, seq_lens)
+                logits, hdisc = disc.pack_and_forward(X_, hdisc, seq_lens)
 
             rewards_ = get_rewards(
                 act_times, Xobs, y, logits, seq_lens, reward_scales=reward_scales
