@@ -31,6 +31,7 @@ def one_batch_train_disc(
 
     h = None
     i = 0
+    loss_mean = 0.0
     context = torch.enable_grad() if train else torch.inference_mode()
     with context:
         while True:
@@ -84,12 +85,11 @@ def one_batch_train_disc(
                 disc_opm.step()
 
             i += 1
-
-    loss_val = loss.item()
+            loss_mean += (loss.item() - loss_mean) / i
 
     disc.eval()
     accuracy = None
     if get_accuracy:
         accuracy = (disc.predict(X)[1] == y).float().mean().item()
 
-    return loss_val, accuracy
+    return loss_mean, accuracy
