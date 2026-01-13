@@ -45,8 +45,6 @@ class WFDataset(Dataset):
         self.name = dataset
         self.label = label
 
-        self.feature_trs = feature_trs
-
         self.defence = defence or NoDefence(
             network_delay_millis=(0, 0), network_pps=(0, 0)
         )
@@ -61,7 +59,7 @@ class WFDataset(Dataset):
                 "Infinite augmentation does not really make sense when you used fixed machines per trace."
             )
 
-        self.get_feature_shapes()
+        self.feature_trs = feature_trs
 
     def report(self, to_log: bool = True) -> str:
         str_ = f"Dataset {self.name} w. {self.label}s:\n"
@@ -107,6 +105,17 @@ class WFDataset(Dataset):
     @property
     def n_classes(self) -> int:
         return self.meta_df[self.label].nunique()
+
+    @property
+    def feature_trs(self) -> FeatureTrs:
+        return self._feature_trs
+
+    @feature_trs.setter
+    def feature_trs(self, feature_trs: FeatureTrs) -> None:
+        if not isinstance(feature_trs, FeatureTrs):
+            raise TypeError("feature_trs must be an instance of FeatureTrs")
+        self._feature_trs = feature_trs
+        self.get_feature_shapes()
 
     @property
     def output_sizes(self) -> dict[str, dict[str, int]]:

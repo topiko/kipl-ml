@@ -294,6 +294,10 @@ def main(cfg: DictConfig):
         **defence_builder.get_defence(cfg),
     )
 
+    ds_valid.feature_trs = FeatureTrs(
+        feature_names=discriminator.features, n_packets=cfg.trace_len
+    )
+
     dl_train = dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -440,6 +444,7 @@ def main(cfg: DictConfig):
                         X=Xobs,
                         y=y,
                         disc_opm=disc_optim,
+                        feature_trs=ds_valid.feature_trs,
                         train=train_disc,
                     )
 

@@ -46,7 +46,7 @@ def main(cfg: DictConfig):
     dataset = cfg.dataset.name
     npackets = cfg.trace_len
 
-    feature_names = [Feats.DIRS, Feats.TIMES]
+    feature_names = [Feats.DIRS, Feats.IATS]
 
     ds_train, ds_valid, _ = get_train_valid_test(
         dataset=dataset,
@@ -99,6 +99,7 @@ def main(cfg: DictConfig):
                         X,
                         y,
                         optimG,
+                        feature_trs=None,
                         train=True,
                         grad_clip=cfg.grad_norm_clip,
                         detach_period=10000,

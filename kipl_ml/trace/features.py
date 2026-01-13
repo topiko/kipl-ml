@@ -259,6 +259,7 @@ class IAT(_TR):
         iats = torch.zeros_like(trace[self.time_asset])
         if len(idxs) > 1:
             iats[idxs[1:]] = torch.diff(trace[self.time_asset][mask], dim=0)
+
         return {self.name: iats}
 
 
@@ -699,6 +700,34 @@ class FeatureTrs:
             trace_.update(out)
 
         return trace_
+
+    def transform_batch(
+        self, trace_batch: dict[Feats, torch.Tensor]
+    ) -> dict[Feats, torch.Tensor]:
+        # Very inefficient implementation, but ok for now
+        bs = trace_batch[next(iter(trace_batch))].shape[0]
+
+        trace_batch_l: list[dict[Feats, torch.Tensor]] = []
+
+        for i in range(bs):
+            current_trace = {key: val[i] for key, val in trace_batch.items()}
+            trace_: dict[Feats, torch.Tensor] = {}
+            for tr in self._feature_trs:
+                out = tr(current_trace)
+                if len(out) != 1:
+                    raise ValueError(
+                        f"Transform {tr.name} returned more than one tensor."
+                    )
+
+                trace_.update(out)
+            trace_batch_l.append(trace_)
+
+        transformed_trace_batch: dict[Feats, torch.Tensor] = {
+            k: torch.stack([d[k] for d in trace_batch_l], dim=0)
+            for k in trace_batch_l[0].keys()
+        }
+
+        return transformed_trace_batch
 
 
 def build_feature_trs(feature_name: list[Feats], n_packets: int) -> list[_TR]:
