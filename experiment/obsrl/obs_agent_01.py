@@ -295,7 +295,7 @@ def main(cfg: DictConfig):
     )
 
     ds_valid.feature_trs = FeatureTrs(
-        feature_names=discriminator.features, n_packets=cfg.trace_len
+        feature_names=discriminator.features, n_packets=None
     )
 
     dl_train = dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True)
