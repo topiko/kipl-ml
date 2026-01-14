@@ -342,6 +342,7 @@ def main(cfg: DictConfig):
     discriminator_orig = discriminator_orig.to(device)
     league: list[dict] = []
     _append_to_league(league, discriminator_orig.state_dict())
+    active_league = None
 
     optim = torch.optim.Adam(obs.parameters(), lr=0.001)
     disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
@@ -382,29 +383,13 @@ def main(cfg: DictConfig):
 
                     optim.zero_grad()
 
-                    # League handling:
-                    # =======================================
-                    league_ = [
-                        league[0],
-                        {
-                            k: v.detach().clone()
-                            for k, v in discriminator.state_dict().items()
-                        },
-                    ]
-                    if len(league) > 1:
-                        league_ += random.sample(
-                            league[1:],
-                            max(0, min(cfg.league_size - 2, len(league) - 1)),
-                        )
-                    # =======================================
-
                     log_ps, values, rewards, entropies, _, _, Xobs, _ = rollout(
                         obs=obs,
                         disc=discriminator,
                         X=X,
                         y=y,
-                        disc_league=league_,
                         disc_features=disc_feats,
+                        disc_league=active_league or league,
                         detach_period=detach_period,
                         reward_scales=reward_scales,
                     )
@@ -540,6 +525,14 @@ def main(cfg: DictConfig):
 
             # Append current discriminator to league
             _append_to_league(league, discriminator.state_dict())
+
+            # League handling:
+            # =======================================
+            if len(league) > cfg.league_size:
+                active_league = random.sample(league, cfg.league_size)
+            else:
+                active_league = league
+            # =======================================
 
             e += 1
 
