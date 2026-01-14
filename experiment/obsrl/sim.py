@@ -162,7 +162,7 @@ def rollout(
 
         # Average the rewards from different disc. checkpoints.
         rewards = {
-            k: torch.stack([r[k] for r in rewards_l], dim=-1).mean(dim=-1)
+            k: torch.stack([r[k] for r in rewards_l], dim=0)
             for k in rewards_l[0].keys()
         }
 

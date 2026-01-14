@@ -138,7 +138,7 @@ def _plot_single(
     X = dict_to_device(X, device)
     y = y.to(device).unsqueeze(-1)
 
-    _, values, rewards, _, times, actions, Xobs, fd = rollout(
+    _, values, league_rewards, _, times, actions, Xobs, fd = rollout(
         obs,
         disc_trained,
         X,
@@ -148,6 +148,7 @@ def _plot_single(
         reward_scales=reward_scales,
     )
 
+    rewards = league_rewards2rewards(league_rewards)
     G, _ = get_advantages(rewards, values, cfg)
 
     Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
@@ -294,6 +295,56 @@ def valid_metrics(
     return d
 
 
+def league_rewards2rewards(
+    league_rewards: dict[str, torch.Tensor],
+) -> dict[str, torch.Tensor]:
+    return {k: v.mean(dim=0) for k, v in league_rewards.items()}
+
+
+def get_league_scores(
+    league: list[nn.Module],
+    ds: WFDataset,
+    obs: nn.Module,
+    obs_features: FeatureTrs,
+    disc: nn.Module,
+    disc_features: FeatureTrs,
+    reward_scales: dict[str, float],
+) -> torch.Tensor:
+    ds.feature_trs = obs_features
+    dl = dl_(ds, bs=64, collate_fn=None, shuffle=False, nworkers=None)
+
+    with torch.no_grad():
+        with tqdm(
+            dl,
+            desc=f"epoch {e:02d}",
+            ncols=2 * TQDM_W,
+        ) as pbar:
+            rewards_l = []
+            for X, y in pbar:
+                league_rewards = rollout(
+                    obs=obs,
+                    disc=disc,
+                    X=X,
+                    y=y,
+                    disc_features=disc_features,
+                    disc_league=league,
+                    detach_period=500,
+                    reward_scales=reward_scales,
+                )[2]
+                # (nleague, nbatch, ntimesteps) -> (nleague, nbatch) -> (nleague,)
+                rewards = {
+                    k: v.mean(dim=1).mean(dim=1).unsqueeze(0)
+                    for k, v in league_rewards.items()
+                }
+                rewards_ = sum(rewards.values()).unsqueeze(0)
+
+                rewards_l.append(rewards_)
+
+        league_scores = torch.cat(rewards_l, dim=1).mean(dim=1)
+
+    return league_scores
+
+
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
 def main(cfg: DictConfig):
     experiment_name = "obsrl"
@@ -353,6 +404,7 @@ def main(cfg: DictConfig):
         train_disc = True
         while True:
             reward_scales = {"clf_scale": 10.0, "padding_scale": 0.001}
+            league_scores = []
             losses_metrics_d: dict[str, list[float]] = {
                 "loss": [],
                 "policy_loss": [],
@@ -383,7 +435,7 @@ def main(cfg: DictConfig):
 
                     optim.zero_grad()
 
-                    log_ps, values, rewards, entropies, _, _, Xobs, _ = rollout(
+                    log_ps, values, league_rewards, entropies, _, _, Xobs, _ = rollout(
                         obs=obs,
                         disc=discriminator,
                         X=X,
@@ -393,6 +445,8 @@ def main(cfg: DictConfig):
                         detach_period=detach_period,
                         reward_scales=reward_scales,
                     )
+
+                    rewards = league_rewards2rewards(league_rewards)
 
                     G, advantages = get_advantages(rewards, values, cfg)
 
@@ -528,6 +582,20 @@ def main(cfg: DictConfig):
 
             # Append current discriminator to league
             _append_to_league(league, discriminator.state_dict())
+
+            league_scores = get_league_scores(
+                league=league,
+                ds=ds_valid,
+                obs=obs,
+                obs_features=ds_train.feature_trs,
+                disc=discriminator,
+                disc_features=disc_feats,
+                reward_scales=reward_scales,
+            )
+
+            logger.info("League scores:")
+            for s in league_scores:
+                logger.info("\t{s:.4f}")
 
             if len(league) > cfg.league_size:
                 active_league = random.sample(league, cfg.league_size)
