@@ -294,9 +294,12 @@ def main(cfg: DictConfig):
         **defence_builder.get_defence(cfg),
     )
 
-    # Temporary hack to utilize different features for disc...
+    # Discriminator features, w.o. limit on n_packets
+    disc_feats = FeatureTrs(feature_names=discriminator.features, n_packets=None)
+
+    # For final evaluation, set valid dataset n_packets to cfg.trace_len
     ds_valid.feature_trs = FeatureTrs(
-        feature_names=discriminator.features, n_packets=cfg.trace_len * 3
+        feature_names=discriminator.features, n_packets=cfg.trace_len
     )
 
     dl_train = dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True)
@@ -380,7 +383,7 @@ def main(cfg: DictConfig):
                         X=X,
                         y=y,
                         disc_league=league_,
-                        feature_trs=ds_valid.feature_trs,
+                        feature_trs=disc_feats,
                         detach_period=detach_period,
                         reward_scales=reward_scales,
                     )
@@ -446,7 +449,7 @@ def main(cfg: DictConfig):
                         X=Xobs,
                         y=y,
                         disc_opm=disc_optim,
-                        feature_trs=ds_valid.feature_trs,
+                        feature_trs=disc_feats,
                         train=train_disc,
                     )
 
