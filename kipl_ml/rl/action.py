@@ -132,6 +132,9 @@ def send_exec(
         X[Feats.DIRS] = torch.cat([X[Feats.DIRS], dirs_], dim=1)
         X[Feats.PADDING] = torch.cat([X[Feats.PADDING], padding_], dim=1)
 
+    if set(X.keys()) != {Feats.TIMES, Feats.DIRS, Feats.PADDING}:
+        raise ValueError("Invalid set of features detected")
+
     # In the above cat, the max in up/down padding does not
     # coinside on the same row -> the tensor becomes zero padded.
     mask = X[Feats.DIRS] != 0

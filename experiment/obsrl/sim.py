@@ -87,7 +87,7 @@ def rollout(
     X: dict[Feats, torch.Tensor],
     y: torch.Tensor,
     disc_league: list,
-    feature_trs: FeatureTrs | None = None,
+    disc_features: FeatureTrs | None = None,
     detach_period: int = 20,
     reward_scales: dict[str, float] | None = None,
 ) -> tuple[
@@ -141,8 +141,8 @@ def rollout(
         rewards_l = []
         seq_lens = (Xobs[Feats.DIRS] != 0).sum(dim=1).long().cpu()
 
-        if feature_trs is not None:
-            X_ = feature_trs.transform_batch(Xobs)
+        if disc_features is not None:
+            X_ = disc_features.transform_batch(Xobs)
         else:
             X_ = Xobs
 

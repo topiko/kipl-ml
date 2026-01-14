@@ -24,7 +24,7 @@ class WFDataset(Dataset):
     def __init__(
         self,
         meta_df: pd.DataFrame,
-        feature_trs: FeatureTrs,
+        feature_trs: FeatureTrs | None,
         label: str = assets.PAGE_LABEL,
         defence: _Def | None = None,
         defence_aug: int = 0,
@@ -67,7 +67,10 @@ class WFDataset(Dataset):
         str_ += key_val_fmt("defence augmentation", self.defence_aug)
         str_ += key_val_fmt("n_traces (aug)", len(self))
         str_ += key_val_fmt("n_classes", self.n_classes)
-        str_ += self.feature_trs.report(to_log=False)
+        if self.feature_trs is not None:
+            str_ += self.feature_trs.report(to_log=False)
+        else:
+            str_ += "No features -->"
         str_ += self.defence.report(to_log=False)
 
         if to_log:
@@ -107,15 +110,17 @@ class WFDataset(Dataset):
         return self.meta_df[self.label].nunique()
 
     @property
-    def feature_trs(self) -> FeatureTrs:
+    def feature_trs(self) -> FeatureTrs | None:
         return self._feature_trs
 
     @feature_trs.setter
-    def feature_trs(self, feature_trs: FeatureTrs) -> None:
-        if not isinstance(feature_trs, FeatureTrs):
-            raise TypeError("feature_trs must be an instance of FeatureTrs")
+    def feature_trs(self, feature_trs: FeatureTrs | None) -> None:
+        if not isinstance(feature_trs, FeatureTrs | None):
+            raise TypeError("feature_trs must be an instance of FeatureTrs or None")
         self._feature_trs = feature_trs
-        self.get_feature_shapes()
+
+        if feature_trs is not None:
+            self.get_feature_shapes()
 
     @property
     def output_sizes(self) -> dict[str, dict[str, int]]:
@@ -192,7 +197,8 @@ class WFDataset(Dataset):
     def __getitem__(self, idx: int) -> tuple[dict[Feats, torch.Tensor], torch.Tensor]:
         trace_dict = self._get_trace(idx)
 
-        trace_dict = self.feature_trs(trace_dict)
+        if self.feature_trs is not None:
+            trace_dict = self.feature_trs(trace_dict)
 
         label = self._get_label(idx)
 

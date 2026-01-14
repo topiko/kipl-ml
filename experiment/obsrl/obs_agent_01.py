@@ -50,8 +50,10 @@ def _plot_set(
     cfg: DictConfig,
     ds: WFDataset,
     obs: nn.Module,
-    clf_orig: nn.Module,
-    clf_trained: nn.Module,
+    obs_features: FeatureTrs,
+    disc_orig: nn.Module,
+    disc_trained: nn.Module,
+    disc_features: FeatureTrs,
     e: int,
     reward_scales: dict[str, float],
     device: torch.DeviceObjType,
@@ -67,8 +69,10 @@ def _plot_set(
             cfg=cfg,
             ds=ds,
             obs=obs,
-            clf_orig=clf_orig,
-            clf_trained=clf_trained,
+            obs_features=obs_features,
+            disc_orig=disc_orig,
+            disc_trained=disc_trained,
+            disc_features=disc_features,
             e=e,
             reward_scales=reward_scales,
             device=device,
@@ -82,8 +86,10 @@ def _plot_single(
     cfg: DictConfig,
     ds: WFDataset,
     obs: nn.Module,
-    clf_orig: nn.Module,
-    clf_trained: nn.Module,
+    obs_features: FeatureTrs,
+    disc_orig: nn.Module,
+    disc_trained: nn.Module,
+    disc_features: FeatureTrs,
     e: int,
     reward_scales: dict[str, float],
     device: torch.DeviceObjType,
@@ -94,8 +100,8 @@ def _plot_single(
         5, 1, figsize=(20, 12.0), sharex=True
     )
 
-    clf_orig.eval()
-    clf_trained.eval()
+    disc_orig.eval()
+    disc_trained.eval()
     obs.eval()
 
     def _unsqueeze(X: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
@@ -107,30 +113,44 @@ def _plot_single(
             probs = nn.functional.softmax(logits, dim=-1)
         return probs
 
-    X, y = ds[idx]
-
-    X = dict_to_device(X, device)
+    # Orig disc on trace:
+    # ========================================
+    X_d, y = ds[idx]
+    X_d = disc_features(X_d)
+    X_d = dict_to_device(X_d, device)
     y = y.to(device).unsqueeze(-1)
 
     plot_trace(
-        X,
+        X_d,
         ax=ax,
-        cl_probs=X_to_probs(clf_orig, X),
+        cl_probs=X_to_probs(disc_orig, X_d),
         true_class=y.item(),
     )
     ax.set_title(f"True class: {y.item()}")
+    # ========================================
+
+    # Trained disc on obsfuscated trace:
+    # ========================================
+    # Use the obsfuscator features when entering rollout,
+    # the disc feats insiderollout make sure disc gets right set of features.
+    X, y = ds[idx]
+    X = _unsqueeze(obs_features(X))
+    X = dict_to_device(X, device)
+    y = y.to(device).unsqueeze(-1)
 
     _, values, rewards, _, times, actions, Xobs, fd = rollout(
         obs,
-        clf_trained,
-        _unsqueeze(X),
+        disc_trained,
+        X,
         y,
-        disc_league=[clf_trained.state_dict()],
+        disc_league=[disc_trained.state_dict()],
+        disc_features=disc_features,
         reward_scales=reward_scales,
     )
 
     G, _ = get_advantages(rewards, values, cfg)
 
+    Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
     mask = Xobs[Feats.DIRS] != 0
     if mask.sum() > max_len:
         logger.warning("Long seqs. detected -> truncating to %d.", max_len)
@@ -144,7 +164,7 @@ def _plot_single(
     plot_trace(
         Xobs,
         ax=ax_o,
-        cl_probs=X_to_probs(clf_trained, Xobs),
+        cl_probs=X_to_probs(disc_trained, disc_features(Xobs)),
         true_class=y.item(),
     )
     ax_o.set_title("Obs. trace, disc trained")
@@ -246,12 +266,15 @@ def valid_metrics(
     disc: nn.Module,
     obs: nn.Module,
     ds_valid: WFDataset,
+    n_packets: int,
     key: str = "valid:obs_vs._disc",
     device: torch.DeviceObjType = "cpu",
 ) -> dict[str, float]:
-    def_ = RNNDef((0, 0), (40_000, 40_000), obs.to("cpu"), n_packets=10000)
+    # Set features the fetures:
+    ds_valid.feature_trs = FeatureTrs(feature_names=disc.features, n_packets=n_packets)
 
-    ds_valid.defence = def_
+    # Set the defense:
+    ds_valid.defence = RNNDef((0, 0), (40_000, 40_000), obs.to("cpu"), n_packets=10000)
 
     dl_valid = dl_(ds_valid, bs=32, collate_fn=None, shuffle=False, nworkers=None)
 
@@ -263,6 +286,9 @@ def valid_metrics(
     ds_valid.defence = NoDefence(
         network_delay_millis=(0, 0), network_pps=(40_000, 40_000)
     )
+    # Restore no features.
+    ds_valid.feature_trs = None
+
     obs.to(device)
 
     return d
@@ -296,11 +322,6 @@ def main(cfg: DictConfig):
 
     # Discriminator features, w.o. limit on n_packets
     disc_feats = FeatureTrs(feature_names=discriminator.features, n_packets=None)
-
-    # For final evaluation, set valid dataset n_packets to cfg.trace_len
-    ds_valid.feature_trs = FeatureTrs(
-        feature_names=discriminator.features, n_packets=cfg.trace_len
-    )
 
     dl_train = dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -383,7 +404,7 @@ def main(cfg: DictConfig):
                         X=X,
                         y=y,
                         disc_league=league_,
-                        feature_trs=disc_feats,
+                        disc_features=disc_feats,
                         detach_period=detach_period,
                         reward_scales=reward_scales,
                     )
@@ -482,8 +503,6 @@ def main(cfg: DictConfig):
                         }
                     )
 
-            print(len(league_))
-
             # Logging:
             # =============================================
             mlflow.log_metrics(
@@ -492,7 +511,11 @@ def main(cfg: DictConfig):
             losses_metrics_d = {k: [] for k in losses_metrics_d}
 
             d = valid_metrics(
-                disc=discriminator, obs=obs, ds_valid=ds_valid, device=device
+                disc=discriminator,
+                obs=obs,
+                ds_valid=ds_valid,
+                n_packets=cfg.trace_len,
+                device=device,
             )
             mlflow.log_metrics(d, step=e)
 
@@ -504,8 +527,10 @@ def main(cfg: DictConfig):
                     cfg=cfg,
                     ds=ds_valid,
                     obs=obs,
-                    clf_orig=discriminator_orig,
-                    clf_trained=discriminator,
+                    obs_features=ds_train.feature_trs,
+                    disc_orig=discriminator_orig,
+                    disc_trained=discriminator,
+                    disc_features=disc_feats,
                     e=e,
                     reward_scales=reward_scales,
                     device=device,

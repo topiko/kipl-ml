@@ -723,6 +723,9 @@ class FeatureTrs:
         # Very inefficient implementation, but ok for now
         bs = trace_batch[next(iter(trace_batch))].shape[0]
 
+        if trace_batch[next(iter(trace_batch))].ndim < 2:
+            raise ValueError("Batch trasform called, but no batch dim found?")
+
         trace_batch_l: list[dict[Feats, torch.Tensor]] = []
 
         for i in range(bs):
