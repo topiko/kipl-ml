@@ -10,6 +10,7 @@ import numpy as np
 import torch
 from omegaconf import DictConfig
 from torch import nn
+from torch.utils.data import SubsetRandomSampler
 from tqdm import tqdm
 
 from experiment.obsrl.sim import rollout
@@ -309,18 +310,24 @@ def get_league_scores(
     disc: nn.Module,
     disc_features: FeatureTrs,
     reward_scales: dict[str, float],
+    device: torch.DeviceObjType,
+    subset_indices: torch.Tensor,
 ) -> torch.Tensor:
     ds.feature_trs = obs_features
-    dl = dl_(ds, bs=64, collate_fn=None, shuffle=False, nworkers=None)
+
+    sampler = SubsetRandomSampler(subset_indices)
+    dl = dl_(ds, bs=128, collate_fn=None, shuffle=False, nworkers=None, sampler=sampler)
 
     with torch.no_grad():
         with tqdm(
             dl,
-            desc=f"epoch {e:02d}",
-            ncols=2 * TQDM_W,
+            desc="league scoring",
+            ncols=TQDM_W,
         ) as pbar:
             rewards_l = []
             for X, y in pbar:
+                X = dict_to_device(X, device)
+                y = y.to(device)
                 league_rewards = rollout(
                     obs=obs,
                     disc=disc,
@@ -331,16 +338,15 @@ def get_league_scores(
                     detach_period=500,
                     reward_scales=reward_scales,
                 )[2]
-                # (nleague, nbatch, ntimesteps) -> (nleague, nbatch) -> (nleague,)
+                # (nleague, nbatch, ntimesteps) -> (nleague, nbatch) -> (nleague, 1)
                 rewards = {
-                    k: v.mean(dim=1).mean(dim=1).unsqueeze(0)
+                    k: v.mean(dim=1).mean(dim=1).unsqueeze(1)
                     for k, v in league_rewards.items()
                 }
-                rewards_ = sum(rewards.values()).unsqueeze(0)
-
+                rewards_ = sum(rewards.values())
                 rewards_l.append(rewards_)
 
-        league_scores = torch.cat(rewards_l, dim=1).mean(dim=1)
+        league_scores = -torch.cat(rewards_l, dim=1).mean(dim=1)
 
     return league_scores
 
@@ -591,11 +597,13 @@ def main(cfg: DictConfig):
                 disc=discriminator,
                 disc_features=disc_feats,
                 reward_scales=reward_scales,
+                device=device,
+                subset_indices=torch.randint(0, len(ds_valid), (1000,)).numpy(),
             )
 
             logger.info("League scores:")
             for s in league_scores:
-                logger.info("\t{s:.4f}")
+                logger.info(f"\t{s:.4f}")
 
             if len(league) > cfg.league_size:
                 active_league = random.sample(league, cfg.league_size)
