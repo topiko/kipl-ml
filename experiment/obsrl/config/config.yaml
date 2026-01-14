@@ -16,7 +16,7 @@ debug: False
 
 league_size: 10
 obs_time_step_s: 0.02
-obs_max_silence_s: 0.30
+obs_max_silence_s: 0.36
 h_detach_period: 50
 discounting: 0.99
 trace_len: 5_000
