@@ -523,11 +523,12 @@ def main(cfg: DictConfig):
                 )
             # =============================================
 
+            # League handling:
+            # =======================================
+
             # Append current discriminator to league
             _append_to_league(league, discriminator.state_dict())
 
-            # League handling:
-            # =======================================
             if len(league) > cfg.league_size:
                 active_league = random.sample(league, cfg.league_size)
             else:
