@@ -1,6 +1,5 @@
 import copy
 import os
-import random
 
 import dotenv
 import hydra
@@ -601,14 +600,26 @@ def main(cfg: DictConfig):
                 subset_indices=torch.randint(0, len(ds_valid), (1000,)).numpy(),
             )
 
-            logger.info("League scores:")
-            for s in league_scores:
-                logger.info(f"\t{s:.4f}")
-
             if len(league) > cfg.league_size:
-                active_league = random.sample(league, cfg.league_size)
+                scores = np.array(league_scores)
+                probs = (scores - scores.min()) / (scores.max() - scores.min() + 1e-8)
+                probs /= probs.sum()
+
+                active_league_idx = np.random.choice(
+                    len(league), cfg.league_size, p=probs, replace=False
+                )
             else:
-                active_league = league
+                active_league_idx = np.arange(len(league))
+
+            active_league = [league[i] for i in active_league_idx]
+
+            logger.info("League scores:")
+            for i, s in enumerate(league_scores):
+                str_ = ""
+                if i in active_league_idx:
+                    str_ = "*"
+
+                logger.info(f"\t{i:.4d}{str_} : {s:.4f}")
             # =======================================
 
             e += 1
