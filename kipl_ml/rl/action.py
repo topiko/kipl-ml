@@ -73,10 +73,12 @@ def send_exec(
             mask = send_counts == c
 
             start_times = times[mask]
+
             # (L, c)
             send_times = torch.rand(
                 (start_times.shape[0], c), device=times.device
             ) * decay_times[mask].unsqueeze(1) + start_times.unsqueeze(1)
+
             send_times_l.append(send_times.flatten())
 
         if send_times_l:
@@ -108,17 +110,23 @@ def send_exec(
         # NAN time signals seq has ended.
         mask = times[i].isfinite()
         times_ = times[i][mask]
+        # Protection against sending at zero time.
+        times_[times_ == 0] += 1e-9
+
+        # Send counts
         sup_c = send_up_c[i][mask]
         sdown_c = send_down_c[i][mask]
-        t_up = times_up[i][mask]
-        t_down = times_down[i][mask]
+
+        # Decay times
+        dec_t_up = times_up[i][mask]
+        dec_t_down = times_down[i][mask]
 
         send_times_up = _sample_send_times(
-            send_counts=sup_c, times=times_, decay_times=t_up
+            send_counts=sup_c, times=times_, decay_times=dec_t_up
         )
 
         send_times_down = _sample_send_times(
-            send_counts=sdown_c, times=times_, decay_times=t_down
+            send_counts=sdown_c, times=times_, decay_times=dec_t_down
         )
 
         send_times_up_l.append(send_times_up)
