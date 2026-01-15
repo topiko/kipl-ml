@@ -601,7 +601,7 @@ def main(cfg: DictConfig):
             )
 
             if len(league) > cfg.league_size:
-                scores = np.array(league_scores)
+                scores = np.array(league_scores.cpu().numpy())
                 probs = (scores - scores.min()) / (scores.max() - scores.min() + 1e-8)
                 probs /= probs.sum()
 
@@ -619,7 +619,7 @@ def main(cfg: DictConfig):
                 if i in active_league_idx:
                     str_ = "*"
 
-                logger.info(f"\t{i:.4d}{str_} : {s:.4f}")
+                logger.info(f"\t{i:4d}{str_} : {s:.4f}")
             # =======================================
 
             e += 1
