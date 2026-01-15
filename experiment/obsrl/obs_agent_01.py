@@ -350,6 +350,17 @@ def get_league_scores(
     return league_scores
 
 
+def make_time_mask(seq_lens: torch.Tensor, L: int, device=None) -> torch.Tensor:
+    device = device or seq_lens.device
+    return torch.arange(L, device=device)[None, :] < seq_lens[:, None]  # (B, L) bool
+
+
+def masked_mean(x: torch.Tensor, mask: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    # x: (B, L) or broadcastable to mask
+    m = mask.to(dtype=x.dtype)
+    return (x * m).sum() / (m.sum() + eps)
+
+
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
 def main(cfg: DictConfig):
     experiment_name = "obsrl"
@@ -440,7 +451,7 @@ def main(cfg: DictConfig):
 
                     optim.zero_grad()
 
-                    log_ps, values, league_rewards, entropies, _, _, Xobs, _ = rollout(
+                    log_ps, values, league_rewards, entropies, _, _, Xobs, fd = rollout(
                         obs=obs,
                         disc=discriminator,
                         X=X,
@@ -451,14 +462,24 @@ def main(cfg: DictConfig):
                         reward_scales=reward_scales,
                     )
 
+                    action_seq_lens = fd[Feats.TIMES].isnan().logical_not().sum(dim=1)
+
+                    time_mask = make_time_mask(
+                        action_seq_lens, fd[Feats.TIMES].shape[1], device=device
+                    )
+
                     rewards = league_rewards2rewards(league_rewards)
 
                     G, advantages = get_advantages(rewards, values, cfg)
 
                     # Compute losses
-                    policy_loss = -(log_ps * advantages.detach()).mean()
-                    value_loss = 0.5 * (values - G.detach()).pow(2).mean()
-                    entropy_loss = -entropies.mean()
+                    policy_loss_ = -(log_ps * advantages.detach())
+                    policy_loss = masked_mean(policy_loss_, time_mask)
+
+                    value_loss_ = 0.5 * (values - G.detach()).pow(2)
+                    value_loss = masked_mean(value_loss_, time_mask)
+
+                    entropy_loss = masked_mean(-entropies, time_mask)
 
                     loss = policy_loss + value_loss + 0.01 * entropy_loss
 
