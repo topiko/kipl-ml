@@ -138,7 +138,7 @@ def _plot_single(
     X = dict_to_device(X, device)
     y = y.to(device).unsqueeze(-1)
 
-    _, values, league_rewards, _, times, actions, Xobs, fd = rollout(
+    _, values, league_rewards, entropies, times, actions, Xobs, fd = rollout(
         obs,
         disc_trained,
         X,
@@ -176,7 +176,17 @@ def _plot_single(
 
     # Plot actions
     plot_actions(times, actions, ax=ax_a)
-    ax_a.set_title("Actions")
+
+    ax_entropy = ax_a.twinx()
+    ax_entropy.axes.spines["right"].set_visible(True)
+    ax_entropy.plot(
+        times.squeeze().cpu().numpy(),
+        entropies.squeeze().cpu().numpy(),
+        "m-",
+        lw=1,
+    )
+    ax_entropy.set_ylabel("Action entropy", color="m")
+    ax_a.set_title("Actions, entropies")
 
     # Plot rewards
     plot_rewards(times, rewards, ax=ax_b)
