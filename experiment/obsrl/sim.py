@@ -93,6 +93,7 @@ def rollout(
 ) -> tuple[
     torch.Tensor,
     torch.Tensor,
+    torch.Tensor,
     dict[str, torch.Tensor] | None,
     torch.Tensor,
     torch.Tensor,
@@ -119,7 +120,7 @@ def rollout(
     # We need the seq. lens in forward.
     seq_lens = fd.pop(Feats.SEQ_LENS)
 
-    act_times, actions, log_ps, values, entropies, h = obs.act(
+    act_times, actions, log_ps, sel_probs, values, entropies, h = obs.act(
         fd, hobs, h_detach_period=detach_period, seq_lens=seq_lens
     )
 
@@ -180,6 +181,7 @@ def rollout(
 
     return (
         log_ps,
+        sel_probs,
         values,
         rewards,
         entropies,

@@ -392,6 +392,7 @@ class AGENT1(nn.Module):
         # (B, L)
         selections = sel_dist.sample()
         sel_log_probs = sel_dist.log_prob(selections)
+        sel_probs = sel_dist.probs
         sel_entropy = sel_dist.entropy()
 
         # Send u/d, note! These are conditional on the selection.
@@ -427,11 +428,11 @@ class AGENT1(nn.Module):
         # (B, 4)
         # sel_probs = sel_dist.probs
 
-        # (B, 1)
+        # (B, L)
         # up_p = sel_probs[..., 1] + sel_probs[..., 3]
         # down_p = sel_probs[..., 2] + sel_probs[..., 3]
 
-        # (B, 1)
+        # (B, L)
         # Poisson does not have entropy implemented - ignoring these for now.
         # The correct entropy is computed as:
         # up_p * (suc_entropy + stu_entropy) + down_p * (sdc_entropy + sdt_entropy)
@@ -515,4 +516,4 @@ class AGENT1(nn.Module):
 
         times = x[Feats.TIMES][:, : values.shape[1]]
 
-        return times, actions, log_probs, values, entropy, h
+        return times, actions, log_probs, sel_probs, values, entropy, h

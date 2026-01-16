@@ -138,7 +138,7 @@ def _plot_single(
     X = dict_to_device(X, device)
     y = y.to(device).unsqueeze(-1)
 
-    _, values, league_rewards, entropies, times, actions, Xobs, fd = rollout(
+    _, sel_probs, values, league_rewards, entropies, times, actions, Xobs, fd = rollout(
         obs,
         disc_trained,
         X,
@@ -177,15 +177,32 @@ def _plot_single(
     # Plot actions
     plot_actions(times, actions, ax=ax_a)
 
+    # Plot entropy
     ax_entropy = ax_a.twinx()
     ax_entropy.axes.spines["right"].set_visible(True)
     ax_entropy.plot(
         times.squeeze().cpu().numpy(),
         entropies.squeeze().cpu().numpy(),
-        "m-",
+        "--",
+        lw=2,
+        color="black",
+    )
+    ax_entropy.set_ylabel("Action entropy")
+    ax_entropy.legend(["Entropy"], frameon=False, loc=1)
+
+    # Plot selection probs
+    ax_probs = ax_a.twinx()
+    ax_probs.axes.spines["right"].set_visible(True)
+    ax_probs.spines["right"].set_position(("outward", 40))  # offset by 40 points
+    ax_probs.set_ylabel("Selection probs.")
+
+    ax_probs.plot(
+        times.squeeze().cpu().numpy(),
+        sel_probs.squeeze(0).cpu().numpy(),
+        "-",
         lw=1,
     )
-    ax_entropy.set_ylabel("Action entropy", color="m")
+
     ax_a.set_title("Actions, entropies")
 
     # Plot rewards
@@ -482,15 +499,17 @@ def main(cfg: DictConfig):
 
                     optim.zero_grad()
 
-                    log_ps, values, league_rewards, entropies, _, _, Xobs, fd = rollout(
-                        obs=obs,
-                        disc=discriminator,
-                        X=X,
-                        y=y,
-                        disc_features=disc_feats,
-                        disc_league=active_league or league,
-                        detach_period=detach_period,
-                        reward_scales=reward_scales,
+                    log_ps, _, values, league_rewards, entropies, _, _, Xobs, fd = (
+                        rollout(
+                            obs=obs,
+                            disc=discriminator,
+                            X=X,
+                            y=y,
+                            disc_features=disc_feats,
+                            disc_league=active_league or league,
+                            detach_period=detach_period,
+                            reward_scales=reward_scales,
+                        )
                     )
 
                     action_seq_lens = get_action_seq_lens(fd)
