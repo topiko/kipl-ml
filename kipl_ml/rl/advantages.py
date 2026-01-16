@@ -1,39 +1,56 @@
 import torch
 
 
-def get_returns(rewards: torch.Tensor, gamma: float) -> torch.Tensor:
-    _, T = rewards.shape
+def get_returns(
+    rewards: torch.Tensor, seq_lens: torch.Tensor, gamma: float
+) -> torch.Tensor:
+    B, T = rewards.shape
     G = torch.zeros_like(rewards)
-    R = 0
 
-    # for r in rewards.flip(dims=(1,)).T:
+    mask = (torch.arange(T, device=rewards.device)[None, :] < seq_lens[:, None]).to(
+        rewards.dtype
+    )
+
+    R = torch.zeros(B, device=rewards.device, dtype=rewards.dtype)
     for t in reversed(range(T)):
         R = rewards[:, t] + gamma * R
+        R = R * mask[:, t]  # cut off at end
         G[:, t] = R
     return G
 
 
 def get_gae(
-    rewards: torch.Tensor, values: torch.Tensor, lambda_: float, gamma: float
+    rewards: torch.Tensor,
+    values: torch.Tensor,
+    seq_lens: torch.Tensor,
+    lambda_: float,
+    gamma: float,
 ) -> torch.Tensor:
-    """
-    rewards, values: [B, T]
-    returns: GAE advantages of shape [B, T]
-    """
-
     B, T = rewards.shape
-    # delta = r_t + gamma * V_t+1 - V_t
-    deltas = torch.zeros_like(rewards)
-    deltas[:, :-1] = rewards[:, :-1] + gamma * values[:, 1:] - values[:, :-1]
-    # V_t+1 for last times step = 0
-    deltas[:, -1] = rewards[:, -1] - values[:, -1]
+    device = rewards.device
+    dtype = rewards.dtype
+
+    mask = (torch.arange(T, device=device)[None, :] < seq_lens[:, None]).to(dtype)
+
+    # next_mask[t] is 1 iff t+1 is valid (so we can bootstrap/propagate)
+    next_mask = torch.zeros_like(mask)
+    next_mask[:, :-1] = mask[:, 1:]
+
+    # delta_t = r_t + gamma * V_{t+1} * next_mask_t - V_t
+    values_next = values.roll(
+        shifts=-1, dims=1
+    )  # last col will be ignored due to next_mask=0
+    deltas = rewards + gamma * values_next * next_mask - values
+    deltas = deltas * mask  # keep padding clean
 
     gae = torch.zeros_like(rewards)
-    running = torch.zeros(B, device=rewards.device)
-
+    running = torch.zeros(B, device=device, dtype=dtype)
     y = lambda_ * gamma
+
     for t in reversed(range(T)):
-        running = deltas[:, t] + running * y
-        gae[:, t] = running
+        running = (
+            deltas[:, t] + running * y * next_mask[:, t]
+        )  # stop propagation past end
+        gae[:, t] = running * mask[:, t]
 
     return gae

@@ -149,7 +149,7 @@ def _plot_single(
     )
 
     rewards = league_rewards2rewards(league_rewards)
-    G, _ = get_advantages(rewards, values, cfg)
+    G, _ = get_advantages(rewards, values, get_action_seq_lens(fd), cfg)
 
     Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
     mask = Xobs[Feats.DIRS] != 0
@@ -218,18 +218,20 @@ def _plot_single(
 def get_advantages(
     rewards: torch.Tensor | dict[str, torch.Tensor],
     values: torch.Tensor,
+    seq_lens: torch.Tensor,
     cfg: DictConfig,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     if isinstance(rewards, dict):
         rewards = sum(rewards.values())
 
     if cfg.advantages.type == "mc":
-        G = get_returns(rewards, gamma=cfg.discounting)
+        G = get_returns(rewards, seq_lens, gamma=cfg.discounting)
         advantages = G - values
     elif cfg.advantages.type == "gae":
         advantages = get_gae(
             rewards,
             values,
+            seq_lens,
             lambda_=cfg.advantages.lambda_,
             gamma=cfg.discounting,
         )
@@ -240,6 +242,14 @@ def get_advantages(
     if cfg.advantages.standardize:
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
+    if cfg.advantages.standardize:
+        mask = make_time_mask(
+            seq_lens.to(values.device), values.shape[1], device=values.device
+        )
+        mean, std = masked_mean_std(advantages, mask)
+        advantages = (advantages - mean) / std
+        # Optional: keep padding at 0
+        advantages = advantages * mask.to(advantages.dtype)
     return G, advantages
 
 
@@ -356,9 +366,20 @@ def make_time_mask(seq_lens: torch.Tensor, L: int, device=None) -> torch.Tensor:
 
 
 def masked_mean(x: torch.Tensor, mask: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
-    # x: (B, L) or broadcastable to mask
+    return masked_mean_std(x, mask, eps)[0]
+
+
+def masked_mean_std(x: torch.Tensor, mask: torch.Tensor, eps: float = 1e-8):
     m = mask.to(dtype=x.dtype)
-    return (x * m).sum() / (m.sum() + eps)
+    denom = m.sum().clamp(min=1.0)
+    mean = (x * m).sum() / denom
+    var = ((x - mean) * m).pow(2).sum() / denom
+    std = (var + eps).sqrt()
+    return mean, std
+
+
+def get_action_seq_lens(fd: dict[Feats, torch.Tensor]) -> torch.Tensor:
+    return fd[Feats.TIMES].isnan().logical_not().sum(dim=1)
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
@@ -462,7 +483,7 @@ def main(cfg: DictConfig):
                         reward_scales=reward_scales,
                     )
 
-                    action_seq_lens = fd[Feats.TIMES].isnan().logical_not().sum(dim=1)
+                    action_seq_lens = get_action_seq_lens(fd)
 
                     time_mask = make_time_mask(
                         action_seq_lens, fd[Feats.TIMES].shape[1], device=device
@@ -470,7 +491,9 @@ def main(cfg: DictConfig):
 
                     rewards = league_rewards2rewards(league_rewards)
 
-                    G, advantages = get_advantages(rewards, values, cfg)
+                    G, advantages = get_advantages(
+                        rewards, values, action_seq_lens, cfg
+                    )
 
                     # Compute losses
                     policy_loss_ = -(log_ps * advantages.detach())
