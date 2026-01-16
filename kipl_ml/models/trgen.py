@@ -507,6 +507,8 @@ class AGENT1(nn.Module):
         # (B, L)
         mask = selections == 3
 
+        # This beta is to push the variance of the poissons above down...
+        # The risk is the cond probs start to dominate the grad.
         self._cond_beta = 0.01
         # (B, L)
         log_probs[mask] = sel_log_probs[mask] + self._cond_beta * (
