@@ -127,7 +127,7 @@ def rollout(
     if h is not None:
         h_norm = h[0].norm(2, dim=-1).max().item()
         c_norm = h[1].norm(2, dim=-1).max().item()
-        if h_norm > 100 or c_norm > 10000:
+        if h_norm > 100 or c_norm > 100:
             print("Huge hidden/cell:", h_norm, c_norm)
 
     t2 = time.time()
@@ -178,6 +178,9 @@ def rollout(
         "Exec": t3 - t2,
         "Disc+rew": t4 - t3,
     }
+
+    print(h[0][-1, 0, :])
+    print(h[1][-1, 0, :])
 
     return (
         log_ps,

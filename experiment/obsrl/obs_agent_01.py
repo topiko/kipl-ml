@@ -373,7 +373,7 @@ def get_league_scores(
                     disc_league=league,
                     detach_period=500,
                     reward_scales=reward_scales,
-                )[2]
+                )[3]
                 # (nleague, nbatch, ntimesteps) -> (nleague, nbatch) -> (nleague, 1)
                 rewards = {
                     k: v.mean(dim=1).mean(dim=1).unsqueeze(1)
@@ -459,7 +459,17 @@ def main(cfg: DictConfig):
     _append_to_league(league, discriminator_orig.state_dict())
     active_league = None
 
-    optim = torch.optim.Adam(obs.parameters(), lr=0.001)
+    rnn_params = list(obs.rnn.parameters())
+    other_params = [p for n, p in obs.named_parameters() if not n.startswith("rnn.")]
+
+    lr = 0.001
+    optim = torch.optim.AdamW(
+        [
+            {"params": rnn_params, "lr": lr * 0.1},
+            {"params": other_params, "lr": lr},
+        ]
+    )
+
     disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
 
     e = 0
@@ -636,9 +646,9 @@ def main(cfg: DictConfig):
             )
             mlflow.log_metrics(d, step=e)
 
-            if e % 10 == 0:
-                mlflow.pytorch.log_model(obs, name=f"rlobs-{e}")
-                mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}")
+            if e % 1 == 0:
+                # mlflow.pytorch.log_model(obs, name=f"rlobs-{e}")
+                # mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}")
 
                 _plot_set(
                     cfg=cfg,
@@ -651,7 +661,7 @@ def main(cfg: DictConfig):
                     e=e,
                     reward_scales=reward_scales,
                     device=device,
-                    ntraces=20,
+                    ntraces=10,
                 )
             # =============================================
 

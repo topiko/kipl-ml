@@ -222,8 +222,10 @@ class AGENT1(nn.Module):
 
         self.scaler = nn.Sequential(nn.Linear(nfeat, nfeat, bias=False), nn.Tanh())
         self.rnn = nn.LSTM(
-            nfeat, hsize, nlayers, batch_first=True, dropout=dropout, bias=False
+            nfeat, hsize, nlayers, batch_first=True, dropout=dropout, bias=True
         )
+
+        self.out_norm = nn.LayerNorm(hsize)
 
         self.actor = nn.ModuleDict(
             {
@@ -348,6 +350,9 @@ class AGENT1(nn.Module):
 
         # (N, L, H) (N, n_hidden, H)
         output, h = self.rnn(inputs, h)
+
+        # (N, L, H)
+        output = self.out_norm(output)
 
         # (N, L, 4) (0=WAIT, 1=SEND_UP, 2=SEND_DOWN, 3=SEND_BOTH)
         action_selector = self.actor["action_selection"](output)
@@ -502,7 +507,7 @@ class AGENT1(nn.Module):
         # (B, L)
         mask = selections == 3
 
-        self.cond_beta = 0.01
+        self._cond_beta = 0.01
         # (B, L)
         log_probs[mask] = sel_log_probs[mask] + self._cond_beta * (
             send_count_u_logp[mask]
