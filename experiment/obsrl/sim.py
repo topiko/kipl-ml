@@ -179,9 +179,6 @@ def rollout(
         "Disc+rew": t4 - t3,
     }
 
-    print(h[0][-1, 0, :])
-    print(h[1][-1, 0, :])
-
     return (
         log_ps,
         sel_probs,

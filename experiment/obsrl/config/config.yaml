@@ -22,7 +22,7 @@ discounting: 0.99
 trace_len: 5_000
 batch_size: 32
 dropout: 0.25
-grad_norm_clip: 5
+grad_norm_clip: 1
 label_smoothing: 0.02
 
 predict_ks: 21
