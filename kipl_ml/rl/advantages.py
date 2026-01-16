@@ -30,6 +30,7 @@ def get_gae(
     device = rewards.device
     dtype = rewards.dtype
 
+    # (B, T) mask where valid steps are 1
     mask = (torch.arange(T, device=device)[None, :] < seq_lens[:, None]).to(dtype)
 
     # next_mask[t] is 1 iff t+1 is valid (so we can bootstrap/propagate)
@@ -37,9 +38,8 @@ def get_gae(
     next_mask[:, :-1] = mask[:, 1:]
 
     # delta_t = r_t + gamma * V_{t+1} * next_mask_t - V_t
-    values_next = values.roll(
-        shifts=-1, dims=1
-    )  # last col will be ignored due to next_mask=0
+    # last col will be ignored due to next_mask=0
+    values_next = values.roll(shifts=-1, dims=1)
     deltas = rewards + gamma * values_next * next_mask - values
     deltas = deltas * mask  # keep padding clean
 
@@ -48,9 +48,8 @@ def get_gae(
     y = lambda_ * gamma
 
     for t in reversed(range(T)):
-        running = (
-            deltas[:, t] + running * y * next_mask[:, t]
-        )  # stop propagation past end
+        # stop propagation past end
+        running = deltas[:, t] + running * y * next_mask[:, t]
         gae[:, t] = running * mask[:, t]
 
     return gae
