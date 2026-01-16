@@ -400,14 +400,14 @@ class AGENT1(nn.Module):
         suc = Poisson(1 + nn.functional.softplus(action_outputs[Actions.SEND_COUNT_UP]))
         sut = Normal(
             0.01 + nn.functional.softplus(action_outputs[Actions.SEND_TIME_UP]) / 10,
-            1e-3,
+            1e-2,
         )
         sdc = Poisson(
             1 + nn.functional.softplus(action_outputs[Actions.SEND_COUNT_DOWN])
         )
         sdt = Normal(
             0.01 + nn.functional.softplus(action_outputs[Actions.SEND_TIME_DOWN]) / 10,
-            1e-3,
+            1e-2,
         )
 
         # (B, L)
@@ -502,10 +502,10 @@ class AGENT1(nn.Module):
         # (B, L)
         mask = selections == 3
 
+        self.cond_beta = 0.01
         # (B, L)
-        log_probs[mask] = (
-            sel_log_probs[mask]
-            + send_count_u_logp[mask]
+        log_probs[mask] = sel_log_probs[mask] + self._cond_beta * (
+            send_count_u_logp[mask]
             + send_time_u_logp[mask]
             + send_count_d_logp[mask]
             + send_time_d_logp[mask]
