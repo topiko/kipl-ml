@@ -474,6 +474,10 @@ class AGENT1(nn.Module):
             Actions.SEND_TIME_UP: send_time_u.detach().clone(),
         }
 
+        # This beta is to push the variance of the poissons above down...
+        # The risk is the cond probs start to dominate the grad.
+        self._cond_beta = 0.01
+
         # WAIT:
         # (B, L)
         mask = selections == 0
@@ -491,8 +495,8 @@ class AGENT1(nn.Module):
         mask = selections == 1
 
         # (B, L)
-        log_probs[mask] = (
-            sel_log_probs[mask] + send_count_u_logp[mask] + send_time_u_logp[mask]
+        log_probs[mask] = sel_log_probs[mask] + self._cond_beta * (
+            send_count_u_logp[mask] + send_time_u_logp[mask]
         )
         actions[Actions.SEND_COUNT_DOWN][mask] = 0
         actions[Actions.SEND_TIME_DOWN][mask] = 0
@@ -502,8 +506,8 @@ class AGENT1(nn.Module):
         mask = selections == 2
 
         # (B, L)
-        log_probs[mask] = (
-            sel_log_probs[mask] + send_count_d_logp[mask] + send_time_d_logp[mask]
+        log_probs[mask] = sel_log_probs[mask] + self._cond_beta * (
+            send_count_d_logp[mask] + send_time_d_logp[mask]
         )
         actions[Actions.SEND_COUNT_UP][mask] = 0
         actions[Actions.SEND_TIME_UP][mask] = 0
@@ -512,9 +516,6 @@ class AGENT1(nn.Module):
         # (B, L)
         mask = selections == 3
 
-        # This beta is to push the variance of the poissons above down...
-        # The risk is the cond probs start to dominate the grad.
-        self._cond_beta = 0.01
         # (B, L)
         log_probs[mask] = sel_log_probs[mask] + self._cond_beta * (
             send_count_u_logp[mask]
