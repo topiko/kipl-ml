@@ -684,6 +684,7 @@ def main(cfg: DictConfig):
                     reward_scales=reward_scales,
                     device=device,
                     ntraces=10,
+                    max_len=20_000,
                 )
             # =============================================
 
