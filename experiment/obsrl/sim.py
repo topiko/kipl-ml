@@ -127,7 +127,7 @@ def rollout(
     if h is not None:
         h_norm = h[0].norm(2, dim=-1).max().item()
         c_norm = h[1].norm(2, dim=-1).max().item()
-        if h_norm > 100 or c_norm > 100:
+        if h_norm > 100 or c_norm > 400:
             print("Huge hidden/cell:", h_norm, c_norm)
 
     t2 = time.time()

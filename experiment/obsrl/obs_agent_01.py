@@ -473,6 +473,9 @@ def main(cfg: DictConfig):
 
     disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
 
+    # Entropy scale
+    entropy_scale = 0.01
+
     e = 0
     detach_period = cfg.h_detach_period
     with mlflow.start_run(log_system_metrics=True):
@@ -497,7 +500,7 @@ def main(cfg: DictConfig):
             )
 
             obs.train()
-            obs.cond_beta = 0.4
+            obs.cond_beta = 0.3
             if train_disc:
                 discriminator.train()
 
@@ -554,7 +557,7 @@ def main(cfg: DictConfig):
 
                     entropy = masked_mean(entropies, time_mask)
 
-                    loss = policy_loss + value_loss - 0.01 * entropy
+                    loss = policy_loss + value_loss - entropy_scale * entropy
 
                     loss.backward()
 
@@ -656,6 +659,16 @@ def main(cfg: DictConfig):
                             "dacc": np.mean(losses_metrics_d["disc_train_acc"][-30:]),
                         }
                     )
+
+            # Entropy scale update:
+            # ============================================
+            k = 0.1
+            entropy_target = 1.4 - np.clip(0.9 * e / 20, 0.0, 0.9)
+            entropy_scale += k * (entropy_target - entropy.item())
+            entropy_scale = torch.clamp(entropy_scale, 0, 1)
+
+            losses_metrics_d["entropy_target"] = entropy_target
+            losses_metrics_d["entropy_scale"] = entropy_scale
 
             # Logging:
             # =============================================
