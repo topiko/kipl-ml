@@ -356,7 +356,10 @@ class AGENT1(nn.Module):
         # (N, L) x nfeat
         fs = []
         for f in self.features:
-            x_ = torch.log10(1 + x[f])
+            if f == Feats.SILENCE_FLAG:
+                x_ = x[f]  # keep 0/1
+            else:
+                x_ = torch.log10(1 + x[f])
             fs.append(x_.unsqueeze(-1))
 
         # (N, L, nfeat)
