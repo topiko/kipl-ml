@@ -120,6 +120,11 @@ def get_window_feature_dict(
 
     feature_dict[Feats.SEQ_LENS] = mask.sum(dim=1)
 
+    if Feats.SILENCE_FLAG in features:
+        feature_dict[Feats.SILENCE_FLAG] = (
+            (feature_dict[Feats.UP_COUNT] == 0) & (feature_dict[Feats.DOWN_COUNT] == 0)
+        ).float()
+
     if (max_s := feature_dict[Feats.Dt].diff(dim=1).max()) > max_silence_s:
         logger.warning(
             f"Found max silence {max_s:.4f}, whereas you wish max silence = {max_silence_s:.4f}."

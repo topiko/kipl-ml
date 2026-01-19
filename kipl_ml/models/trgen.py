@@ -214,7 +214,12 @@ class AGENT1(nn.Module):
         # Maximum silence the model tolerates before acting.
         self.max_silence_s = max_silence_s
 
-        self.features = [Feats.UP_COUNT, Feats.DOWN_COUNT, Feats.Dt]
+        self.features = [
+            Feats.UP_COUNT,
+            Feats.DOWN_COUNT,
+            Feats.Dt,
+            Feats.SILENCE_FLAG,
+        ]
         self.num_layers = nlayers
         self.hidden_size = hsize
         self.zero_init = zero_init

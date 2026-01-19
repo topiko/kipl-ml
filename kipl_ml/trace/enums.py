@@ -60,6 +60,7 @@ class Feats(StrEnum):
     STATE_VALUE = "state_value"
     SEQ_LENS = "seq_lens"
     Dt = "Delta time"
+    SILENCE_FLAG = "silence_flag"
 
     def __str__(self) -> str:
         return self.value
