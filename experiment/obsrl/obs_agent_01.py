@@ -499,6 +499,7 @@ def main(cfg: DictConfig):
             )
 
             obs.train()
+            obs.cond_beta = 0.2
             if train_disc:
                 discriminator.train()
 
