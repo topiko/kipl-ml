@@ -499,7 +499,7 @@ def main(cfg: DictConfig):
             )
 
             obs.train()
-            obs.cond_beta = 0.2
+            obs.cond_beta = 0.5
             if train_disc:
                 discriminator.train()
 
@@ -562,8 +562,11 @@ def main(cfg: DictConfig):
 
                     # Track the effect of selection vs conditional
                     sel_log_ps = torch.log(sel_probs)
-                    sel_term = (advantages.detach() * sel_log_ps).std()
-                    cond_term = (advantages.detach() * (log_ps - sel_log_ps)).std()
+                    sel_term = (advantages[..., None].detach() * sel_log_ps).std()
+                    cond_term = (
+                        advantages[..., None].detach()
+                        * (log_ps[..., None] - sel_log_ps)
+                    ).std()
                     ratio = cond_term / (sel_term + 1e-8)
 
                     # Sanity checks:
