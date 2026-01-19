@@ -506,7 +506,7 @@ class AGENT1(nn.Module):
         mask = selections == 1
 
         # (B, L)
-        log_probs[mask] = sel_log_probs[mask] + self._cond_beta * (
+        log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
             send_count_u_logp[mask] + send_time_u_logp[mask]
         )
         actions[Actions.SEND_COUNT_DOWN][mask] = 0
@@ -517,7 +517,7 @@ class AGENT1(nn.Module):
         mask = selections == 2
 
         # (B, L)
-        log_probs[mask] = sel_log_probs[mask] + self._cond_beta * (
+        log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
             send_count_d_logp[mask] + send_time_d_logp[mask]
         )
         actions[Actions.SEND_COUNT_UP][mask] = 0
@@ -528,7 +528,7 @@ class AGENT1(nn.Module):
         mask = selections == 3
 
         # (B, L)
-        log_probs[mask] = sel_log_probs[mask] + self._cond_beta * (
+        log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
             send_count_u_logp[mask]
             + send_time_u_logp[mask]
             + send_count_d_logp[mask]
@@ -539,29 +539,5 @@ class AGENT1(nn.Module):
         values = action_outputs[Feats.STATE_VALUE]
 
         times = x[Feats.TIMES][:, : values.shape[1]]
-
-        # Some chatgpt suggestions... Debugging
-        # =========================================
-        mask_valid = (
-            torch.arange(values.shape[1], device=values.device)[None, :]
-            < seq_lens[:, None]
-        )
-
-        sel_logp_std = sel_log_probs[mask_valid].std()
-        cond_logp_std = (log_probs - sel_log_probs)[
-            mask_valid & (selections != 0)
-        ].std()
-        ratio = cond_logp_std / (sel_logp_std + 1e-8)
-        if ratio < 0.1:
-            logger.warning(
-                "Conditional parts of policy have minimal effect on grads, ratio = %f"
-                % ratio
-            )
-        elif ratio > 5:
-            logger.warning(
-                "Cond. parts dominate learning hope selector is in check!, ratio = %f"
-                % ratio
-            )
-        # =========================================
 
         return times, actions, log_probs, sel_probs, values, entropy, h

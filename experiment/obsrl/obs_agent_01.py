@@ -512,17 +512,25 @@ def main(cfg: DictConfig):
 
                     optim.zero_grad()
 
-                    log_ps, _, values, league_rewards, entropies, _, _, Xobs, fd = (
-                        rollout(
-                            obs=obs,
-                            disc=discriminator,
-                            X=X,
-                            y=y,
-                            disc_features=disc_feats,
-                            disc_league=active_league or league,
-                            detach_period=detach_period,
-                            reward_scales=reward_scales,
-                        )
+                    (
+                        log_ps,
+                        sel_probs,
+                        values,
+                        league_rewards,
+                        entropies,
+                        _,
+                        _,
+                        Xobs,
+                        fd,
+                    ) = rollout(
+                        obs=obs,
+                        disc=discriminator,
+                        X=X,
+                        y=y,
+                        disc_features=disc_feats,
+                        disc_league=active_league or league,
+                        detach_period=detach_period,
+                        reward_scales=reward_scales,
                     )
 
                     action_seq_lens = get_action_seq_lens(fd)
@@ -553,6 +561,16 @@ def main(cfg: DictConfig):
                     # Sanity checks:
                     # ==========================================
                     if cfg.debug:
+                        sel_log_ps = torch.log(sel_probs)
+                        sel_term = (advantages.detach() * sel_log_ps).std()
+                        cond_term = (advantages.detach() * (log_ps - sel_log_ps)).std()
+                        ratio = cond_term / (sel_term + 1e-8)
+
+                        if (ratio > 10.0) or (ratio < 0.1):
+                            logger.warning(
+                                f"High/low cond/sel std ratio: {ratio:.2f}, sel_term: {sel_term:.6f}, cond_term: {cond_term:.6f}"
+                            )
+
                         for k, v in rewards.items():
                             try:
                                 assert_finite(f"rewards-{k}", v)
