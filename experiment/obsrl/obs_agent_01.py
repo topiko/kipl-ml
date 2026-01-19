@@ -477,7 +477,7 @@ def main(cfg: DictConfig):
     with mlflow.start_run(log_system_metrics=True):
         train_disc = True
         while True:
-            reward_scales = {"clf_scale": 10.0, "padding_scale": 0.001}
+            reward_scales = {"clf_scale": 10.0, "padding_scale": 0.01}
             league_scores = []
             losses_metrics_d: dict[str, list[float]] = {
                 "loss": [],
@@ -543,7 +543,7 @@ def main(cfg: DictConfig):
 
                     entropy_loss = masked_mean(-entropies, time_mask)
 
-                    loss = policy_loss + value_loss + 0.01 * entropy_loss
+                    loss = policy_loss + value_loss + 0.0 * entropy_loss
 
                     loss.backward()
 
@@ -599,6 +599,7 @@ def main(cfg: DictConfig):
                         disc_opm=disc_optim,
                         feature_trs=disc_feats,
                         train=train_disc,
+                        grad_clip=cfg.grad_norm_clip,
                     )
 
                     losses_metrics_d["loss"].append(loss.item())
@@ -646,9 +647,9 @@ def main(cfg: DictConfig):
             )
             mlflow.log_metrics(d, step=e)
 
-            if e % 1 == 0:
-                # mlflow.pytorch.log_model(obs, name=f"rlobs-{e}")
-                # mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}")
+            if e % 5 == 0:
+                mlflow.pytorch.log_model(obs, name=f"rlobs-{e}")
+                mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}")
 
                 _plot_set(
                     cfg=cfg,
