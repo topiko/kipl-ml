@@ -492,6 +492,7 @@ def main(cfg: DictConfig):
                 "disc_train_acc": [],
                 "mean_padding_frac": [],
                 "mean_trace_len": [],
+                "sel vs. cond std ratio": [],
             }
             losses_metrics_d.update(
                 {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
@@ -558,14 +559,15 @@ def main(cfg: DictConfig):
 
                     loss.backward()
 
+                    # Track the effect of selection vs conditional
+                    sel_log_ps = torch.log(sel_probs)
+                    sel_term = (advantages.detach() * sel_log_ps).std()
+                    cond_term = (advantages.detach() * (log_ps - sel_log_ps)).std()
+                    ratio = cond_term / (sel_term + 1e-8)
+
                     # Sanity checks:
                     # ==========================================
                     if cfg.debug:
-                        sel_log_ps = torch.log(sel_probs)
-                        sel_term = (advantages.detach() * sel_log_ps).std()
-                        cond_term = (advantages.detach() * (log_ps - sel_log_ps)).std()
-                        ratio = cond_term / (sel_term + 1e-8)
-
                         if (ratio > 10.0) or (ratio < 0.1):
                             logger.warning(
                                 f"High/low cond/sel std ratio: {ratio:.2f}, sel_term: {sel_term:.6f}, cond_term: {cond_term:.6f}"
@@ -630,6 +632,7 @@ def main(cfg: DictConfig):
                     losses_metrics_d["entropy_loss"].append(entropy_loss.item())
                     losses_metrics_d["disc_train_acc"].append(acc)
                     losses_metrics_d["disc_train_loss"].append(disc_loss)
+                    losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
                     losses_metrics_d["mean_padding_frac"].append(
                         (
                             Xobs[Feats.PADDING].sum(dim=1).float()
