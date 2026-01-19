@@ -485,7 +485,7 @@ def main(cfg: DictConfig):
                 "policy_loss": [],
                 "value_loss": [],
                 "avg_return": [],
-                "sel_entropy": [],
+                "entropy": [],
                 "disc_train_loss": [],
                 "disc_train_acc": [],
                 "mean_padding_frac": [],
@@ -497,7 +497,7 @@ def main(cfg: DictConfig):
             )
 
             obs.train()
-            obs.cond_beta = 0.1
+            obs.cond_beta = 0.4
             if train_disc:
                 discriminator.train()
 
@@ -552,7 +552,7 @@ def main(cfg: DictConfig):
                     value_loss_ = 0.5 * (values - G.detach()).pow(2)
                     value_loss = masked_mean(value_loss_, time_mask)
 
-                    entropy = masked_mean(-entropies, time_mask)
+                    entropy = masked_mean(entropies, time_mask)
 
                     loss = policy_loss + value_loss - 0.01 * entropy
 
