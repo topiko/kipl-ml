@@ -155,11 +155,9 @@ def _plot_single(
     mask = Xobs[Feats.DIRS] != 0
     if mask.sum() > max_len:
         logger.warning("Long seqs. detected -> truncating to %d.", max_len)
-
-    if mask.any():
-        Xobs[Feats.TIMES] = Xobs[Feats.TIMES][mask][:max_len]
-        Xobs[Feats.DIRS] = Xobs[Feats.DIRS][mask][:max_len]
-        Xobs[Feats.PADDING] = Xobs[Feats.PADDING][mask][:max_len]
+        Xobs[Feats.TIMES] = Xobs[Feats.TIMES][:max_len]
+        Xobs[Feats.DIRS] = Xobs[Feats.DIRS][:max_len]
+        Xobs[Feats.PADDING] = Xobs[Feats.PADDING][:max_len]
 
     # Plot obsfuscated
     plot_trace(
