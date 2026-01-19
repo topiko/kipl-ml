@@ -245,6 +245,18 @@ class AGENT1(nn.Module):
         )
 
         self.critic = nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, 1))
+        self.cond_beta = 0.2
+
+    @property
+    def cond_beta(self) -> float:
+        return self._cond_beta
+
+    @cond_beta.setter
+    def cond_beta(self, cond_beta: float):
+        # This param is to steer the importance of the cond part
+        # of the prop distr (for actions). High, beta, learn cond part.
+
+        self._cond_beta = cond_beta
 
     def _forward_w_detach(
         self,
@@ -474,10 +486,6 @@ class AGENT1(nn.Module):
             Actions.SEND_TIME_UP: send_time_u.detach().clone(),
         }
 
-        # This beta is to push the variance of the poissons above down...
-        # The risk is the cond probs start to dominate the grad.
-        self._cond_beta = 0.01
-
         # WAIT:
         # (B, L)
         mask = selections == 0
@@ -528,5 +536,25 @@ class AGENT1(nn.Module):
         values = action_outputs[Feats.STATE_VALUE]
 
         times = x[Feats.TIMES][:, : values.shape[1]]
+
+        # Some chatgpt suggestions... Debugging
+        # =========================================
+        mask_valid = (
+            torch.arange(values.shape[1], device=values.device)[None, :]
+            < seq_lens[:, None]
+        )
+
+        sel_logp_std = sel_log_probs[mask_valid].std()
+        cond_logp_std = (log_probs - sel_log_probs)[
+            mask_valid & (selections != 0)
+        ].std()
+        ratio = cond_logp_std / (sel_logp_std + 1e-8)
+        if ratio < 0.1:
+            logger.warning("Conditional parts of policy have minimal effect on grads.")
+        elif ratio > 5:
+            logger.warning(
+                "Conditional parts dominate learning hope selector is in check!"
+            )
+        # =========================================
 
         return times, actions, log_probs, sel_probs, values, entropy, h

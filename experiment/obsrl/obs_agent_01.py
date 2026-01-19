@@ -314,6 +314,9 @@ def valid_metrics(
     # Set the defense:
     ds_valid.defence = RNNDef((0, 0), (40_000, 40_000), obs.to("cpu"), n_packets=10000)
 
+    if ds_valid.defence_aug != 0:
+        raise ValueError("If def aug != 0 - you are reusing traces from previous runs")
+
     dl_valid = dl_(ds_valid, bs=32, collate_fn=None, shuffle=False, nworkers=None)
 
     d = evaluate_model(
@@ -647,9 +650,9 @@ def main(cfg: DictConfig):
             )
             mlflow.log_metrics(d, step=e)
 
-            if e % 5 == 0:
-                mlflow.pytorch.log_model(obs, name=f"rlobs-{e}")
-                mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}")
+            if e % 1 == 0:
+                # mlflow.pytorch.log_model(obs, name=f"rlobs-{e}")
+                # mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}")
 
                 _plot_set(
                     cfg=cfg,
