@@ -485,7 +485,7 @@ def main(cfg: DictConfig):
                 "policy_loss": [],
                 "value_loss": [],
                 "avg_return": [],
-                "entropy_loss": [],
+                "sel_entropy": [],
                 "disc_train_loss": [],
                 "disc_train_acc": [],
                 "mean_padding_frac": [],
@@ -497,7 +497,7 @@ def main(cfg: DictConfig):
             )
 
             obs.train()
-            obs.cond_beta = 0.5
+            obs.cond_beta = 0.1
             if train_disc:
                 discriminator.train()
 
@@ -552,9 +552,9 @@ def main(cfg: DictConfig):
                     value_loss_ = 0.5 * (values - G.detach()).pow(2)
                     value_loss = masked_mean(value_loss_, time_mask)
 
-                    entropy_loss = masked_mean(-entropies, time_mask)
+                    entropy = masked_mean(-entropies, time_mask)
 
-                    loss = policy_loss + value_loss + 0.0 * entropy_loss
+                    loss = policy_loss + value_loss - 0.01 * entropy
 
                     loss.backward()
 
@@ -598,7 +598,7 @@ def main(cfg: DictConfig):
                                 try:
                                     assert_finite(f"{name}: grad", p.grad)
                                 except ValueError:
-                                    print(value_loss, policy_loss, entropy_loss)
+                                    print(value_loss, policy_loss, entropy)
                                     breakpoint()
 
                         if not torch.isclose(
@@ -631,7 +631,7 @@ def main(cfg: DictConfig):
                     losses_metrics_d["policy_loss"].append(policy_loss.item())
                     losses_metrics_d["value_loss"].append(value_loss.item())
                     losses_metrics_d["avg_return"].append(G.mean().item())
-                    losses_metrics_d["entropy_loss"].append(entropy_loss.item())
+                    losses_metrics_d["entropy"].append(entropy.item())
                     losses_metrics_d["disc_train_acc"].append(acc)
                     losses_metrics_d["disc_train_loss"].append(disc_loss)
                     losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
