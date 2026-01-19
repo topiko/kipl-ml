@@ -245,7 +245,7 @@ class AGENT1(nn.Module):
         )
 
         self.critic = nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, 1))
-        self.cond_beta = 0.2
+        self.cond_beta = 0.25
 
     @property
     def cond_beta(self) -> float:
@@ -550,10 +550,14 @@ class AGENT1(nn.Module):
         ].std()
         ratio = cond_logp_std / (sel_logp_std + 1e-8)
         if ratio < 0.1:
-            logger.warning("Conditional parts of policy have minimal effect on grads.")
+            logger.warning(
+                "Conditional parts of policy have minimal effect on grads, ratio = %f"
+                % ratio
+            )
         elif ratio > 5:
             logger.warning(
-                "Conditional parts dominate learning hope selector is in check!"
+                "Cond. parts dominate learning hope selector is in check!, ratio = %f"
+                % ratio
             )
         # =========================================
 
