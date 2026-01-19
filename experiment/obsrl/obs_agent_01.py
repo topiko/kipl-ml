@@ -663,9 +663,9 @@ def main(cfg: DictConfig):
             # Entropy scale update:
             # ============================================
             k = 0.1
-            entropy_target = 1.4 - np.clip(0.9 * e / 20, 0.0, 0.9)
+            entropy_target = 1.4 - 1.1 * np.clip(e / 40, 0.0, 1.0)
             entropy_scale += k * (entropy_target - entropy.item())
-            entropy_scale = torch.clamp(entropy_scale, 0, 1)
+            entropy_scale = np.clip(entropy_scale, 0, 1)
 
             losses_metrics_d["entropy_target"] = entropy_target
             losses_metrics_d["entropy_scale"] = entropy_scale
@@ -687,9 +687,6 @@ def main(cfg: DictConfig):
             mlflow.log_metrics(d, step=e)
 
             if e % 1 == 0:
-                # mlflow.pytorch.log_model(obs, name=f"rlobs-{e}")
-                # mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}")
-
                 _plot_set(
                     cfg=cfg,
                     ds=ds_valid,
@@ -704,6 +701,11 @@ def main(cfg: DictConfig):
                     ntraces=10,
                     max_len=20_000,
                 )
+
+            if e % 5 == 0:
+                mlflow.pytorch.log_model(obs, name=f"rlobs-{e}")
+                mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}")
+
             # =============================================
 
             # League handling:
