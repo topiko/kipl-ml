@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from torch.distributions import Categorical, Normal, Poisson
+from torch.distributions import Categorical
 from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence, pad_packed_sequence
 
 from kipl_ml.logging.logger import get_logger
@@ -204,10 +204,24 @@ class AGENT1(nn.Module):
         max_silence_s: float = 0.5,
         hsize: int = 256,
         nlayers: int = 3,
+        send_count_bins: list[int] | None = None,
+        decay_time_bins: list[float] | None = None,
         dropout: float = 0.2,
         zero_init: bool = False,
     ):
         super().__init__()
+
+        send_count_bins = send_count_bins or [1, 2, 3, 5, 10, 20]
+        decay_time_bins = decay_time_bins or [0.01, 0.02, 0.05, 0.1, 0.2]
+        n_send_counts = len(send_count_bins)
+        n_decay_times = len(decay_time_bins)
+
+        self.register_buffer(
+            "send_count_bins", torch.tensor(send_count_bins, dtype=torch.long)
+        )
+        self.register_buffer(
+            "decay_time_bins", torch.tensor(decay_time_bins, dtype=torch.float)
+        )
 
         # Time step between feature extractions.
         self.time_step = time_step
@@ -237,10 +251,18 @@ class AGENT1(nn.Module):
                 "action_selection": nn.Sequential(
                     nn.Dropout(dropout), nn.Linear(hsize, 4)
                 ),
-                "send_count_u": nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, 1)),
-                "send_count_d": nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, 1)),
-                "send_time_u": nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, 1)),
-                "send_time_d": nn.Sequential(nn.Dropout(dropout), nn.Linear(hsize, 1)),
+                "send_count_u": nn.Sequential(
+                    nn.Dropout(dropout), nn.Linear(hsize, n_send_counts)
+                ),
+                "send_count_d": nn.Sequential(
+                    nn.Dropout(dropout), nn.Linear(hsize, n_send_counts)
+                ),
+                "send_time_u": nn.Sequential(
+                    nn.Dropout(dropout), nn.Linear(hsize, n_decay_times)
+                ),
+                "send_time_d": nn.Sequential(
+                    nn.Dropout(dropout), nn.Linear(hsize, n_decay_times)
+                ),
             }
         )
 
@@ -377,11 +399,13 @@ class AGENT1(nn.Module):
         # (N, L, 4) (0=WAIT, 1=SEND_UP, 2=SEND_DOWN, 3=SEND_BOTH)
         action_selector = self.actor["action_selection"](output)
 
-        # (N, L)
-        send_count_u = self.actor["send_count_u"](output).squeeze(-1)
-        send_count_d = self.actor["send_count_d"](output).squeeze(-1)
-        send_time_u = self.actor["send_time_u"](output).squeeze(-1)
-        send_time_d = self.actor["send_time_d"](output).squeeze(-1)
+        # (N, L, SEND_COUNT_BINS)
+        send_count_u = self.actor["send_count_u"](output)
+        send_count_d = self.actor["send_count_d"](output)
+
+        # (N, L, DECAY_TIME_BINS)
+        send_time_u = self.actor["send_time_u"](output)
+        send_time_d = self.actor["send_time_d"](output)
 
         # (N, L)
         state_values = self.critic(output).squeeze(-1)
@@ -422,55 +446,47 @@ class AGENT1(nn.Module):
 
         # Send u/d, note! These are conditional on the selection.
         # They will be ignored if the selection is not SEND_UP/DOWN/BOTH.
-        suc = Poisson(1 + nn.functional.softplus(action_outputs[Actions.SEND_COUNT_UP]))
-        sut = Normal(
-            0.01 + nn.functional.softplus(action_outputs[Actions.SEND_TIME_UP]) / 10,
-            1e-2,
-        )
-        sdc = Poisson(
-            1 + nn.functional.softplus(action_outputs[Actions.SEND_COUNT_DOWN])
-        )
-        sdt = Normal(
-            0.01 + nn.functional.softplus(action_outputs[Actions.SEND_TIME_DOWN]) / 10,
-            1e-2,
-        )
+        suc = Categorical(logits=action_outputs[Actions.SEND_COUNT_UP])
+        sut = Categorical(logits=action_outputs[Actions.SEND_TIME_UP])
+
+        sdc = Categorical(logits=action_outputs[Actions.SEND_COUNT_DOWN])
+        sdt = Categorical(logits=action_outputs[Actions.SEND_TIME_DOWN])
 
         # (B, L)
-        send_count_u = suc.sample()
-        send_count_u_logp = suc.log_prob(send_count_u)
+        send_count_u_idx = suc.sample()
+        send_count_u_logp = suc.log_prob(send_count_u_idx)
+        send_count_u = self.send_count_bins[send_count_u_idx]
 
-        send_count_d = sdc.sample()
-        send_count_d_logp = sdc.log_prob(send_count_d)
+        send_count_d_idx = sdc.sample()
+        send_count_d_logp = sdc.log_prob(send_count_d_idx)
+        send_count_d = self.send_count_bins[send_count_d_idx]
 
-        send_time_u = sut.sample()
-        send_time_u_logp = sut.log_prob(send_time_u)
+        send_decay_time_u_idx = sut.sample()
+        send_decay_time_u_logp = sut.log_prob(send_decay_time_u_idx)
+        send_decay_time_u = self.decay_time_bins[send_decay_time_u_idx]
 
-        send_time_d = sdt.sample()
-        send_time_d_logp = sdt.log_prob(send_time_d)
+        send_decay_time_d_idx = sdt.sample()
+        send_decay_time_d_logp = sdt.log_prob(send_decay_time_d_idx)
+        send_decay_time_d = self.decay_time_bins[send_decay_time_d_idx]
 
         # Conditional entropy H[A|S]:
         # =============================
         # (B, 4)
-        # sel_probs = sel_dist.probs
+        sel_probs = sel_dist.probs
 
         # (B, L)
-        # up_p = sel_probs[..., 1] + sel_probs[..., 3]
-        # down_p = sel_probs[..., 2] + sel_probs[..., 3]
+        up_p = sel_probs[..., 1] + sel_probs[..., 3]
+        down_p = sel_probs[..., 2] + sel_probs[..., 3]
 
         # (B, L)
-        # Poisson does not have entropy implemented - ignoring these for now.
-        # The correct entropy is computed as:
         # up_p * (suc_entropy + stu_entropy) + down_p * (sdc_entropy + sdt_entropy)
-        # suc_entropy = suc.entropy()
-        # sdc_entropy = sdc.entropy()
-        # stu_entropy = sut.entropy()
-        # sdt_entropy = sdt.entropy()
-        # This cond entropy becomes redundant: if tha var of normals is fixed -> H[N] = const,
-        # so we can ignore it in the optimization.
-        # For Poisson, the entropy must be ~ to the "mean" -> however, that would only encourage
-        # Larger send values -> ignore
-        # cond_entropy = up_p * stu_entropy + down_p * sdt_entropy
-        cond_entropy = 0.0
+        suc_entropy = suc.entropy()
+        sdc_entropy = sdc.entropy()
+        sudt_entropy = sut.entropy()
+        sddt_entropy = sdt.entropy()
+        cond_entropy = up_p * (sudt_entropy + suc_entropy) + down_p * (
+            sddt_entropy + sdc_entropy
+        )
 
         # Entropy (B, 1) H[A] = H[S] + H[A|S]
         # Policy, \Pi[A] = \Pi[S] * \Pi[A|S]
@@ -485,8 +501,8 @@ class AGENT1(nn.Module):
             Actions.WAIT: torch.zeros_like(selections),
             Actions.SEND_COUNT_DOWN: send_count_d.detach().clone(),
             Actions.SEND_COUNT_UP: send_count_u.detach().clone(),
-            Actions.SEND_TIME_DOWN: send_time_d.detach().clone(),
-            Actions.SEND_TIME_UP: send_time_u.detach().clone(),
+            Actions.SEND_TIME_DOWN: send_decay_time_d.detach().clone(),
+            Actions.SEND_TIME_UP: send_decay_time_u.detach().clone(),
         }
 
         # WAIT:
@@ -507,7 +523,7 @@ class AGENT1(nn.Module):
 
         # (B, L)
         log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
-            send_count_u_logp[mask] + send_time_u_logp[mask]
+            send_count_u_logp[mask] + send_decay_time_u_logp[mask]
         )
         actions[Actions.SEND_COUNT_DOWN][mask] = 0
         actions[Actions.SEND_TIME_DOWN][mask] = 0
@@ -518,7 +534,7 @@ class AGENT1(nn.Module):
 
         # (B, L)
         log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
-            send_count_d_logp[mask] + send_time_d_logp[mask]
+            send_count_d_logp[mask] + send_decay_time_d_logp[mask]
         )
         actions[Actions.SEND_COUNT_UP][mask] = 0
         actions[Actions.SEND_TIME_UP][mask] = 0
@@ -530,9 +546,9 @@ class AGENT1(nn.Module):
         # (B, L)
         log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
             send_count_u_logp[mask]
-            + send_time_u_logp[mask]
+            + send_decay_time_u_logp[mask]
             + send_count_d_logp[mask]
-            + send_time_d_logp[mask]
+            + send_decay_time_d_logp[mask]
         )
 
         # (B, L)
