@@ -478,13 +478,14 @@ def main(cfg: DictConfig):
 
     # Entropy scale
     entropy_scale = 0.01
+    padding_scale = 0.01
 
     e = 0
     detach_period = cfg.h_detach_period
     with mlflow.start_run(log_system_metrics=True):
         train_disc = True
         while True:
-            reward_scales = {"clf_scale": 10.0, "padding_scale": 0.0000}
+            reward_scales = {"clf_scale": 10.0, "padding_scale": padding_scale}
             league_scores = []
             losses_metrics_d: dict[str, list[float]] = {
                 "loss": [],
@@ -672,6 +673,10 @@ def main(cfg: DictConfig):
 
             losses_metrics_d["entropy_target"] = entropy_target
             losses_metrics_d["entropy_scale"] = entropy_scale
+
+            # Padding scale update:
+            # =============================================
+            padding_scale *= 1.047  # yields increase by 10x in 50 epochs
 
             # Logging:
             # =============================================
