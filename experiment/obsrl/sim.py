@@ -95,7 +95,7 @@ def rollout(
     torch.Tensor,
     torch.Tensor,
     dict[str, torch.Tensor] | None,
-    torch.Tensor,
+    dict[str, torch.Tensor],
     torch.Tensor,
     dict[Actions, torch.Tensor],
     dict[Feats, torch.Tensor],

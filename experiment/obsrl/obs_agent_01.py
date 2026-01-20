@@ -178,15 +178,16 @@ def _plot_single(
     # Plot entropy
     ax_entropy = ax_a.twinx()
     ax_entropy.axes.spines["right"].set_visible(True)
-    ax_entropy.plot(
-        times.squeeze().cpu().numpy(),
-        entropies.squeeze().cpu().numpy(),
-        "--",
-        lw=2,
-        color="black",
-    )
+    for entropy, values in entropies.items():
+        ax_entropy.plot(
+            times.squeeze().cpu().numpy(),
+            values.squeeze().cpu().numpy(),
+            "--",
+            lw=2,
+            label=entropy,
+        )
     ax_entropy.set_ylabel("Action entropy")
-    ax_entropy.legend(["Entropy"], frameon=False, loc=1)
+    ax_entropy.legend(frameon=False, loc=1)
 
     # Plot selection probs
     ax_probs = ax_a.twinx()
@@ -394,6 +395,8 @@ def make_time_mask(seq_lens: torch.Tensor, L: int, device=None) -> torch.Tensor:
 
 
 def masked_mean(x: torch.Tensor, mask: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    if isinstance(x, dict):
+        return masked_mean(sum(x.values()), mask, eps)
     return masked_mean_std(x, mask, eps)[0]
 
 
@@ -481,7 +484,7 @@ def main(cfg: DictConfig):
     with mlflow.start_run(log_system_metrics=True):
         train_disc = True
         while True:
-            reward_scales = {"clf_scale": 10.0, "padding_scale": 0.01}
+            reward_scales = {"clf_scale": 10.0, "padding_scale": 0.0000}
             league_scores = []
             losses_metrics_d: dict[str, list[float]] = {
                 "loss": [],
@@ -662,7 +665,7 @@ def main(cfg: DictConfig):
 
             # Entropy scale update:
             # ============================================
-            k = 0.1
+            k = 0.0
             entropy_target = 1.4 - 1.1 * np.clip(e / 40, 0.0, 1.0)
             entropy_scale += k * (entropy_target - entropy.item())
             entropy_scale = np.clip(entropy_scale, 0, 1)

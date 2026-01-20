@@ -430,7 +430,7 @@ class AGENT1(nn.Module):
         dict[Actions, torch.Tensor],
         torch.Tensor,
         torch.Tensor,
-        torch.Tensor,
+        dict[str, torch.Tensor],
         torch.Tensor,
     ]:
         action_outputs, h = self(x, h, h_detach_period, seq_lens)
@@ -491,6 +491,10 @@ class AGENT1(nn.Module):
         # Entropy (B, 1) H[A] = H[S] + H[A|S]
         # Policy, \Pi[A] = \Pi[S] * \Pi[A|S]
         entropy = sel_entropy + cond_entropy
+        entropies = {
+            "selection_entropy": sel_entropy,
+            "conditional_entropy": cond_entropy,
+        }
 
         # Use action selector to choose what to do:
         # (B, L)
@@ -556,4 +560,4 @@ class AGENT1(nn.Module):
 
         times = x[Feats.TIMES][:, : values.shape[1]]
 
-        return times, actions, log_probs, sel_probs, values, entropy, h
+        return times, actions, log_probs, sel_probs, values, entropies, h
