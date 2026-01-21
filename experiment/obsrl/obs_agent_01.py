@@ -492,7 +492,7 @@ def main(cfg: DictConfig):
         while True:
             reward_scales = {"clf_scale": 10.0, "padding_scale": padding_scale}
             league_scores = []
-            losses_metrics_d: dict[str, list[float]] = {
+            losses_metrics_d: dict[str, list[float] | float] = {
                 "loss": [],
                 "policy_loss": [],
                 "value_loss": [],
@@ -682,6 +682,8 @@ def main(cfg: DictConfig):
             # =============================================
             padding_scale *= 1.047  # yields increase by 10x in 50 epochs
             padding_scale = np.clip(padding_scale, -np.inf, 0.1)
+
+            losses_metrics_d["padding_scale"] = padding_scale
 
             # Logging:
             # =============================================
