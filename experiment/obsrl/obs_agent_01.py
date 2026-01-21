@@ -650,7 +650,9 @@ def main(cfg: DictConfig):
                     losses_metrics_d["mean_padding_frac"].append(
                         (
                             Xobs[Feats.PADDING].sum(dim=1).float()
-                            / (Xobs[Feats.DIRS] != 0).sum(dim=1)
+                            / (
+                                (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] != 1)
+                            ).sum(dim=1)
                         )
                         .mean()
                         .item()
