@@ -250,23 +250,22 @@ def get_advantages(
     if isinstance(rewards, dict):
         rewards = sum(rewards.values())
 
+    values_detached = values.detach()
+
     if cfg.advantages.type == "mc":
         G = get_returns(rewards, seq_lens, gamma=cfg.discounting)
-        advantages = G - values
+        advantages = G - values_detached
     elif cfg.advantages.type == "gae":
         advantages = get_gae(
             rewards,
-            values,
+            values_detached,
             seq_lens,
             lambda_=cfg.advantages.lambda_,
             gamma=cfg.discounting,
         )
-        G = advantages + values
+        G = advantages + values_detached
     else:
         raise NotImplementedError(f"Invalid advantage type: {cfg.advantages.type}")
-
-    if cfg.advantages.standardize:
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
     if cfg.advantages.standardize:
         mask = make_time_mask(
@@ -548,15 +547,16 @@ def main(cfg: DictConfig):
 
                     rewards = league_rewards2rewards(league_rewards)
 
+                    # The G, and advanages are detached from the comput graph.
                     G, advantages = get_advantages(
                         rewards, values, action_seq_lens, cfg
                     )
 
                     # Compute losses
-                    policy_loss_ = -(log_ps * advantages.detach())
+                    policy_loss_ = -(log_ps * advantages)
                     policy_loss = masked_mean(policy_loss_, time_mask)
 
-                    value_loss_ = 0.5 * (values - G.detach()).pow(2)
+                    value_loss_ = 0.5 * (values - G).pow(2)
                     value_loss = masked_mean(value_loss_, time_mask)
 
                     entropy = masked_mean(entropies, time_mask)
@@ -567,10 +567,9 @@ def main(cfg: DictConfig):
 
                     # Track the effect of selection vs conditional
                     sel_log_ps = torch.log(sel_probs)
-                    sel_term = (advantages[..., None].detach() * sel_log_ps).std()
+                    sel_term = (advantages[..., None] * sel_log_ps).std()
                     cond_term = (
-                        advantages[..., None].detach()
-                        * (log_ps[..., None] - sel_log_ps)
+                        advantages[..., None] * (log_ps[..., None] - sel_log_ps)
                     ).std()
                     ratio = cond_term / (sel_term + 1e-8)
 
