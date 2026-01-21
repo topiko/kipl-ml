@@ -711,8 +711,8 @@ def main(cfg: DictConfig):
                 )
 
             if e % 5 == 0:
-                mlflow.pytorch.log_model(obs, name=f"rlobs-{e}")
-                mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}")
+                mlflow.pytorch.log_model(obs, name=f"rlobs-{e}", step=e)
+                mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}", step=e)
 
             # =============================================
 
