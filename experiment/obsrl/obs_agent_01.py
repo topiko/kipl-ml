@@ -138,18 +138,20 @@ def _plot_single(
     X = dict_to_device(X, device)
     y = y.to(device).unsqueeze(-1)
 
-    _, sel_probs, values, league_rewards, entropies, times, actions, Xobs, fd = rollout(
-        obs,
-        disc_trained,
-        X,
-        y,
-        disc_league=[disc_trained.state_dict()],
-        disc_features=disc_features,
-        reward_scales=reward_scales,
+    _, sel_probs, state_values, league_rewards, entropies, times, actions, Xobs, fd = (
+        rollout(
+            obs,
+            disc_trained,
+            X,
+            y,
+            disc_league=[disc_trained.state_dict()],
+            disc_features=disc_features,
+            reward_scales=reward_scales,
+        )
     )
 
     rewards = league_rewards2rewards(league_rewards)
-    G, _ = get_advantages(rewards, values, get_action_seq_lens(fd), cfg)
+    G, _ = get_advantages(rewards, state_values, get_action_seq_lens(fd), cfg)
 
     Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
     mask = Xobs[Feats.DIRS] != 0
@@ -220,7 +222,7 @@ def _plot_single(
     )
     ax_r.plot(
         times.squeeze().cpu().numpy(),
-        values.squeeze().cpu().numpy(),
+        state_values.squeeze().cpu().numpy(),
         "--",
         label="Values estim.",
         color="black",
@@ -476,7 +478,10 @@ def main(cfg: DictConfig):
     disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
 
     # Entropy scale
-    entropy_scale = 0.01
+    init_entropy_scale = 0.05
+    entropy_scale = init_entropy_scale
+
+    # Padding reward scale
     padding_scale = 0.01
 
     e = 0
@@ -552,7 +557,7 @@ def main(cfg: DictConfig):
                         rewards, values, action_seq_lens, cfg
                     )
 
-                    # Compute losses
+                    # Compute losses, advantages and G ARE detached.
                     policy_loss_ = -(log_ps * advantages)
                     policy_loss = masked_mean(policy_loss_, time_mask)
 
@@ -665,17 +670,14 @@ def main(cfg: DictConfig):
 
             # Entropy scale update:
             # ============================================
-            k = 0.0
-            entropy_target = 1.4 - 1.1 * np.clip(e / 40, 0.0, 1.0)
-            entropy_scale += k * (entropy_target - entropy.item())
-            entropy_scale = np.clip(entropy_scale, 0, 1)
+            entropy_scale -= init_entropy_scale * np.clip(e / 50, 0.0, 1.0)
 
-            losses_metrics_d["entropy_target"] = entropy_target
             losses_metrics_d["entropy_scale"] = entropy_scale
 
             # Padding scale update:
             # =============================================
             padding_scale *= 1.047  # yields increase by 10x in 50 epochs
+            padding_scale = np.clip(padding_scale, -np.inf, 0.1)
 
             # Logging:
             # =============================================
