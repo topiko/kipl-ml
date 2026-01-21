@@ -478,8 +478,9 @@ def main(cfg: DictConfig):
     disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
 
     # Entropy scale
-    init_entropy_scale = 0.05
-    entropy_scale = init_entropy_scale
+    entropy_scale = 0.05
+    # We drive the entropy loss to 0 during N steps...
+    entropy_scale_step = entropy_scale / 100
 
     # Padding reward scale
     padding_scale = 0.01
@@ -670,7 +671,8 @@ def main(cfg: DictConfig):
 
             # Entropy scale update:
             # ============================================
-            entropy_scale -= init_entropy_scale * np.clip(e / 50, 0.0, 1.0)
+            entropy_scale -= entropy_scale_step
+            entropy_scale = np.clip(entropy_scale, 0, np.inf)
 
             losses_metrics_d["entropy_scale"] = entropy_scale
 
