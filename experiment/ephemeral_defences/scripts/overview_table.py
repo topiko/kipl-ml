@@ -10,7 +10,6 @@ logger = get_logger(__name__)
 
 
 def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.DataFrame:
-
     def_type = "params.defence.defence-type"
     mbnt_mask = df.loc[:, def_type].isin(["maybenot", "ephemeral"])
     df.loc[mbnt_mask, def_type] = df.loc[mbnt_mask, :].apply(
@@ -113,7 +112,7 @@ def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.Data
     if metric.startswith("metrics.def."):
         res = (
             res.loc[:, (slice(None), "df")]
-            .rename(columns={"df": f"{metric.split(".")[-1]}"}, level=1)
+            .rename(columns={"df": f"{metric.split('.')[-1]}"}, level=1)
             .rename(columns={dataset: f"overhead {unit}"}, level=0)
         )
     elif metric.startswith("metrics.sim."):
@@ -143,6 +142,7 @@ def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.Data
         "RegulaTor",
         "Tamaraw\\bottleneck",
         "Tamaraw",
+        "RLObs",
     ]
 
     index = [idx for idx in index if idx in res.index]
