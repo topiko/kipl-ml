@@ -647,15 +647,18 @@ def main(cfg: DictConfig):
                     losses_metrics_d["disc_train_acc"].append(acc)
                     losses_metrics_d["disc_train_loss"].append(disc_loss)
                     losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
+
+                    # (B, )
+                    normal_packets = (
+                        (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 0)
+                    ).sum(dim=1)
+                    # (B, )
+                    padding_packets = (
+                        (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 1)
+                    ).sum(dim=1)
+
                     losses_metrics_d["mean_padding_frac"].append(
-                        (
-                            Xobs[Feats.PADDING].sum(dim=1).float()
-                            / (
-                                (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] != 1)
-                            ).sum(dim=1)
-                        )
-                        .mean()
-                        .item()
+                        (padding_packets / normal_packets).mean().item()
                     )
                     losses_metrics_d["mean_trace_len"].append(
                         (Xobs[Feats.DIRS] != 0).sum(dim=1).float().mean().item()
