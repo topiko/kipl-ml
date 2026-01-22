@@ -17,6 +17,12 @@ def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.Data
         axis=1,
     )
 
+    rlobs_mask = df.loc[:, def_type].isin(["rnndef"])
+    df.loc[rlobs_mask, def_type] = df.loc[rlobs_mask, :].apply(
+        lambda x: f"{x.loc[def_type]} | {x.loc['params.defence.model-id'][4:14]}",
+        axis=1,
+    )
+
     groupby = [
         "params.dataset_name",
         "params.model_name",
@@ -142,7 +148,9 @@ def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.Data
         "RegulaTor",
         "Tamaraw\\bottleneck",
         "Tamaraw",
-        "RLObs",
+        "RLObs-1",
+        "RLObs-2",
+        "RLObs-3",
     ]
 
     index = [idx for idx in index if idx in res.index]

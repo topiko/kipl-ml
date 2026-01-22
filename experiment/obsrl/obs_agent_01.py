@@ -477,13 +477,17 @@ def main(cfg: DictConfig):
 
     disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
 
+    satlen = 50
+
     # Entropy scale
     entropy_scale = 0.05
-    # We drive the entropy loss to 0 during N steps...
-    entropy_scale_step = entropy_scale / 100
+    # We drive the entropy loss to 0 during satlen steps...
+    entropy_scale_step = entropy_scale / satlen
 
     # Padding reward scale
-    padding_scale = 0.01
+    padding_scale = 0.001
+    padding_scale_max = 0.01
+    padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     e = 0
     detach_period = cfg.h_detach_period
@@ -674,22 +678,17 @@ def main(cfg: DictConfig):
                         }
                     )
 
-            # Entropy scale update:
-            # ============================================
-            entropy_scale -= entropy_scale_step
-            entropy_scale = np.clip(entropy_scale, 0, np.inf)
-
-            losses_metrics_d["entropy_scale"] = entropy_scale
-
-            # Padding scale update:
+            # Padding and entropy scale updates:
             # =============================================
-            padding_scale *= 1.047  # yields increase by 10x in 50 epochs
-            padding_scale = np.clip(padding_scale, -np.inf, 0.1)
-
-            losses_metrics_d["padding_scale"] = padding_scale
+            if e < satlen:
+                entropy_scale -= entropy_scale_step
+                padding_scale += padding_scale_step
 
             # Logging:
             # =============================================
+            losses_metrics_d["entropy_scale"] = entropy_scale
+            losses_metrics_d["padding_scale"] = padding_scale
+
             mlflow.log_metrics(
                 {k: np.mean(l_) for k, l_ in losses_metrics_d.items()}, step=e
             )
