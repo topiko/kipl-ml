@@ -148,9 +148,8 @@ def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.Data
         "RegulaTor",
         "Tamaraw\\bottleneck",
         "Tamaraw",
-        "RLObs-1",
-        "RLObs-2",
-        "RLObs-3",
+        "RL-selecetive-hog-60",
+        "RL-selecetive-hog-40",
     ]
 
     index = [idx for idx in index if idx in res.index]

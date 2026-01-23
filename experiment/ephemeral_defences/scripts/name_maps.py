@@ -13,7 +13,6 @@ DEFENCE_NAME_MAP = {
     "nodefence": "Undefended",
     "no_defence": "Undefended",
     "tamaraw": "Tamaraw",
-    "rnndef | bd6df7cc20": "RLObs-2",
-    "rnndef | c301a677eb": "RLObs-1",
-    "rnndef | ddb8dc1153": "RLObs-3",
+    "rnndef | c77939556a": "RL-selecetive-hog-60",
+    "rnndef | 8603ea7e3c": "RL-selecetive-hog-40",
 }

@@ -480,9 +480,9 @@ def main(cfg: DictConfig):
     satlen = 50
 
     # Entropy scale
-    entropy_scale = 0.05
+    entropy_scale = 0.01
     # We drive the entropy loss to 0 during satlen steps...
-    entropy_scale_step = entropy_scale / satlen
+    entropy_scale_factor = 0.01 ** (1 / satlen)
 
     # Padding reward scale
     padding_scale = 0.001
@@ -681,7 +681,7 @@ def main(cfg: DictConfig):
             # Padding and entropy scale updates:
             # =============================================
             if e < satlen:
-                entropy_scale -= entropy_scale_step
+                entropy_scale *= entropy_scale_factor
                 padding_scale += padding_scale_step
 
             # Logging:
@@ -703,7 +703,7 @@ def main(cfg: DictConfig):
             )
             mlflow.log_metrics(d, step=e)
 
-            if e % 1 == 0:
+            if e % 5 == 0:
                 _plot_set(
                     cfg=cfg,
                     ds=ds_valid,
