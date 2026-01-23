@@ -736,7 +736,7 @@ def main(cfg: DictConfig):
             )
             mlflow.log_metrics(d, step=e)
 
-            if e % 5 == 0:
+            if e % 1 == 0:
                 _plot_set(
                     cfg=cfg,
                     ds=ds_valid,
