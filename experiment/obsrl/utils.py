@@ -1,12 +1,50 @@
 import dotenv
 import torch
 from torch import nn
+from tqdm import tqdm
 
-from kipl_ml.logging.logger import get_logger
+from kipl_ml.data.wf_dataset import dict_to_device
+from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
 dotenv.load_dotenv()
+
+
+def train_one_epoch(
+    clf: nn.Module,
+    dl_train: torch.utils.data.DataLoader,
+    optimG: torch.optim.Optimizer,
+    lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None,
+    device: torch.DeviceObjType,
+    grad_clip: float,
+):
+    loss_mean = 0.0
+    n = 1
+    clf.train()
+    with tqdm(dl_train, desc="Train disc:", ncols=TQDM_W) as pbar:
+        lr = lr_scheduler.get_last_lr()[0] if lr_scheduler is not None else "n/a"
+        for X, y in pbar:
+            X = dict_to_device(X, device, non_blocking=True)
+            y = y.to(device)
+
+            loss, _ = one_batch_train_disc(
+                clf,
+                X,
+                y,
+                optimG,
+                feature_trs=None,
+                train=True,
+                grad_clip=grad_clip,
+                detach_period=10000,
+                get_accuracy=False,
+            )
+
+            loss_mean += (loss - loss_mean) / n
+
+            pbar.set_postfix({"l": loss_mean, "lr": lr})
+
+            n += 1
 
 
 def one_batch_train_disc(

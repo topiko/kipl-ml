@@ -13,7 +13,7 @@ from torch.utils.data import SubsetRandomSampler
 from tqdm import tqdm
 
 from experiment.obsrl.sim import rollout
-from experiment.obsrl.utils import one_batch_train_disc
+from experiment.obsrl.utils import train_one_epoch
 from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import Datasets, assets
@@ -300,14 +300,9 @@ def _append_to_league(league: list[dict], state_dict: dict):
     league.append({k: v.cpu() for k, v in copy.deepcopy(state_dict).items()})
 
 
-def valid_metrics(
-    disc: nn.Module,
-    obs: nn.Module,
-    ds_valid: WFDataset,
-    n_packets: int,
-    key: str = "valid:obs_vs._disc",
-    device: torch.DeviceObjType = "cpu",
-) -> dict[str, float]:
+def _get_obs_def_valid_dl(
+    disc: nn.Module, obs: nn.Module, ds_valid: WFDataset, n_packets: int, bs: int = 64
+) -> WFDataset:
     # Set features the fetures:
     ds_valid.feature_trs = FeatureTrs(feature_names=disc.features, n_packets=n_packets)
 
@@ -317,7 +312,20 @@ def valid_metrics(
     if ds_valid.defence_aug != 0:
         raise ValueError("If def aug != 0 - you are reusing traces from previous runs")
 
-    dl_valid = dl_(ds_valid, bs=32, collate_fn=None, shuffle=False, nworkers=None)
+    return dl_(ds_valid, bs=bs, collate_fn=None, shuffle=False, nworkers=None)
+
+
+def valid_metrics(
+    disc: nn.Module,
+    obs: nn.Module,
+    ds_valid: WFDataset,
+    n_packets: int,
+    key: str = "valid:obs_vs._disc",
+    device: torch.DeviceObjType = "cpu",
+) -> dict[str, float]:
+    dl_valid = _get_obs_def_valid_dl(
+        disc=disc, obs=obs, ds_valid=ds_valid, n_packets=n_packets, bs=32
+    )
 
     d = evaluate_model(
         disc, dl_valid, metrics=[Accuracy()], key=key, loss_fn=nn.CrossEntropyLoss()
@@ -458,6 +466,7 @@ def main(cfg: DictConfig):
         max_silence_s=obs_max_silence_s,
         zero_init=False,
     ).to(device)
+
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
     league: list[dict] = []
@@ -633,23 +642,23 @@ def main(cfg: DictConfig):
 
                     optim.step()
 
-                    disc_loss, acc = one_batch_train_disc(
-                        disc=discriminator,
-                        X=Xobs,
-                        y=y,
-                        disc_opm=disc_optim,
-                        feature_trs=disc_feats,
-                        train=train_disc,
-                        grad_clip=cfg.grad_norm_clip,
-                    )
+                    # disc_loss, acc = one_batch_train_disc(
+                    #     disc=discriminator,
+                    #     X=Xobs,
+                    #     y=y,
+                    #     disc_opm=disc_optim,
+                    #     feature_trs=disc_feats,
+                    #     train=train_disc,
+                    #     grad_clip=cfg.grad_norm_clip,
+                    # )
 
                     losses_metrics_d["loss"].append(loss.item())
                     losses_metrics_d["policy_loss"].append(policy_loss.item())
                     losses_metrics_d["value_loss"].append(value_loss.item())
                     losses_metrics_d["avg_return"].append(G.mean().item())
                     losses_metrics_d["entropy"].append(entropy.item())
-                    losses_metrics_d["disc_train_acc"].append(acc)
-                    losses_metrics_d["disc_train_loss"].append(disc_loss)
+                    # losses_metrics_d["disc_train_acc"].append(acc)
+                    # losses_metrics_d["disc_train_loss"].append(disc_loss)
                     losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
 
                     # (B, )
@@ -672,11 +681,27 @@ def main(cfg: DictConfig):
                             losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
 
                     pbar.set_postfix(
-                        {
-                            "avg_return": np.mean(losses_metrics_d["avg_return"][-30:]),
-                            "dacc": np.mean(losses_metrics_d["disc_train_acc"][-30:]),
-                        }
+                        {"avg_return": np.mean(losses_metrics_d["avg_return"][-30:])}
                     )
+
+            # Train disc:
+            if train_disc:
+                dl_valid_ = _get_obs_def_valid_dl(
+                    disc=discriminator,
+                    obs=obs,
+                    ds_valid=ds_train,
+                    n_packets=cfg.trace_len,
+                    bs=64,
+                )
+
+                train_one_epoch(
+                    clf=discriminator,
+                    dl_train=dl_valid_,
+                    optimG=disc_optim,
+                    lr_scheduler=None,
+                    device=device,
+                    grad_clip=cfg.grad_norm_clip,
+                )
 
             # Padding and entropy scale updates:
             # =============================================
