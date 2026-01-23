@@ -300,7 +300,7 @@ def _append_to_league(league: list[dict], state_dict: dict):
     league.append({k: v.cpu() for k, v in copy.deepcopy(state_dict).items()})
 
 
-def _get_obs_def_valid_dl(
+def _get_obs_def_dl(
     disc: nn.Module, obs: nn.Module, ds_valid: WFDataset, n_packets: int, bs: int = 64
 ) -> WFDataset:
     # Set features the fetures:
@@ -315,22 +315,9 @@ def _get_obs_def_valid_dl(
     return dl_(ds_valid, bs=bs, collate_fn=None, shuffle=False, nworkers=None)
 
 
-def valid_metrics(
-    disc: nn.Module,
-    obs: nn.Module,
-    ds_valid: WFDataset,
-    n_packets: int,
-    key: str = "valid:obs_vs._disc",
-    device: torch.DeviceObjType = "cpu",
-) -> dict[str, float]:
-    dl_valid = _get_obs_def_valid_dl(
-        disc=disc, obs=obs, ds_valid=ds_valid, n_packets=n_packets, bs=32
-    )
-
-    d = evaluate_model(
-        disc, dl_valid, metrics=[Accuracy()], key=key, loss_fn=nn.CrossEntropyLoss()
-    )
-
+def _restore_obs_def_dl(
+    ds_valid: WFDataset, obs: nn.Module, device: torch.DeviceObjType
+):
     # Restore no defence
     ds_valid.defence = NoDefence(
         network_delay_millis=(0, 0), network_pps=(40_000, 40_000)
@@ -339,6 +326,25 @@ def valid_metrics(
     ds_valid.feature_trs = None
 
     obs.to(device)
+
+
+def valid_metrics(
+    disc: nn.Module,
+    obs: nn.Module,
+    ds_valid: WFDataset,
+    n_packets: int,
+    key: str = "valid:obs_vs._disc",
+    device: torch.DeviceObjType = "cpu",
+) -> dict[str, float]:
+    dl_valid = _get_obs_def_dl(
+        disc=disc, obs=obs, ds_valid=ds_valid, n_packets=n_packets, bs=32
+    )
+
+    d = evaluate_model(
+        disc, dl_valid, metrics=[Accuracy()], key=key, loss_fn=nn.CrossEntropyLoss()
+    )
+
+    _restore_obs_def_dl(ds_valid, obs, device)
 
     return d
 
@@ -686,7 +692,7 @@ def main(cfg: DictConfig):
 
             # Train disc:
             if train_disc:
-                dl_valid_ = _get_obs_def_valid_dl(
+                dl_valid_ = _get_obs_def_dl(
                     disc=discriminator,
                     obs=obs,
                     ds_valid=ds_train,
@@ -702,6 +708,7 @@ def main(cfg: DictConfig):
                     device=device,
                     grad_clip=cfg.grad_norm_clip,
                 )
+                _restore_obs_def_dl(ds_train, obs, device)
 
             # Padding and entropy scale updates:
             # =============================================
