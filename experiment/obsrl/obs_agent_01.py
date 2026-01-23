@@ -307,7 +307,7 @@ def _get_obs_def_dl(
     ds.feature_trs = FeatureTrs(feature_names=disc.features, n_packets=n_packets)
 
     # Set the defense:
-    ds.defence = RNNDef((0, 0), (40_000, 40_000), obs.to("cpu"), n_packets=10000)
+    ds.defence = RNNDef((0, 0), (40_000, 40_000), obs.to("cpu"), n_packets=n_packets)
 
     if ds.defence_aug != 0:
         raise ValueError("If def aug != 0 - you are reusing traces from previous runs")
@@ -368,6 +368,9 @@ def get_league_scores(
     device: torch.DeviceObjType,
     subset_indices: torch.Tensor,
 ) -> torch.Tensor:
+    orig_features = ds.feature_trs
+
+    # Set the defence and features:
     ds.feature_trs = obs_features
 
     sampler = SubsetRandomSampler(subset_indices)
@@ -402,6 +405,8 @@ def get_league_scores(
                 rewards_l.append(rewards_)
 
         league_scores = -torch.cat(rewards_l, dim=1).mean(dim=1)
+
+    ds.feature_trs = orig_features
 
     return league_scores
 
