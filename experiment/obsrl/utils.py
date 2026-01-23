@@ -15,7 +15,6 @@ def train_one_epoch(
     clf: nn.Module,
     dl_train: torch.utils.data.DataLoader,
     optimG: torch.optim.Optimizer,
-    lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None,
     device: torch.DeviceObjType,
     grad_clip: float,
     detach_period: int = 10000,
@@ -24,7 +23,6 @@ def train_one_epoch(
     n = 1
     clf.train()
     with tqdm(dl_train, desc="Train disc:", ncols=TQDM_W) as pbar:
-        lr = lr_scheduler.get_last_lr()[0] if lr_scheduler is not None else "n/a"
         for X, y in pbar:
             X = dict_to_device(X, device, non_blocking=True)
             y = y.to(device)
@@ -43,7 +41,7 @@ def train_one_epoch(
 
             loss_mean += (loss - loss_mean) / n
 
-            pbar.set_postfix({"l": loss_mean, "lr": lr})
+            pbar.set_postfix({"l": loss_mean})
 
             n += 1
 

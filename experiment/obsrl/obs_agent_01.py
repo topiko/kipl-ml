@@ -510,7 +510,7 @@ def main(cfg: DictConfig):
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     # Disct training:
-    disc_train_count = 3
+    disc_train_count = 4
 
     e = 0
     detach_period = cfg.h_detach_period
@@ -654,23 +654,11 @@ def main(cfg: DictConfig):
 
                     optim.step()
 
-                    # disc_loss, acc = one_batch_train_disc(
-                    #     disc=discriminator,
-                    #     X=Xobs,
-                    #     y=y,
-                    #     disc_opm=disc_optim,
-                    #     feature_trs=disc_feats,
-                    #     train=train_disc,
-                    #     grad_clip=cfg.grad_norm_clip,
-                    # )
-
                     losses_metrics_d["loss"].append(loss.item())
                     losses_metrics_d["policy_loss"].append(policy_loss.item())
                     losses_metrics_d["value_loss"].append(value_loss.item())
                     losses_metrics_d["avg_return"].append(G.mean().item())
                     losses_metrics_d["entropy"].append(entropy.item())
-                    # losses_metrics_d["disc_train_acc"].append(acc)
-                    # losses_metrics_d["disc_train_loss"].append(disc_loss)
                     losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
 
                     # (B, )
@@ -711,7 +699,6 @@ def main(cfg: DictConfig):
                     clf=discriminator,
                     dl_train=dl_valid_,
                     optimG=disc_optim,
-                    lr_scheduler=None,
                     device=device,
                     grad_clip=cfg.grad_norm_clip,
                 )
