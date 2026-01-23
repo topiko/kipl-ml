@@ -301,29 +301,30 @@ def _append_to_league(league: list[dict], state_dict: dict):
 
 
 def _get_obs_def_dl(
-    disc: nn.Module, obs: nn.Module, ds_valid: WFDataset, n_packets: int, bs: int = 64
+    disc: nn.Module, obs: nn.Module, ds: WFDataset, n_packets: int, bs: int = 64
 ) -> WFDataset:
     # Set features the fetures:
-    ds_valid.feature_trs = FeatureTrs(feature_names=disc.features, n_packets=n_packets)
+    ds.feature_trs = FeatureTrs(feature_names=disc.features, n_packets=n_packets)
 
     # Set the defense:
-    ds_valid.defence = RNNDef((0, 0), (40_000, 40_000), obs.to("cpu"), n_packets=10000)
+    ds.defence = RNNDef((0, 0), (40_000, 40_000), obs.to("cpu"), n_packets=10000)
 
-    if ds_valid.defence_aug != 0:
+    if ds.defence_aug != 0:
         raise ValueError("If def aug != 0 - you are reusing traces from previous runs")
 
-    return dl_(ds_valid, bs=bs, collate_fn=None, shuffle=False, nworkers=None)
+    return dl_(ds, bs=bs, collate_fn=None, shuffle=False, nworkers=None)
 
 
-def _restore_obs_def_dl(
-    ds_valid: WFDataset, obs: nn.Module, device: torch.DeviceObjType
+def _restore_obs_def_ds(
+    ds: WFDataset,
+    feature_trs: FeatureTrs | None,
+    obs: nn.Module,
+    device: torch.DeviceObjType,
 ):
     # Restore no defence
-    ds_valid.defence = NoDefence(
-        network_delay_millis=(0, 0), network_pps=(40_000, 40_000)
-    )
+    ds.defence = NoDefence(network_delay_millis=(0, 0), network_pps=(40_000, 40_000))
     # Restore no features.
-    ds_valid.feature_trs = None
+    ds.feature_trs = feature_trs
 
     obs.to(device)
 
@@ -336,15 +337,16 @@ def valid_metrics(
     key: str = "valid:obs_vs._disc",
     device: torch.DeviceObjType = "cpu",
 ) -> dict[str, float]:
+    orig_features_trs = ds_valid.feature_trs
     dl_valid = _get_obs_def_dl(
-        disc=disc, obs=obs, ds_valid=ds_valid, n_packets=n_packets, bs=32
+        disc=disc, obs=obs, ds=ds_valid, n_packets=n_packets, bs=32
     )
 
     d = evaluate_model(
         disc, dl_valid, metrics=[Accuracy()], key=key, loss_fn=nn.CrossEntropyLoss()
     )
 
-    _restore_obs_def_dl(ds_valid, obs, device)
+    _restore_obs_def_ds(ds_valid, orig_features_trs, obs, device)
 
     return d
 
@@ -454,6 +456,9 @@ def main(cfg: DictConfig):
         **defence_builder.get_defence(cfg),
     )
 
+    # Obs feature trs
+    obs_features = ds_train.feature_trs
+
     # Discriminator features, w.o. limit on n_packets
     disc_feats = FeatureTrs(feature_names=discriminator.features, n_packets=None)
 
@@ -504,6 +509,9 @@ def main(cfg: DictConfig):
     padding_scale_max = 0.01
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
+    # Disct training:
+    disc_train_count = 3
+
     e = 0
     detach_period = cfg.h_detach_period
     with mlflow.start_run(log_system_metrics=True):
@@ -517,8 +525,6 @@ def main(cfg: DictConfig):
                 "value_loss": [],
                 "avg_return": [],
                 "entropy": [],
-                "disc_train_loss": [],
-                "disc_train_acc": [],
                 "mean_padding_frac": [],
                 "mean_trace_len": [],
                 "sel vs. cond std ratio": [],
@@ -691,16 +697,17 @@ def main(cfg: DictConfig):
                     )
 
             # Train disc:
-            if train_disc:
+            # ============================================
+            for _ in range(disc_train_count):
                 dl_valid_ = _get_obs_def_dl(
                     disc=discriminator,
                     obs=obs,
-                    ds_valid=ds_train,
+                    ds=ds_train,
                     n_packets=cfg.trace_len,
                     bs=64,
                 )
 
-                train_one_epoch(
+                loss = train_one_epoch(
                     clf=discriminator,
                     dl_train=dl_valid_,
                     optimG=disc_optim,
@@ -708,7 +715,9 @@ def main(cfg: DictConfig):
                     device=device,
                     grad_clip=cfg.grad_norm_clip,
                 )
-                _restore_obs_def_dl(ds_train, obs, device)
+                _restore_obs_def_ds(ds_train, obs_features, obs, device)
+
+            losses_metrics_d["disc_train_loss"] = loss
 
             # Padding and entropy scale updates:
             # =============================================
@@ -747,7 +756,7 @@ def main(cfg: DictConfig):
                     e=e,
                     reward_scales=reward_scales,
                     device=device,
-                    ntraces=10,
+                    ntraces=20,
                     max_len=20_000,
                 )
 

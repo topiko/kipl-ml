@@ -18,7 +18,8 @@ def train_one_epoch(
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None,
     device: torch.DeviceObjType,
     grad_clip: float,
-):
+    detach_period: int = 10000,
+) -> float:
     loss_mean = 0.0
     n = 1
     clf.train()
@@ -36,7 +37,7 @@ def train_one_epoch(
                 feature_trs=None,
                 train=True,
                 grad_clip=grad_clip,
-                detach_period=10000,
+                detach_period=detach_period,
                 get_accuracy=False,
             )
 
@@ -45,6 +46,8 @@ def train_one_epoch(
             pbar.set_postfix({"l": loss_mean, "lr": lr})
 
             n += 1
+
+    return loss_mean
 
 
 def one_batch_train_disc(
