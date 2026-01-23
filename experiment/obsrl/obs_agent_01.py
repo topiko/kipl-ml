@@ -515,7 +515,7 @@ def main(cfg: DictConfig):
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     # Disct training:
-    disc_train_count = 4
+    disc_train_count = cfg.disc_train_count
 
     e = 0
     detach_period = cfg.h_detach_period

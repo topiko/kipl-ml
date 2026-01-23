@@ -14,6 +14,7 @@ advantages:
 
 debug: False
 
+disc_train_count: 2
 league_size: 10
 obs_time_step_s: 0.02
 obs_max_silence_s: 0.36
