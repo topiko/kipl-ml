@@ -506,11 +506,11 @@ def main(cfg: DictConfig):
 
     # Entropy scale
     entropy_scale = 0.01
-    # We drive the entropy loss to 0 during satlen steps...
-    entropy_scale_factor = 0.01 ** (1 / satlen)
+    # We drive the entropy loss to 0.001 during satlen steps...
+    entropy_scale_factor = 0.1 ** (1 / satlen)
 
     # Padding reward scale
-    padding_scale = 0.001
+    padding_scale = 0.00
     padding_scale_max = 0.01
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
@@ -681,9 +681,8 @@ def main(cfg: DictConfig):
                     losses_metrics_d["mean_trace_len"].append(
                         (Xobs[Feats.DIRS] != 0).sum(dim=1).float().mean().item()
                     )
-                    if rewards is not None:
-                        for k, v in rewards.items():
-                            losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
+                    for k, v in rewards.items():
+                        losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
 
                     pbar.set_postfix(
                         {"avg_return": np.mean(losses_metrics_d["avg_return"][-30:])}
