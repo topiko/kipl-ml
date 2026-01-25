@@ -195,6 +195,89 @@ class RNNCLF1(nn.Module):
         return logits, preds
 
 
+def _forward_w_detach(
+    x: dict[Feats, torch.Tensor],
+    h: torch.Tensor | None,
+    h_detach_period: int,
+    seq_lens: torch.Tensor,
+    forward: callable,
+) -> tuple[dict[Feats | Actions, torch.Tensor], torch.Tensor]:
+    features = list(x.keys())
+    bs, T = x[features[0]].shape
+
+    outputs = []
+    i = 0
+    while True:
+        if i * h_detach_period >= T:
+            break
+
+        active_seqs = seq_lens > i * h_detach_period
+
+        if active_seqs.sum() == 0:
+            break
+
+        # (N, h_detach_period)
+        x_chunk = {
+            k: torch.where(
+                v[
+                    active_seqs, i * h_detach_period : (i + 1) * h_detach_period
+                ].isfinite(),
+                v[active_seqs, i * h_detach_period : (i + 1) * h_detach_period],
+                0,
+            )
+            for k, v in x.items()
+        }
+
+        if h is not None:
+            h_active = _hidden_w_mask(h, active_seqs)
+        else:
+            h_active = None
+            if active_seqs.sum() != bs:
+                raise ValueError(
+                    "Initial hidden state must be provided when some sequences are inactive."
+                )
+
+        outputs_, h_active = forward(x_chunk, h_active)
+
+        # Update h, i.e., place the updated h_active back to h:
+        if h is None:
+            h = h_active
+        else:
+            h = _hidden_w_mask(h, active_seqs, h_active)
+
+        if isinstance(h, tuple):
+            h = tuple(v.detach() for v in h)
+        else:
+            h = h.detach()
+
+        # Place actions back to full size:
+        for k, v in outputs_.items():
+            if v.ndim == 2:
+                t_ = torch.zeros((bs, v.shape[1]), device=v.device)
+            elif v.ndim == 3:
+                t_ = torch.zeros((bs, v.shape[1], v.shape[2]), device=v.device)
+            else:
+                raise ValueError("Invalid action tensor shape.")
+            t_[active_seqs, ...] = v
+            outputs_[k] = t_
+
+        outputs.append(outputs_)
+        i += 1
+
+    # Concatenate actions:
+    outputs_concat = {
+        k: torch.cat([a[k] for a in outputs], dim=1) for k in outputs[0].keys()
+    }
+
+    for k, v in outputs_concat.items():
+        if bs != v.shape[0]:
+            raise ValueError("Batch size mismatch after concat.")
+        if v.shape[1] != T:
+            raise ValueError(f"Times len mismatch, {v.shape[1]} vs. {T}")
+
+    return outputs_concat, h
+
+
 class AGENT1(nn.Module):
     name: str = "agent"
 
@@ -282,90 +365,6 @@ class AGENT1(nn.Module):
 
         self._cond_beta = cond_beta
 
-    def _forward_w_detach(
-        self,
-        x: dict[Feats, torch.Tensor],
-        h: torch.Tensor | None,
-        h_detach_period: int,
-        seq_lens: torch.Tensor | None = None,
-    ) -> tuple[dict[Feats | Actions, torch.Tensor], torch.Tensor]:
-        bs, T = x[self.features[0]].shape
-
-        if seq_lens is None:
-            seq_lens = torch.ones(x[self.features[0]].shape[0], dtype=torch.long) * T
-
-        actions = []
-        i = 0
-        while True:
-            if i * h_detach_period >= T:
-                break
-
-            active_seqs = seq_lens > i * h_detach_period
-
-            if active_seqs.sum() == 0:
-                break
-
-            # (N, h_detach_period)
-            x_chunk = {
-                k: torch.where(
-                    v[
-                        active_seqs, i * h_detach_period : (i + 1) * h_detach_period
-                    ].isfinite(),
-                    v[active_seqs, i * h_detach_period : (i + 1) * h_detach_period],
-                    0,
-                )
-                for k, v in x.items()
-            }
-
-            if h is not None:
-                h_active = _hidden_w_mask(h, active_seqs)
-            else:
-                h_active = None
-                if active_seqs.sum() != bs:
-                    raise ValueError(
-                        "Initial hidden state must be provided when some sequences are inactive."
-                    )
-
-            actions_, h_active = self.forward(x_chunk, h_active)
-
-            # Update h, i.e., place the updated h_active back to h:
-            if h is None:
-                h = h_active
-            else:
-                h = _hidden_w_mask(h, active_seqs, h_active)
-
-            if isinstance(h, tuple):
-                h = tuple(v.detach() for v in h)
-            else:
-                h = h.detach()
-
-            # Place actions back to full size:
-            for k, v in actions_.items():
-                if v.ndim == 2:
-                    t_ = torch.zeros((bs, v.shape[1]), device=v.device)
-                elif v.ndim == 3:
-                    t_ = torch.zeros((bs, v.shape[1], v.shape[2]), device=v.device)
-                else:
-                    raise ValueError("Invalid action tensor shape.")
-                t_[active_seqs, ...] = v
-                actions_[k] = t_
-
-            actions.append(actions_)
-            i += 1
-
-        # Concatenate actions:
-        actions_concat = {
-            k: torch.cat([a[k] for a in actions], dim=1) for k in actions[0].keys()
-        }
-
-        for k, v in actions_concat.items():
-            if bs != v.shape[0]:
-                raise ValueError("Batch size mismatch after concat.")
-            if v.shape[1] != T:
-                raise ValueError(f"Times len mismatch, {v.shape[1]} vs. {T}")
-
-        return actions_concat, h
-
     def forward(
         self,
         x: dict[Feats, torch.Tensor],
@@ -374,7 +373,7 @@ class AGENT1(nn.Module):
         seq_lens: torch.Tensor | None = None,
     ) -> tuple[dict[Feats | Actions, torch.Tensor], torch.Tensor]:
         if h_detach_period is not None:
-            return self._forward_w_detach(x, h, h_detach_period, seq_lens)
+            return _forward_w_detach(x, h, h_detach_period, seq_lens, self.forward)
 
         # Typically we have time in dim=1, here we always(?)
         # (N, L) x nfeat
@@ -492,7 +491,6 @@ class AGENT1(nn.Module):
 
         # Entropy (B, 1) H[A] = H[S] + H[A|S]
         # Policy, \Pi[A] = \Pi[S] * \Pi[A|S]
-        entropy = sel_entropy + cond_entropy
         entropies = {
             "selection_entropy": sel_entropy,
             "conditional_entropy": cond_entropy,
@@ -563,89 +561,6 @@ class AGENT1(nn.Module):
         times = x[Feats.TIMES][:, : values.shape[1]]
 
         return times, actions, log_probs, sel_probs, values, entropies, h
-
-
-def _forward_w_detach(
-    x: dict[Feats, torch.Tensor],
-    h: torch.Tensor | None,
-    h_detach_period: int,
-    seq_lens: torch.Tensor,
-    forward: callable,
-) -> tuple[dict[Feats | Actions, torch.Tensor], torch.Tensor]:
-    features = list(x.keys())
-    bs, T = x[features[0]].shape
-
-    outputs = []
-    i = 0
-    while True:
-        if i * h_detach_period >= T:
-            break
-
-        active_seqs = seq_lens > i * h_detach_period
-
-        if active_seqs.sum() == 0:
-            break
-
-        # (N, h_detach_period)
-        x_chunk = {
-            k: torch.where(
-                v[
-                    active_seqs, i * h_detach_period : (i + 1) * h_detach_period
-                ].isfinite(),
-                v[active_seqs, i * h_detach_period : (i + 1) * h_detach_period],
-                0,
-            )
-            for k, v in x.items()
-        }
-
-        if h is not None:
-            h_active = _hidden_w_mask(h, active_seqs)
-        else:
-            h_active = None
-            if active_seqs.sum() != bs:
-                raise ValueError(
-                    "Initial hidden state must be provided when some sequences are inactive."
-                )
-
-        outputs_, h_active = forward(x_chunk, h_active)
-
-        # Update h, i.e., place the updated h_active back to h:
-        if h is None:
-            h = h_active
-        else:
-            h = _hidden_w_mask(h, active_seqs, h_active)
-
-        if isinstance(h, tuple):
-            h = tuple(v.detach() for v in h)
-        else:
-            h = h.detach()
-
-        # Place actions back to full size:
-        for k, v in outputs_.items():
-            if v.ndim == 2:
-                t_ = torch.zeros((bs, v.shape[1]), device=v.device)
-            elif v.ndim == 3:
-                t_ = torch.zeros((bs, v.shape[1], v.shape[2]), device=v.device)
-            else:
-                raise ValueError("Invalid action tensor shape.")
-            t_[active_seqs, ...] = v
-            outputs_[k] = t_
-
-        outputs.append(outputs_)
-        i += 1
-
-    # Concatenate actions:
-    outputs_concat = {
-        k: torch.cat([a[k] for a in outputs], dim=1) for k in outputs[0].keys()
-    }
-
-    for k, v in outputs_concat.items():
-        if bs != v.shape[0]:
-            raise ValueError("Batch size mismatch after concat.")
-        if v.shape[1] != T:
-            raise ValueError(f"Times len mismatch, {v.shape[1]} vs. {T}")
-
-    return outputs_concat, h
 
 
 class CRITIC01(nn.Module):
