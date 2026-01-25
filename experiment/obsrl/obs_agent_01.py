@@ -517,9 +517,9 @@ def main(cfg: DictConfig):
     satlen = 20
 
     # Entropy scale
-    entropy_scale = 0.01
+    entropy_scale = 0.001
     # We drive the entropy loss to 0.001 during satlen steps...
-    entropy_scale_factor = 0.2 ** (1 / satlen)
+    entropy_scale_factor = 0.1 ** (1 / satlen)
 
     # Padding reward scale
     padding_scale = 0.00
