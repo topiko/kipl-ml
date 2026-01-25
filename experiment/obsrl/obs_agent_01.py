@@ -23,7 +23,7 @@ from kipl_ml.defences.nndefs import RNNDef
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.metrics.clf_metrics import Accuracy
 from kipl_ml.model_eval.evaluate import evaluate_model
-from kipl_ml.models.trgen import AGENT1
+from kipl_ml.models.trgen import AGENT1, CRITIC01
 from kipl_ml.rl.advantages import get_gae, get_returns
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
 from kipl_ml.tools.plottr import (
@@ -436,6 +436,17 @@ def get_action_seq_lens(fd: dict[Feats, torch.Tensor]) -> torch.Tensor:
     return fd[Feats.TIMES].isnan().logical_not().sum(dim=1)
 
 
+def _get_optim(nn: nn.Module, lr: float) -> torch.optim.Optimizer:
+    rnn_params = list(nn.rnn.parameters())
+    other_params = [p for n, p in nn.named_parameters() if not n.startswith("rnn.")]
+    return torch.optim.AdamW(
+        [
+            {"params": rnn_params, "lr": lr * 0.1},
+            {"params": other_params, "lr": lr},
+        ]
+    )
+
+
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
 def main(cfg: DictConfig):
     experiment_name = "obsrl"
@@ -484,8 +495,6 @@ def main(cfg: DictConfig):
         zero_init=False,
     ).to(device)
 
-    from kipl_ml.models.trgen import CRITIC01
-
     critic = CRITIC01(obs, hsize=256, nlayers=3, dropout=0.2).to(device)
 
     discriminator = discriminator.to(device)
@@ -494,22 +503,9 @@ def main(cfg: DictConfig):
     _append_to_league(league, discriminator_orig.state_dict())
     active_league = None
 
-    rnn_params = list(obs.rnn.parameters())
-    other_params = [p for n, p in obs.named_parameters() if not n.startswith("rnn.")]
-
     lr = 0.001
-    obs_optim = torch.optim.AdamW(
-        [
-            {"params": rnn_params, "lr": lr * 0.1},
-            {"params": other_params, "lr": lr},
-        ]
-    )
-    critic_optim = torch.optim.AdamW(
-        [
-            {"params": rnn_params, "lr": lr * 0.1},
-            {"params": other_params, "lr": lr},
-        ]
-    )
+    obs_optim = _get_optim(obs, lr)
+    critic_optim = _get_optim(critic, lr)
 
     disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
 
