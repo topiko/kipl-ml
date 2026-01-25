@@ -484,6 +484,10 @@ def main(cfg: DictConfig):
         zero_init=False,
     ).to(device)
 
+    from kipl_ml.models.trgen import CRITIC01
+
+    critic = CRITIC01(obs, hsize=256, nlayers=3, dropout=0.2).to(device)
+
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
     league: list[dict] = []
@@ -494,7 +498,13 @@ def main(cfg: DictConfig):
     other_params = [p for n, p in obs.named_parameters() if not n.startswith("rnn.")]
 
     lr = 0.001
-    optim = torch.optim.AdamW(
+    obs_optim = torch.optim.AdamW(
+        [
+            {"params": rnn_params, "lr": lr * 0.1},
+            {"params": other_params, "lr": lr},
+        ]
+    )
+    critic_optim = torch.optim.AdamW(
         [
             {"params": rnn_params, "lr": lr * 0.1},
             {"params": other_params, "lr": lr},
@@ -561,7 +571,8 @@ def main(cfg: DictConfig):
                         X = dict_to_device(X, device)
                         y = y.to(device)
 
-                        optim.zero_grad()
+                        obs_optim.zero_grad()
+                        critic_optim.zero_grad()
 
                         (
                             log_ps,
@@ -575,6 +586,7 @@ def main(cfg: DictConfig):
                             fd,
                         ) = rollout(
                             obs=obs,
+                            critic=critic,
                             disc=discriminator,
                             X=X,
                             y=y,
@@ -606,9 +618,10 @@ def main(cfg: DictConfig):
 
                         entropy = masked_mean(entropies, time_mask)
 
-                        loss = policy_loss + value_loss - entropy_scale * entropy
+                        loss = policy_loss - entropy_scale * entropy
 
                         loss.backward()
+                        value_loss.backward()
 
                         # Track the effect of selection vs conditional
                         sel_log_ps = torch.log(sel_probs)
@@ -661,6 +674,8 @@ def main(cfg: DictConfig):
                                 logger.warning("padding rewards issues")
                         # ==========================================
 
+                        # Obs step:
+                        # ==========================================
                         # Gradient clipping
                         nn.utils.clip_grad_norm_(
                             obs.parameters(),
@@ -668,7 +683,20 @@ def main(cfg: DictConfig):
                             error_if_nonfinite=True,
                         )
 
-                        optim.step()
+                        obs_optim.step()
+                        # ==========================================
+
+                        # Critic step:
+                        # ==========================================
+                        # Gradient clipping
+                        nn.utils.clip_grad_norm_(
+                            critic.parameters(),
+                            cfg.grad_norm_clip,
+                            error_if_nonfinite=True,
+                        )
+
+                        critic_optim.step()
+                        # ==========================================
 
                         losses_metrics_d["loss"].append(loss.item())
                         losses_metrics_d["policy_loss"].append(policy_loss.item())

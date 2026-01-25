@@ -83,6 +83,7 @@ def get_rewards(
 
 def rollout(
     obs: nn.Module,
+    critic: nn.Module,
     disc: nn.Module,
     X: dict[Feats, torch.Tensor],
     y: torch.Tensor,
@@ -123,6 +124,10 @@ def rollout(
     act_times, actions, log_ps, sel_probs, values, entropies, h = obs.act(
         fd, hobs, h_detach_period=detach_period, seq_lens=seq_lens
     )
+
+    values = critic(fd, None, h_detach_period=detach_period, seq_lens=seq_lens)[0][
+        Feats.STATE_VALUE
+    ]
 
     if h is not None:
         h_norm = h[0].norm(2, dim=-1).max().item()
