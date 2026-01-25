@@ -563,3 +563,330 @@ class AGENT1(nn.Module):
         times = x[Feats.TIMES][:, : values.shape[1]]
 
         return times, actions, log_probs, sel_probs, values, entropies, h
+
+
+class CRITIC01(nn.Module):
+    name: str = "critic"
+
+    def __init__(
+        self,
+        agent: AGENT1,
+        hsize: int = 256,
+        nlayers: int = 3,
+        dropout: float = 0.2,
+    ):
+        super().__init__()
+
+        # Time step between feature extractions.
+        self.time_step = agent.time_step
+        # Maximum silence the model tolerates before acting.
+        self.max_silence_s = agent.max_silence_s
+
+        self.features = agent.features
+
+        self.num_layers = nlayers
+        self.hidden_size = hsize
+        nfeat = len(self.features)
+
+        self.scaler = nn.Sequential(nn.Linear(nfeat, nfeat, bias=False), nn.Tanh())
+        self.rnn = nn.LSTM(
+            nfeat, hsize, nlayers, batch_first=True, dropout=dropout, bias=True
+        )
+
+        self.out_norm = nn.LayerNorm(hsize)
+
+        self.critic = nn.Sequential(nn.Linear(hsize, 1))
+        self.cond_beta = 0.25
+
+    @property
+    def cond_beta(self) -> float:
+        return self._cond_beta
+
+    @cond_beta.setter
+    def cond_beta(self, cond_beta: float):
+        # This param is to steer the importance of the cond part
+        # of the prop distr (for actions). High, beta, learn cond part.
+
+        self._cond_beta = cond_beta
+
+    def _forward_w_detach(
+        self,
+        x: dict[Feats, torch.Tensor],
+        h: torch.Tensor | None,
+        h_detach_period: int,
+        seq_lens: torch.Tensor | None = None,
+    ) -> tuple[dict[Feats | Actions, torch.Tensor], torch.Tensor]:
+        bs, T = x[self.features[0]].shape
+
+        if seq_lens is None:
+            seq_lens = torch.ones(x[self.features[0]].shape[0], dtype=torch.long) * T
+
+        actions = []
+        i = 0
+        while True:
+            if i * h_detach_period >= T:
+                break
+
+            active_seqs = seq_lens > i * h_detach_period
+
+            if active_seqs.sum() == 0:
+                break
+
+            # (N, h_detach_period)
+            x_chunk = {
+                k: torch.where(
+                    v[
+                        active_seqs, i * h_detach_period : (i + 1) * h_detach_period
+                    ].isfinite(),
+                    v[active_seqs, i * h_detach_period : (i + 1) * h_detach_period],
+                    0,
+                )
+                for k, v in x.items()
+            }
+
+            if h is not None:
+                h_active = _hidden_w_mask(h, active_seqs)
+            else:
+                h_active = None
+                if active_seqs.sum() != bs:
+                    raise ValueError(
+                        "Initial hidden state must be provided when some sequences are inactive."
+                    )
+
+            actions_, h_active = self.forward(x_chunk, h_active)
+
+            # Update h, i.e., place the updated h_active back to h:
+            if h is None:
+                h = h_active
+            else:
+                h = _hidden_w_mask(h, active_seqs, h_active)
+
+            if isinstance(h, tuple):
+                h = tuple(v.detach() for v in h)
+            else:
+                h = h.detach()
+
+            # Place actions back to full size:
+            for k, v in actions_.items():
+                if v.ndim == 2:
+                    t_ = torch.zeros((bs, v.shape[1]), device=v.device)
+                elif v.ndim == 3:
+                    t_ = torch.zeros((bs, v.shape[1], v.shape[2]), device=v.device)
+                else:
+                    raise ValueError("Invalid action tensor shape.")
+                t_[active_seqs, ...] = v
+                actions_[k] = t_
+
+            actions.append(actions_)
+            i += 1
+
+        # Concatenate actions:
+        actions_concat = {
+            k: torch.cat([a[k] for a in actions], dim=1) for k in actions[0].keys()
+        }
+
+        for k, v in actions_concat.items():
+            if bs != v.shape[0]:
+                raise ValueError("Batch size mismatch after concat.")
+            if v.shape[1] != T:
+                raise ValueError(f"Times len mismatch, {v.shape[1]} vs. {T}")
+
+        return actions_concat, h
+
+    def forward(
+        self,
+        x: dict[Feats, torch.Tensor],
+        h: torch.Tensor | None = None,
+        h_detach_period: int | None = None,
+        seq_lens: torch.Tensor | None = None,
+    ) -> tuple[dict[Feats | Actions, torch.Tensor], torch.Tensor]:
+        if h_detach_period is not None:
+            return self._forward_w_detach(x, h, h_detach_period, seq_lens)
+
+        # Typically we have time in dim=1, here we always(?)
+        # (N, L) x nfeat
+        fs = []
+        for f in self.features:
+            if f == Feats.SILENCE_FLAG:
+                x_ = x[f]  # keep 0/1
+            else:
+                x_ = torch.log10(1 + x[f])
+            fs.append(x_.unsqueeze(-1))
+
+        # (N, L, nfeat)
+        inputs = torch.cat(fs, dim=-1)
+
+        # (N, L, nfeat * feat_scale)
+        inputs = self.scaler(inputs)
+
+        # (N, L, H) (N, n_hidden, H)
+        output, h = self.rnn(inputs, h)
+
+        # (N, L, H)
+        output = self.out_norm(output)
+
+        # (N, L, 4) (0=WAIT, 1=SEND_UP, 2=SEND_DOWN, 3=SEND_BOTH)
+        action_selector = self.actor["action_selection"](output)
+
+        # (N, L, SEND_COUNT_BINS)
+        send_count_u = self.actor["send_count_u"](output)
+        send_count_d = self.actor["send_count_d"](output)
+
+        # (N, L, DECAY_TIME_BINS)
+        send_time_u = self.actor["send_time_u"](output)
+        send_time_d = self.actor["send_time_d"](output)
+
+        # (N, L)
+        state_values = self.critic(output).squeeze(-1)
+
+        return {
+            Actions.SELECTOR: action_selector,
+            Actions.SEND_COUNT_UP: send_count_u,
+            Actions.SEND_TIME_UP: send_time_u,
+            Actions.SEND_COUNT_DOWN: send_count_d,
+            Actions.SEND_TIME_DOWN: send_time_d,
+            Feats.STATE_VALUE: state_values,
+        }, h
+
+    def act(
+        self,
+        x: dict[Feats, torch.Tensor],
+        h: torch.Tensor | None = None,
+        h_detach_period: int | None = None,
+        seq_lens: torch.Tensor | None = None,
+    ) -> tuple[
+        torch.Tensor,
+        dict[Actions, torch.Tensor],
+        torch.Tensor,
+        torch.Tensor,
+        dict[str, torch.Tensor],
+        torch.Tensor,
+    ]:
+        action_outputs, h = self(x, h, h_detach_period, seq_lens)
+
+        # Select action:
+        sel_dist = Categorical(logits=action_outputs[Actions.SELECTOR])
+
+        # (B, L)
+        selections = sel_dist.sample()
+        sel_log_probs = sel_dist.log_prob(selections)
+        sel_probs = sel_dist.probs
+        sel_entropy = sel_dist.entropy()
+
+        # Send u/d, note! These are conditional on the selection.
+        # They will be ignored if the selection is not SEND_UP/DOWN/BOTH.
+        suc = Categorical(logits=action_outputs[Actions.SEND_COUNT_UP])
+        sut = Categorical(logits=action_outputs[Actions.SEND_TIME_UP])
+
+        sdc = Categorical(logits=action_outputs[Actions.SEND_COUNT_DOWN])
+        sdt = Categorical(logits=action_outputs[Actions.SEND_TIME_DOWN])
+
+        # (B, L)
+        send_count_u_idx = suc.sample()
+        send_count_u_logp = suc.log_prob(send_count_u_idx)
+        send_count_u = self.send_count_bins[send_count_u_idx]
+
+        send_count_d_idx = sdc.sample()
+        send_count_d_logp = sdc.log_prob(send_count_d_idx)
+        send_count_d = self.send_count_bins[send_count_d_idx]
+
+        send_decay_time_u_idx = sut.sample()
+        send_decay_time_u_logp = sut.log_prob(send_decay_time_u_idx)
+        send_decay_time_u = self.decay_time_bins[send_decay_time_u_idx]
+
+        send_decay_time_d_idx = sdt.sample()
+        send_decay_time_d_logp = sdt.log_prob(send_decay_time_d_idx)
+        send_decay_time_d = self.decay_time_bins[send_decay_time_d_idx]
+
+        # Conditional entropy H[A|S]:
+        # =============================
+        # (B, 4)
+        sel_probs = sel_dist.probs
+
+        # (B, L)
+        up_p = sel_probs[..., 1] + sel_probs[..., 3]
+        down_p = sel_probs[..., 2] + sel_probs[..., 3]
+
+        # (B, L)
+        # up_p * (suc_entropy + stu_entropy) + down_p * (sdc_entropy + sdt_entropy)
+        suc_entropy = suc.entropy()
+        sdc_entropy = sdc.entropy()
+        sudt_entropy = sut.entropy()
+        sddt_entropy = sdt.entropy()
+        cond_entropy = up_p * (sudt_entropy + suc_entropy) + down_p * (
+            sddt_entropy + sdc_entropy
+        )
+
+        # Entropy (B, 1) H[A] = H[S] + H[A|S]
+        # Policy, \Pi[A] = \Pi[S] * \Pi[A|S]
+        entropy = sel_entropy + cond_entropy
+        entropies = {
+            "selection_entropy": sel_entropy,
+            "conditional_entropy": cond_entropy,
+        }
+
+        # Use action selector to choose what to do:
+        # (B, L)
+        log_probs = torch.zeros_like(sel_log_probs)
+
+        actions = {
+            Actions.SELECTOR: selections.detach().clone(),
+            Actions.WAIT: torch.zeros_like(selections),
+            Actions.SEND_COUNT_DOWN: send_count_d.detach().clone(),
+            Actions.SEND_COUNT_UP: send_count_u.detach().clone(),
+            Actions.SEND_TIME_DOWN: send_decay_time_d.detach().clone(),
+            Actions.SEND_TIME_UP: send_decay_time_u.detach().clone(),
+        }
+
+        # WAIT:
+        # (B, L)
+        mask = selections == 0
+
+        # (B, L)
+        log_probs[mask] = sel_log_probs[mask]
+        actions[Actions.WAIT][mask] = 1
+        actions[Actions.SEND_COUNT_UP][mask] = 0
+        actions[Actions.SEND_COUNT_DOWN][mask] = 0
+        actions[Actions.SEND_TIME_UP][mask] = 0
+        actions[Actions.SEND_TIME_DOWN][mask] = 0
+
+        # SEND UP:
+        # (B, L)
+        mask = selections == 1
+
+        # (B, L)
+        log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
+            send_count_u_logp[mask] + send_decay_time_u_logp[mask]
+        )
+        actions[Actions.SEND_COUNT_DOWN][mask] = 0
+        actions[Actions.SEND_TIME_DOWN][mask] = 0
+
+        # SEND DOWN:
+        # (B, L)
+        mask = selections == 2
+
+        # (B, L)
+        log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
+            send_count_d_logp[mask] + send_decay_time_d_logp[mask]
+        )
+        actions[Actions.SEND_COUNT_UP][mask] = 0
+        actions[Actions.SEND_TIME_UP][mask] = 0
+
+        # SEND BOTH:
+        # (B, L)
+        mask = selections == 3
+
+        # (B, L)
+        log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
+            send_count_u_logp[mask]
+            + send_decay_time_u_logp[mask]
+            + send_count_d_logp[mask]
+            + send_decay_time_d_logp[mask]
+        )
+
+        # (B, L)
+        values = action_outputs[Feats.STATE_VALUE]
+
+        times = x[Feats.TIMES][:, : values.shape[1]]
+
+        return times, actions, log_probs, sel_probs, values, entropies, h
