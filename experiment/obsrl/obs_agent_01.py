@@ -277,6 +277,7 @@ def get_advantages(
         advantages = (advantages - mean) / std
         # Optional: keep padding at 0
         advantages = advantages * mask.to(advantages.dtype)
+
     return G, advantages
 
 
@@ -502,28 +503,35 @@ def main(cfg: DictConfig):
 
     disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
 
-    satlen = 50
+    satlen = 20
 
     # Entropy scale
     entropy_scale = 0.01
     # We drive the entropy loss to 0.001 during satlen steps...
-    entropy_scale_factor = 0.1 ** (1 / satlen)
+    entropy_scale_factor = 0.2 ** (1 / satlen)
 
     # Padding reward scale
     padding_scale = 0.00
-    padding_scale_max = 0.01
+    padding_scale_max = 0.001
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     # Disct training:
     disc_train_count = cfg.disc_train_count
 
+    # obs training
+    obs_train_count = cfg.obs_train_count
+
+    league_update_frac = 0.5
+
+    disc_train_fraction = disc_train_count / obs_train_count
+    train_disc_c = 0
+    train_obs_c = 0
+
     e = 0
     detach_period = cfg.h_detach_period
     with mlflow.start_run(log_system_metrics=True):
-        train_disc = True
         while True:
             reward_scales = {"clf_scale": 10.0, "padding_scale": padding_scale}
-            league_scores = []
             losses_metrics_d: dict[str, list[float] | float] = {
                 "loss": [],
                 "policy_loss": [],
@@ -539,158 +547,174 @@ def main(cfg: DictConfig):
             )
 
             obs.train()
-            obs.cond_beta = 0.3
-            if train_disc:
-                discriminator.train()
+            obs.cond_beta = 0.5
 
-            with tqdm(
-                dl_train,
-                desc=f"epoch {e:02d}",
-                ncols=2 * TQDM_W,
-            ) as pbar:
-                for X, y in pbar:
-                    X = dict_to_device(X, device)
-                    y = y.to(device)
+            if (train_obs_c == 0) or (
+                train_disc_c / train_obs_c >= disc_train_fraction
+            ):
+                with tqdm(
+                    dl_train,
+                    desc=f"epoch {e:02d}",
+                    ncols=2 * TQDM_W,
+                ) as pbar:
+                    for X, y in pbar:
+                        X = dict_to_device(X, device)
+                        y = y.to(device)
 
-                    optim.zero_grad()
+                        optim.zero_grad()
 
-                    (
-                        log_ps,
-                        sel_probs,
-                        values,
-                        league_rewards,
-                        entropies,
-                        _,
-                        _,
-                        Xobs,
-                        fd,
-                    ) = rollout(
-                        obs=obs,
-                        disc=discriminator,
-                        X=X,
-                        y=y,
-                        disc_features=disc_feats,
-                        disc_league=active_league or league,
-                        detach_period=detach_period,
-                        reward_scales=reward_scales,
-                    )
+                        (
+                            log_ps,
+                            sel_probs,
+                            values,
+                            league_rewards,
+                            entropies,
+                            _,
+                            _,
+                            Xobs,
+                            fd,
+                        ) = rollout(
+                            obs=obs,
+                            disc=discriminator,
+                            X=X,
+                            y=y,
+                            disc_features=disc_feats,
+                            disc_league=active_league or league,
+                            detach_period=detach_period,
+                            reward_scales=reward_scales,
+                        )
 
-                    action_seq_lens = get_action_seq_lens(fd)
+                        action_seq_lens = get_action_seq_lens(fd)
 
-                    time_mask = make_time_mask(
-                        action_seq_lens, fd[Feats.TIMES].shape[1], device=device
-                    )
+                        time_mask = make_time_mask(
+                            action_seq_lens, fd[Feats.TIMES].shape[1], device=device
+                        )
 
-                    rewards = league_rewards2rewards(league_rewards)
+                        rewards = league_rewards2rewards(league_rewards)
 
-                    # The G, and advanages are detached from the comput graph.
-                    G, advantages = get_advantages(
-                        rewards, values, action_seq_lens, cfg
-                    )
+                        # The G, and advanages are detached from the comput graph.
+                        G, advantages = get_advantages(
+                            rewards, values, action_seq_lens, cfg
+                        )
 
-                    # Compute losses, advantages and G ARE detached.
-                    policy_loss_ = -(log_ps * advantages)
-                    policy_loss = masked_mean(policy_loss_, time_mask)
+                        # Compute losses, advantages and G ARE detached.
+                        policy_loss_ = -(log_ps * advantages)
+                        policy_loss = masked_mean(policy_loss_, time_mask)
 
-                    value_loss_ = 0.5 * (values - G).pow(2)
-                    value_loss = masked_mean(value_loss_, time_mask)
+                        value_loss_ = 0.5 * (values - G).pow(2)
+                        value_loss = masked_mean(value_loss_, time_mask)
 
-                    entropy = masked_mean(entropies, time_mask)
+                        entropy = masked_mean(entropies, time_mask)
 
-                    loss = policy_loss + value_loss - entropy_scale * entropy
+                        loss = policy_loss + value_loss - entropy_scale * entropy
 
-                    loss.backward()
+                        loss.backward()
 
-                    # Track the effect of selection vs conditional
-                    sel_log_ps = torch.log(sel_probs)
-                    sel_term = (advantages[..., None] * sel_log_ps).std()
-                    cond_term = (
-                        advantages[..., None] * (log_ps[..., None] - sel_log_ps)
-                    ).std()
-                    ratio = cond_term / (sel_term + 1e-8)
+                        # Track the effect of selection vs conditional
+                        sel_log_ps = torch.log(sel_probs)
+                        sel_term = (advantages[..., None] * sel_log_ps).std()
+                        cond_term = (
+                            advantages[..., None] * (log_ps[..., None] - sel_log_ps)
+                        ).std()
+                        ratio = cond_term / (sel_term + 1e-8)
 
-                    # Sanity checks:
-                    # ==========================================
-                    if cfg.debug:
-                        if (ratio > 10.0) or (ratio < 0.1):
-                            logger.warning(
-                                f"High/low cond/sel std ratio: {ratio:.2f}, sel_term: {sel_term:.6f}, cond_term: {cond_term:.6f}"
-                            )
+                        # Sanity checks:
+                        # ==========================================
+                        if cfg.debug:
+                            if (ratio > 10.0) or (ratio < 0.1):
+                                logger.warning(
+                                    f"High/low cond/sel std ratio: {ratio:.2f}, sel_term: {sel_term:.6f}, cond_term: {cond_term:.6f}"
+                                )
 
-                        for k, v in rewards.items():
-                            try:
-                                assert_finite(f"rewards-{k}", v)
-                            except ValueError:
-                                breakpoint()
-                        assert_finite("values", values)
-                        assert_finite("log_ps", log_ps)
-
-                        for k, v in losses_metrics_d.items():
-                            if len(v) == 0:
-                                continue
-
-                            try:
-                                assert_finite(k, v[-1])
-                            except ValueError as er:
-                                print(er)
-                                breakpoint()
-
-                        for name, p in obs.named_parameters():
-                            if p.grad is not None:
+                            for k, v in rewards.items():
                                 try:
-                                    assert_finite(f"{name}: grad", p.grad)
+                                    assert_finite(f"rewards-{k}", v)
                                 except ValueError:
-                                    print(value_loss, policy_loss, entropy)
+                                    breakpoint()
+                            assert_finite("values", values)
+                            assert_finite("log_ps", log_ps)
+
+                            for k, v in losses_metrics_d.items():
+                                if len(v) == 0:
+                                    continue
+
+                                try:
+                                    assert_finite(k, v[-1])
+                                except ValueError as er:
+                                    print(er)
                                     breakpoint()
 
-                        if not torch.isclose(
-                            rewards["padding"].sum(dim=1),
-                            -Xobs[Feats.PADDING].sum(dim=1)
-                            * reward_scales["padding_scale"],
-                        ).all():
-                            breakpoint()
-                            logger.warning("padding rewards issues")
-                    # ==========================================
+                            for name, p in obs.named_parameters():
+                                if p.grad is not None:
+                                    try:
+                                        assert_finite(f"{name}: grad", p.grad)
+                                    except ValueError:
+                                        print(value_loss, policy_loss, entropy)
+                                        breakpoint()
 
-                    # Gradient clipping
-                    nn.utils.clip_grad_norm_(
-                        obs.parameters(), cfg.grad_norm_clip, error_if_nonfinite=True
-                    )
+                            if not torch.isclose(
+                                rewards["padding"].sum(dim=1),
+                                -Xobs[Feats.PADDING].sum(dim=1)
+                                * reward_scales["padding_scale"],
+                            ).all():
+                                breakpoint()
+                                logger.warning("padding rewards issues")
+                        # ==========================================
 
-                    optim.step()
+                        # Gradient clipping
+                        nn.utils.clip_grad_norm_(
+                            obs.parameters(),
+                            cfg.grad_norm_clip,
+                            error_if_nonfinite=True,
+                        )
 
-                    losses_metrics_d["loss"].append(loss.item())
-                    losses_metrics_d["policy_loss"].append(policy_loss.item())
-                    losses_metrics_d["value_loss"].append(value_loss.item())
-                    losses_metrics_d["avg_return"].append(G.mean().item())
-                    losses_metrics_d["entropy"].append(entropy.item())
-                    losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
+                        optim.step()
 
-                    # (B, )
-                    normal_packets = (
-                        (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 0)
-                    ).sum(dim=1)
-                    # (B, )
-                    padding_packets = (
-                        (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 1)
-                    ).sum(dim=1)
+                        losses_metrics_d["loss"].append(loss.item())
+                        losses_metrics_d["policy_loss"].append(policy_loss.item())
+                        losses_metrics_d["value_loss"].append(value_loss.item())
+                        losses_metrics_d["avg_return"].append(G.mean().item())
+                        losses_metrics_d["entropy"].append(entropy.item())
+                        losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
 
-                    losses_metrics_d["mean_padding_frac"].append(
-                        (padding_packets / normal_packets).mean().item()
-                    )
-                    losses_metrics_d["mean_trace_len"].append(
-                        (Xobs[Feats.DIRS] != 0).sum(dim=1).float().mean().item()
-                    )
-                    for k, v in rewards.items():
-                        losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
+                        # (B, )
+                        normal_packets = (
+                            (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 0)
+                        ).sum(dim=1)
+                        # (B, )
+                        padding_packets = (
+                            (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 1)
+                        ).sum(dim=1)
 
-                    pbar.set_postfix(
-                        {"avg_return": np.mean(losses_metrics_d["avg_return"][-30:])}
-                    )
+                        losses_metrics_d["mean_padding_frac"].append(
+                            (padding_packets / normal_packets).mean().item()
+                        )
+                        losses_metrics_d["mean_trace_len"].append(
+                            (Xobs[Feats.DIRS] != 0).sum(dim=1).float().mean().item()
+                        )
+                        for k, v in rewards.items():
+                            losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
+
+                        pbar.set_postfix(
+                            {
+                                "avg_return": np.mean(
+                                    losses_metrics_d["avg_return"][-30:]
+                                )
+                            }
+                        )
+
+                train_obs_c += 1
+                losses_metrics_d["train_obs"] = 1
+
+                # Padding and entropy scale updates:
+                # =============================================
+                if train_obs_c < satlen:
+                    entropy_scale *= entropy_scale_factor
+                    padding_scale += padding_scale_step
 
             # Train disc:
             # ============================================
-            for _ in range(disc_train_count):
+            if train_disc_c / train_obs_c < disc_train_fraction:
                 dl_valid_ = _get_obs_def_dl(
                     disc=discriminator,
                     obs=obs,
@@ -708,13 +732,56 @@ def main(cfg: DictConfig):
                 )
                 _restore_obs_def_ds(ds_train, obs_features, obs, device)
 
-            losses_metrics_d["disc_train_loss"] = loss
+                losses_metrics_d["disc_train_loss"] = loss
 
-            # Padding and entropy scale updates:
-            # =============================================
-            if e < satlen:
-                entropy_scale *= entropy_scale_factor
-                padding_scale += padding_scale_step
+                # League handling:
+                # =======================================
+                # Append current discriminator to league
+                _append_to_league(league, discriminator.state_dict())
+
+                league_scores = get_league_scores(
+                    league=league,
+                    ds=ds_valid,
+                    obs=obs,
+                    obs_features=ds_train.feature_trs,
+                    disc=discriminator,
+                    disc_features=disc_feats,
+                    reward_scales=reward_scales,
+                    device=device,
+                    subset_indices=torch.randint(0, len(ds_valid), (1000,)).numpy(),
+                )
+
+                if len(league) > cfg.league_size:
+                    scores = np.array(league_scores.cpu().numpy())
+                    probs = (scores - scores.min()) / (
+                        scores.max() - scores.min() + 1e-8
+                    )
+                    probs /= probs.sum()
+
+                    n_new_discs = int(league_update_frac * cfg.league_size)
+                    idx = np.random.choice(
+                        cfg.league_size, size=n_new_discs, replace=False
+                    )
+                    active_league_idx[idx] = np.random.choice(
+                        len(league), n_new_discs, p=probs, replace=False
+                    )
+
+                else:
+                    active_league_idx = np.arange(len(league))
+
+                active_league = [league[i] for i in active_league_idx]
+
+                logger.info("League scores:")
+                for i, s in enumerate(league_scores):
+                    str_ = ""
+                    if i in active_league_idx:
+                        str_ = "*"
+
+                    logger.info(f"\t{i:4d}{str_} : {s:.4f}")
+                # =======================================
+
+                losses_metrics_d["train_disc"] = 1
+                train_disc_c += 1
 
             # Logging:
             # =============================================
@@ -735,7 +802,7 @@ def main(cfg: DictConfig):
             )
             mlflow.log_metrics(d, step=e)
 
-            if e % 1 == 0:
+            if e % cfg.figs_period == 0:
                 _plot_set(
                     cfg=cfg,
                     ds=ds_valid,
@@ -756,46 +823,6 @@ def main(cfg: DictConfig):
                 mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}", step=e)
 
             # =============================================
-
-            # League handling:
-            # =======================================
-
-            # Append current discriminator to league
-            _append_to_league(league, discriminator.state_dict())
-
-            league_scores = get_league_scores(
-                league=league,
-                ds=ds_valid,
-                obs=obs,
-                obs_features=ds_train.feature_trs,
-                disc=discriminator,
-                disc_features=disc_feats,
-                reward_scales=reward_scales,
-                device=device,
-                subset_indices=torch.randint(0, len(ds_valid), (1000,)).numpy(),
-            )
-
-            if len(league) > cfg.league_size:
-                scores = np.array(league_scores.cpu().numpy())
-                probs = (scores - scores.min()) / (scores.max() - scores.min() + 1e-8)
-                probs /= probs.sum()
-
-                active_league_idx = np.random.choice(
-                    len(league), cfg.league_size, p=probs, replace=False
-                )
-            else:
-                active_league_idx = np.arange(len(league))
-
-            active_league = [league[i] for i in active_league_idx]
-
-            logger.info("League scores:")
-            for i, s in enumerate(league_scores):
-                str_ = ""
-                if i in active_league_idx:
-                    str_ = "*"
-
-                logger.info(f"\t{i:4d}{str_} : {s:.4f}")
-            # =======================================
 
             e += 1
 

@@ -11,10 +11,13 @@ advantages:
   lambda_: 0.95
   standardize: True
 
-
 debug: False
 
 disc_train_count: 2
+obs_train_count: 2
+
+figs_period: 5
+
 league_size: 10
 obs_time_step_s: 0.02
 obs_max_silence_s: 0.36
