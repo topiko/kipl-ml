@@ -266,7 +266,9 @@ class AGENT1(nn.Module):
             }
         )
 
-        self.critic = nn.Sequential(nn.Linear(hsize, 1))
+        self.critic = nn.Sequential(
+            nn.Linear(hsize, hsize), nn.ReLU(), nn.Linear(hsize, 1)
+        )
         self.cond_beta = 0.25
 
     @property
