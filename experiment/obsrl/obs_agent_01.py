@@ -50,6 +50,7 @@ def _plot_set(
     cfg: DictConfig,
     ds: WFDataset,
     obs: nn.Module,
+    critic: nn.Module,
     obs_features: FeatureTrs,
     disc_orig: nn.Module,
     disc_trained: nn.Module,
@@ -69,6 +70,7 @@ def _plot_set(
             cfg=cfg,
             ds=ds,
             obs=obs,
+            critic=critic,
             obs_features=obs_features,
             disc_orig=disc_orig,
             disc_trained=disc_trained,
@@ -86,6 +88,7 @@ def _plot_single(
     cfg: DictConfig,
     ds: WFDataset,
     obs: nn.Module,
+    critic: nn.Module,
     obs_features: FeatureTrs,
     disc_orig: nn.Module,
     disc_trained: nn.Module,
@@ -141,6 +144,7 @@ def _plot_single(
     _, sel_probs, state_values, league_rewards, entropies, times, actions, Xobs, fd = (
         rollout(
             obs,
+            critic,
             disc_trained,
             X,
             y,
@@ -361,6 +365,7 @@ def get_league_scores(
     league: list[nn.Module],
     ds: WFDataset,
     obs: nn.Module,
+    critic: nn.Module,
     obs_features: FeatureTrs,
     disc: nn.Module,
     disc_features: FeatureTrs,
@@ -388,6 +393,7 @@ def get_league_scores(
                 y = y.to(device)
                 league_rewards = rollout(
                     obs=obs,
+                    critic=critic,
                     disc=disc,
                     X=X,
                     y=y,
@@ -766,6 +772,7 @@ def main(cfg: DictConfig):
                     league=league,
                     ds=ds_valid,
                     obs=obs,
+                    critic=critic,
                     obs_features=ds_train.feature_trs,
                     disc=discriminator,
                     disc_features=disc_feats,
@@ -830,6 +837,7 @@ def main(cfg: DictConfig):
                     cfg=cfg,
                     ds=ds_valid,
                     obs=obs,
+                    critic=critic,
                     obs_features=ds_train.feature_trs,
                     disc_orig=discriminator_orig,
                     disc_trained=discriminator,
