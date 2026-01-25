@@ -237,7 +237,6 @@ def _plot_single(
 
     fig.canvas.draw()
 
-    plt.show()
     mlflow.log_figure(fig, f"trace_{idx}_clf_epoch={e:03d}.png")
 
     plt.close()
