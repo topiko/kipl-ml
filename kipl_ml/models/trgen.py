@@ -639,7 +639,7 @@ class CRITIC01(nn.Module):
         # (N, L, nfeat * feat_scale)
         inputs = self.scaler(inputs)
 
-        # (N, L, nfeat * feat_scale + embed_dim)
+        # (N, L, nfeat * feat_scale + embed_dim + label_embed_dim)
         inputs = torch.cat(
             (
                 inputs,

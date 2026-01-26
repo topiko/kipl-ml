@@ -457,12 +457,15 @@ def get_action_seq_lens(fd: dict[Feats, torch.Tensor]) -> torch.Tensor:
     return fd[Feats.TIMES].isnan().logical_not().sum(dim=1)
 
 
-def _get_optim(nn: nn.Module, lr: float) -> torch.optim.Optimizer:
+def _get_optim(
+    nn: nn.Module, lr: float, lr_rnn: float | None = None
+) -> torch.optim.Optimizer:
+    lr_rnn = lr_rnn or lr * 0.1
     rnn_params = list(nn.rnn.parameters())
     other_params = [p for n, p in nn.named_parameters() if not n.startswith("rnn.")]
     return torch.optim.Adam(
         [
-            {"params": rnn_params, "lr": lr * 0.1},
+            {"params": rnn_params, "lr": lr_rnn},
             {"params": other_params, "lr": lr},
         ]
     )
@@ -527,7 +530,7 @@ def main(cfg: DictConfig):
     obs_optim = _get_optim(obs, lr)
     critic_optim = _get_optim(critic, lr * 0.5)
 
-    disc_optim = _get_optim(discriminator, lr=0.001)
+    disc_optim = _get_optim(discriminator, lr=0.001, lr_rnn=0.001)
 
     satlen = 20
 

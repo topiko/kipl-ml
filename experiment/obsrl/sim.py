@@ -120,6 +120,7 @@ def rollout(
 
     # We need the seq. lens in forward.
     seq_lens = fd.pop(Feats.SEQ_LENS)
+    L = seq_lens.max().item()
 
     act_times, actions, log_ps, sel_probs, _, entropies, h = obs.act(
         fd, hobs, h_detach_period=detach_period, seq_lens=seq_lens
@@ -164,8 +165,7 @@ def rollout(
             rewards_l.append(rewards_)
 
             fd[Feats.DISC_ID] = torch.full_like(fd[critic.features[0]], disc_id)
-            breakpoint()
-            fd[Feats.LABELS] = y.reshape(bs, L)
+            fd[Feats.LABEL] = y.unsqueeze(1).repeat(1, L)
 
             league_values_ = critic(
                 fd, None, h_detach_period=detach_period, seq_lens=seq_lens

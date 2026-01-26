@@ -61,7 +61,7 @@ class Feats(StrEnum):
     SEQ_LENS = "seq_lens"
     Dt = "Delta time"
     SILENCE_FLAG = "silence_flag"
-    DISC_ID: str = "disc_id"
+    DISC_ID = "disc_id"
 
     def __str__(self) -> str:
         return self.value
