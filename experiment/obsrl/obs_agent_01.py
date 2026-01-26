@@ -444,7 +444,7 @@ def get_action_seq_lens(fd: dict[Feats, torch.Tensor]) -> torch.Tensor:
 def _get_optim(nn: nn.Module, lr: float) -> torch.optim.Optimizer:
     rnn_params = list(nn.rnn.parameters())
     other_params = [p for n, p in nn.named_parameters() if not n.startswith("rnn.")]
-    return torch.optim.AdamW(
+    return torch.optim.Adam(
         [
             {"params": rnn_params, "lr": lr * 0.1},
             {"params": other_params, "lr": lr},
@@ -510,20 +510,20 @@ def main(cfg: DictConfig):
 
     lr = 0.001
     obs_optim = _get_optim(obs, lr)
-    critic_optim = _get_optim(critic, lr)
+    critic_optim = _get_optim(critic, lr * 0.5)
 
-    disc_optim = torch.optim.Adam(discriminator.parameters(), lr=0.001)
+    disc_optim = _get_optim(discriminator, lr=0.001)
 
     satlen = 20
 
     # Entropy scale
-    entropy_scale = 0.001
+    entropy_scale = 0.01
     # We drive the entropy loss to 0.001 during satlen steps...
-    entropy_scale_factor = 0.1 ** (1 / satlen)
+    entropy_scale_factor = 0.5 ** (1 / satlen)
 
     # Padding reward scale
     padding_scale = 0.00
-    padding_scale_max = 0.001
+    padding_scale_max = 0.002
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     # Disct training:
@@ -532,7 +532,7 @@ def main(cfg: DictConfig):
     # obs training
     obs_train_count = cfg.obs_train_count
 
-    league_update_frac = 0.5
+    league_update_frac = 0.2
 
     disc_train_fraction = disc_train_count / obs_train_count
     train_disc_c = 0
@@ -549,6 +549,7 @@ def main(cfg: DictConfig):
                 "value_loss": [],
                 "avg_return": [],
                 "entropy": [],
+                "entropy_loss": [],
                 "mean_padding_frac": [],
                 "mean_trace_len": [],
                 "sel vs. cond std ratio": [],
@@ -557,6 +558,80 @@ def main(cfg: DictConfig):
                 {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
             )
 
+            # Train disc:
+            # ============================================
+            if (train_obs_c == 0) or (train_disc_c / train_obs_c < disc_train_fraction):
+                dl_valid_ = _get_obs_def_dl(
+                    disc=discriminator,
+                    obs=obs,
+                    ds=ds_train,
+                    n_packets=cfg.trace_len,
+                    bs=64,
+                )
+
+                loss = train_one_epoch(
+                    clf=discriminator,
+                    dl_train=dl_valid_,
+                    optimG=disc_optim,
+                    device=device,
+                    grad_clip=cfg.grad_norm_clip,
+                )
+                _restore_obs_def_ds(ds_train, obs_features, obs, device)
+
+                losses_metrics_d["disc_train_loss"] = loss
+
+                # League handling:
+                # =======================================
+                # Append current discriminator to league
+                _append_to_league(league, discriminator.state_dict())
+
+                league_scores = get_league_scores(
+                    league=league,
+                    ds=ds_valid,
+                    obs=obs,
+                    critic=critic,
+                    obs_features=ds_train.feature_trs,
+                    disc=discriminator,
+                    disc_features=disc_feats,
+                    reward_scales=reward_scales,
+                    device=device,
+                    subset_indices=torch.randint(0, len(ds_valid), (1000,)).numpy(),
+                )
+
+                if len(league) > cfg.league_size:
+                    scores = np.array(league_scores.cpu().numpy())
+                    probs = (scores - scores.min()) / (
+                        scores.max() - scores.min() + 1e-8
+                    )
+                    probs /= probs.sum()
+
+                    n_new_discs = int(league_update_frac * cfg.league_size)
+                    idx = np.random.choice(
+                        cfg.league_size, size=n_new_discs, replace=False
+                    )
+                    active_league_idx[idx] = np.random.choice(
+                        len(league), n_new_discs, p=probs, replace=False
+                    )
+
+                else:
+                    active_league_idx = np.arange(len(league))
+
+                active_league = [league[i] for i in active_league_idx]
+
+                logger.info("League scores:")
+                for i, s in enumerate(league_scores):
+                    str_ = ""
+                    if i in active_league_idx:
+                        str_ = "*"
+
+                    logger.info(f"\t{i:4d}{str_} : {s:.4f}")
+                # =======================================
+
+                losses_metrics_d["train_disc"] = 1
+                train_disc_c += 1
+
+            # Train obs:
+            # ===========================================
             obs.train()
             obs.cond_beta = 0.5
 
@@ -742,78 +817,6 @@ def main(cfg: DictConfig):
                 if train_obs_c < satlen:
                     entropy_scale *= entropy_scale_factor
                     padding_scale += padding_scale_step
-
-            # Train disc:
-            # ============================================
-            if train_disc_c / train_obs_c < disc_train_fraction:
-                dl_valid_ = _get_obs_def_dl(
-                    disc=discriminator,
-                    obs=obs,
-                    ds=ds_train,
-                    n_packets=cfg.trace_len,
-                    bs=64,
-                )
-
-                loss = train_one_epoch(
-                    clf=discriminator,
-                    dl_train=dl_valid_,
-                    optimG=disc_optim,
-                    device=device,
-                    grad_clip=cfg.grad_norm_clip,
-                )
-                _restore_obs_def_ds(ds_train, obs_features, obs, device)
-
-                losses_metrics_d["disc_train_loss"] = loss
-
-                # League handling:
-                # =======================================
-                # Append current discriminator to league
-                _append_to_league(league, discriminator.state_dict())
-
-                league_scores = get_league_scores(
-                    league=league,
-                    ds=ds_valid,
-                    obs=obs,
-                    critic=critic,
-                    obs_features=ds_train.feature_trs,
-                    disc=discriminator,
-                    disc_features=disc_feats,
-                    reward_scales=reward_scales,
-                    device=device,
-                    subset_indices=torch.randint(0, len(ds_valid), (1000,)).numpy(),
-                )
-
-                if len(league) > cfg.league_size:
-                    scores = np.array(league_scores.cpu().numpy())
-                    probs = (scores - scores.min()) / (
-                        scores.max() - scores.min() + 1e-8
-                    )
-                    probs /= probs.sum()
-
-                    n_new_discs = int(league_update_frac * cfg.league_size)
-                    idx = np.random.choice(
-                        cfg.league_size, size=n_new_discs, replace=False
-                    )
-                    active_league_idx[idx] = np.random.choice(
-                        len(league), n_new_discs, p=probs, replace=False
-                    )
-
-                else:
-                    active_league_idx = np.arange(len(league))
-
-                active_league = [league[i] for i in active_league_idx]
-
-                logger.info("League scores:")
-                for i, s in enumerate(league_scores):
-                    str_ = ""
-                    if i in active_league_idx:
-                        str_ = "*"
-
-                    logger.info(f"\t{i:4d}{str_} : {s:.4f}")
-                # =======================================
-
-                losses_metrics_d["train_disc"] = 1
-                train_disc_c += 1
 
             # Logging:
             # =============================================
