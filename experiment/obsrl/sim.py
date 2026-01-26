@@ -164,6 +164,8 @@ def rollout(
             rewards_l.append(rewards_)
 
             fd[Feats.DISC_ID] = torch.full_like(fd[critic.features[0]], disc_id)
+            breakpoint()
+            fd[Feats.LABELS] = y.reshape(bs, L)
 
             league_values_ = critic(
                 fd, None, h_detach_period=detach_period, seq_lens=seq_lens

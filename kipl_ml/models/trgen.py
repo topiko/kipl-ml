@@ -573,6 +573,8 @@ class CRITIC01(nn.Module):
         nlayers: int = 3,
         dropout: float = 0.2,
         disc_embedding_dim: int = 4,
+        n_classes: int = 100,
+        label_embedding_dim: int = 1,
     ):
         super().__init__()
 
@@ -581,16 +583,16 @@ class CRITIC01(nn.Module):
         # Maximum silence the model tolerates before acting.
         self.max_silence_s = agent.max_silence_s
 
-        self.features = agent.features + [Feats.DISC_ID]
+        self.features = agent.features + [Feats.DISC_ID, Feats.LABEL]
 
         self.num_layers = nlayers
         self.hidden_size = hsize
         # scaler does not apply to embeddings
-        nfeat = len(self.features) - 1
+        nfeat = len(self.features) - 2
 
         self.scaler = nn.Sequential(nn.Linear(nfeat, nfeat, bias=False), nn.Tanh())
         self.rnn = nn.LSTM(
-            nfeat + disc_embedding_dim,
+            nfeat + disc_embedding_dim + label_embedding_dim,
             hsize,
             nlayers,
             batch_first=True,
@@ -605,6 +607,7 @@ class CRITIC01(nn.Module):
         )
 
         self.disc_embedding = nn.Embedding(100, disc_embedding_dim)
+        self.label_embedding = nn.Embedding(n_classes, label_embedding_dim)
 
     def forward(
         self,
@@ -624,6 +627,8 @@ class CRITIC01(nn.Module):
                 x_ = x[f].unsqueeze(-1)  # keep 0/1
             elif f == Feats.DISC_ID:
                 continue
+            elif f == Feats.LABEL:
+                continue
             else:
                 x_ = torch.log10(1 + x[f]).unsqueeze(-1)
             fs.append(x_)
@@ -636,7 +641,12 @@ class CRITIC01(nn.Module):
 
         # (N, L, nfeat * feat_scale + embed_dim)
         inputs = torch.cat(
-            (inputs, self.disc_embedding(x[Feats.DISC_ID].long())), dim=-1
+            (
+                inputs,
+                self.disc_embedding(x[Feats.DISC_ID].long()),
+                self.label_embedding(x[Feats.LABEL].long()),
+            ),
+            dim=-1,
         )
 
         # (N, L, H) (N, n_hidden, H)
