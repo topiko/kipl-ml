@@ -45,6 +45,8 @@ def train_one_epoch(
 
             n += 1
 
+            break
+
     return loss_mean
 
 

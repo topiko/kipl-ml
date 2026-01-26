@@ -572,6 +572,7 @@ class CRITIC01(nn.Module):
         hsize: int = 256,
         nlayers: int = 3,
         dropout: float = 0.2,
+        disc_embedding_dim: int = 8,
     ):
         super().__init__()
 
@@ -584,7 +585,7 @@ class CRITIC01(nn.Module):
 
         self.num_layers = nlayers
         self.hidden_size = hsize
-        nfeat = len(self.features)
+        nfeat = len(self.features) + disc_embedding_dim
 
         self.scaler = nn.Sequential(nn.Linear(nfeat, nfeat, bias=False), nn.Tanh())
         self.rnn = nn.LSTM(
@@ -596,7 +597,8 @@ class CRITIC01(nn.Module):
         self.critic = nn.Sequential(
             nn.Linear(hsize, hsize), nn.ReLU(), nn.Linear(hsize, 1)
         )
-        self.cond_beta = 0.25
+
+        disc_embedding = nn.Embedding(100, disc_embedding_dim)
 
     def forward(
         self,
@@ -612,7 +614,7 @@ class CRITIC01(nn.Module):
         # (N, L) x nfeat
         fs = []
         for f in self.features:
-            if f == Feats.SILENCE_FLAG:
+            if f in (Feats.SILENCE_FLAG, Feats.DISC_ID):
                 x_ = x[f]  # keep 0/1
             else:
                 x_ = torch.log10(1 + x[f])

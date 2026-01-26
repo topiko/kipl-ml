@@ -255,6 +255,17 @@ def get_advantages(
     if isinstance(rewards, dict):
         rewards = sum(rewards.values())
 
+    # In case of "league rewards"
+    if rewards.ndim == 3:
+        G_l = []
+        advantages_l = []
+        for i in range(rewards.shape[0]):
+            G_, advantages_ = get_advantages(rewards[i], values[i], seq_lens, cfg)
+            G_l.append(G_)
+            advantages_l.append(advantages_)
+
+        return torch.stack(G_l, dim=0), torch.stack(advantages_l, dim=0)
+
     values_detached = values.detach()
 
     if cfg.advantages.type == "mc":
@@ -616,7 +627,7 @@ def main(cfg: DictConfig):
                 else:
                     active_league_idx = np.arange(len(league))
 
-                active_league = [league[i] for i in active_league_idx]
+                active_league = [(i, league[i]) for i in active_league_idx]
 
                 logger.info("League scores:")
                 for i, s in enumerate(league_scores):
@@ -667,7 +678,7 @@ def main(cfg: DictConfig):
                             X=X,
                             y=y,
                             disc_features=disc_feats,
-                            disc_league=active_league or league,
+                            disc_league=active_league,
                             detach_period=detach_period,
                             reward_scales=reward_scales,
                         )
@@ -678,14 +689,16 @@ def main(cfg: DictConfig):
                             action_seq_lens, fd[Feats.TIMES].shape[1], device=device
                         )
 
-                        rewards = league_rewards2rewards(league_rewards)
-
-                        # The G, and advanages are detached from the comput graph.
+                        # The G, and advanages (nleague, bs, T)
+                        # are detached from the comput graph.
                         G, advantages = get_advantages(
-                            rewards, values, action_seq_lens, cfg
+                            league_rewards, values, action_seq_lens, cfg
                         )
 
+                        breakpoint()
+
                         # Compute losses, advantages and G ARE detached.
+                        advantages = advantages.mean(dim=0)  # (B, L)
                         policy_loss_ = -(log_ps * advantages)
                         policy_loss = masked_mean(policy_loss_, time_mask)
 

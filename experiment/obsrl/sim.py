@@ -87,7 +87,7 @@ def rollout(
     disc: nn.Module,
     X: dict[Feats, torch.Tensor],
     y: torch.Tensor,
-    disc_league: list,
+    disc_league: list[tuple[int, nn.Module.state_dict]],
     disc_features: FeatureTrs | None = None,
     detach_period: int = 20,
     reward_scales: dict[str, float] | None = None,
@@ -121,13 +121,9 @@ def rollout(
     # We need the seq. lens in forward.
     seq_lens = fd.pop(Feats.SEQ_LENS)
 
-    act_times, actions, log_ps, sel_probs, values, entropies, h = obs.act(
+    act_times, actions, log_ps, sel_probs, league_values, entropies, h = obs.act(
         fd, hobs, h_detach_period=detach_period, seq_lens=seq_lens
     )
-
-    values = critic(fd, None, h_detach_period=detach_period, seq_lens=seq_lens)[0][
-        Feats.STATE_VALUE
-    ]
 
     if h is not None:
         h_norm = h[0].norm(2, dim=-1).max().item()
@@ -145,6 +141,7 @@ def rollout(
             k: v.detach().clone() for k, v in disc.state_dict().items()
         }
         rewards_l = []
+        league_values_l = []
         seq_lens = (Xobs[Feats.DIRS] != 0).sum(dim=1).long().cpu()
 
         if disc_features is not None:
@@ -152,7 +149,7 @@ def rollout(
         else:
             X_ = Xobs
 
-        for state_d in disc_league:
+        for disc_id, state_d in disc_league:
             disc.load_state_dict({k: v.to(device) for k, v in state_d.items()})
 
             hdisc = None
@@ -165,6 +162,14 @@ def rollout(
             )
 
             rewards_l.append(rewards_)
+
+            fd[Feats.DISC_ID] = torch.full_like(fd[critic.features[0]], disc_id)
+
+            league_values_ = critic(
+                fd, None, h_detach_period=detach_period, seq_lens=seq_lens
+            )[0][Feats.STATE_VALUE]
+
+            league_values_l.append(league_values_)
 
         # Rewards from different disc. checkpoints.
         rewards = {
@@ -187,7 +192,7 @@ def rollout(
     return (
         log_ps,
         sel_probs,
-        values,
+        league_values,
         rewards,
         entropies,
         act_times,
