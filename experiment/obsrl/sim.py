@@ -121,7 +121,7 @@ def rollout(
     # We need the seq. lens in forward.
     seq_lens = fd.pop(Feats.SEQ_LENS)
 
-    act_times, actions, log_ps, sel_probs, league_values, entropies, h = obs.act(
+    act_times, actions, log_ps, sel_probs, _, entropies, h = obs.act(
         fd, hobs, h_detach_period=detach_period, seq_lens=seq_lens
     )
 
@@ -176,6 +176,9 @@ def rollout(
             k: torch.stack([r[k] for r in rewards_l], dim=0)
             for k in rewards_l[0].keys()
         }
+
+        # Make the values tensor
+        league_values = torch.stack(league_values_l, dim=0)
 
         # Make sure correct state is restored.
         disc.load_state_dict(current_disc_state)

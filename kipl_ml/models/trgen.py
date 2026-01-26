@@ -572,7 +572,7 @@ class CRITIC01(nn.Module):
         hsize: int = 256,
         nlayers: int = 3,
         dropout: float = 0.2,
-        disc_embedding_dim: int = 8,
+        disc_embedding_dim: int = 4,
     ):
         super().__init__()
 
@@ -581,15 +581,21 @@ class CRITIC01(nn.Module):
         # Maximum silence the model tolerates before acting.
         self.max_silence_s = agent.max_silence_s
 
-        self.features = agent.features
+        self.features = agent.features + [Feats.DISC_ID]
 
         self.num_layers = nlayers
         self.hidden_size = hsize
-        nfeat = len(self.features) + disc_embedding_dim
+        # scaler does not apply to embeddings
+        nfeat = len(self.features) - 1
 
         self.scaler = nn.Sequential(nn.Linear(nfeat, nfeat, bias=False), nn.Tanh())
         self.rnn = nn.LSTM(
-            nfeat, hsize, nlayers, batch_first=True, dropout=dropout, bias=True
+            nfeat + disc_embedding_dim,
+            hsize,
+            nlayers,
+            batch_first=True,
+            dropout=dropout,
+            bias=True,
         )
 
         self.out_norm = nn.LayerNorm(hsize)
@@ -598,7 +604,7 @@ class CRITIC01(nn.Module):
             nn.Linear(hsize, hsize), nn.ReLU(), nn.Linear(hsize, 1)
         )
 
-        disc_embedding = nn.Embedding(100, disc_embedding_dim)
+        self.disc_embedding = nn.Embedding(100, disc_embedding_dim)
 
     def forward(
         self,
@@ -614,17 +620,24 @@ class CRITIC01(nn.Module):
         # (N, L) x nfeat
         fs = []
         for f in self.features:
-            if f in (Feats.SILENCE_FLAG, Feats.DISC_ID):
-                x_ = x[f]  # keep 0/1
+            if f == Feats.SILENCE_FLAG:
+                x_ = x[f].unsqueeze(-1)  # keep 0/1
+            elif f == Feats.DISC_ID:
+                continue
             else:
-                x_ = torch.log10(1 + x[f])
-            fs.append(x_.unsqueeze(-1))
+                x_ = torch.log10(1 + x[f]).unsqueeze(-1)
+            fs.append(x_)
 
         # (N, L, nfeat)
         inputs = torch.cat(fs, dim=-1)
 
         # (N, L, nfeat * feat_scale)
         inputs = self.scaler(inputs)
+
+        # (N, L, nfeat * feat_scale + embed_dim)
+        inputs = torch.cat(
+            (inputs, self.disc_embedding(x[Feats.DISC_ID].long())), dim=-1
+        )
 
         # (N, L, H) (N, n_hidden, H)
         output, h = self.rnn(inputs, h)

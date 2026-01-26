@@ -55,6 +55,7 @@ def _plot_set(
     disc_orig: nn.Module,
     disc_trained: nn.Module,
     disc_features: FeatureTrs,
+    disc_league_idx: int,
     e: int,
     reward_scales: dict[str, float],
     device: torch.DeviceObjType,
@@ -75,6 +76,7 @@ def _plot_set(
             disc_orig=disc_orig,
             disc_trained=disc_trained,
             disc_features=disc_features,
+            disc_league_idx=disc_league_idx,
             e=e,
             reward_scales=reward_scales,
             device=device,
@@ -93,6 +95,7 @@ def _plot_single(
     disc_orig: nn.Module,
     disc_trained: nn.Module,
     disc_features: FeatureTrs,
+    disc_league_idx: int,
     e: int,
     reward_scales: dict[str, float],
     device: torch.DeviceObjType,
@@ -148,14 +151,13 @@ def _plot_single(
             disc_trained,
             X,
             y,
-            disc_league=[disc_trained.state_dict()],
+            disc_league=[(disc_league_idx, disc_trained.state_dict())],
             disc_features=disc_features,
             reward_scales=reward_scales,
         )
     )
 
-    rewards = league_rewards2rewards(league_rewards)
-    G, _ = get_advantages(rewards, state_values, get_action_seq_lens(fd), cfg)
+    G, _ = get_advantages(league_rewards, state_values, get_action_seq_lens(fd), cfg)
 
     Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
     mask = Xobs[Feats.DIRS] != 0
@@ -211,8 +213,9 @@ def _plot_single(
     ax_a.set_title("Actions, entropies")
 
     # Plot rewards
+    rewards = {k: v.squeeze(0) for k, v in league_rewards.items()}
     plot_rewards(times, rewards, ax=ax_b)
-    ax_b.set_title("Rewards, returns")
+    ax_b.set_title(f"Rewards, returns, disc_id={disc_league_idx}")
 
     # Plot returns
     ax_r = ax_b.twinx()
@@ -311,8 +314,10 @@ def assert_finite(name, x):
         raise ValueError
 
 
-def _append_to_league(league: list[dict], state_dict: dict):
-    league.append({k: v.cpu() for k, v in copy.deepcopy(state_dict).items()})
+def _append_to_league(league: list[tuple[int, dict]], state_dict: dict):
+    league.append(
+        (len(league), {k: v.cpu() for k, v in copy.deepcopy(state_dict).items()})
+    )
 
 
 def _get_obs_def_dl(
@@ -373,7 +378,7 @@ def league_rewards2rewards(
 
 
 def get_league_scores(
-    league: list[nn.Module],
+    league: list[tuple[int, nn.Module]],
     ds: WFDataset,
     obs: nn.Module,
     critic: nn.Module,
@@ -515,9 +520,8 @@ def main(cfg: DictConfig):
 
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
-    league: list[dict] = []
+    league: list[tuple[int, dict]] = []
     _append_to_league(league, discriminator_orig.state_dict())
-    active_league = None
 
     lr = 0.001
     obs_optim = _get_optim(obs, lr)
@@ -627,7 +631,7 @@ def main(cfg: DictConfig):
                 else:
                     active_league_idx = np.arange(len(league))
 
-                active_league = [(i, league[i]) for i in active_league_idx]
+                active_league = [league[i] for i in active_league_idx]
 
                 logger.info("League scores:")
                 for i, s in enumerate(league_scores):
@@ -635,7 +639,7 @@ def main(cfg: DictConfig):
                     if i in active_league_idx:
                         str_ = "*"
 
-                    logger.info(f"\t{i:4d}{str_} : {s:.4f}")
+                    logger.info(f"\t{i:4d} == {league[i][0]:4d}{str_} : {s:.4f}")
                 # =======================================
 
                 losses_metrics_d["train_disc"] = 1
@@ -695,8 +699,6 @@ def main(cfg: DictConfig):
                             league_rewards, values, action_seq_lens, cfg
                         )
 
-                        breakpoint()
-
                         # Compute losses, advantages and G ARE detached.
                         advantages = advantages.mean(dim=0)  # (B, L)
                         policy_loss_ = -(log_ps * advantages)
@@ -729,7 +731,7 @@ def main(cfg: DictConfig):
                                     f"High/low cond/sel std ratio: {ratio:.2f}, sel_term: {sel_term:.6f}, cond_term: {cond_term:.6f}"
                                 )
 
-                            for k, v in rewards.items():
+                            for k, v in league_rewards.items():
                                 try:
                                     assert_finite(f"rewards-{k}", v)
                                 except ValueError:
@@ -756,7 +758,8 @@ def main(cfg: DictConfig):
                                         breakpoint()
 
                             if not torch.isclose(
-                                rewards["padding"].sum(dim=1),
+                                league_rewards["padding"].sum(dim=2)
+                                / len(active_league),
                                 -Xobs[Feats.PADDING].sum(dim=1)
                                 * reward_scales["padding_scale"],
                             ).all():
@@ -811,7 +814,7 @@ def main(cfg: DictConfig):
                         losses_metrics_d["mean_trace_len"].append(
                             (Xobs[Feats.DIRS] != 0).sum(dim=1).float().mean().item()
                         )
-                        for k, v in rewards.items():
+                        for k, v in league_rewards.items():
                             losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
 
                         pbar.set_postfix(
@@ -860,6 +863,7 @@ def main(cfg: DictConfig):
                     disc_orig=discriminator_orig,
                     disc_trained=discriminator,
                     disc_features=disc_feats,
+                    disc_league_idx=len(league),
                     e=e,
                     reward_scales=reward_scales,
                     device=device,
