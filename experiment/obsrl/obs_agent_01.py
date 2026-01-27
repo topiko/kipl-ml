@@ -522,14 +522,9 @@ def get_active_league(
         probs = (scores - scores.min()) / (scores.max() - scores.min() + 1e-8)
         probs /= probs.sum()
 
-        n_new_discs = int(league_update_frac * league_size)
-        idx = np.random.choice(league_size, size=n_new_discs, replace=False)
-        active_league_idx[idx] = np.random.choice(
-            len(league), n_new_discs, p=probs, replace=False
+        active_league_idx = np.random.choice(
+            len(league), league_size, p=probs, replace=False
         )
-        # Ensure latest disc is always in league.
-        active_league_idx[idx[-1]] = len(league) - 1
-
     else:
         active_league_idx = np.arange(len(league))
 
@@ -599,7 +594,7 @@ def main(cfg: DictConfig):
         zero_init=False,
     ).to(device)
 
-    critic = CRITIC01(obs, hsize=256, nlayers=3, dropout=0.2).to(device)
+    critic = CRITIC01(obs, hsize=256, nlayers=3, use_machine_id=True).to(device)
 
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
@@ -608,19 +603,22 @@ def main(cfg: DictConfig):
 
     lr = 0.001
     obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr / 3)
-    critic_optim = _get_optim(critic, lr=lr, lr_rnn=lr / 3)
+
+    lr_critic = lr / 2
+    critic_optim = _get_optim(critic, lr=lr_critic, lr_rnn=lr_critic / 3)
+
     disc_optim = _get_optim(discriminator, lr=lr, lr_rnn=lr)
 
     satlen = 50
 
     # Entropy scale
-    entropy_scale = 0.001
+    entropy_scale = 0.01
     # We drive the entropy loss to 0.001 during satlen steps...
     entropy_scale_factor = 0.1 ** (1 / satlen)
 
     # Padding reward scale
     padding_scale = 0.001
-    padding_scale_max = 0.005
+    padding_scale_max = 0.01
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     valid_acc_thres = 0.6
@@ -875,7 +873,7 @@ def main(cfg: DictConfig):
                     e=e,
                     reward_scales=reward_scales,
                     device=device,
-                    ntraces=20,
+                    ntraces=10,
                     max_len=20_000,
                 )
 

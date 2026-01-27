@@ -571,24 +571,41 @@ class CRITIC01(nn.Module):
         agent: AGENT1,
         hsize: int = 256,
         nlayers: int = 3,
-        dropout: float = 0.2,
+        dropout: float = 0.0,
         disc_embedding_dim: int = 4,
         n_classes: int = 100,
         label_embedding_dim: int = 1,
+        use_machine_id: bool = True,
+        use_label: bool = False,
     ):
         super().__init__()
+
+        if dropout != 0:
+            logger.warning("Dropout on critic is bad idea?")
 
         # Time step between feature extractions.
         self.time_step = agent.time_step
         # Maximum silence the model tolerates before acting.
         self.max_silence_s = agent.max_silence_s
 
-        self.features = agent.features + [Feats.DISC_ID, Feats.LABEL]
+        self.features = agent.features.copy()
+
+        self.use_machine_id = use_machine_id
+        if use_machine_id:
+            self.features.append(Feats.DISC_ID)
+        else:
+            disc_embedding_dim = 0
+
+        self.use_label = use_label
+        if use_label:
+            self.features.append(Feats.LABEL)
+        else:
+            label_embedding_dim = 0
 
         self.num_layers = nlayers
         self.hidden_size = hsize
         # scaler does not apply to embeddings
-        nfeat = len(self.features) - 2
+        nfeat = len(self.features) - use_machine_id - use_label
 
         self.scaler = nn.Sequential(nn.Linear(nfeat, nfeat, bias=False), nn.Tanh())
         self.rnn = nn.LSTM(
@@ -640,14 +657,15 @@ class CRITIC01(nn.Module):
         inputs = self.scaler(inputs)
 
         # (N, L, nfeat * feat_scale + embed_dim + label_embed_dim)
-        inputs = torch.cat(
-            (
-                inputs,
-                self.disc_embedding(x[Feats.DISC_ID].long()),
-                self.label_embedding(x[Feats.LABEL].long()),
-            ),
-            dim=-1,
-        )
+        if self.use_label:
+            inputs = torch.cat(
+                (inputs, self.label_embedding(x[Feats.LABEL].long())), dim=-1
+            )
+
+        if self.use_machine_id:
+            inputs = torch.cat(
+                (inputs, self.disc_embedding(x[Feats.DISC_ID].long())), dim=-1
+            )
 
         # (N, L, H) (N, n_hidden, H)
         output, h = self.rnn(inputs, h)

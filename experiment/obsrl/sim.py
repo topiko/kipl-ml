@@ -145,6 +145,15 @@ def rollout(
         league_values_l = []
         seq_lens = (Xobs[Feats.DIRS] != 0).sum(dim=1).long().cpu()
 
+        div_lens = action_seq_lens[:, None]
+        # div_lens = torch.stack(
+        #     [
+        #         fpad(torch.arange(l, 0, -1), (0, L - l), value=1)
+        #         for l in action_seq_lens
+        #     ],
+        #     dim=0,
+        # ).to(device)
+
         if disc_features is not None:
             X_ = disc_features.transform_batch(Xobs)
         else:
@@ -162,9 +171,9 @@ def rollout(
                 act_times, Xobs, y, logits, seq_lens, reward_scales=reward_scales
             )
 
-            # Rather use the "reward density" than the actual rewards to
+            # Rather use the "reward contribution" than the actual rewards to
             # remove the dep. on seq_len.
-            rewards_ = {k: v / action_seq_lens[:, None] for k, v in rewards_.items()}
+            rewards_ = {k: v / div_lens for k, v in rewards_.items()}
 
             rewards_l.append(rewards_)
 
