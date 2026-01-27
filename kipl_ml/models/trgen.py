@@ -603,7 +603,7 @@ class CRITIC01(nn.Module):
         self.out_norm = nn.LayerNorm(hsize)
 
         self.critic = nn.Sequential(
-            nn.Linear(hsize, hsize), nn.ReLU(), nn.Linear(hsize, 1)
+            nn.Linear(hsize, hsize), nn.LeakyReLU(), nn.Linear(hsize, 1)
         )
 
         self.disc_embedding = nn.Embedding(100, disc_embedding_dim)

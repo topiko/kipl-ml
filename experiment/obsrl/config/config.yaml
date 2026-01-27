@@ -13,9 +13,6 @@ advantages:
 
 debug: False
 
-disc_train_count: 2
-obs_train_count: 2
-
 figs_period: 5
 
 league_size: 10
