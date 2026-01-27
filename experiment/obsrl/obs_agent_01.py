@@ -217,16 +217,22 @@ def _plot_single(
     # Plot rewards
     rewards = {k: v.squeeze(0) for k, v in league_rewards.items()}
     plot_rewards(times, rewards, ax=ax_b)
-    ax_b.plot(
+
+    ax_advantages = ax_b.twinx()
+    ax_advantages.axes.spines["right"].set_visible(True)
+    ax_advantages.plot(
         times.squeeze().cpu().numpy(),
         advantages.squeeze().cpu().numpy(),
         label="advantage",
     )
     ax_b.set_title(f"Rewards, returns, disc_id={disc_league_idx}")
+    ax_advantages.set_ylabel("Advantages", color="k")
 
     # Plot returns
     ax_r = ax_b.twinx()
     ax_r.axes.spines["right"].set_visible(True)
+    ax_r.spines["right"].set_position(("outward", 40))  # offset by 40 points
+
     ax_r.plot(
         times.squeeze().cpu().numpy(),
         G.squeeze().cpu().numpy(),
@@ -247,6 +253,7 @@ def _plot_single(
 
     ax_r.legend(frameon=False, loc=1)
     ax_b.legend(frameon=False, loc=2)
+    ax_advantages.legend(frameon=False, loc=3)
     ax_b.set_xlabel("Time [s]")
 
     fig.canvas.draw()
@@ -478,17 +485,83 @@ def _get_optim(
     )
 
 
+def get_active_league(
+    active_league_idx: np.ndarray | None,
+    league: list[tuple[int, nn.Module.state_dict]],
+    ds: WFDataset,
+    obs: nn.Module,
+    critic: nn.Module,
+    obs_feats: FeatureTrs,
+    disc: nn.Module,
+    disc_feats: FeatureTrs,
+    reward_scales: dict[str, float],
+    device: torch.DeviceObjType,
+    league_size: int,
+    league_update_frac: float,
+) -> tuple[np.ndarray, list[nn.Module.state_dict]]:
+    league_scores = get_league_scores(
+        league=league,
+        ds=ds,
+        obs=obs,
+        critic=critic,
+        obs_features=obs_feats,
+        disc=disc,
+        disc_features=disc_feats,
+        reward_scales=reward_scales,
+        device=device,
+        subset_indices=torch.randint(0, len(ds), (1000,)).numpy(),
+    )
+
+    if active_league_idx is None:
+        active_league_idx = np.random.choice(
+            len(league), min(len(league), league_size), replace=False
+        )
+
+    if len(league) > league_size:
+        scores = np.array(league_scores.cpu().numpy())
+        probs = (scores - scores.min()) / (scores.max() - scores.min() + 1e-8)
+        probs /= probs.sum()
+
+        n_new_discs = int(league_update_frac * league_size)
+        idx = np.random.choice(league_size, size=n_new_discs, replace=False)
+        active_league_idx[idx] = np.random.choice(
+            len(league), n_new_discs, p=probs, replace=False
+        )
+        # Ensure latest disc is always in league.
+        active_league_idx[idx[-1]] = len(league) - 1
+
+    else:
+        active_league_idx = np.arange(len(league))
+
+    logger.info("League scores:")
+    for i, s in enumerate(league_scores):
+        str_ = ""
+        if i in active_league_idx:
+            str_ = "*"
+
+        logger.info(f"\t{i:4d} == {league[i][0]:4d}{str_} : {s:.4f}")
+    # =======================================
+
+    active_league = [league[i] for i in active_league_idx]
+
+    return active_league_idx, active_league
+
+
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
 def main(cfg: DictConfig):
     experiment_name = "obsrl"
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
-    discriminator_model_id = "m-a1bec780ec314b95b4f0caac4dec5f46"
 
-    model_uri = mlflow.get_logged_model(discriminator_model_id).model_uri
-
-    discriminator_orig = mlflow.pytorch.load_model(model_uri, map_location="cpu")
-    discriminator = mlflow.pytorch.load_model(model_uri, map_location="cpu")
+    discriminator_orig = mlflow.pytorch.load_model(
+        mlflow.get_logged_model("m-a1bec780ec314b95b4f0caac4dec5f46").model_uri,
+        map_location="cpu",
+    )
+    # This one already somewhat trained for obsfuscation.
+    discriminator = mlflow.pytorch.load_model(
+        mlflow.get_logged_model("m-0300713d9fff44489468fa1d40eed723").model_uri,
+        map_location="cpu",
+    )
     discriminator.predict_ks = cfg.predict_ks
 
     feature_names = [Feats.DIRS, Feats.TIMES]
@@ -553,12 +626,12 @@ def main(cfg: DictConfig):
     valid_acc_thres = 0.6
 
     league_update_frac = 0.2
+    active_league_idx = None
 
-    train_disc_c = 1
-    train_obs_c = 1
+    train_obs_c = 0
 
     train_disc = True
-    train_obs = True
+    train_obs = False
 
     e = 0
     detach_period = cfg.h_detach_period
@@ -607,52 +680,7 @@ def main(cfg: DictConfig):
                 # Append current discriminator to league
                 _append_to_league(league, discriminator.state_dict())
 
-                league_scores = get_league_scores(
-                    league=league,
-                    ds=ds_valid,
-                    obs=obs,
-                    critic=critic,
-                    obs_features=ds_train.feature_trs,
-                    disc=discriminator,
-                    disc_features=disc_feats,
-                    reward_scales=reward_scales,
-                    device=device,
-                    subset_indices=torch.randint(0, len(ds_valid), (1000,)).numpy(),
-                )
-
-                if len(league) > cfg.league_size:
-                    scores = np.array(league_scores.cpu().numpy())
-                    probs = (scores - scores.min()) / (
-                        scores.max() - scores.min() + 1e-8
-                    )
-                    probs /= probs.sum()
-
-                    n_new_discs = int(league_update_frac * cfg.league_size)
-                    idx = np.random.choice(
-                        cfg.league_size, size=n_new_discs, replace=False
-                    )
-                    active_league_idx[idx] = np.random.choice(
-                        len(league), n_new_discs, p=probs, replace=False
-                    )
-                    # Ensure latest disc is always in league.
-                    active_league_idx[idx[-1]] = len(league) - 1
-
-                else:
-                    active_league_idx = np.arange(len(league))
-
-                active_league = [league[i] for i in active_league_idx]
-
-                logger.info("League scores:")
-                for i, s in enumerate(league_scores):
-                    str_ = ""
-                    if i in active_league_idx:
-                        str_ = "*"
-
-                    logger.info(f"\t{i:4d} == {league[i][0]:4d}{str_} : {s:.4f}")
-                # =======================================
-
                 losses_metrics_d["train_disc"] = 1
-                train_disc_c += 1
 
             else:
                 losses_metrics_d["train_disc"] = 0
@@ -663,6 +691,20 @@ def main(cfg: DictConfig):
             obs.cond_beta = 1.0
 
             if train_obs:
+                active_league_idx, active_league = get_active_league(
+                    active_league_idx=active_league_idx,
+                    league=league,
+                    ds=ds_valid,
+                    obs=obs,
+                    critic=critic,
+                    obs_feats=ds_train.feature_trs,
+                    disc=discriminator,
+                    disc_feats=disc_feats,
+                    reward_scales=reward_scales,
+                    device=device,
+                    league_size=cfg.league_size,
+                    league_update_frac=league_update_frac,
+                )
                 with tqdm(
                     dl_train,
                     desc=f"epoch {e:02d}",
@@ -785,7 +827,7 @@ def main(cfg: DictConfig):
                         pbar.set_postfix(
                             {
                                 "avg_return": np.mean(
-                                    losses_metrics_d["avg_return"][-30:]
+                                    losses_metrics_d["avg_return"][-10:]
                                 )
                             }
                         )
@@ -819,25 +861,7 @@ def main(cfg: DictConfig):
 
                 mlflow.log_metric(k, v, step=e)
 
-            key = "valid:obs_vs._disc"
-            d = valid_metrics(
-                disc=discriminator,
-                obs=obs,
-                ds_valid=ds_valid,
-                n_packets=cfg.trace_len,
-                device=device,
-                key=key,
-            )
-            mlflow.log_metrics(d, step=e)
-
-            if d[f"{key}-accuracy"] < valid_acc_thres:
-                train_disc = True
-                train_obs = False
-            else:
-                train_disc = False
-                train_obs = True
-
-            if e % cfg.figs_period == 0:
+            if train_obs or (e % cfg.figs_period == 0):
                 _plot_set(
                     cfg=cfg,
                     ds=ds_valid,
@@ -858,6 +882,26 @@ def main(cfg: DictConfig):
             if e % 5 == 0:
                 mlflow.pytorch.log_model(obs, name=f"rlobs-{e}", step=e)
                 mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}", step=e)
+
+            key = "valid:obs_vs._disc"
+            d = valid_metrics(
+                disc=discriminator,
+                obs=obs,
+                ds_valid=ds_valid,
+                n_packets=cfg.trace_len,
+                device=device,
+                key=key,
+            )
+
+            if d[f"{key}-accuracy"] < valid_acc_thres:
+                train_disc = True
+                train_obs = False
+            else:
+                train_disc = False
+                train_obs = True
+
+            for k, v in d.items():
+                mlflow.log_metric(k, v, step=e)
 
             # =============================================
 

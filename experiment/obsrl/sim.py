@@ -119,11 +119,11 @@ def rollout(
     t1 = time.time()
 
     # We need the seq. lens in forward.
-    seq_lens = fd.pop(Feats.SEQ_LENS)
-    L = seq_lens.max().item()
+    action_seq_lens = fd.pop(Feats.SEQ_LENS)
+    L = action_seq_lens.max().item()
 
     act_times, actions, log_ps, sel_probs, _, entropies, h = obs.act(
-        fd, hobs, h_detach_period=detach_period, seq_lens=seq_lens
+        fd, hobs, h_detach_period=detach_period, seq_lens=action_seq_lens
     )
 
     if h is not None:
@@ -161,6 +161,10 @@ def rollout(
             rewards_ = get_rewards(
                 act_times, Xobs, y, logits, seq_lens, reward_scales=reward_scales
             )
+
+            # Rather use the "reward density" than the actual rewards to
+            # remove the dep. on seq_len.
+            rewards_ = {k: v / action_seq_lens[:, None] for k, v in rewards_.items()}
 
             rewards_l.append(rewards_)
 
