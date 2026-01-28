@@ -111,7 +111,7 @@ def rollout(
         raise ValueError("NaN in times feature")
 
     fd = get_window_feature_dict(
-        X, obs.time_step, obs.max_silence_s, features=obs.features
+        X, obs.time_step, obs.max_silence_s, features=obs.features, extend_end_s=2
     )
     if X[Feats.TIMES].isnan().any():
         raise ValueError("NaN in times feature")
@@ -143,9 +143,10 @@ def rollout(
         }
         rewards_l = []
         league_values_l = []
-        seq_lens = (Xobs[Feats.DIRS] != 0).sum(dim=1).long().cpu()
+        packet_seq_lens = (Xobs[Feats.DIRS] != 0).sum(dim=1).long().cpu()
 
-        div_lens = action_seq_lens[:, None]
+        div_lens = torch.ones_like(action_seq_lens)[:, None]
+        # div_lens = action_seq_lens[:, None]
         # div_lens = torch.stack(
         #     [
         #         fpad(torch.arange(l, 0, -1), (0, L - l), value=1)
@@ -159,16 +160,19 @@ def rollout(
         else:
             X_ = Xobs
 
+        if Feats.LABEL in critic.features:
+            fd[Feats.LABEL] = y.unsqueeze(1).repeat(1, L)
+
         for disc_id, state_d in disc_league:
             disc.load_state_dict({k: v.to(device) for k, v in state_d.items()})
 
             hdisc = None
             disc.eval()
             with torch.no_grad():
-                logits, hdisc = disc.pack_and_forward(X_, hdisc, seq_lens)
+                logits, hdisc = disc.pack_and_forward(X_, hdisc, packet_seq_lens)
 
             rewards_ = get_rewards(
-                act_times, Xobs, y, logits, seq_lens, reward_scales=reward_scales
+                act_times, Xobs, y, logits, packet_seq_lens, reward_scales=reward_scales
             )
 
             # Rather use the "reward contribution" than the actual rewards to
@@ -177,11 +181,11 @@ def rollout(
 
             rewards_l.append(rewards_)
 
-            fd[Feats.DISC_ID] = torch.full_like(fd[critic.features[0]], disc_id)
-            fd[Feats.LABEL] = y.unsqueeze(1).repeat(1, L)
+            if Feats.DISC_ID in critic.features:
+                fd[Feats.DISC_ID] = torch.full_like(fd[critic.features[0]], disc_id)
 
             league_values_ = critic(
-                fd, None, h_detach_period=detach_period, seq_lens=seq_lens
+                fd, None, h_detach_period=detach_period, seq_lens=action_seq_lens
             )[0][Feats.STATE_VALUE]
 
             league_values_l.append(league_values_)

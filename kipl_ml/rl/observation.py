@@ -71,8 +71,27 @@ def _add_actions_to_silence_periods(
 
 
 def get_window_feature_dict(
-    X: dict[Feats, torch.Tensor], dt: float, max_silence_s: float, features: list[Feats]
+    X: dict[Feats, torch.Tensor],
+    dt: float,
+    max_silence_s: float,
+    features: list[Feats],
+    extend_end_s: float = 0,
 ) -> dict[Feats, torch.Tensor]:
+    if set(X.keys()) > {Feats.PADDING, Feats.DIRS, Feats.TIMES}:
+        raise ValueError("Invalid set of feats")
+
+    if extend_end_s > 0:
+        bs, L = X[Feats.DIRS].shape
+        mask = X[Feats.DIRS] == 0
+        seq_lens = (~mask).sum(dim=1)
+        col_idx = seq_lens[seq_lens != L]
+        row_idx = torch.arange(bs, device=seq_lens.device)[seq_lens != L]
+        # Here we add artificial packet to end.
+        X[Feats.DIRS][row_idx, col_idx] = UPLOAD
+
+        # Here we add the time extension.
+        X[Feats.TIMES][mask] += extend_end_s
+
     # (B, L)
     times = X[Feats.TIMES]
     bin_idx = (times // dt).long()

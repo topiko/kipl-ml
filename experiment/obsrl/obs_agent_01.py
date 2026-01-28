@@ -328,20 +328,35 @@ def assert_finite(name, x):
         raise ValueError
 
 
-def _append_to_league(league: list[tuple[int, dict]], state_dict: dict):
+def _append_to_league(
+    league: list[tuple[int, dict]], state_dict: dict
+) -> list[tuple[int, nn.Module.state_dict]]:
     league.append(
         (len(league), {k: v.cpu() for k, v in copy.deepcopy(state_dict).items()})
     )
 
+    return league
+
 
 def _get_obs_def_dl(
-    disc: nn.Module, obs: nn.Module, ds: WFDataset, n_packets: int, bs: int = 64
+    disc: nn.Module,
+    obs: nn.Module,
+    ds: WFDataset,
+    n_packets: int,
+    bs: int = 64,
+    obs_league: list[nn.Module.state_dict] | None = None,
 ) -> WFDataset:
     # Set features the fetures:
     ds.feature_trs = FeatureTrs(feature_names=disc.features, n_packets=n_packets)
 
     # Set the defense:
-    ds.defence = RNNDef((0, 0), (40_000, 40_000), obs.to("cpu"), n_packets=n_packets)
+    ds.defence = RNNDef(
+        (0, 0),
+        (40_000, 40_000),
+        obs.to("cpu"),
+        n_packets=n_packets,
+        state_dicts=obs_league,
+    )
 
     if ds.defence_aug != 0:
         raise ValueError("If def aug != 0 - you are reusing traces from previous runs")
@@ -370,10 +385,16 @@ def valid_metrics(
     n_packets: int,
     key: str = "valid:obs_vs._disc",
     device: torch.DeviceObjType = "cpu",
+    obs_league: list[nn.Module.state_dict] | None = None,
 ) -> dict[str, float]:
     orig_features_trs = ds_valid.feature_trs
     dl_valid = _get_obs_def_dl(
-        disc=disc, obs=obs, ds=ds_valid, n_packets=n_packets, bs=32
+        disc=disc,
+        obs=obs,
+        ds=ds_valid,
+        n_packets=n_packets,
+        bs=32,
+        obs_league=obs_league,
     )
 
     d = evaluate_model(
@@ -498,7 +519,12 @@ def get_active_league(
     device: torch.DeviceObjType,
     league_size: int,
     league_update_frac: float,
-) -> tuple[np.ndarray, list[nn.Module.state_dict]]:
+) -> tuple[
+    list[tuple[int, nn.Module.state_dict]],
+    np.ndarray,
+    list[nn.Module.state_dict],
+    torch.Tensor,
+]:
     league_scores = get_league_scores(
         league=league,
         ds=ds,
@@ -517,6 +543,13 @@ def get_active_league(
             len(league), min(len(league), league_size), replace=False
         )
 
+    if len(league) > 3 * league_size:
+        logger.info("Pruning disc league.")
+        val = league_scores.quantile(0.1)
+        mask = league_scores > val
+        league_scores = league_scores[mask]
+        league = [l_ for i, l_ in enumerate(league) if mask[i]]
+
     if len(league) > league_size:
         scores = np.array(league_scores.cpu().numpy())
         probs = (scores - scores.min()) / (scores.max() - scores.min() + 1e-8)
@@ -528,18 +561,28 @@ def get_active_league(
     else:
         active_league_idx = np.arange(len(league))
 
-    logger.info("League scores:")
-    for i, s in enumerate(league_scores):
-        str_ = ""
-        if i in active_league_idx:
-            str_ = "*"
-
-        logger.info(f"\t{i:4d} == {league[i][0]:4d}{str_} : {s:.4f}")
-    # =======================================
+        # =======================================
 
     active_league = [league[i] for i in active_league_idx]
 
-    return active_league_idx, active_league
+    if len(active_league_idx) > 1:
+        weights = league_scores[active_league_idx]
+        weights -= weights.min()
+        weights /= weights.max()
+        weights = torch.clamp(weights, 0.2, 1.0)
+    else:
+        weights = torch.tensor([1.0], device=device)
+
+    logger.info("League scores:")
+    for i, s in enumerate(league_scores):
+        str_ = "           "
+        if i in active_league_idx:
+            w = weights[active_league_idx == i][0].item()
+            str_ = f"* [w={w:.03f}]"
+
+        logger.info(f"\t{i:4d} == {league[i][0]:4d}{str_} : {s:.4f}")
+
+    return league, active_league_idx, active_league, weights
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
@@ -569,8 +612,11 @@ def main(cfg: DictConfig):
         random_state=42,
         feature_trs=FeatureTrs(feature_names=feature_names, n_packets=cfg.trace_len),
         defence_aug_valid=0,
+        n_min_packets=cfg.min_packets_in_trace,
         **defence_builder.get_defence(cfg),
     )
+    # ds_train.meta_df = ds_train.meta_df.sample(frac=1.0)
+    # logger.warning("Using only subset of training data!")
 
     # Obs feature trs
     obs_features = ds_train.feature_trs
@@ -594,17 +640,19 @@ def main(cfg: DictConfig):
         zero_init=False,
     ).to(device)
 
-    critic = CRITIC01(obs, hsize=256, nlayers=3, use_machine_id=True).to(device)
+    critic = CRITIC01(obs, hsize=256, nlayers=3, use_machine_id=False).to(device)
 
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
-    league: list[tuple[int, dict]] = []
-    _append_to_league(league, discriminator_orig.state_dict())
+    disc_league = _append_to_league([], discriminator_orig.state_dict())
+    disc_league = _append_to_league(disc_league, discriminator.state_dict())
+
+    obs_league = _append_to_league([], obs.state_dict())
 
     lr = 0.001
     obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr / 3)
 
-    lr_critic = lr / 2
+    lr_critic = lr / 3
     critic_optim = _get_optim(critic, lr=lr_critic, lr_rnn=lr_critic / 3)
 
     disc_optim = _get_optim(discriminator, lr=lr, lr_rnn=lr)
@@ -612,8 +660,11 @@ def main(cfg: DictConfig):
     satlen = 50
 
     # Entropy scale
-    entropy_scale = 0.01
+    entropy_scale = 0.05
+
+    entropy_target = 3.0
     # We drive the entropy loss to 0.001 during satlen steps...
+
     entropy_scale_factor = 0.1 ** (1 / satlen)
 
     # Padding reward scale
@@ -621,7 +672,7 @@ def main(cfg: DictConfig):
     padding_scale_max = 0.01
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
-    valid_acc_thres = 0.6
+    valid_acc_thres = 0.3
 
     league_update_frac = 0.2
     active_league_idx = None
@@ -654,17 +705,18 @@ def main(cfg: DictConfig):
             # Train disc:
             # ============================================
             if train_disc:
-                dl_valid_ = _get_obs_def_dl(
+                dl_train_ = _get_obs_def_dl(
                     disc=discriminator,
                     obs=obs,
                     ds=ds_train,
                     n_packets=cfg.trace_len,
                     bs=64,
+                    obs_league=[st for _, st in obs_league[-5:]],
                 )
 
                 loss = train_one_epoch(
                     clf=discriminator,
-                    dl_train=dl_valid_,
+                    dl_train=dl_train_,
                     optimG=disc_optim,
                     device=device,
                     grad_clip=cfg.grad_norm_clip,
@@ -676,7 +728,7 @@ def main(cfg: DictConfig):
                 # League handling:
                 # =======================================
                 # Append current discriminator to league
-                _append_to_league(league, discriminator.state_dict())
+                disc_league = _append_to_league(disc_league, discriminator.state_dict())
 
                 losses_metrics_d["train_disc"] = 1
 
@@ -689,19 +741,21 @@ def main(cfg: DictConfig):
             obs.cond_beta = 1.0
 
             if train_obs:
-                active_league_idx, active_league = get_active_league(
-                    active_league_idx=active_league_idx,
-                    league=league,
-                    ds=ds_valid,
-                    obs=obs,
-                    critic=critic,
-                    obs_feats=ds_train.feature_trs,
-                    disc=discriminator,
-                    disc_feats=disc_feats,
-                    reward_scales=reward_scales,
-                    device=device,
-                    league_size=cfg.league_size,
-                    league_update_frac=league_update_frac,
+                disc_league, active_league_idx, active_disc_league, weights = (
+                    get_active_league(
+                        active_league_idx=active_league_idx,
+                        league=disc_league,
+                        ds=ds_valid,
+                        obs=obs,
+                        critic=critic,
+                        obs_feats=ds_train.feature_trs,
+                        disc=discriminator,
+                        disc_feats=disc_feats,
+                        reward_scales=reward_scales,
+                        device=device,
+                        league_size=cfg.league_size,
+                        league_update_frac=league_update_frac,
+                    )
                 )
                 with tqdm(
                     dl_train,
@@ -732,7 +786,7 @@ def main(cfg: DictConfig):
                             X=X,
                             y=y,
                             disc_features=disc_feats,
-                            disc_league=active_league,
+                            disc_league=active_disc_league,
                             detach_period=detach_period,
                             reward_scales=reward_scales,
                         )
@@ -750,11 +804,14 @@ def main(cfg: DictConfig):
                         )
 
                         # Compute losses, advantages and G ARE detached.
-                        advantages = advantages.mean(dim=0)  # (B, L)
+                        # weights.shape = (nleague, ), --> advantages.shape = (bs, T)
+                        advantages = (weights[:, None, None] * advantages).mean(dim=0)
                         policy_loss_ = -(log_ps * advantages)
                         policy_loss = masked_mean(policy_loss_, time_mask)
 
-                        value_loss_ = 0.5 * (values - G).pow(2)
+                        value_loss_ = 0.5 * (weights[:, None, None] * (values - G)).pow(
+                            2
+                        )
                         value_loss = masked_mean(value_loss_, time_mask)
 
                         entropy = masked_mean(entropies, time_mask)
@@ -823,24 +880,29 @@ def main(cfg: DictConfig):
                             losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
 
                         pbar.set_postfix(
-                            {
-                                "avg_return": np.mean(
-                                    losses_metrics_d["avg_return"][-10:]
-                                )
-                            }
+                            {"avg_return": np.mean(losses_metrics_d["avg_return"][-2:])}
                         )
 
                 # Padding and entropy scale updates:
                 # =============================================
                 if train_obs_c < satlen:
-                    entropy_scale *= entropy_scale_factor
                     padding_scale += padding_scale_step
 
-                losses_metrics_d["entropy_scale"] = entropy_scale
                 losses_metrics_d["padding_scale"] = padding_scale
+
+                entropy = np.mean(losses_metrics_d["entropy"])
+                if entropy > entropy_target:
+                    entropy_scale *= 0.9
+                elif entropy <= entropy_target:
+                    entropy_scale *= 1.1
+
+                losses_metrics_d["entropy_scale"] = entropy_scale
+                # =============================================
 
                 train_obs_c += 1
                 losses_metrics_d["train_obs"] = 1
+                obs_league = _append_to_league(obs_league, obs.state_dict())
+
             else:
                 losses_metrics_d["train_obs"] = 0
 
@@ -857,9 +919,10 @@ def main(cfg: DictConfig):
                 else:
                     raise ValueError("Invalid value to be logged")
 
+                logger.info(f"{k:>30} : {v:.03f}")
                 mlflow.log_metric(k, v, step=e)
 
-            if train_obs or (e % cfg.figs_period == 0):
+            if train_obs or (e > 0 and e % cfg.figs_period == 0):
                 _plot_set(
                     cfg=cfg,
                     ds=ds_valid,
@@ -869,7 +932,7 @@ def main(cfg: DictConfig):
                     disc_orig=discriminator_orig,
                     disc_trained=discriminator,
                     disc_features=disc_feats,
-                    disc_league_idx=len(league),
+                    disc_league_idx=len(disc_league),
                     e=e,
                     reward_scales=reward_scales,
                     device=device,
@@ -877,9 +940,9 @@ def main(cfg: DictConfig):
                     max_len=20_000,
                 )
 
-            if e % 5 == 0:
+            if e > 0 and e % 10 == 0:
                 mlflow.pytorch.log_model(obs, name=f"rlobs-{e}", step=e)
-                mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}", step=e)
+                # mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}", step=e)
 
             key = "valid:obs_vs._disc"
             d = valid_metrics(
@@ -895,11 +958,15 @@ def main(cfg: DictConfig):
                 train_disc = True
                 train_obs = False
             else:
+                if train_disc:
+                    valid_acc_thres += 0.01
+                    entropy_target *= 0.95
                 train_disc = False
                 train_obs = True
 
             for k, v in d.items():
                 mlflow.log_metric(k, v, step=e)
+                logger.info(f"{k:>30} : {v:.03f}")
 
             # =============================================
 

@@ -253,6 +253,14 @@ def plot_obs_features(
     _plot_boxes(
         times[:-1], Dt[1:], -down_count[:-1], color=DOWN_COLOR, alpha=0.5, ax=ax
     )
+    _plot_boxes(
+        times[:-1],
+        Dt[1:],
+        (up_count[:-1] == 0) & (down_count[:-1] == 0),
+        color="gray",
+        alpha=0.5,
+        ax=ax,
+    )
 
     ax.set_ylim(-down_count.max() * 1.1, up_count.max() * 1.1)
 
