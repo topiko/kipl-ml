@@ -15,6 +15,8 @@ def get_returns(
 
     if bootstrap is None:
         bootstrap = torch.zeros(B, device=rewards.device, dtype=rewards.dtype)
+    else:
+        bootstrap = bootstrap.to(device=rewards.device, dtype=rewards.dtype)
 
     G = torch.zeros_like(rewards)
     R = bootstrap.clone()

@@ -286,11 +286,17 @@ def get_advantages(
     values_detached = values.detach()
 
     if cfg.advantages.type == "mc":
+        # Time-limit truncation bootstrap: treat end-of-trace as non-terminal.
+        # NOTE: this is not pure MC when bootstrap != 0.
+        bs, T = values_detached.shape
+        seq_lens_ = seq_lens.to(device=values_detached.device)
+        last_idx = (seq_lens_ - 1).clamp_min(0).to(dtype=torch.long)
+        bootstrap = values_detached[torch.arange(bs, device=values_detached.device), last_idx]
         G = get_returns(
             rewards,
-            seq_lens,
+            seq_lens_,
             gamma=cfg.discounting,
-            bootstrap=values_detached.gather(1, seq_lens[None, :] - 1).squeeze(),
+            bootstrap=bootstrap,
         )
         advantages = G - values_detached
     elif cfg.advantages.type == "gae":
@@ -310,8 +316,9 @@ def get_advantages(
     t = torch.arange(advantages.shape[1], device=advantages.device)[None, :]
     # (bs, T)
     gamma = cfg.discounting
-    to_seq_end = (seq_lens[:, None] - t).clamp_min(1).to(advantages.dtype)
-    if gamma - 1 < 1e-8:
+    seq_lens_ = seq_lens.to(device=advantages.device)
+    to_seq_end = (seq_lens_[:, None] - t).clamp_min(1).to(advantages.dtype)
+    if abs(gamma - 1.0) < 1e-8:
         Z = to_seq_end
     else:
         Z = (1 - gamma**to_seq_end) / (1 - gamma)
