@@ -274,7 +274,7 @@ def get_advantages(
 
     # In case of "league rewards"
     if rewards.ndim == 3:
-        if cfg.standardize:
+        if cfg.advantages.standardize:
             raise NotImplementedError("You should not standardize here for league")
 
         G_l = []
@@ -859,7 +859,7 @@ def main(cfg: DictConfig):
 
                         # Compute losses, advantages and G ARE detached.
                         # weights.shape = (nleague, ), --> advantages.shape = (bs, T)
-                        advantages = (weights[:, None, None] * advantages).mean(dim=0)
+                        advantages = (weights[:, None, None] * advantages).sum(dim=0)
 
                         # _, adv_std = masked_mean_std(advantages, time_mask)
 
