@@ -2,20 +2,26 @@ import torch
 
 
 def get_returns(
-    rewards: torch.Tensor, seq_lens: torch.Tensor, gamma: float
+    rewards: torch.Tensor,
+    seq_lens: torch.Tensor,
+    gamma: float,
+    bootstrap: torch.Tensor | None = None,
 ) -> torch.Tensor:
     B, T = rewards.shape
+
+    # (B, T)
+    mask = torch.arange(T, device=rewards.device)[None, :] < seq_lens[:, None]
+    mask_f = mask.to(rewards.dtype)
+
+    if bootstrap is None:
+        bootstrap = torch.zeros(B, device=rewards.device, dtype=rewards.dtype)
+
     G = torch.zeros_like(rewards)
-
-    mask = (torch.arange(T, device=rewards.device)[None, :] < seq_lens[:, None]).to(
-        rewards.dtype
-    )
-
-    R = torch.zeros(B, device=rewards.device, dtype=rewards.dtype)
+    R = bootstrap.clone()
     for t in reversed(range(T)):
-        R = rewards[:, t] + gamma * R
-        R = R * mask[:, t]  # cut off at end
-        G[:, t] = R
+        R = torch.where(mask[:, t], rewards[:, t] + gamma * R, bootstrap)
+        G[:, t] = R * mask_f[:, t]  # cut off at end
+
     return G
 
 
@@ -25,7 +31,11 @@ def get_gae(
     seq_lens: torch.Tensor,
     lambda_: float,
     gamma: float,
+    bootstrap: torch.Tensor | None = None,
 ) -> torch.Tensor:
+    if bootstrap is not None:
+        raise NotImplementedError()
+
     B, T = rewards.shape
     device = rewards.device
     dtype = rewards.dtype

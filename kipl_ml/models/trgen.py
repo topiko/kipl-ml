@@ -485,8 +485,8 @@ class AGENT1(nn.Module):
         sdc_entropy = sdc.entropy()
         sudt_entropy = sut.entropy()
         sddt_entropy = sdt.entropy()
-        cond_entropy = up_p * (sudt_entropy + suc_entropy) + down_p * (
-            sddt_entropy + sdc_entropy
+        cond_entropy = self.cond_beta * (
+            up_p * (sudt_entropy + suc_entropy) + down_p * (sddt_entropy + sdc_entropy)
         )
 
         # Entropy (B, 1) H[A] = H[S] + H[A|S]

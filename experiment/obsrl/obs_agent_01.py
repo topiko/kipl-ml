@@ -286,7 +286,12 @@ def get_advantages(
     values_detached = values.detach()
 
     if cfg.advantages.type == "mc":
-        G = get_returns(rewards, seq_lens, gamma=cfg.discounting)
+        G = get_returns(
+            rewards,
+            seq_lens,
+            gamma=cfg.discounting,
+            bootstrap=values_detached.gather(1, seq_lens[None, :] - 1).squeeze(),
+        )
         advantages = G - values_detached
     elif cfg.advantages.type == "gae":
         advantages = get_gae(
@@ -299,6 +304,19 @@ def get_advantages(
         G = advantages + values_detached
     else:
         raise NotImplementedError(f"Invalid advantage type: {cfg.advantages.type}")
+
+    # Normalize advantages so that point in time on the seq does not matter.
+    # (1, T)
+    t = torch.arange(advantages.shape[1], device=advantages.device)[None, :]
+    # (bs, T)
+    gamma = cfg.discounting
+    to_seq_end = (seq_lens[:, None] - t).clamp_min(1).to(advantages.dtype)
+    if gamma - 1 < 1e-8:
+        Z = to_seq_end
+    else:
+        Z = (1 - gamma**to_seq_end) / (1 - gamma)
+
+    advantages /= Z + 1e-8
 
     if cfg.advantages.standardize:
         mask = make_time_mask(
@@ -519,6 +537,7 @@ def get_active_league(
     device: torch.DeviceObjType,
     league_size: int,
     league_update_frac: float,
+    prune: bool = False,
 ) -> tuple[
     list[tuple[int, nn.Module.state_dict]],
     np.ndarray,
@@ -543,14 +562,17 @@ def get_active_league(
             len(league), min(len(league), league_size), replace=False
         )
 
-    if len(league) > 3 * league_size:
+    if prune:
         logger.info("Pruning disc league.")
-        val = league_scores.quantile(0.1)
+        val = league_scores.min().item()
         mask = league_scores > val
         league_scores = league_scores[mask]
         league = [l_ for i, l_ in enumerate(league) if mask[i]]
 
-    if len(league) > league_size:
+    if league_size == 1:
+        active_league_idx = np.array([len(league) - 1])
+
+    elif len(league) > league_size:
         scores = np.array(league_scores.cpu().numpy())
         probs = (scores - scores.min()) / (scores.max() - scores.min() + 1e-8)
         probs /= probs.sum()
@@ -597,9 +619,13 @@ def main(cfg: DictConfig):
     )
     # This one already somewhat trained for obsfuscation.
     discriminator = mlflow.pytorch.load_model(
-        mlflow.get_logged_model("m-0300713d9fff44489468fa1d40eed723").model_uri,
+        mlflow.get_logged_model("m-a1bec780ec314b95b4f0caac4dec5f46").model_uri,
         map_location="cpu",
     )
+    # discriminator = mlflow.pytorch.load_model(
+    #     mlflow.get_logged_model("m-0300713d9fff44489468fa1d40eed723").model_uri,
+    #     map_location="cpu",
+    # )
     discriminator.predict_ks = cfg.predict_ks
 
     feature_names = [Feats.DIRS, Feats.TIMES]
@@ -660,27 +686,27 @@ def main(cfg: DictConfig):
     satlen = 50
 
     # Entropy scale
-    entropy_scale = 0.05
+    entropy_scale = 0.1
 
-    entropy_target = 3.0
+    entropy_target = 1.2
     # We drive the entropy loss to 0.001 during satlen steps...
 
     entropy_scale_factor = 0.1 ** (1 / satlen)
 
     # Padding reward scale
-    padding_scale = 0.001
+    padding_scale = 0.01
     padding_scale_max = 0.01
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
-    valid_acc_thres = 0.3
+    valid_acc_thres = 0.1
 
     league_update_frac = 0.2
     active_league_idx = None
 
     train_obs_c = 0
 
-    train_disc = True
-    train_obs = False
+    train_disc = False  # True
+    train_obs = True  # False
 
     e = 0
     detach_period = cfg.h_detach_period
@@ -738,7 +764,7 @@ def main(cfg: DictConfig):
             # Train obs:
             # ===========================================
             obs.train()
-            obs.cond_beta = 1.0
+            obs.cond_beta = 0.3
 
             if train_obs:
                 disc_league, active_league_idx, active_disc_league, weights = (
@@ -755,6 +781,7 @@ def main(cfg: DictConfig):
                         device=device,
                         league_size=cfg.league_size,
                         league_update_frac=league_update_frac,
+                        prune=len(disc_league) > 50,
                     )
                 )
                 with tqdm(
@@ -809,9 +836,7 @@ def main(cfg: DictConfig):
                         policy_loss_ = -(log_ps * advantages)
                         policy_loss = masked_mean(policy_loss_, time_mask)
 
-                        value_loss_ = 0.5 * (weights[:, None, None] * (values - G)).pow(
-                            2
-                        )
+                        value_loss_ = 0.5 * weights[:, None, None] * (values - G).pow(2)
                         value_loss = masked_mean(value_loss_, time_mask)
 
                         entropy = masked_mean(entropies, time_mask)
@@ -960,9 +985,12 @@ def main(cfg: DictConfig):
             else:
                 if train_disc:
                     valid_acc_thres += 0.01
-                    entropy_target *= 0.95
+                    entropy_target *= 0.98
                 train_disc = False
                 train_obs = True
+
+            d["valid_acc_thres"] = valid_acc_thres
+            d["entropy_target"] = entropy_target
 
             for k, v in d.items():
                 mlflow.log_metric(k, v, step=e)
