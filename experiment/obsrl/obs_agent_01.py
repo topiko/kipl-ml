@@ -333,7 +333,7 @@ def get_advantages(
             seq_lens.to(values.device), values.shape[1], device=values.device
         )
         mean, std = masked_mean_std(advantages, mask)
-        advantages = (advantages - mean) / std
+        advantages = (advantages) / std
         # Optional: keep padding at 0
         advantages = advantages * mask.to(advantages.dtype)
 
@@ -470,7 +470,7 @@ def get_league_scores(
             for X, y in pbar:
                 X = dict_to_device(X, device)
                 y = y.to(device)
-                league_values, league_rewards = rollout(
+                league_values, league_rewards, _, _, _, _, fd = rollout(
                     obs=obs,
                     critic=critic,
                     disc=disc,
@@ -480,16 +480,23 @@ def get_league_scores(
                     disc_league=league,
                     detach_period=500,
                     reward_scales=reward_scales,
-                )[2:4]
+                )[2:]
+
+                action_seq_lens = get_action_seq_lens(fd)
+
+                time_mask = make_time_mask(
+                    action_seq_lens, fd[Feats.TIMES].shape[1], device=device
+                )
                 # (nleague, nbatch, ntimesteps) -> (nleague, nbatch) -> (nleague, 1)
                 rewards = {
-                    k: v.mean(dim=1).mean(dim=1).unsqueeze(1)
+                    k: torch.tensor([masked_mean_std(v[i], time_mask)])
                     for k, v in league_rewards.items()
+                    for i in range(v.shape[0])
                 }
                 rewards_ = sum(rewards.values())
                 rewards_l.append(rewards_)
 
-        league_scores = -torch.cat(rewards_l, dim=1).mean(dim=1)
+        league_scores = -torch.cat(rewards_l, dim=0).mean(dim=0).squeeze()
 
     ds.feature_trs = orig_features
 
@@ -674,9 +681,13 @@ def main(cfg: DictConfig):
         time_step=cfg.obs_time_step_s,
         max_silence_s=obs_max_silence_s,
         zero_init=False,
+        hsize=128,
+        nlayers=1,
     ).to(device)
 
-    critic = CRITIC01(obs, hsize=256, nlayers=3, use_machine_id=False).to(device)
+    critic = CRITIC01(obs, hsize=128, nlayers=1, use_machine_id=False).to(
+        device
+    )  # (256, 3)
 
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
@@ -685,18 +696,18 @@ def main(cfg: DictConfig):
 
     obs_league = _append_to_league([], obs.state_dict())
 
-    lr = 0.001
+    lr = 0.01
     obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr / 3)
 
     lr_critic = lr / 3
     critic_optim = _get_optim(critic, lr=lr_critic, lr_rnn=lr_critic / 3)
 
-    disc_optim = _get_optim(discriminator, lr=lr, lr_rnn=lr)
+    disc_optim = _get_optim(discriminator, lr=0.001, lr_rnn=0.001)
 
     satlen = 50
 
     # Entropy scale
-    entropy_scale = 0.1
+    entropy_scale = 0.01
 
     entropy_target = 1.2
     # We drive the entropy loss to 0.001 during satlen steps...
@@ -843,6 +854,9 @@ def main(cfg: DictConfig):
                         # Compute losses, advantages and G ARE detached.
                         # weights.shape = (nleague, ), --> advantages.shape = (bs, T)
                         advantages = (weights[:, None, None] * advantages).mean(dim=0)
+
+                        # _, adv_std = masked_mean_std(advantages, time_mask)
+
                         policy_loss_ = -(log_ps * advantages)
                         policy_loss = masked_mean(policy_loss_, time_mask)
 
@@ -891,7 +905,9 @@ def main(cfg: DictConfig):
                         losses_metrics_d["loss"].append(loss.item())
                         losses_metrics_d["policy_loss"].append(policy_loss.item())
                         losses_metrics_d["value_loss"].append(value_loss.item())
-                        losses_metrics_d["avg_return"].append(G.mean().item())
+                        losses_metrics_d["avg_return"].append(
+                            masked_mean_std(G, time_mask)[0].item()
+                        )
                         losses_metrics_d["entropy"].append(entropy.item())
                         losses_metrics_d["entropy_loss"].append(entropy_loss.item())
                         losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
@@ -915,7 +931,11 @@ def main(cfg: DictConfig):
                             losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
 
                         pbar.set_postfix(
-                            {"avg_return": np.mean(losses_metrics_d["avg_return"][-2:])}
+                            {
+                                "avg_return": np.mean(
+                                    losses_metrics_d["avg_return"][-20:]
+                                )
+                            }
                         )
 
                 # Padding and entropy scale updates:
@@ -938,6 +958,9 @@ def main(cfg: DictConfig):
                 losses_metrics_d["train_obs"] = 1
                 obs_league = _append_to_league(obs_league, obs.state_dict())
 
+                losses_metrics_d["entropy_loss / policy_loss"] = np.mean(
+                    losses_metrics_d["entropy_loss"]
+                ) / np.mean(losses_metrics_d["policy_loss"])
             else:
                 losses_metrics_d["train_obs"] = 0
 
