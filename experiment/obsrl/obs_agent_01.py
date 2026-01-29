@@ -285,16 +285,19 @@ def get_advantages(
 
     values_detached = values.detach()
 
-    if cfg.advantages.type == "mc":
-        # Time-limit truncation bootstrap: treat end-of-trace as non-terminal.
+    if cfg.advantages.type in {"mc", "mc_w_bootrstrap"}:
         # NOTE: this is not pure MC when bootstrap != 0.
-        bs, T = values_detached.shape
-        seq_lens_ = seq_lens.to(device=values_detached.device)
-        last_idx = (seq_lens_ - 1).clamp_min(0).to(dtype=torch.long)
-        bootstrap = values_detached[torch.arange(bs, device=values_detached.device), last_idx]
+        if cfg.advantages.type == "mc":
+            bootstrap = None
+        elif cfg.advantages._type == "mc_w_bootstrap":
+            # Time-limit truncation bootstrap: treat end-of-trace as non-terminal.
+            bootstrap = values_detached.gather(1, seq_lens[:, None])
+        else:
+            raise KeyError()
+
         G = get_returns(
             rewards,
-            seq_lens_,
+            seq_lens,
             gamma=cfg.discounting,
             bootstrap=bootstrap,
         )
@@ -705,7 +708,7 @@ def main(cfg: DictConfig):
     padding_scale_max = 0.01
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
-    valid_acc_thres = 0.1
+    valid_acc_thres = 0.2
 
     league_update_frac = 0.2
     active_league_idx = None
