@@ -46,6 +46,15 @@ TARGET = assets.PAGE_LABEL
 DATASET = Datasets.BIGENOUGH
 
 
+def keymap(key: str) -> str:
+    if "loss" in key:
+        key = f"losses / {key}"
+    if "entropy" in key:
+        key = f"entropies / {key}"
+
+    return key
+
+
 def _plot_set(
     cfg: DictConfig,
     ds: WFDataset,
@@ -612,7 +621,7 @@ def get_active_league(
         weights = league_scores[active_league_idx]
         weights -= weights.min()
         weights /= weights.max()
-        weights = torch.clamp(weights, 0.2, 1.0)
+        weights = torch.clamp(weights, 0.1, 1.0)
     else:
         weights = torch.tensor([1.0], device=device)
 
@@ -970,7 +979,7 @@ def main(cfg: DictConfig):
                 losses_metrics_d["train_obs"] = 1
                 obs_league = _append_to_league(obs_league, obs.state_dict())
 
-                losses_metrics_d["entropy_loss / policy_loss"] = np.mean(
+                losses_metrics_d["entropy_loss vs. policy_loss"] = np.mean(
                     losses_metrics_d["entropy_loss"]
                 ) / np.mean(losses_metrics_d["policy_loss"])
             else:
@@ -989,7 +998,9 @@ def main(cfg: DictConfig):
                 else:
                     raise ValueError("Invalid value to be logged")
 
+                k = keymap(k)
                 logger.info(f"{k:>30} : {v:.03f}")
+
                 mlflow.log_metric(k, v, step=e)
 
             if train_obs or (e > 0 and e % cfg.figs_period == 0):
@@ -1038,6 +1049,7 @@ def main(cfg: DictConfig):
             d["entropy_target"] = entropy_target
 
             for k, v in d.items():
+                k = keymap(k)
                 mlflow.log_metric(k, v, step=e)
                 logger.info(f"{k:>30} : {v:.03f}")
 
