@@ -274,6 +274,9 @@ def get_advantages(
 
     # In case of "league rewards"
     if rewards.ndim == 3:
+        if cfg.standardize:
+            raise NotImplementedError("You should not standardize here for league")
+
         G_l = []
         advantages_l = []
         for i in range(rewards.shape[0]):
@@ -489,14 +492,15 @@ def get_league_scores(
                 )
                 # (nleague, nbatch, ntimesteps) -> (nleague, nbatch) -> (nleague, 1)
                 rewards = {
-                    k: torch.tensor([masked_mean_std(v[i], time_mask)])
+                    k: torch.tensor(
+                        [masked_mean_std(v[i], time_mask)[0] for i in range(v.shape[0])]
+                    )
                     for k, v in league_rewards.items()
-                    for i in range(v.shape[0])
                 }
                 rewards_ = sum(rewards.values())
                 rewards_l.append(rewards_)
 
-        league_scores = -torch.cat(rewards_l, dim=0).mean(dim=0).squeeze()
+        league_scores = -torch.stack(rewards_l, dim=0).mean(dim=0)
 
     ds.feature_trs = orig_features
 
@@ -612,6 +616,8 @@ def get_active_league(
     else:
         weights = torch.tensor([1.0], device=device)
 
+    weights /= weights.sum()
+
     logger.info("League scores:")
     for i, s in enumerate(league_scores):
         str_ = "           "
@@ -692,7 +698,7 @@ def main(cfg: DictConfig):
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
     disc_league = _append_to_league([], discriminator_orig.state_dict())
-    disc_league = _append_to_league(disc_league, discriminator.state_dict())
+    # disc_league = _append_to_league(disc_league, discriminator.state_dict())
 
     obs_league = _append_to_league([], obs.state_dict())
 
