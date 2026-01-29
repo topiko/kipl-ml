@@ -500,7 +500,7 @@ def get_league_scores(
                 rewards_ = sum(rewards.values())
                 rewards_l.append(rewards_)
 
-        league_scores = -torch.stack(rewards_l, dim=0).mean(dim=0)
+        league_scores = -torch.stack(rewards_l, dim=0).mean(dim=0).to(device)
 
     ds.feature_trs = orig_features
 
@@ -725,7 +725,7 @@ def main(cfg: DictConfig):
     padding_scale_max = 0.01
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
-    valid_acc_thres = 0.3
+    valid_acc_thres = 0.2
 
     league_update_frac = 0.2
     active_league_idx = None
@@ -808,7 +808,7 @@ def main(cfg: DictConfig):
                         device=device,
                         league_size=cfg.league_size,
                         league_update_frac=league_update_frac,
-                        prune=len(disc_league) > 50,
+                        prune=len(disc_league) > 20,
                     )
                 )
                 with tqdm(
@@ -866,7 +866,11 @@ def main(cfg: DictConfig):
                         policy_loss_ = -(log_ps * advantages)
                         policy_loss = masked_mean(policy_loss_, time_mask)
 
-                        value_loss_ = 0.5 * weights[:, None, None] * (values - G).pow(2)
+                        # valus.shape = (nleague, bs, T), G.shape = (nleague, bs, T)
+                        # -> value_loss_.shape = (bs, T)
+                        value_loss_ = 0.5 * (
+                            weights[:, None, None] * (values - G).pow(2)
+                        ).sum(dim=0)
                         value_loss = masked_mean(value_loss_, time_mask)
 
                         entropy = masked_mean(entropies, time_mask)
@@ -912,7 +916,9 @@ def main(cfg: DictConfig):
                         losses_metrics_d["policy_loss"].append(policy_loss.item())
                         losses_metrics_d["value_loss"].append(value_loss.item())
                         losses_metrics_d["avg_return"].append(
-                            masked_mean_std(G, time_mask)[0].item()
+                            masked_mean_std(
+                                (weights[:, None, None] * G).sum(dim=0), time_mask
+                            )[0].item()
                         )
                         losses_metrics_d["entropy"].append(entropy.item())
                         losses_metrics_d["entropy_loss"].append(entropy_loss.item())
