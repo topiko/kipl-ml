@@ -285,13 +285,13 @@ def get_advantages(
 
     values_detached = values.detach()
 
-    if cfg.advantages.type in {"mc", "mc_w_bootrstrap"}:
+    if cfg.advantages.type in {"mc", "mc_w_bootstrap"}:
         # NOTE: this is not pure MC when bootstrap != 0.
         if cfg.advantages.type == "mc":
             bootstrap = None
-        elif cfg.advantages._type == "mc_w_bootstrap":
+        elif cfg.advantages.type == "mc_w_bootstrap":
             # Time-limit truncation bootstrap: treat end-of-trace as non-terminal.
-            bootstrap = values_detached.gather(1, seq_lens[:, None])
+            bootstrap = values_detached.gather(1, seq_lens[:, None] - 1).squeeze(1)
         else:
             raise KeyError()
 
@@ -708,7 +708,7 @@ def main(cfg: DictConfig):
     padding_scale_max = 0.01
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
-    valid_acc_thres = 0.2
+    valid_acc_thres = 0.3
 
     league_update_frac = 0.2
     active_league_idx = None
