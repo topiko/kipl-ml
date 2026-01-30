@@ -992,6 +992,7 @@ def main(cfg: DictConfig):
                     )
 
                     if not train_disc and obs_train_frac == 0:
+                        pbar.close()
                         logger.info("Reached threshold, early termination")
                         break
 
