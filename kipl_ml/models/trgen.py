@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 from torch.distributions import Categorical
+import time
+
 from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence, pad_packed_sequence
 
 from kipl_ml.logging.logger import get_logger
@@ -68,7 +70,10 @@ class RNNCLF1(nn.Module):
         x: dict[Feats, torch.Tensor],
         h: tuple[torch.Tensor, ...] | None,
         seq_lens: torch.Tensor,
+        timing: dict[str, float] | None = None,
+        timing_prefix: str = "disc",
     ) -> tuple[torch.Tensor, tuple[torch.Tensor]]:
+        t0 = time.perf_counter()
         if h is None:
             if (seq_lens == 0).any():
                 raise ValueError(
@@ -82,6 +87,11 @@ class RNNCLF1(nn.Module):
 
             fs.append(x[f].unsqueeze(-1))
 
+        if timing is not None:
+            timing[f"{timing_prefix}_feat_gather_ms"] = (
+                time.perf_counter() - t0
+            ) * 1000
+
         mask = seq_lens != 0
 
         if mask.sum() == 0:
@@ -89,28 +99,46 @@ class RNNCLF1(nn.Module):
 
         # M = mask.sum()
 
+        t1 = time.perf_counter()
         # (M, L, nfeat)
         inputs = torch.cat(fs, dim=-1)[mask, ...]
+        if timing is not None:
+            timing[f"{timing_prefix}_cat_mask_ms"] = (time.perf_counter() - t1) * 1000
 
+        t2 = time.perf_counter()
         packed_inputs = pack_padded_sequence(
             inputs, seq_lens[mask], batch_first=True, enforce_sorted=False
         )
+        if timing is not None:
+            timing[f"{timing_prefix}_pack_ms"] = (time.perf_counter() - t2) * 1000
 
         # Only select the needed h states:
         h_ = _hidden_w_mask(h, mask)
 
+        t3 = time.perf_counter()
         # (M, L, H), hidden
         output_packed, h_ = self.rnn(packed_inputs, h_)
+        if timing is not None:
+            timing[f"{timing_prefix}_rnn_ms"] = (time.perf_counter() - t3) * 1000
 
+        t4 = time.perf_counter()
         output, lens = pad_packed_sequence(output_packed, batch_first=True)
+        if timing is not None:
+            timing[f"{timing_prefix}_unpack_ms"] = (time.perf_counter() - t4) * 1000
 
         # h_[0].shape = (nhidden, B, hidden_size)
 
+        t5 = time.perf_counter()
         # (M, L, n_classes)
         logits = self.final_lin(output)
+        if timing is not None:
+            timing[f"{timing_prefix}_head_ms"] = (time.perf_counter() - t5) * 1000
 
         # Update the hidden state:
         h = _hidden_w_mask(h, mask, h_)
+
+        if timing is not None:
+            timing[f"{timing_prefix}_total_ms"] = (time.perf_counter() - t0) * 1000
 
         return logits, h
 

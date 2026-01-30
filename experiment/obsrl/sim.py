@@ -154,22 +154,48 @@ def rollout(
         packet_seq_lens = packet_seq_lens_gpu.cpu()
 
         if disc_features is not None:
+            ttf0 = time.perf_counter()
             X_ = disc_features.transform_batch(Xobs)
+            if timing is not None:
+                timing["rollout_disc_features_ms"] = (
+                    time.perf_counter() - ttf0
+                ) * 1000
         else:
             X_ = Xobs
 
         if Feats.LABEL in critic.features:
             fd[Feats.LABEL] = y.unsqueeze(1).repeat(1, L)
 
+        disc_load_s = 0.0
+        disc_pack_s = 0.0
+        disc_rnn_s = 0.0
+        disc_head_s = 0.0
+        disc_cat_s = 0.0
+        disc_unpack_s = 0.0
+
         for disc_id, state_d in disc_league:
+            tload0 = time.perf_counter()
             disc.load_state_dict({k: v.to(device) for k, v in state_d.items()})
+            disc_load_s += time.perf_counter() - tload0
 
             hdisc = None
             disc.eval()
             with torch.no_grad():
                 tdisc0 = time.perf_counter()
-                logits, hdisc = disc.pack_and_forward(X_, hdisc, packet_seq_lens)
+                disc_timing: dict[str, float] = {}
+                logits, hdisc = disc.pack_and_forward(
+                    X_,
+                    hdisc,
+                    packet_seq_lens,
+                    timing=disc_timing,
+                    timing_prefix="disc",
+                )
                 disc_fwd_s += time.perf_counter() - tdisc0
+                disc_cat_s += disc_timing.get("disc_cat_mask_ms", 0.0) / 1000
+                disc_pack_s += disc_timing.get("disc_pack_ms", 0.0) / 1000
+                disc_rnn_s += disc_timing.get("disc_rnn_ms", 0.0) / 1000
+                disc_unpack_s += disc_timing.get("disc_unpack_ms", 0.0) / 1000
+                disc_head_s += disc_timing.get("disc_head_ms", 0.0) / 1000
 
             trew0 = time.perf_counter()
             rewards_ = get_rewards(
@@ -216,6 +242,12 @@ def rollout(
         for k, v in send_timing.items():
             timing[f"{k}"] = float(v)
         timing["rollout_disc_forward_ms"] = disc_fwd_s * 1000
+        timing["rollout_disc_load_state_ms"] = disc_load_s * 1000
+        timing["rollout_disc_cat_mask_ms"] = disc_cat_s * 1000
+        timing["rollout_disc_pack_ms"] = disc_pack_s * 1000
+        timing["rollout_disc_rnn_ms"] = disc_rnn_s * 1000
+        timing["rollout_disc_unpack_ms"] = disc_unpack_s * 1000
+        timing["rollout_disc_head_ms"] = disc_head_s * 1000
         timing["rollout_rewards_ms"] = rewards_s * 1000
         timing["rollout_critic_ms"] = critic_s * 1000
         timing["rollout_disc_rewards_critic_ms"] = (t4 - t3) * 1000
