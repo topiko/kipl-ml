@@ -166,8 +166,8 @@ def rollout(
 
             hdisc = None
             disc.eval()
+            tdisc0 = time.perf_counter()
             with torch.no_grad():
-                tdisc0 = time.perf_counter()
                 logits, hdisc = disc.pack_and_forward(X_, hdisc, packet_seq_lens)
                 disc_fwd_s += time.perf_counter() - tdisc0
 

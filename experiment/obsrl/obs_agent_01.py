@@ -78,24 +78,24 @@ def _plot_set(
     idxs = rng.choice(len(ds), size=ntraces, replace=False)
 
     logger.info("Generating figs:")
-    for i, idx in enumerate(idxs):
-        logger.info(f"\t{i + 1:02d}/{ntraces:02d}")
-        _plot_single(
-            cfg=cfg,
-            ds=ds,
-            obs=obs,
-            critic=critic,
-            obs_features=obs_features,
-            disc_orig=disc_orig,
-            disc_trained=disc_trained,
-            disc_features=disc_features,
-            disc_league_idx=disc_league_idx,
-            e=e,
-            reward_scales=reward_scales,
-            device=device,
-            idx=idx,
-            max_len=max_len,
-        )
+    with tqdm(idxs, desc="Gen figs", ncols=TQDM_W) as pbar:
+        for idx in pbar:
+            _plot_single(
+                cfg=cfg,
+                ds=ds,
+                obs=obs,
+                critic=critic,
+                obs_features=obs_features,
+                disc_orig=disc_orig,
+                disc_trained=disc_trained,
+                disc_features=disc_features,
+                disc_league_idx=disc_league_idx,
+                e=e,
+                reward_scales=reward_scales,
+                device=device,
+                idx=idx,
+                max_len=max_len,
+            )
 
 
 @torch.no_grad()
@@ -1031,7 +1031,7 @@ def main(cfg: DictConfig):
                 # If the disc has been trained most of the time, lower the thres.
                 disc_loss_thres *= 1.01
                 if d_train_frac == 1:
-                    obs_train_frac *= 0.5
+                    obs_train_frac *= 0.8
             elif d_train_frac == 0:
                 obs_train_frac = 1.0
                 disc_loss_thres *= 0.98
