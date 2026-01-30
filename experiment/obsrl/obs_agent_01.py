@@ -597,6 +597,9 @@ def get_active_league(
             len(league), min(len(league), league_size), replace=False
         )
 
+    # We ensure that the latest disc is always in the leaque
+    cur_disc_pos = len(league) - 1
+
     if prune:
         logger.info("Pruning disc league.")
         val = league_scores.min().item()
@@ -605,7 +608,7 @@ def get_active_league(
         league = [l_ for i, l_ in enumerate(league) if mask[i]]
 
     if league_size == 1:
-        active_league_idx = np.array([len(league) - 1])
+        active_league_idx = np.array([cur_disc_pos])
 
     elif len(league) > league_size:
         scores = np.array(league_scores.cpu().numpy())
@@ -615,12 +618,14 @@ def get_active_league(
         active_league_idx = np.random.choice(
             len(league), league_size, p=probs, replace=False
         )
+        active_league_idx[-1] = cur_disc_pos
     else:
         active_league_idx = np.arange(len(league))
 
         # =======================================
 
     active_league = [league[i] for i in active_league_idx]
+    active_league[-1] = (cur_disc_pos, disc.state_dict())
 
     if len(active_league_idx) > 1:
         weights = league_scores[active_league_idx]
@@ -716,7 +721,7 @@ def main(cfg: DictConfig):
 
     obs_league = _append_to_league([], obs.state_dict())
 
-    lr = 0.005
+    lr = 0.001
     obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr / 3)
 
     lr_critic = lr / 2
@@ -733,7 +738,7 @@ def main(cfg: DictConfig):
     # We drive the entropy loss to 0.001 during satlen steps...
 
     # Padding reward scale
-    padding_scale = 0.01
+    padding_scale = 0.001
     padding_scale_max = 0.01
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
@@ -787,12 +792,6 @@ def main(cfg: DictConfig):
                         prune=len(disc_league) > 20,
                     )
                 )
-            # Force the current discriminator into the league - note this is not frozen!
-            disc_idx = weights.argmax().item()
-            active_disc_league[disc_idx] = (
-                len(disc_league),
-                discriminator.state_dict(),
-            )
 
             # Train obs:
             # ===========================================
@@ -999,8 +998,9 @@ def main(cfg: DictConfig):
             # League handling:
             # =======================================
             # Append current discriminator to league
-            disc_league = _append_to_league(disc_league, discriminator.state_dict())
-            obs_league = _append_to_league(obs_league, obs.state_dict())
+            if sum(losses_metrics_d["train_disc"]) > 10:
+                disc_league = _append_to_league(disc_league, discriminator.state_dict())
+            # obs_league = _append_to_league(obs_league, obs.state_dict())
 
             # Padding and entropy scale updates:
             # =============================================
