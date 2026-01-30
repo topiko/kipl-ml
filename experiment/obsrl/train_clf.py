@@ -63,7 +63,9 @@ def main(cfg: DictConfig):
     )
     dl_valid = dl_(ds_valid, 256, None, nworkers=None)
 
-    clf = RNNCLF1(ds_train.n_classes, feature_names, dropout=cfg.dropout)
+    clf = RNNCLF1(
+        ds_train.n_classes, feature_names, dropout=cfg.dropout, hsize=126, nlayer=2
+    )
 
     logger.info(f"Model parameters: {count_parameters(clf)}")
 
@@ -89,6 +91,7 @@ def main(cfg: DictConfig):
             loss_mean = 0.0
             n = 1
             clf.train()
+            dl_train.batch_size = cfg.batch_size
             with tqdm(dl_train, desc=f"epoch {e:02d}", ncols=TQDM_W) as pbar:
                 for X, y in pbar:
                     X = dict_to_device(X, device, non_blocking=True)
@@ -137,6 +140,7 @@ def main(cfg: DictConfig):
                 break
 
             if (e - 1) % 10 == 0:
+                dl_train.batch_size = 8
                 train_metrics_d = evaluate_model(
                     clf, dl_train, [Accuracy()], loss_fn, key="train"
                 )
