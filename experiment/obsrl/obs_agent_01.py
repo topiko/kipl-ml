@@ -608,6 +608,7 @@ def get_active_league(
 
     # We ensure that the latest disc is always in the leaque
     cur_disc_pos = len(league) - 1
+    cur_disc_id = league[-1][0]
 
     if league_size == 1:
         active_league_idx = np.array([cur_disc_pos])
@@ -627,7 +628,7 @@ def get_active_league(
         # =======================================
 
     active_league = [league[i] for i in active_league_idx]
-    active_league[-1] = (cur_disc_pos, disc.state_dict())
+    active_league[-1] = (cur_disc_id, disc.state_dict())
 
     if len(active_league_idx) > 1:
         weights = league_scores[active_league_idx]
