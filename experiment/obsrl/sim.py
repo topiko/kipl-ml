@@ -147,7 +147,10 @@ def rollout(
             fd[Feats.LABEL] = y.unsqueeze(1).repeat(1, L)
 
         for disc_id, state_d in disc_league:
-            disc.load_state_dict({k: v.to(device) for k, v in state_d.items()})
+            if state_d is None:
+                disc.load_state_dict(current_disc_state)
+            else:
+                disc.load_state_dict({k: v.to(device) for k, v in state_d.items()})
 
             hdisc = None
             disc.eval()

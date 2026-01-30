@@ -592,11 +592,6 @@ def get_active_league(
         subset_indices=torch.randint(0, len(ds), (1000,)).numpy(),
     )
 
-    if active_league_idx is None:
-        active_league_idx = np.random.choice(
-            len(league), min(len(league), league_size), replace=False
-        )
-
     if prune:
         logger.info("Pruning disc league.")
         val = league_scores.min().item()
@@ -609,6 +604,12 @@ def get_active_league(
     # We ensure that the latest disc is always in the leaque
     cur_disc_pos = len(league) - 1
     cur_disc_id = league[-1][0]
+
+    if active_league_idx is None:
+        active_league_idx = np.random.choice(
+            len(league), min(len(league), league_size), replace=False
+        )
+        active_league_idx[-1] = cur_disc_pos
 
     if league_size == 1:
         active_league_idx = np.array([cur_disc_pos])
@@ -628,7 +629,7 @@ def get_active_league(
         # =======================================
 
     active_league = [league[i] for i in active_league_idx]
-    active_league[-1] = (cur_disc_id, disc.state_dict())
+    active_league[-1] = (cur_disc_id, None)
 
     if len(active_league_idx) > 1:
         weights = league_scores[active_league_idx]
@@ -798,7 +799,6 @@ def main(cfg: DictConfig):
 
             # Train obs:
             # ===========================================
-            obs.train()
             obs.cond_beta = 0.3
 
             with tqdm(
@@ -808,8 +808,10 @@ def main(cfg: DictConfig):
             ) as pbar:
                 for X, y in pbar:
                     train_obs = False
+                    obs.eval()
                     if np.random.rand() < obs_train_frac:
                         train_obs = True
+                        obs.train()
 
                     X = dict_to_device(X, device)
                     y = y.to(device)
@@ -965,10 +967,12 @@ def main(cfg: DictConfig):
                         postfix["ret"] = np.mean(
                             losses_metrics_d["avg_return"][-nhist:]
                         )
+
                     pbar.set_postfix(postfix)
 
                     if not train_disc and obs_train_frac == 0:
                         pbar.close()
+                        obs_train_frac = 1.0
                         logger.info("Reached threshold, early termination")
                         break
 
@@ -1009,7 +1013,7 @@ def main(cfg: DictConfig):
                     obs_train_frac *= 0.8
             elif d_train_frac == 0:
                 obs_train_frac = 1.0
-                disc_loss_thres *= 0.98
+                disc_loss_thres *= 0.99
 
             # Logging:
             # =============================================
