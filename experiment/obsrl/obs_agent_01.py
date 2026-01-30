@@ -697,7 +697,7 @@ def main(cfg: DictConfig):
     # logger.warning("Using only subset of training data!")
 
     # Obs feature trs
-    obs_features = ds_train.feature_trs
+    # obs_features = ds_train.feature_trs
 
     # Discriminator features, w.o. limit on n_packets
     disc_feats = FeatureTrs(feature_names=discriminator.features, n_packets=None)
@@ -728,10 +728,9 @@ def main(cfg: DictConfig):
     discriminator_orig = discriminator_orig.to(device)
     disc_league = _append_to_league([], discriminator_orig.state_dict())
     # disc_league = _append_to_league(disc_league, discriminator.state_dict())
+    # obs_league = _append_to_league([], obs.state_dict())
 
-    obs_league = _append_to_league([], obs.state_dict())
-
-    lr = 0.001
+    lr = 0.0005
     obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr / 3)
 
     lr_critic = lr / 2
@@ -749,17 +748,16 @@ def main(cfg: DictConfig):
 
     # Padding reward scale
     padding_scale = 0.001
-    padding_scale_max = 0.01
+    padding_scale_max = 0.002
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     league_update_frac = 0.2
     active_league_idx = None
-    disc_loss_thres = 3.5
-
-    train_disc = False  # True
+    disc_loss_thres = 3.7
+    disc_loss_step = disc_loss_thres / 200
 
     disc_ema_loss = 10.0
-    ema_decay = 0.96
+    ema_decay = 0.95
     obs_train_frac = 0.0
 
     e = 0
@@ -1002,24 +1000,23 @@ def main(cfg: DictConfig):
                     losses_metrics_d["policy_loss"]
                 )
                 losses_metrics_d["entropy_loss vs. policy_loss"] = el_vs_pl
-                if abs(el_vs_pl) < 0.05:
-                    entropy_scale *= 1.1
-                else:
-                    entropy_scale *= 0.9
+                # if abs(el_vs_pl) < 0.05:
+                #     entropy_scale *= 1.1
+                # else:
+                #     entropy_scale *= 0.9
             # =============================================
 
             # Disc loss thres update:
             # =============================================
-            losses_metrics_d["disc_loss_thres"] = disc_loss_thres
+            losses_metrics_d["disc_l_thres"] = disc_loss_thres
             losses_metrics_d["obs_train_frac"] = obs_train_frac
             if (d_train_frac := np.mean(losses_metrics_d["train_disc"])) > 0.90:
-                # If the disc has been trained most of the time, lower the thres.
-                disc_loss_thres *= 1.01
                 if d_train_frac == 1:
                     obs_train_frac *= 0.8
-            elif d_train_frac == 0:
+            elif d_train_frac < 0.1:
                 obs_train_frac = 1.0
-                disc_loss_thres *= 0.99
+
+            disc_loss_thres -= disc_loss_step
 
             # Logging:
             # =============================================
@@ -1027,8 +1024,7 @@ def main(cfg: DictConfig):
                 if isinstance(v, list):
                     if len(v) == 0:
                         continue
-                    else:
-                        v = np.mean(v)
+                    v = np.mean(v)
                 elif isinstance(v, (int, float)):
                     pass
                 else:
