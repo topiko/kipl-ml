@@ -815,6 +815,7 @@ def main(cfg: DictConfig):
 
                     context = torch.enable_grad() if train_obs else torch.no_grad()
                     with context:
+                        timing = {}
                         (
                             log_ps,
                             sel_probs,
@@ -835,7 +836,21 @@ def main(cfg: DictConfig):
                             disc_league=active_disc_league,
                             detach_period=detach_period,
                             reward_scales=reward_scales,
+                            timing=timing,
                         )
+
+                    # Timing (ms)
+                    for k in (
+                        "rollout_total_ms",
+                        "rollout_fd_ms",
+                        "rollout_act_ms",
+                        "rollout_send_exec_ms",
+                        "rollout_disc_forward_ms",
+                        "rollout_rewards_ms",
+                        "rollout_critic_ms",
+                    ):
+                        if k in timing:
+                            losses_metrics_d.setdefault(k, []).append(float(timing[k]))
 
                     action_seq_lens = get_action_seq_lens(fd)
 
