@@ -1,5 +1,3 @@
-import time
-
 import torch
 from torch import nn
 
@@ -90,7 +88,6 @@ def rollout(
     disc_features: FeatureTrs | None = None,
     detach_period: int = 20,
     reward_scales: dict[str, float] | None = None,
-    timing: dict[str, float] | None = None,
 ) -> tuple[
     torch.Tensor,
     torch.Tensor,
@@ -104,15 +101,9 @@ def rollout(
 ]:
     hobs = None
     rewards = None
+    league_values = None
     device = y.device
 
-    # Timing defaults (used only when reward_scales is not None)
-    disc_fwd_s = 0.0
-    rewards_s = 0.0
-    critic_s = 0.0
-    league_values = None
-
-    t0 = time.perf_counter()
     if X[Feats.TIMES].isnan().any():
         raise ValueError("NaN in times feature")
 
@@ -121,8 +112,6 @@ def rollout(
     )
     if X[Feats.TIMES].isnan().any():
         raise ValueError("NaN in times feature")
-
-    t1 = time.perf_counter()
 
     # We need the seq. lens in forward.
     action_seq_lens = fd.pop(Feats.SEQ_LENS)
@@ -138,11 +127,7 @@ def rollout(
         if h_norm > 100 or c_norm > 400:
             print("Huge hidden/cell:", h_norm, c_norm)
 
-    t2 = time.perf_counter()
-    send_timing: dict[str, float] = {}
-    Xobs = send_exec(X, act_times, actions, timing=send_timing)
-
-    t3 = time.perf_counter()
+    Xobs = send_exec(X, act_times, actions)
 
     if reward_scales is not None:
         current_disc_state = {
@@ -166,12 +151,9 @@ def rollout(
 
             hdisc = None
             disc.eval()
-            tdisc0 = time.perf_counter()
             with torch.no_grad():
                 logits, hdisc = disc.pack_and_forward(X_, hdisc, packet_seq_lens)
-                disc_fwd_s += time.perf_counter() - tdisc0
 
-            trew0 = time.perf_counter()
             rewards_ = get_rewards(
                 act_times,
                 Xobs,
@@ -180,18 +162,15 @@ def rollout(
                 packet_seq_lens_gpu,
                 reward_scales=reward_scales,
             )
-            rewards_s += time.perf_counter() - trew0
 
             rewards_l.append(rewards_)
 
             if Feats.DISC_ID in critic.features:
                 fd[Feats.DISC_ID] = torch.full_like(fd[critic.features[0]], disc_id)
 
-            tcrit0 = time.perf_counter()
             league_values_ = critic(
                 fd, None, h_detach_period=detach_period, seq_lens=action_seq_lens
             )[0][Feats.STATE_VALUE]
-            critic_s += time.perf_counter() - tcrit0
 
             league_values_l.append(league_values_)
 
@@ -206,21 +185,6 @@ def rollout(
 
         # Make sure correct state is restored.
         disc.load_state_dict(current_disc_state)
-
-    t4 = time.perf_counter()
-
-    if timing is not None:
-        timing["rollout_fd_ms"] = (t1 - t0) * 1000
-        timing["rollout_act_ms"] = (t2 - t1) * 1000
-        timing["rollout_send_exec_ms"] = (t3 - t2) * 1000
-        for k, v in send_timing.items():
-            timing[f"{k}"] = float(v)
-        timing["rollout_disc_forward_ms"] = disc_fwd_s * 1000
-        timing["rollout_rewards_ms"] = rewards_s * 1000
-        timing["rollout_critic_ms"] = critic_s * 1000
-        timing["rollout_disc_rewards_critic_ms"] = (t4 - t3) * 1000
-        timing["rollout_total_ms"] = (t4 - t0) * 1000
-        timing["rollout_league_n"] = float(len(disc_league))
 
     return (
         log_ps,

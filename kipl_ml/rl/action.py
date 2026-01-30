@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import torch
-import time
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
@@ -52,9 +51,7 @@ def send_exec(
     X: dict[Feats, torch.Tensor],
     times: torch.Tensor,
     actions: dict[Actions, torch.Tensor],
-    timing: dict[str, float] | None = None,
 ) -> dict[Feats, torch.Tensor]:
-    t0 = time.perf_counter()
     X = {k: v.clone() for k, v in X.items()}
 
     # TODO: improve this by removing the batch dim loops...
@@ -63,8 +60,6 @@ def send_exec(
     send_down_c = actions[Actions.SEND_COUNT_DOWN]
     times_down = actions[Actions.SEND_TIME_DOWN]
 
-    if timing is not None:
-        timing["send_exec_prep_ms"] = (time.perf_counter() - t0) * 1000
 
     if Feats.PADDING not in X:
         X[Feats.PADDING] = torch.zeros_like(X[Feats.TIMES])
@@ -113,7 +108,6 @@ def send_exec(
     send_times_up_l = []
     send_times_down_l = []
 
-    t1 = time.perf_counter()
     for i in range(times.shape[0]):
         # NAN time signals seq has ended.
         mask = times[i].isfinite()
@@ -140,10 +134,7 @@ def send_exec(
         send_times_up_l.append(send_times_up)
         send_times_down_l.append(send_times_down)
 
-    if timing is not None:
-        timing["send_exec_sample_loop_ms"] = (time.perf_counter() - t1) * 1000
 
-    t2 = time.perf_counter()
     for send_times, dir_ in zip(
         [send_times_up_l, send_times_down_l], [UPLOAD, DOWNLOAD]
     ):
@@ -152,13 +143,10 @@ def send_exec(
         X[Feats.DIRS] = torch.cat([X[Feats.DIRS], dirs_], dim=1)
         X[Feats.PADDING] = torch.cat([X[Feats.PADDING], padding_], dim=1)
 
-    if timing is not None:
-        timing["send_exec_build_cat_ms"] = (time.perf_counter() - t2) * 1000
 
     if set(X.keys()) != {Feats.TIMES, Feats.DIRS, Feats.PADDING}:
         raise ValueError("Invalid set of features detected")
 
-    t3 = time.perf_counter()
     # In the above cat, the max in up/down padding does not
     # coinside on the same row -> the tensor becomes zero padded.
     mask = X[Feats.DIRS] != 0
@@ -174,10 +162,6 @@ def send_exec(
     X[Feats.TIMES] = _fill_after_seq_end(X[Feats.TIMES], pad_val=0, fill_val="max")
 
     X = _sort_feature_dict(X)
-
-    if timing is not None:
-        timing["send_exec_flush_sort_ms"] = (time.perf_counter() - t3) * 1000
-        timing["send_exec_total_ms"] = (time.perf_counter() - t0) * 1000
 
     if (X[Feats.TIMES].diff(dim=1) < 0).any():
         raise ValueError("Unsorted times detected after send_exec")
