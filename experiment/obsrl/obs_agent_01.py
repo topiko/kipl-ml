@@ -602,7 +602,7 @@ def get_active_league(
         val = league_scores.min().item()
         mask = league_scores > val
         # The latest disc shall not be removed..
-        mask[-1] = False
+        mask[-1] = True
         league_scores = league_scores[mask]
         league = [l_ for i, l_ in enumerate(league) if mask[i]]
 
