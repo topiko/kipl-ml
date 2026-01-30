@@ -47,6 +47,8 @@ DATASET = Datasets.BIGENOUGH
 
 
 def keymap(key: str) -> str:
+    if "_ms" in key:
+        key = f"timings / {key}"
     if "loss" in key:
         key = f"losses / {key}"
     if "entropy" in key:
@@ -767,7 +769,7 @@ def main(cfg: DictConfig):
                 {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
             )
 
-            with torch.inference_mode():
+            with torch.no_grad():
                 disc_league, active_league_idx, active_disc_league, weights = (
                     get_active_league(
                         active_league_idx=active_league_idx,
@@ -988,6 +990,10 @@ def main(cfg: DictConfig):
                             "d_tr_f": np.mean(losses_metrics_d["train_disc"][-nhist:]),
                         }
                     )
+
+                    if not train_disc and obs_train_frac == 0:
+                        logger.info("Reached threshold, early termination")
+                        break
 
             # League handling:
             # =======================================
