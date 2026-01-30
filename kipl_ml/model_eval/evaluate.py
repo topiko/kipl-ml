@@ -39,24 +39,27 @@ def run_inference(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     logger.info("Run inference...")
     model.eval()
-    model.to(get_device())
+    device = get_device()
+    model.to(device)
 
-    logits = []
-    preds = []
-    labels = []
+    logits_cpu: list[torch.Tensor] = []
+    preds_cpu: list[torch.Tensor] = []
+    labels_cpu: list[torch.Tensor] = []
     with torch.no_grad():
         with tqdm(dataloader, ncols=TQDM_W) as pbar:
             for X, y in pbar:
-                X_ = dict_to_device(X, get_device())
+                X_ = dict_to_device(X, device)
 
                 logits_, preds_ = model.predict(X_)
-                logits.append(logits_)
-                preds.append(preds_)
-                labels.append(y)
+                logits_cpu.append(logits_.detach().cpu())
+                preds_cpu.append(preds_.detach().cpu())
+                labels_cpu.append(
+                    y.detach().cpu() if torch.is_tensor(y) else torch.as_tensor(y).cpu()
+                )
 
-    logits = torch.cat(logits).to("cpu")
-    preds = torch.cat(preds).to("cpu")
-    y_true = torch.cat(labels).to("cpu")
+    logits = torch.cat(logits_cpu)
+    preds = torch.cat(preds_cpu)
+    y_true = torch.cat(labels_cpu)
 
     return logits, preds, y_true
 
