@@ -676,8 +676,8 @@ def main(cfg: DictConfig):
         n_min_packets=cfg.min_packets_in_trace,
         **defence_builder.get_defence(cfg),
     )
-    ds_train.meta_df = ds_train.meta_df.sample(frac=0.5)
-    logger.warning("Using only subset of training data!")
+    # ds_train.meta_df = ds_train.meta_df.sample(frac=0.5)
+    # logger.warning("Using only subset of training data!")
 
     # Obs feature trs
     obs_features = ds_train.feature_trs
@@ -737,7 +737,7 @@ def main(cfg: DictConfig):
 
     league_update_frac = 0.2
     active_league_idx = None
-    disc_loss_thres = 4.0
+    disc_loss_thres = 3.5
 
     train_disc = False  # True
 
@@ -767,23 +767,24 @@ def main(cfg: DictConfig):
                 {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
             )
 
-            disc_league, active_league_idx, active_disc_league, weights = (
-                get_active_league(
-                    active_league_idx=active_league_idx,
-                    league=disc_league,
-                    ds=ds_valid,
-                    obs=obs,
-                    critic=critic,
-                    obs_feats=ds_train.feature_trs,
-                    disc=discriminator,
-                    disc_feats=disc_feats,
-                    reward_scales=reward_scales,
-                    device=device,
-                    league_size=cfg.league_size,
-                    league_update_frac=league_update_frac,
-                    prune=len(disc_league) > 20,
+            with torch.inference_mode():
+                disc_league, active_league_idx, active_disc_league, weights = (
+                    get_active_league(
+                        active_league_idx=active_league_idx,
+                        league=disc_league,
+                        ds=ds_valid,
+                        obs=obs,
+                        critic=critic,
+                        obs_feats=ds_train.feature_trs,
+                        disc=discriminator,
+                        disc_feats=disc_feats,
+                        reward_scales=reward_scales,
+                        device=device,
+                        league_size=cfg.league_size,
+                        league_update_frac=league_update_frac,
+                        prune=len(disc_league) > 20,
+                    )
                 )
-            )
             # Force the current discriminator into the league - note this is not frozen!
             disc_idx = weights.argmax().item()
             active_disc_league[disc_idx] = (
@@ -879,7 +880,6 @@ def main(cfg: DictConfig):
 
                     # The steps are only taken for obs_train_frac steps.
                     if train_obs:
-                        print("step")
                         # Obs step:
                         # ==========================================
                         # Gradient clipping
