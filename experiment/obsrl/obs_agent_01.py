@@ -838,77 +838,68 @@ def main(cfg: DictConfig):
                             disc_features=disc_feats,
                             disc_league=active_disc_league,
                             detach_period=detach_period,
-                            reward_scales=reward_scales,
+                            reward_scales=reward_scales if train_obs else None,
                         )
 
-                    action_seq_lens = get_action_seq_lens(fd)
-
-                    time_mask = make_time_mask(
-                        action_seq_lens, fd[Feats.TIMES].shape[1], device=device
-                    )
-
-                    # The G, and advanages (nleague, bs, T)
-                    # are detached from the comput graph.
-                    G, advantages = get_advantages(
-                        league_rewards, values, action_seq_lens, cfg
-                    )
-
-                    # Compute losses, advantages and G ARE detached.
-                    # weights.shape = (nleague, ), --> advantages.shape = (bs, T)
-                    advantages = (weights[:, None, None] * advantages).sum(dim=0)
-
-                    # _, adv_std = masked_mean_std(advantages, time_mask)
-
-                    policy_loss_ = -(log_ps * advantages)
-                    policy_loss = masked_mean(policy_loss_, time_mask)
-
-                    # valus.shape = (nleague, bs, T), G.shape = (nleague, bs, T)
-                    # -> value_loss_.shape = (bs, T)
-                    value_loss_ = 0.5 * (
-                        weights[:, None, None] * (values - G).pow(2)
-                    ).sum(dim=0)
-                    value_loss = masked_mean(value_loss_, time_mask)
-
-                    entropy = masked_mean(entropies, time_mask)
-                    entropy_loss = -entropy_scale * entropy
-
-                    loss = policy_loss + entropy_loss
-
-                    # Track the effect of selection vs conditional
-                    sel_log_ps = torch.log(sel_probs)
-                    sel_term = (advantages[..., None] * sel_log_ps).std()
-                    cond_term = (
-                        advantages[..., None] * (log_ps[..., None] - sel_log_ps)
-                    ).std()
-                    ratio = cond_term / (sel_term + 1e-8)
-
-                    # The steps are only taken for obs_train_frac steps.
                     if train_obs:
+                        action_seq_lens = get_action_seq_lens(fd)
+
+                        time_mask = make_time_mask(
+                            action_seq_lens, fd[Feats.TIMES].shape[1], device=device
+                        )
+
+                        # The G, and advanages (nleague, bs, T)
+                        # are detached from the comput graph.
+                        G, advantages = get_advantages(
+                            league_rewards, values, action_seq_lens, cfg
+                        )
+
+                        # Compute losses, advantages and G ARE detached.
+                        # weights.shape = (nleague, ), --> advantages.shape = (bs, T)
+                        advantages = (weights[:, None, None] * advantages).sum(dim=0)
+
+                        policy_loss_ = -(log_ps * advantages)
+                        policy_loss = masked_mean(policy_loss_, time_mask)
+
+                        # valus.shape = (nleague, bs, T), G.shape = (nleague, bs, T)
+                        # -> value_loss_.shape = (bs, T)
+                        value_loss_ = 0.5 * (
+                            weights[:, None, None] * (values - G).pow(2)
+                        ).sum(dim=0)
+                        value_loss = masked_mean(value_loss_, time_mask)
+
+                        entropy = masked_mean(entropies, time_mask)
+                        entropy_loss = -entropy_scale * entropy
+
+                        loss = policy_loss + entropy_loss
+
+                        # Track the effect of selection vs conditional
+                        sel_log_ps = torch.log(sel_probs)
+                        sel_term = (advantages[..., None] * sel_log_ps).std()
+                        cond_term = (
+                            advantages[..., None] * (log_ps[..., None] - sel_log_ps)
+                        ).std()
+                        ratio = cond_term / (sel_term + 1e-8)
+
                         # Obs step:
                         # ==========================================
-                        # Gradient clipping
                         loss.backward()
                         nn.utils.clip_grad_norm_(
                             obs.parameters(),
                             cfg.grad_norm_clip,
                             error_if_nonfinite=True,
                         )
-
                         obs_optim.step()
-                        # ==========================================
 
                         # Critic step:
                         # ==========================================
-                        # Gradient clipping
                         value_loss.backward()
                         nn.utils.clip_grad_norm_(
                             critic.parameters(),
                             cfg.grad_norm_clip,
                             error_if_nonfinite=True,
                         )
-
                         critic_optim.step()
-                        # ==========================================
 
                     # Discriminator:
                     # ==========================================
@@ -932,20 +923,23 @@ def main(cfg: DictConfig):
 
                     # Logging:
                     # =========================================
-                    losses_metrics_d["loss"].append(loss.item())
-                    losses_metrics_d["policy_loss"].append(policy_loss.item())
-                    losses_metrics_d["value_loss"].append(value_loss.item())
-                    losses_metrics_d["disc_loss"].append(disc_loss)
-                    losses_metrics_d["entropy"].append(entropy.item())
-                    losses_metrics_d["entropy_loss"].append(entropy_loss.item())
-                    losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
-                    losses_metrics_d["train_disc"].append(1 if train_disc else 0)
-                    losses_metrics_d["avg_return"].append(
-                        masked_mean_std(
-                            (weights[:, None, None] * G).sum(dim=0), time_mask
-                        )[0].item()
-                    )
+                    if train_obs:
+                        losses_metrics_d["loss"].append(loss.item())
+                        losses_metrics_d["policy_loss"].append(policy_loss.item())
+                        losses_metrics_d["value_loss"].append(value_loss.item())
+                        losses_metrics_d["entropy"].append(entropy.item())
+                        losses_metrics_d["entropy_loss"].append(entropy_loss.item())
+                        losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
+                        losses_metrics_d["avg_return"].append(
+                            masked_mean_std(
+                                (weights[:, None, None] * G).sum(dim=0), time_mask
+                            )[0].item()
+                        )
+                        for k, v in league_rewards.items():
+                            losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
 
+                    losses_metrics_d["train_disc"].append(1 if train_disc else 0)
+                    losses_metrics_d["disc_loss"].append(disc_loss)
                     # (B, )
                     normal_packets = (
                         (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 0)
@@ -961,17 +955,17 @@ def main(cfg: DictConfig):
                     losses_metrics_d["mean_trace_len"].append(
                         (Xobs[Feats.DIRS] != 0).sum(dim=1).float().mean().item()
                     )
-                    for k, v in league_rewards.items():
-                        losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
 
                     nhist = 20
-                    pbar.set_postfix(
-                        {
-                            "ret": np.mean(losses_metrics_d["avg_return"][-nhist:]),
-                            "dloss": disc_ema_loss,
-                            "d_tr_f": np.mean(losses_metrics_d["train_disc"][-nhist:]),
-                        }
-                    )
+                    postfix = {
+                        "dloss": disc_ema_loss,
+                        "d_tr_f": np.mean(losses_metrics_d["train_disc"][-nhist:]),
+                    }
+                    if losses_metrics_d["avg_return"]:
+                        postfix["ret"] = np.mean(
+                            losses_metrics_d["avg_return"][-nhist:]
+                        )
+                    pbar.set_postfix(postfix)
 
                     if not train_disc and obs_train_frac == 0:
                         pbar.close()
@@ -993,14 +987,15 @@ def main(cfg: DictConfig):
 
             losses_metrics_d["padding_scale"] = padding_scale
 
-            el_vs_pl = np.mean(losses_metrics_d["entropy_loss"]) / np.mean(
-                losses_metrics_d["policy_loss"]
-            )
-            losses_metrics_d["entropy_loss vs. policy_loss"] = el_vs_pl
-            if abs(el_vs_pl) < 0.05:
-                entropy_scale *= 1.1
-            else:
-                entropy_scale *= 0.9
+            if losses_metrics_d["entropy_loss"] and losses_metrics_d["policy_loss"]:
+                el_vs_pl = np.mean(losses_metrics_d["entropy_loss"]) / np.mean(
+                    losses_metrics_d["policy_loss"]
+                )
+                losses_metrics_d["entropy_loss vs. policy_loss"] = el_vs_pl
+                if abs(el_vs_pl) < 0.05:
+                    entropy_scale *= 1.1
+                else:
+                    entropy_scale *= 0.9
             # =============================================
 
             # Disc loss thres update:
