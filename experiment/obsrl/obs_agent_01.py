@@ -75,7 +75,9 @@ def _plot_set(
 
     idxs = rng.choice(len(ds), size=ntraces, replace=False)
 
-    for idx in idxs:
+    logger.info("Generating figs:")
+    for i, idx in enumerate(idxs):
+        logger.info(f"\t{i + 1:02d}/{ntraces:02d}")
         _plot_single(
             cfg=cfg,
             ds=ds,
@@ -674,8 +676,8 @@ def main(cfg: DictConfig):
         n_min_packets=cfg.min_packets_in_trace,
         **defence_builder.get_defence(cfg),
     )
-    # ds_train.meta_df = ds_train.meta_df.sample(frac=1.0)
-    # logger.warning("Using only subset of training data!")
+    ds_train.meta_df = ds_train.meta_df.sample(frac=0.5)
+    logger.warning("Using only subset of training data!")
 
     # Obs feature trs
     obs_features = ds_train.feature_trs
@@ -712,10 +714,10 @@ def main(cfg: DictConfig):
 
     obs_league = _append_to_league([], obs.state_dict())
 
-    lr = 0.01
+    lr = 0.005
     obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr / 3)
 
-    lr_critic = lr / 3
+    lr_critic = lr / 2
     critic_optim = _get_optim(critic, lr=lr_critic, lr_rnn=lr_critic / 3)
 
     disc_optim = _get_optim(discriminator, lr=0.001, lr_rnn=0.001)
@@ -728,8 +730,6 @@ def main(cfg: DictConfig):
     entropy_target = 1.2
     # We drive the entropy loss to 0.001 during satlen steps...
 
-    entropy_scale_factor = 0.1 ** (1 / satlen)
-
     # Padding reward scale
     padding_scale = 0.01
     padding_scale_max = 0.01
@@ -737,12 +737,13 @@ def main(cfg: DictConfig):
 
     league_update_frac = 0.2
     active_league_idx = None
-    disc_loss_thres = 5.0
+    disc_loss_thres = 4.0
 
     train_disc = False  # True
 
     disc_ema_loss = 10.0
     ema_decay = 0.96
+    obs_train_frac = 1.0
 
     e = 0
     detach_period = cfg.h_detach_period
@@ -867,31 +868,33 @@ def main(cfg: DictConfig):
                     ).std()
                     ratio = cond_term / (sel_term + 1e-8)
 
-                    # Obs step:
-                    # ==========================================
-                    # Gradient clipping
-                    loss.backward()
-                    nn.utils.clip_grad_norm_(
-                        obs.parameters(),
-                        cfg.grad_norm_clip,
-                        error_if_nonfinite=True,
-                    )
+                    # The steps are only taken for obs_train_frac steps.
+                    if np.random.rand() < obs_train_frac:
+                        # Obs step:
+                        # ==========================================
+                        # Gradient clipping
+                        loss.backward()
+                        nn.utils.clip_grad_norm_(
+                            obs.parameters(),
+                            cfg.grad_norm_clip,
+                            error_if_nonfinite=True,
+                        )
 
-                    obs_optim.step()
-                    # ==========================================
+                        obs_optim.step()
+                        # ==========================================
 
-                    # Critic step:
-                    # ==========================================
-                    # Gradient clipping
-                    value_loss.backward()
-                    nn.utils.clip_grad_norm_(
-                        critic.parameters(),
-                        cfg.grad_norm_clip,
-                        error_if_nonfinite=True,
-                    )
+                        # Critic step:
+                        # ==========================================
+                        # Gradient clipping
+                        value_loss.backward()
+                        nn.utils.clip_grad_norm_(
+                            critic.parameters(),
+                            cfg.grad_norm_clip,
+                            error_if_nonfinite=True,
+                        )
 
-                    critic_optim.step()
-                    # ==========================================
+                        critic_optim.step()
+                        # ==========================================
 
                     # Discriminator:
                     # ==========================================
@@ -947,10 +950,12 @@ def main(cfg: DictConfig):
                     for k, v in league_rewards.items():
                         losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
 
+                    nhist = 20
                     pbar.set_postfix(
                         {
-                            "avg_ret": np.mean(losses_metrics_d["avg_return"][-20:]),
-                            "e_dloss": disc_ema_loss,
+                            "ret": np.mean(losses_metrics_d["avg_return"][-nhist:]),
+                            "dloss": disc_ema_loss,
+                            "d_tr_f": np.mean(losses_metrics_d["train_disc"][-nhist:]),
                         }
                     )
 
@@ -962,6 +967,7 @@ def main(cfg: DictConfig):
 
             # Padding and entropy scale updates:
             # =============================================
+            losses_metrics_d["entropy_scale"] = entropy_scale
             if e < satlen:
                 padding_scale += padding_scale_step
 
@@ -973,16 +979,20 @@ def main(cfg: DictConfig):
             elif entropy <= entropy_target:
                 entropy_scale *= 1.1
 
-            losses_metrics_d["entropy_scale"] = entropy_scale
             # =============================================
 
             # Disc loss thres update:
             # =============================================
-            if np.mean(losses_metrics_d["train_disc"]) > 0.90:
+            losses_metrics_d["disc_loss_thres"] = disc_loss_thres
+            losses_metrics_d["obs_train_frac"] = obs_train_frac
+            if (d_train_frac := np.mean(losses_metrics_d["train_disc"])) > 0.90:
                 # If the disc has been trained most of the time, lower the thres.
                 disc_loss_thres *= 1.01
-
-            losses_metrics_d["disc_loss_thres"] = disc_loss_thres
+                if d_train_frac == 1:
+                    obs_train_frac *= 0.9
+            elif d_train_frac == 0:
+                obs_train_frac = 1.0
+                disc_loss_thres *= 0.98
 
             losses_metrics_d["entropy_loss vs. policy_loss"] = np.mean(
                 losses_metrics_d["entropy_loss"]
@@ -1002,7 +1012,7 @@ def main(cfg: DictConfig):
                     raise ValueError("Invalid value to be logged")
 
                 k = keymap(k)
-                logger.info(f"{k:>30} : {v:.03f}")
+                logger.info(f"\t{k:<40} : {v:.03f}")
 
                 mlflow.log_metric(k, v, step=e)
 
@@ -1043,7 +1053,7 @@ def main(cfg: DictConfig):
             for k, v in d.items():
                 k = keymap(k)
                 mlflow.log_metric(k, v, step=e)
-                logger.info(f"{k:>30} : {v:.03f}")
+                logger.info(f"\t{k:<40} : {v:.03f}")
 
             # =============================================
 
