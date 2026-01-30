@@ -629,7 +629,13 @@ def get_active_league(
         # =======================================
 
     active_league = [league[i] for i in active_league_idx]
-    active_league[-1] = (cur_disc_id, None)
+
+    # If the latest disc is already in the active_league
+    if cur_disc_pos is active_league_idx:
+        idx = np.where(active_league_idx == cur_disc_pos)[0]
+        active_league[idx] = (cur_disc_pos, None)
+    else:
+        active_league[-1] = (cur_disc_id, None)
 
     if len(active_league_idx) > 1:
         weights = league_scores[active_league_idx]
