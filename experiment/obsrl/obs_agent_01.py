@@ -743,7 +743,7 @@ def main(cfg: DictConfig):
 
     disc_ema_loss = 10.0
     ema_decay = 0.96
-    obs_train_frac = 1.0
+    obs_train_frac = 0.0
 
     e = 0
     detach_period = cfg.h_detach_period
@@ -786,7 +786,10 @@ def main(cfg: DictConfig):
             )
             # Force the current discriminator into the league - note this is not frozen!
             disc_idx = weights.argmax().item()
-            active_disc_league[disc_idx] = (-1, discriminator.state_dict())
+            active_disc_league[disc_idx] = (
+                len(disc_league),
+                discriminator.state_dict(),
+            )
 
             # Train obs:
             # ===========================================
@@ -799,33 +802,39 @@ def main(cfg: DictConfig):
                 ncols=2 * TQDM_W,
             ) as pbar:
                 for X, y in pbar:
+                    train_obs = False
+                    if np.random.rand() < obs_train_frac:
+                        train_obs = True
+
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
                     obs_optim.zero_grad()
                     critic_optim.zero_grad()
 
-                    (
-                        log_ps,
-                        sel_probs,
-                        values,
-                        league_rewards,
-                        entropies,
-                        _,
-                        _,
-                        Xobs,
-                        fd,
-                    ) = rollout(
-                        obs=obs,
-                        critic=critic,
-                        disc=discriminator,
-                        X=X,
-                        y=y,
-                        disc_features=disc_feats,
-                        disc_league=active_disc_league,
-                        detach_period=detach_period,
-                        reward_scales=reward_scales,
-                    )
+                    context = torch.enable_grad() if train_obs else torch.no_grad()
+                    with context:
+                        (
+                            log_ps,
+                            sel_probs,
+                            values,
+                            league_rewards,
+                            entropies,
+                            _,
+                            _,
+                            Xobs,
+                            fd,
+                        ) = rollout(
+                            obs=obs,
+                            critic=critic,
+                            disc=discriminator,
+                            X=X,
+                            y=y,
+                            disc_features=disc_feats,
+                            disc_league=active_disc_league,
+                            detach_period=detach_period,
+                            reward_scales=reward_scales,
+                        )
 
                     action_seq_lens = get_action_seq_lens(fd)
 
@@ -869,7 +878,8 @@ def main(cfg: DictConfig):
                     ratio = cond_term / (sel_term + 1e-8)
 
                     # The steps are only taken for obs_train_frac steps.
-                    if np.random.rand() < obs_train_frac:
+                    if train_obs:
+                        print("step")
                         # Obs step:
                         # ==========================================
                         # Gradient clipping
@@ -908,7 +918,7 @@ def main(cfg: DictConfig):
                         feature_trs=disc_feats,
                         train=train_disc,
                         grad_clip=3.0,
-                        detach_period=1000,
+                        detach_period=10000,
                         get_accuracy=False,
                     )
 
@@ -973,12 +983,14 @@ def main(cfg: DictConfig):
 
             losses_metrics_d["padding_scale"] = padding_scale
 
-            entropy = np.mean(losses_metrics_d["entropy"])
-            if entropy > entropy_target:
-                entropy_scale *= 0.9
-            elif entropy <= entropy_target:
+            el_vs_pl = np.mean(losses_metrics_d["entropy_loss"]) / np.mean(
+                losses_metrics_d["policy_loss"]
+            )
+            losses_metrics_d["entropy_loss vs. policy_loss"] = el_vs_pl
+            if abs(el_vs_pl) < 0.05:
                 entropy_scale *= 1.1
-
+            else:
+                entropy_scale *= 0.9
             # =============================================
 
             # Disc loss thres update:
@@ -989,14 +1001,10 @@ def main(cfg: DictConfig):
                 # If the disc has been trained most of the time, lower the thres.
                 disc_loss_thres *= 1.01
                 if d_train_frac == 1:
-                    obs_train_frac *= 0.9
+                    obs_train_frac *= 0.5
             elif d_train_frac == 0:
                 obs_train_frac = 1.0
                 disc_loss_thres *= 0.98
-
-            losses_metrics_d["entropy_loss vs. policy_loss"] = np.mean(
-                losses_metrics_d["entropy_loss"]
-            ) / np.mean(losses_metrics_d["policy_loss"])
 
             # Logging:
             # =============================================
