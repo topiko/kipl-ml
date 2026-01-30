@@ -13,7 +13,7 @@ from torch.utils.data import SubsetRandomSampler
 from tqdm import tqdm
 
 from experiment.obsrl.sim import rollout
-from experiment.obsrl.utils import train_one_epoch
+from experiment.obsrl.utils import one_batch_train_disc
 from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import Datasets, assets
@@ -470,7 +470,8 @@ def get_league_scores(
     ds.feature_trs = obs_features
 
     sampler = SubsetRandomSampler(subset_indices)
-    dl = dl_(ds, bs=128, collate_fn=None, shuffle=False, nworkers=None, sampler=sampler)
+    dl = dl_(ds, bs=64, collate_fn=None, shuffle=False, nworkers=None, sampler=sampler)
+    obs.eval()
 
     with torch.no_grad():
         with tqdm(
@@ -734,15 +735,14 @@ def main(cfg: DictConfig):
     padding_scale_max = 0.01
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
-    valid_acc_thres = 0.2
-
     league_update_frac = 0.2
     active_league_idx = None
-
-    train_obs_c = 0
+    disc_loss_thres = 5.0
 
     train_disc = False  # True
-    train_obs = True  # False
+
+    disc_ema_loss = 10.0
+    ema_decay = 0.96
 
     e = 0
     detach_period = cfg.h_detach_period
@@ -753,237 +753,240 @@ def main(cfg: DictConfig):
                 "loss": [],
                 "policy_loss": [],
                 "value_loss": [],
+                "disc_loss": [],
                 "avg_return": [],
                 "entropy": [],
                 "entropy_loss": [],
                 "mean_padding_frac": [],
                 "mean_trace_len": [],
                 "sel vs. cond std ratio": [],
+                "train_disc": [],
             }
             losses_metrics_d.update(
                 {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
             )
 
-            # Train disc:
-            # ============================================
-            if train_disc:
-                dl_train_ = _get_obs_def_dl(
-                    disc=discriminator,
+            disc_league, active_league_idx, active_disc_league, weights = (
+                get_active_league(
+                    active_league_idx=active_league_idx,
+                    league=disc_league,
+                    ds=ds_valid,
                     obs=obs,
-                    ds=ds_train,
-                    n_packets=cfg.trace_len,
-                    bs=64,
-                    obs_league=[st for _, st in obs_league[-5:]],
-                )
-
-                loss = train_one_epoch(
-                    clf=discriminator,
-                    dl_train=dl_train_,
-                    optimG=disc_optim,
+                    critic=critic,
+                    obs_feats=ds_train.feature_trs,
+                    disc=discriminator,
+                    disc_feats=disc_feats,
+                    reward_scales=reward_scales,
                     device=device,
-                    grad_clip=cfg.grad_norm_clip,
+                    league_size=cfg.league_size,
+                    league_update_frac=league_update_frac,
+                    prune=len(disc_league) > 20,
                 )
-                _restore_obs_def_ds(ds_train, obs_features, obs, device)
-
-                losses_metrics_d["disc_train_loss"] = loss
-
-                # League handling:
-                # =======================================
-                # Append current discriminator to league
-                disc_league = _append_to_league(disc_league, discriminator.state_dict())
-
-                losses_metrics_d["train_disc"] = 1
-
-            else:
-                losses_metrics_d["train_disc"] = 0
+            )
+            # Force the current discriminator into the league - note this is not frozen!
+            disc_idx = weights.argmax().item()
+            active_disc_league[disc_idx] = (-1, discriminator.state_dict())
 
             # Train obs:
             # ===========================================
             obs.train()
             obs.cond_beta = 0.3
 
-            if train_obs:
-                disc_league, active_league_idx, active_disc_league, weights = (
-                    get_active_league(
-                        active_league_idx=active_league_idx,
-                        league=disc_league,
-                        ds=ds_valid,
+            with tqdm(
+                dl_train,
+                desc=f"epoch {e:02d}",
+                ncols=2 * TQDM_W,
+            ) as pbar:
+                for X, y in pbar:
+                    X = dict_to_device(X, device)
+                    y = y.to(device)
+
+                    obs_optim.zero_grad()
+                    critic_optim.zero_grad()
+
+                    (
+                        log_ps,
+                        sel_probs,
+                        values,
+                        league_rewards,
+                        entropies,
+                        _,
+                        _,
+                        Xobs,
+                        fd,
+                    ) = rollout(
                         obs=obs,
                         critic=critic,
-                        obs_feats=ds_train.feature_trs,
                         disc=discriminator,
-                        disc_feats=disc_feats,
+                        X=X,
+                        y=y,
+                        disc_features=disc_feats,
+                        disc_league=active_disc_league,
+                        detach_period=detach_period,
                         reward_scales=reward_scales,
-                        device=device,
-                        league_size=cfg.league_size,
-                        league_update_frac=league_update_frac,
-                        prune=len(disc_league) > 20,
                     )
-                )
-                with tqdm(
-                    dl_train,
-                    desc=f"epoch {e:02d}",
-                    ncols=2 * TQDM_W,
-                ) as pbar:
-                    for X, y in pbar:
-                        X = dict_to_device(X, device)
-                        y = y.to(device)
 
-                        obs_optim.zero_grad()
-                        critic_optim.zero_grad()
+                    action_seq_lens = get_action_seq_lens(fd)
 
-                        (
-                            log_ps,
-                            sel_probs,
-                            values,
-                            league_rewards,
-                            entropies,
-                            _,
-                            _,
-                            Xobs,
-                            fd,
-                        ) = rollout(
-                            obs=obs,
-                            critic=critic,
-                            disc=discriminator,
-                            X=X,
-                            y=y,
-                            disc_features=disc_feats,
-                            disc_league=active_disc_league,
-                            detach_period=detach_period,
-                            reward_scales=reward_scales,
-                        )
+                    time_mask = make_time_mask(
+                        action_seq_lens, fd[Feats.TIMES].shape[1], device=device
+                    )
 
-                        action_seq_lens = get_action_seq_lens(fd)
+                    # The G, and advanages (nleague, bs, T)
+                    # are detached from the comput graph.
+                    G, advantages = get_advantages(
+                        league_rewards, values, action_seq_lens, cfg
+                    )
 
-                        time_mask = make_time_mask(
-                            action_seq_lens, fd[Feats.TIMES].shape[1], device=device
-                        )
+                    # Compute losses, advantages and G ARE detached.
+                    # weights.shape = (nleague, ), --> advantages.shape = (bs, T)
+                    advantages = (weights[:, None, None] * advantages).sum(dim=0)
 
-                        # The G, and advanages (nleague, bs, T)
-                        # are detached from the comput graph.
-                        G, advantages = get_advantages(
-                            league_rewards, values, action_seq_lens, cfg
-                        )
+                    # _, adv_std = masked_mean_std(advantages, time_mask)
 
-                        # Compute losses, advantages and G ARE detached.
-                        # weights.shape = (nleague, ), --> advantages.shape = (bs, T)
-                        advantages = (weights[:, None, None] * advantages).sum(dim=0)
+                    policy_loss_ = -(log_ps * advantages)
+                    policy_loss = masked_mean(policy_loss_, time_mask)
 
-                        # _, adv_std = masked_mean_std(advantages, time_mask)
+                    # valus.shape = (nleague, bs, T), G.shape = (nleague, bs, T)
+                    # -> value_loss_.shape = (bs, T)
+                    value_loss_ = 0.5 * (
+                        weights[:, None, None] * (values - G).pow(2)
+                    ).sum(dim=0)
+                    value_loss = masked_mean(value_loss_, time_mask)
 
-                        policy_loss_ = -(log_ps * advantages)
-                        policy_loss = masked_mean(policy_loss_, time_mask)
+                    entropy = masked_mean(entropies, time_mask)
+                    entropy_loss = -entropy_scale * entropy
 
-                        # valus.shape = (nleague, bs, T), G.shape = (nleague, bs, T)
-                        # -> value_loss_.shape = (bs, T)
-                        value_loss_ = 0.5 * (
-                            weights[:, None, None] * (values - G).pow(2)
-                        ).sum(dim=0)
-                        value_loss = masked_mean(value_loss_, time_mask)
+                    loss = policy_loss + entropy_loss
 
-                        entropy = masked_mean(entropies, time_mask)
-                        entropy_loss = -entropy_scale * entropy
+                    # Track the effect of selection vs conditional
+                    sel_log_ps = torch.log(sel_probs)
+                    sel_term = (advantages[..., None] * sel_log_ps).std()
+                    cond_term = (
+                        advantages[..., None] * (log_ps[..., None] - sel_log_ps)
+                    ).std()
+                    ratio = cond_term / (sel_term + 1e-8)
 
-                        loss = policy_loss + entropy_loss
+                    # Obs step:
+                    # ==========================================
+                    # Gradient clipping
+                    loss.backward()
+                    nn.utils.clip_grad_norm_(
+                        obs.parameters(),
+                        cfg.grad_norm_clip,
+                        error_if_nonfinite=True,
+                    )
 
-                        # Track the effect of selection vs conditional
-                        sel_log_ps = torch.log(sel_probs)
-                        sel_term = (advantages[..., None] * sel_log_ps).std()
-                        cond_term = (
-                            advantages[..., None] * (log_ps[..., None] - sel_log_ps)
-                        ).std()
-                        ratio = cond_term / (sel_term + 1e-8)
+                    obs_optim.step()
+                    # ==========================================
 
-                        # Obs step:
-                        # ==========================================
-                        # Gradient clipping
-                        loss.backward()
-                        nn.utils.clip_grad_norm_(
-                            obs.parameters(),
-                            cfg.grad_norm_clip,
-                            error_if_nonfinite=True,
-                        )
+                    # Critic step:
+                    # ==========================================
+                    # Gradient clipping
+                    value_loss.backward()
+                    nn.utils.clip_grad_norm_(
+                        critic.parameters(),
+                        cfg.grad_norm_clip,
+                        error_if_nonfinite=True,
+                    )
 
-                        obs_optim.step()
-                        # ==========================================
+                    critic_optim.step()
+                    # ==========================================
 
-                        # Critic step:
-                        # ==========================================
-                        # Gradient clipping
-                        value_loss.backward()
-                        nn.utils.clip_grad_norm_(
-                            critic.parameters(),
-                            cfg.grad_norm_clip,
-                            error_if_nonfinite=True,
-                        )
+                    # Discriminator:
+                    # ==========================================
+                    train_disc = disc_ema_loss > disc_loss_thres
 
-                        critic_optim.step()
-                        # ==========================================
+                    disc_loss, _ = one_batch_train_disc(
+                        disc=discriminator,
+                        X=Xobs,
+                        y=y,
+                        disc_opm=disc_optim,
+                        feature_trs=disc_feats,
+                        train=train_disc,
+                        grad_clip=3.0,
+                        detach_period=1000,
+                        get_accuracy=False,
+                    )
 
-                        losses_metrics_d["loss"].append(loss.item())
-                        losses_metrics_d["policy_loss"].append(policy_loss.item())
-                        losses_metrics_d["value_loss"].append(value_loss.item())
-                        losses_metrics_d["avg_return"].append(
-                            masked_mean_std(
-                                (weights[:, None, None] * G).sum(dim=0), time_mask
-                            )[0].item()
-                        )
-                        losses_metrics_d["entropy"].append(entropy.item())
-                        losses_metrics_d["entropy_loss"].append(entropy_loss.item())
-                        losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
+                    disc_ema_loss = (
+                        ema_decay * disc_ema_loss + (1 - ema_decay) * disc_loss
+                    )
 
-                        # (B, )
-                        normal_packets = (
-                            (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 0)
-                        ).sum(dim=1)
-                        # (B, )
-                        padding_packets = (
-                            (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 1)
-                        ).sum(dim=1)
+                    # Logging:
+                    # =========================================
+                    losses_metrics_d["loss"].append(loss.item())
+                    losses_metrics_d["policy_loss"].append(policy_loss.item())
+                    losses_metrics_d["value_loss"].append(value_loss.item())
+                    losses_metrics_d["disc_loss"].append(disc_loss)
+                    losses_metrics_d["entropy"].append(entropy.item())
+                    losses_metrics_d["entropy_loss"].append(entropy_loss.item())
+                    losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
+                    losses_metrics_d["train_disc"].append(1 if train_disc else 0)
+                    losses_metrics_d["avg_return"].append(
+                        masked_mean_std(
+                            (weights[:, None, None] * G).sum(dim=0), time_mask
+                        )[0].item()
+                    )
 
-                        losses_metrics_d["mean_padding_frac"].append(
-                            (padding_packets / normal_packets).mean().item()
-                        )
-                        losses_metrics_d["mean_trace_len"].append(
-                            (Xobs[Feats.DIRS] != 0).sum(dim=1).float().mean().item()
-                        )
-                        for k, v in league_rewards.items():
-                            losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
+                    # (B, )
+                    normal_packets = (
+                        (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 0)
+                    ).sum(dim=1)
+                    # (B, )
+                    padding_packets = (
+                        (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 1)
+                    ).sum(dim=1)
 
-                        pbar.set_postfix(
-                            {
-                                "avg_return": np.mean(
-                                    losses_metrics_d["avg_return"][-20:]
-                                )
-                            }
-                        )
+                    losses_metrics_d["mean_padding_frac"].append(
+                        (padding_packets / normal_packets).mean().item()
+                    )
+                    losses_metrics_d["mean_trace_len"].append(
+                        (Xobs[Feats.DIRS] != 0).sum(dim=1).float().mean().item()
+                    )
+                    for k, v in league_rewards.items():
+                        losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
 
-                # Padding and entropy scale updates:
-                # =============================================
-                if train_obs_c < satlen:
-                    padding_scale += padding_scale_step
+                    pbar.set_postfix(
+                        {
+                            "avg_ret": np.mean(losses_metrics_d["avg_return"][-20:]),
+                            "e_dloss": disc_ema_loss,
+                        }
+                    )
 
-                losses_metrics_d["padding_scale"] = padding_scale
+            # League handling:
+            # =======================================
+            # Append current discriminator to league
+            disc_league = _append_to_league(disc_league, discriminator.state_dict())
+            obs_league = _append_to_league(obs_league, obs.state_dict())
 
-                entropy = np.mean(losses_metrics_d["entropy"])
-                if entropy > entropy_target:
-                    entropy_scale *= 0.9
-                elif entropy <= entropy_target:
-                    entropy_scale *= 1.1
+            # Padding and entropy scale updates:
+            # =============================================
+            if e < satlen:
+                padding_scale += padding_scale_step
 
-                losses_metrics_d["entropy_scale"] = entropy_scale
-                # =============================================
+            losses_metrics_d["padding_scale"] = padding_scale
 
-                train_obs_c += 1
-                losses_metrics_d["train_obs"] = 1
-                obs_league = _append_to_league(obs_league, obs.state_dict())
+            entropy = np.mean(losses_metrics_d["entropy"])
+            if entropy > entropy_target:
+                entropy_scale *= 0.9
+            elif entropy <= entropy_target:
+                entropy_scale *= 1.1
 
-                losses_metrics_d["entropy_loss vs. policy_loss"] = np.mean(
-                    losses_metrics_d["entropy_loss"]
-                ) / np.mean(losses_metrics_d["policy_loss"])
-            else:
-                losses_metrics_d["train_obs"] = 0
+            losses_metrics_d["entropy_scale"] = entropy_scale
+            # =============================================
+
+            # Disc loss thres update:
+            # =============================================
+            if np.mean(losses_metrics_d["train_disc"]) > 0.90:
+                # If the disc has been trained most of the time, lower the thres.
+                disc_loss_thres *= 1.01
+
+            losses_metrics_d["disc_loss_thres"] = disc_loss_thres
+
+            losses_metrics_d["entropy_loss vs. policy_loss"] = np.mean(
+                losses_metrics_d["entropy_loss"]
+            ) / np.mean(losses_metrics_d["policy_loss"])
 
             # Logging:
             # =============================================
@@ -1003,7 +1006,7 @@ def main(cfg: DictConfig):
 
                 mlflow.log_metric(k, v, step=e)
 
-            if train_obs or (e > 0 and e % cfg.figs_period == 0):
+            if e > 0 and e % cfg.figs_period == 0:
                 _plot_set(
                     cfg=cfg,
                     ds=ds_valid,
@@ -1035,17 +1038,6 @@ def main(cfg: DictConfig):
                 key=key,
             )
 
-            if d[f"{key}-accuracy"] < valid_acc_thres:
-                train_disc = True
-                train_obs = False
-            else:
-                if train_disc:
-                    valid_acc_thres += 0.01
-                    entropy_target *= 0.98
-                train_disc = False
-                train_obs = True
-
-            d["valid_acc_thres"] = valid_acc_thres
             d["entropy_target"] = entropy_target
 
             for k, v in d.items():
