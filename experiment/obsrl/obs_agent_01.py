@@ -597,15 +597,17 @@ def get_active_league(
             len(league), min(len(league), league_size), replace=False
         )
 
-    # We ensure that the latest disc is always in the leaque
-    cur_disc_pos = len(league) - 1
-
     if prune:
         logger.info("Pruning disc league.")
         val = league_scores.min().item()
         mask = league_scores > val
+        # The latest disc shall not be removed..
+        mask[-1] = False
         league_scores = league_scores[mask]
         league = [l_ for i, l_ in enumerate(league) if mask[i]]
+
+    # We ensure that the latest disc is always in the leaque
+    cur_disc_pos = len(league) - 1
 
     if league_size == 1:
         active_league_idx = np.array([cur_disc_pos])
