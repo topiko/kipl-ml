@@ -848,6 +848,11 @@ def main(cfg: DictConfig):
                         "rollout_disc_forward_ms",
                         "rollout_rewards_ms",
                         "rollout_critic_ms",
+                        "send_exec_total_ms",
+                        "send_exec_prep_ms",
+                        "send_exec_sample_loop_ms",
+                        "send_exec_build_cat_ms",
+                        "send_exec_flush_sort_ms",
                     ):
                         if k in timing:
                             losses_metrics_d.setdefault(k, []).append(float(timing[k]))

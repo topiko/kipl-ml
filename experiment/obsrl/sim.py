@@ -139,7 +139,8 @@ def rollout(
             print("Huge hidden/cell:", h_norm, c_norm)
 
     t2 = time.perf_counter()
-    Xobs = send_exec(X, act_times, actions)
+    send_timing: dict[str, float] = {}
+    Xobs = send_exec(X, act_times, actions, timing=send_timing)
 
     t3 = time.perf_counter()
 
@@ -212,6 +213,8 @@ def rollout(
         timing["rollout_fd_ms"] = (t1 - t0) * 1000
         timing["rollout_act_ms"] = (t2 - t1) * 1000
         timing["rollout_send_exec_ms"] = (t3 - t2) * 1000
+        for k, v in send_timing.items():
+            timing[f"{k}"] = float(v)
         timing["rollout_disc_forward_ms"] = disc_fwd_s * 1000
         timing["rollout_rewards_ms"] = rewards_s * 1000
         timing["rollout_critic_ms"] = critic_s * 1000
