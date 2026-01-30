@@ -21,62 +21,61 @@ def get_rewards(
     seq_lens: torch.Tensor,
     reward_scales: dict[str, float] = {"clf_scale": 1.0, "padding_scale": 1.0},
 ) -> dict[str, torch.Tensor]:
+    # Shapes:
+    # - action_times: (B, T)
+    # - disc_logits: (B, N, C)
+    # - seq_lens: (B,)
     N = disc_logits.shape[1]
-
     bs, T = action_times.shape
 
-    # (B, T)
     rewards: dict[str, torch.Tensor] = {
         k.replace("_scale", ""): torch.zeros_like(action_times) for k in reward_scales
     }
 
     # (B, N)
-    times = X[Feats.TIMES]
-    padding = X[Feats.PADDING].bool()
+    times = X[Feats.TIMES][:, :N]
+    padding = X[Feats.PADDING][:, :N].bool()
 
     # (B, N, C)
     probs = nn.functional.softmax(disc_logits, dim=-1)
-
     # (B, N)
-    target_probs = probs.gather(2, y.unsqueeze(1).expand(-1, N).unsqueeze(-1)).squeeze(
-        -1
+    target_probs = probs.gather(2, y[:, None, None].expand(-1, N, 1)).squeeze(-1)
+
+    # Assign each packet time to an action interval [t_i, t_{i+1}).
+    # We treat NaNs in action_times as +inf, which makes the last finite action
+    # cover the rest of the trace.
+    boundaries = action_times.nan_to_num(nan=float("inf"))
+    # (B, N) in [0..T], then shift to [ -1 .. T-1 ]
+    idx = torch.searchsorted(boundaries, times, right=True) - 1
+    valid_idx = (idx >= 0) & (idx < T)
+
+    # Ignore padded packets beyond seq_lens.
+    pkt_valid = (
+        torch.arange(N, device=times.device)[None, :]
+        < seq_lens.to(times.device)[:, None]
     )
+    valid = valid_idx & pkt_valid
 
-    for i in range(T):
-        # (B, 1)
-        t0 = action_times[:, i].unsqueeze(1)
+    idx_clamped = idx.clamp(0, T - 1)
 
-        # (B, 1)
-        if i + 1 == T:
-            t1 = torch.full_like(t0, torch.inf)
-        else:
-            t1 = action_times[:, i + 1].unsqueeze(1)
+    # Padding penalty: count padding packets per action interval.
+    pad_w = (padding & valid).to(times.dtype)
+    npad = torch.zeros((bs, T), device=times.device, dtype=times.dtype).scatter_add_(
+        1, idx_clamped, pad_w
+    )
+    rewards["padding"] -= npad * reward_scales["padding_scale"]
 
-        t0 = t0.nan_to_num(nan=torch.inf)
-        t1 = t1.nan_to_num(nan=torch.inf, posinf=torch.inf)
-
-        # From the last action we take rewards all the way to end of times.
-        mask = (times >= t0) & (times < t1)
-
-        # (B, )
-        npad = (padding & mask).sum(dim=1).float()
-        rewards["padding"][:, i] -= npad * reward_scales["padding_scale"]
-
-        # Count the "clf reward" only from the normal packets.
-        p_lvl = 0.1
-        float_mltp = (mask & ~padding).float()
-        nnormal = float_mltp.sum(dim=1)
-        mean_p = torch.where(
-            nnormal > 0,
-            ((p_lvl - target_probs) * (mask & ~padding).float()).sum(dim=1) / nnormal,
-            0,
-        )
-
-        #
-        normal_mask = nnormal > 0
-        rewards["clf"][normal_mask, i] += (
-            mean_p[normal_mask] * reward_scales["clf_scale"]
-        )
+    # Classifier reward: mean over normal packets per interval.
+    p_lvl = 0.1
+    normal_w = ((~padding) & valid).to(times.dtype)
+    normal_cnt = torch.zeros(
+        (bs, T), device=times.device, dtype=times.dtype
+    ).scatter_add_(1, idx_clamped, normal_w)
+    normal_sum = torch.zeros(
+        (bs, T), device=times.device, dtype=times.dtype
+    ).scatter_add_(1, idx_clamped, (p_lvl - target_probs) * normal_w)
+    mean_p = torch.where(normal_cnt > 0, normal_sum / normal_cnt, 0.0)
+    rewards["clf"] += mean_p * reward_scales["clf_scale"]
 
     return rewards
 
@@ -106,6 +105,12 @@ def rollout(
     hobs = None
     rewards = None
     device = y.device
+
+    # Timing defaults (used only when reward_scales is not None)
+    disc_fwd_s = 0.0
+    rewards_s = 0.0
+    critic_s = 0.0
+    league_values = None
 
     t0 = time.perf_counter()
     if X[Feats.TIMES].isnan().any():
@@ -144,7 +149,8 @@ def rollout(
         }
         rewards_l = []
         league_values_l = []
-        packet_seq_lens = (Xobs[Feats.DIRS] != 0).sum(dim=1).long().cpu()
+        packet_seq_lens_gpu = (Xobs[Feats.DIRS] != 0).sum(dim=1).long()
+        packet_seq_lens = packet_seq_lens_gpu.cpu()
 
         if disc_features is not None:
             X_ = disc_features.transform_batch(Xobs)
@@ -154,9 +160,6 @@ def rollout(
         if Feats.LABEL in critic.features:
             fd[Feats.LABEL] = y.unsqueeze(1).repeat(1, L)
 
-        disc_fwd_s = 0.0
-        rewards_s = 0.0
-        critic_s = 0.0
         for disc_id, state_d in disc_league:
             disc.load_state_dict({k: v.to(device) for k, v in state_d.items()})
 
@@ -169,7 +172,12 @@ def rollout(
 
             trew0 = time.perf_counter()
             rewards_ = get_rewards(
-                act_times, Xobs, y, logits, packet_seq_lens, reward_scales=reward_scales
+                act_times,
+                Xobs,
+                y,
+                logits,
+                packet_seq_lens_gpu,
+                reward_scales=reward_scales,
             )
             rewards_s += time.perf_counter() - trew0
 
