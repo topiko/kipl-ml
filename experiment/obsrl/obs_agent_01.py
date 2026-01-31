@@ -375,10 +375,11 @@ def assert_finite(name, x):
 def _append_to_league(
     league: list[tuple[int, dict]], state_dict: dict
 ) -> list[tuple[int, nn.Module.state_dict]]:
-    max_idx = max(id_ for id_, _ in league)
-    league.append(
-        (max_idx + 1, {k: v.cpu() for k, v in copy.deepcopy(state_dict).items()})
-    )
+    if league:
+        id_ = max(id_ for id_, _ in league) + 1
+    else:
+        id_ = 0
+    league.append((id_, {k: v.cpu() for k, v in copy.deepcopy(state_dict).items()}))
 
     return league
 
@@ -718,10 +719,10 @@ def main(cfg: DictConfig):
         max_silence_s=obs_max_silence_s,
         zero_init=False,
         hsize=128,
-        nlayers=2,
+        nlayers=1,
     ).to(device)
 
-    critic = CRITIC01(obs, hsize=256, nlayers=3, use_machine_id=False).to(
+    critic = CRITIC01(obs, hsize=128, nlayers=1, use_machine_id=False).to(
         device
     )  # (256, 3)
 
@@ -731,7 +732,7 @@ def main(cfg: DictConfig):
     # disc_league = _append_to_league(disc_league, discriminator.state_dict())
     # obs_league = _append_to_league([], obs.state_dict())
 
-    lr = 0.0001
+    lr = 0.0005
     obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr / 3)
 
     lr_critic = lr / 2
@@ -742,19 +743,19 @@ def main(cfg: DictConfig):
     satlen = 50
 
     # Entropy scale
-    entropy_scale = 0.001
+    entropy_scale = 0.01
 
     entropy_target = 1.2
     # We drive the entropy loss to 0.001 during satlen steps...
 
     # Padding reward scale
-    padding_scale = 0.0
-    padding_scale_max = 0.0001
+    padding_scale = 0.001
+    padding_scale_max = 0.002
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     league_update_frac = 0.2
     active_league_idx = None
-    disc_loss_thres = 2.5
+    disc_loss_thres = 3.7
     disc_loss_step = disc_loss_thres / 200
     disc_loss_p_buffer = 0.1
 
@@ -766,7 +767,7 @@ def main(cfg: DictConfig):
     detach_period = cfg.h_detach_period
     with mlflow.start_run(log_system_metrics=True):
         while True:
-            reward_scales = {"clf_scale": 1.0, "padding_scale": padding_scale}
+            reward_scales = {"clf_scale": 10.0, "padding_scale": padding_scale}
             losses_metrics_d: dict[str, list[float] | float] = {
                 "loss": [],
                 "policy_loss": [],
@@ -912,7 +913,12 @@ def main(cfg: DictConfig):
                     # Discriminator:
                     # ==========================================
                     train_disc = np.random.rand() < (
-                        np.clip(disc_loss_thres - disc_ema_loss, 0, disc_loss_p_buffer)
+                        1
+                        - np.clip(
+                            disc_loss_thres + disc_loss_p_buffer - disc_ema_loss,
+                            0,
+                            disc_loss_p_buffer,
+                        )
                         / disc_loss_p_buffer
                     )
 
@@ -988,7 +994,7 @@ def main(cfg: DictConfig):
             # League handling:
             # =======================================
             # Append current discriminator to league
-            if sum(losses_metrics_d["train_disc"]) > 10:
+            if np.mean(losses_metrics_d["train_disc"]) > 0.05:
                 disc_league = _append_to_league(disc_league, discriminator.state_dict())
                 mlflow.pytorch.log_model(
                     discriminator, name=f"rldisc-{disc_league[-1][0]}", step=e
