@@ -143,6 +143,7 @@ def rollout(
         else:
             X_ = Xobs
 
+        # Critic feat building:
         if Feats.LABEL in critic.features:
             fd[Feats.LABEL] = y.unsqueeze(1).repeat(1, L)
 

@@ -717,10 +717,10 @@ def main(cfg: DictConfig):
         max_silence_s=obs_max_silence_s,
         zero_init=False,
         hsize=128,
-        nlayers=1,
+        nlayers=2,
     ).to(device)
 
-    critic = CRITIC01(obs, hsize=128, nlayers=1, use_machine_id=False).to(
+    critic = CRITIC01(obs, hsize=256, nlayers=3, use_machine_id=False).to(
         device
     )  # (256, 3)
 
@@ -730,7 +730,7 @@ def main(cfg: DictConfig):
     # disc_league = _append_to_league(disc_league, discriminator.state_dict())
     # obs_league = _append_to_league([], obs.state_dict())
 
-    lr = 0.0005
+    lr = 0.0001
     obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr / 3)
 
     lr_critic = lr / 2
@@ -741,20 +741,21 @@ def main(cfg: DictConfig):
     satlen = 50
 
     # Entropy scale
-    entropy_scale = 0.01
+    entropy_scale = 0.001
 
     entropy_target = 1.2
     # We drive the entropy loss to 0.001 during satlen steps...
 
     # Padding reward scale
-    padding_scale = 0.001
-    padding_scale_max = 0.002
+    padding_scale = 0.0
+    padding_scale_max = 0.0001
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     league_update_frac = 0.2
     active_league_idx = None
-    disc_loss_thres = 3.7
+    disc_loss_thres = 2.5
     disc_loss_step = disc_loss_thres / 200
+    disc_loss_p_buffer = 0.1
 
     disc_ema_loss = 10.0
     ema_decay = 0.95
@@ -764,7 +765,7 @@ def main(cfg: DictConfig):
     detach_period = cfg.h_detach_period
     with mlflow.start_run(log_system_metrics=True):
         while True:
-            reward_scales = {"clf_scale": 10.0, "padding_scale": padding_scale}
+            reward_scales = {"clf_scale": 1.0, "padding_scale": padding_scale}
             losses_metrics_d: dict[str, list[float] | float] = {
                 "loss": [],
                 "policy_loss": [],
@@ -797,7 +798,7 @@ def main(cfg: DictConfig):
                         device=device,
                         league_size=cfg.league_size,
                         league_update_frac=league_update_frac,
-                        prune=len(disc_league) > 20,
+                        prune=len(disc_league) > 10,
                     )
                 )
 
@@ -909,7 +910,10 @@ def main(cfg: DictConfig):
 
                     # Discriminator:
                     # ==========================================
-                    train_disc = disc_ema_loss > disc_loss_thres
+                    train_disc = np.random.rand() < (
+                        np.clip(disc_loss_thres - disc_ema_loss, 0, disc_loss_p_buffer)
+                        / disc_loss_p_buffer
+                    )
 
                     disc_loss, _ = one_batch_train_disc(
                         disc=discriminator,
@@ -1016,7 +1020,10 @@ def main(cfg: DictConfig):
             elif d_train_frac < 0.1:
                 obs_train_frac = 1.0
 
-            disc_loss_thres -= disc_loss_step
+            if d_train_frac != 0.0:
+                disc_loss_thres -= disc_loss_step
+
+            # disc_loss_thres -= disc_loss_step
 
             # Logging:
             # =============================================
