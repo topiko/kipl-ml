@@ -375,8 +375,9 @@ def assert_finite(name, x):
 def _append_to_league(
     league: list[tuple[int, dict]], state_dict: dict
 ) -> list[tuple[int, nn.Module.state_dict]]:
+    max_idx = max(id_ for id_, _ in league)
     league.append(
-        (len(league), {k: v.cpu() for k, v in copy.deepcopy(state_dict).items()})
+        (max_idx + 1, {k: v.cpu() for k, v in copy.deepcopy(state_dict).items()})
     )
 
     return league
@@ -989,6 +990,9 @@ def main(cfg: DictConfig):
             # Append current discriminator to league
             if sum(losses_metrics_d["train_disc"]) > 10:
                 disc_league = _append_to_league(disc_league, discriminator.state_dict())
+                mlflow.pytorch.log_model(
+                    discriminator, name=f"rldisc-{disc_league[-1][0]}", step=e
+                )
             # obs_league = _append_to_league(obs_league, obs.state_dict())
 
             # Padding and entropy scale updates:
