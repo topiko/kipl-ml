@@ -287,7 +287,7 @@ def get_advantages(
 
     # In case of "league rewards"
     if rewards.ndim == 3:
-        if cfg.advantages.standardize:
+        if cfg.advantages.standardize and cfg.league_size > 1:
             raise NotImplementedError("You should not standardize here for league")
 
         G_l = []
@@ -722,7 +722,7 @@ def main(cfg: DictConfig):
         nlayers=1,
     ).to(device)
 
-    critic = CRITIC01(obs, hsize=128, nlayers=1, use_machine_id=False).to(
+    critic = CRITIC01(obs, hsize=256, nlayers=3, use_machine_id=False).to(
         device
     )  # (256, 3)
 
@@ -743,7 +743,7 @@ def main(cfg: DictConfig):
     satlen = 50
 
     # Entropy scale
-    entropy_scale = 0.01
+    entropy_scale = 0.001
 
     entropy_target = 1.2
     # We drive the entropy loss to 0.001 during satlen steps...
@@ -755,9 +755,10 @@ def main(cfg: DictConfig):
 
     league_update_frac = 0.2
     active_league_idx = None
-    disc_loss_thres = 3.7
+    disc_loss_thres = 2.7
     disc_loss_step = disc_loss_thres / 200
     disc_loss_p_buffer = 0.1
+    disc_train_min_p = 0.02
 
     disc_ema_loss = 10.0
     ema_decay = 0.95
@@ -767,7 +768,7 @@ def main(cfg: DictConfig):
     detach_period = cfg.h_detach_period
     with mlflow.start_run(log_system_metrics=True):
         while True:
-            reward_scales = {"clf_scale": 10.0, "padding_scale": padding_scale}
+            reward_scales = {"clf_scale": 1.0, "padding_scale": padding_scale}
             losses_metrics_d: dict[str, list[float] | float] = {
                 "loss": [],
                 "policy_loss": [],
@@ -915,11 +916,11 @@ def main(cfg: DictConfig):
                     train_disc = np.random.rand() < (
                         1
                         - np.clip(
-                            disc_loss_thres + disc_loss_p_buffer - disc_ema_loss,
+                            (disc_loss_thres + disc_loss_p_buffer - disc_ema_loss)
+                            / disc_loss_p_buffer,
                             0,
-                            disc_loss_p_buffer,
+                            1 - disc_train_min_p,
                         )
-                        / disc_loss_p_buffer
                     )
 
                     disc_loss, _ = one_batch_train_disc(
