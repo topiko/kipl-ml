@@ -11,12 +11,18 @@ logger = get_logger(__name__)
 
 
 def _add_actions_to_silence_periods(
-    feature_dict: dict[Feats, torch.Tensor], max_silence_s: float
+    feature_dict: dict[Feats, torch.Tensor], time_step: float, max_silence_s: float
 ) -> dict[Feats, torch.Tensor]:
     times = feature_dict[Feats.TIMES]
-    dts = times.diff(
-        dim=1, prepend=torch.zeros((times.shape[0], 1), device=times.device)
-    )
+
+    packet_window_start_times = times
+    packet_window_end_times = times + time_step
+
+    dts = packet_window_start_times[:, 1:] - packet_window_end_times[:, :-1]
+
+    # dts = times.diff(
+    #    dim=1, prepend=torch.zeros((times.shape[0], 1), device=times.device)
+    # )
 
     if dts[dts.isfinite()].max() <= max_silence_s:
         return feature_dict
@@ -39,15 +45,17 @@ def _add_actions_to_silence_periods(
     dt_ = 1e-3
     for row in range(dts.shape[0]):
         mask = dts[row] > (max_silence_s + dt_)
-        silence_starts = times[row, mask.roll(-1)]
-        deltas = times[row, mask] - silence_starts
+        # Silence starts from window end.
+        silence_starts = packet_window_end_times[row, :-1][mask]
+        # times[row, mask.roll(-1)]
+        deltas = dts[row, mask]  # times[row, mask] - silence_starts
 
         counts = deltas // (max_silence_s + dt_)
 
         new_times_l = []
         for start, count in zip(silence_starts, counts):
             new_times = (
-                torch.arange(1, count + 1, device=times.device) * max_silence_s + start
+                torch.arange(0, count, device=times.device) * max_silence_s + start
             )
             if torch.isin(new_times, feature_dict[Feats.TIMES][row]).any():
                 raise ValueError("New times collide with existing times!")
@@ -122,7 +130,7 @@ def get_window_feature_dict(
 
     times_ = _fill_after_seq_end(times_, pad_val=0)
     feature_dict[Feats.TIMES] = times_
-    feature_dict = _add_actions_to_silence_periods(feature_dict, max_silence_s)
+    feature_dict = _add_actions_to_silence_periods(feature_dict, dt, max_silence_s)
 
     dts = feature_dict[Feats.TIMES].diff(
         dim=1, prepend=torch.zeros((times.shape[0], 1), device=times.device)
