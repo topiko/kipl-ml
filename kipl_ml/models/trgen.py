@@ -294,8 +294,10 @@ class AGENT1(nn.Module):
     ):
         super().__init__()
 
-        send_count_bins = send_count_bins or [1, 2, 3, 5, 10, 20]
-        decay_time_bins = decay_time_bins or [0.01, 0.02, 0.05, 0.1, 0.2]
+        send_count_bins = send_count_bins or [1, 3, 5, 20]
+        if max_silence_s < 0.1:
+            raise ValueError("invalid decay time bins")
+        decay_time_bins = decay_time_bins or [0.02, 0.05, 0.1, max_silence_s]
         n_send_counts = len(send_count_bins)
         n_decay_times = len(decay_time_bins)
 

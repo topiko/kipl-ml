@@ -624,7 +624,6 @@ def get_active_league(
         active_league_idx = np.random.choice(
             len(league), league_size, p=probs, replace=False
         )
-        active_league_idx[-1] = cur_disc_pos
     else:
         active_league_idx = np.arange(len(league))
 
@@ -633,16 +632,27 @@ def get_active_league(
     active_league = [league[i] for i in active_league_idx]
 
     # If the latest disc is already in the active_league
-    if cur_disc_pos is active_league_idx:
-        idx = np.where(active_league_idx == cur_disc_pos)[0]
-        active_league[idx] = (cur_disc_pos, None)
+    if cur_disc_pos in active_league_idx:
+        cur_disc_idx_ = np.where(active_league_idx == cur_disc_pos)[0]
+        if len(cur_disc_idx_) != 1:
+            breakpoint()
+            raise ValueError("Disc several times in league!?")
+        cur_disc_idx_ = cur_disc_idx_[0]
     else:
-        active_league[-1] = (cur_disc_id, None)
+        cur_disc_idx_ = -1
+
+    # The acive disc is a special one in the league..
+    active_league[cur_disc_idx_] = (cur_disc_id, None)
+    active_league_idx[cur_disc_idx_] = cur_disc_pos
 
     if len(active_league_idx) > 1:
         weights = league_scores[active_league_idx]
         weights -= weights.min()
-        weights /= weights.max()
+        if weights.max() == 0:
+            logger.warning("Same score for several discs!")
+            weights = torch.ondes_like(weights) / weights.numel()
+        else:
+            weights /= weights.max()
         weights = torch.clamp(weights, 0.1, 1.0)
     else:
         weights = torch.tensor([1.0], device=device)
@@ -673,13 +683,9 @@ def main(cfg: DictConfig):
     )
     # This one already somewhat trained for obsfuscation.
     discriminator = mlflow.pytorch.load_model(
-        mlflow.get_logged_model("m-a1bec780ec314b95b4f0caac4dec5f46").model_uri,
+        mlflow.get_logged_model("m-946ec1db2aba467ea6524450b6f06a21").model_uri,
         map_location="cpu",
     )
-    # discriminator = mlflow.pytorch.load_model(
-    #     mlflow.get_logged_model("m-0300713d9fff44489468fa1d40eed723").model_uri,
-    #     map_location="cpu",
-    # )
     discriminator.predict_ks = cfg.predict_ks
 
     feature_names = [Feats.DIRS, Feats.TIMES]
@@ -732,7 +738,7 @@ def main(cfg: DictConfig):
     # disc_league = _append_to_league(disc_league, discriminator.state_dict())
     # obs_league = _append_to_league([], obs.state_dict())
 
-    lr = 0.0005
+    lr = 0.005
     obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr / 3)
 
     lr_critic = lr / 2
@@ -743,22 +749,23 @@ def main(cfg: DictConfig):
     satlen = 50
 
     # Entropy scale
-    entropy_scale = 0.001
+    entropy_scale = 0.005
+    ema_entropy = 1.0
 
-    entropy_target = 1.2
-    # We drive the entropy loss to 0.001 during satlen steps...
+    entropy_target = 1.5
 
     # Padding reward scale
-    padding_scale = 0.001
-    padding_scale_max = 0.002
+    padding_scale = 0.0001
+    padding_scale_max = 0.001
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     league_update_frac = 0.2
     active_league_idx = None
-    disc_loss_thres = 2.7
+    disc_loss_thres = 1.5
     disc_loss_step = disc_loss_thres / 200
     disc_loss_p_buffer = 0.1
     disc_train_min_p = 0.02
+    disc_train_count = 0
 
     disc_ema_loss = 10.0
     ema_decay = 0.95
@@ -911,6 +918,16 @@ def main(cfg: DictConfig):
                         )
                         critic_optim.step()
 
+                        ema_entropy = (
+                            ema_decay * ema_entropy + (1 - ema_decay) * entropy.item()
+                        )
+                        scale_update_ = np.clip(
+                            ((entropy_target - ema_entropy) / entropy_target) ** 3,
+                            -0.5,
+                            1.0,
+                        )
+                        entropy_scale = entropy_scale * (1 + scale_update_)
+
                     # Discriminator:
                     # ==========================================
                     train_disc = np.random.rand() < (
@@ -983,23 +1000,22 @@ def main(cfg: DictConfig):
                         postfix["ret"] = np.mean(
                             losses_metrics_d["avg_return"][-nhist:]
                         )
+                        postfix["H"] = ema_entropy
+                        postfix["Hs"] = entropy_scale
 
                     pbar.set_postfix(postfix)
-
-                    if not train_disc and obs_train_frac == 0:
-                        pbar.close()
-                        obs_train_frac = 1.0
-                        logger.info("Reached threshold, early termination")
-                        break
 
             # League handling:
             # =======================================
             # Append current discriminator to league
-            if np.mean(losses_metrics_d["train_disc"]) > 0.05:
+            disc_train_count += sum(losses_metrics_d["train_disc"])
+            if disc_train_count > 50:
                 disc_league = _append_to_league(disc_league, discriminator.state_dict())
                 mlflow.pytorch.log_model(
                     discriminator, name=f"rldisc-{disc_league[-1][0]}", step=e
                 )
+                disc_train_count = 0
+                disc_loss_thres -= disc_loss_step
             # obs_league = _append_to_league(obs_league, obs.state_dict())
 
             # Padding and entropy scale updates:
@@ -1015,10 +1031,7 @@ def main(cfg: DictConfig):
                     losses_metrics_d["policy_loss"]
                 )
                 losses_metrics_d["entropy_loss vs. policy_loss"] = el_vs_pl
-                # if abs(el_vs_pl) < 0.05:
-                #     entropy_scale *= 1.1
-                # else:
-                #     entropy_scale *= 0.9
+
             # =============================================
 
             # Disc loss thres update:
@@ -1028,11 +1041,8 @@ def main(cfg: DictConfig):
             if (d_train_frac := np.mean(losses_metrics_d["train_disc"])) > 0.90:
                 if d_train_frac == 1:
                     obs_train_frac *= 0.8
-            elif d_train_frac < 0.1:
+            elif d_train_frac < 0.5:
                 obs_train_frac = 1.0
-
-            if d_train_frac != 0.0:
-                disc_loss_thres -= disc_loss_step
 
             # disc_loss_thres -= disc_loss_step
 
