@@ -28,7 +28,7 @@ def _add_actions_to_silence_periods(
         return feature_dict
 
     lt = (
-        torch.where(dts.isfinite(), dts // max_silence_s, 0)
+        torch.where(dts.isfinite() & (dts >= time_step), dts // max_silence_s + 1, 0)
         .sum(dim=1)
         .max()
         .ceil()
@@ -55,7 +55,7 @@ def _add_actions_to_silence_periods(
         new_times_l = []
         for start, count in zip(silence_starts, counts):
             new_times = (
-                torch.arange(0, count, device=times.device) * max_silence_s + start
+                torch.arange(0, count + 1, device=times.device) * max_silence_s + start
             )
             if torch.isin(new_times, feature_dict[Feats.TIMES][row]).any():
                 raise ValueError("New times collide with existing times!")
