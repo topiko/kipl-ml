@@ -11,9 +11,10 @@ advantages:
   lambda_: 0.95
   standardize: False
 
+experiment_name: obsrl
 debug: False
 
-figs_period: 20
+figs_period: 1
 
 min_packets_in_trace: 1000
 league_size: 5

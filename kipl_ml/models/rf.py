@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch.optim.lr_scheduler import LRScheduler
 
 from kipl_ml.models.utils import unsqueeze_batch
+from kipl_ml.trace.enums import Feats
 
 
 def make_layers(cfg, in_channels=32):
@@ -147,6 +148,10 @@ class RF(nn.Module):
         x = self.classifier(x)
         x = x.view(x.size(0), -1)
         return x
+
+    def predict(self, x: dict[Feats, torch.Tensor]) -> torch.Tensor:
+        logits = self(x)
+        return logits, logits.argmax(dim=1)
 
     def example_input(self, x: dict[str, torch.tensor]) -> dict[str, torch.tensor]:
         return unsqueeze_batch(x)

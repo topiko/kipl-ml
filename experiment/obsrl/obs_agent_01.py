@@ -673,7 +673,7 @@ def get_active_league(
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
 def main(cfg: DictConfig):
-    experiment_name = "obsrl"
+    experiment_name = cfg.experiment_name
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
 
@@ -739,11 +739,11 @@ def main(cfg: DictConfig):
     # obs_league = _append_to_league([], obs.state_dict())
 
     lr = 0.005
-    obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr / cfg.rnn_lr_reduction)
+    obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr * cfg.rnn_lr_reduction)
 
     lr_critic = lr / 2
     critic_optim = _get_optim(
-        critic, lr=lr_critic, lr_rnn=lr_critic / cfg.rnn_lr_reduction
+        critic, lr=lr_critic, lr_rnn=lr_critic * cfg.rnn_lr_reduction
     )
 
     disc_optim = _get_optim(discriminator, lr=0.001, lr_rnn=0.001)
@@ -1115,7 +1115,7 @@ def main(cfg: DictConfig):
                     max_len=20_000,
                 )
 
-            if e > 0 and e % 10 == 0:
+            if e % 5 == 0:
                 mlflow.pytorch.log_model(obs, name=f"rlobs-{e}", step=e)
                 # mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}", step=e)
 

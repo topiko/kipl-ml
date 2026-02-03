@@ -13,7 +13,5 @@ DEFENCE_NAME_MAP = {
     "nodefence": "Undefended",
     "no_defence": "Undefended",
     "tamaraw": "Tamaraw",
-    "rnndef | c77939556a": "RL-selecetive-hog-60",
-    "rnndef | 8603ea7e3c": "RL-selecetive-hog-40",
-    "rnndef | 035e5c2e48": "RL-casual-dog-30",
+    "rnndef | 0b79e65525": "RL-tasteful-lark-30",
 }
