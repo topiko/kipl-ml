@@ -64,14 +64,16 @@ def get_rewards(
     rewards["padding"] -= npad * reward_scales["padding_scale"]
 
     # Classifier reward: mean over normal packets per interval.
-    p_lvl = 0.1
+    rmax = 10.0
     normal_w = ((~padding) & valid).to(times.dtype)
     normal_cnt = torch.zeros(
         (bs, T), device=times.device, dtype=times.dtype
     ).scatter_add_(1, idx_clamped, normal_w)
     normal_sum = torch.zeros(
         (bs, T), device=times.device, dtype=times.dtype
-    ).scatter_add_(1, idx_clamped, (p_lvl - target_probs) * normal_w)
+    ).scatter_add_(
+        1, idx_clamped, torch.clamp(torch.log(1 - target_probs), -rmax, 0) * normal_w
+    )
     mean_p = torch.where(normal_cnt > 0, normal_sum / normal_cnt, 0.0)
     rewards["clf"] += mean_p * reward_scales["clf_scale"]
 
