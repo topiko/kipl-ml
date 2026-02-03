@@ -752,17 +752,18 @@ def main(cfg: DictConfig):
     entropy_scale = 0.005
     ema_entropy = 1.0
 
-    entropy_target = 1.5
+    entropy_target = 0.3
 
     # Padding reward scale
-    padding_scale = 0.0001
-    padding_scale_max = 0.001
+    padding_scale = 0.001
+    padding_scale_max = 0.01
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     league_update_frac = 0.2
     active_league_idx = None
-    disc_loss_thres = 1.5
-    disc_loss_step = disc_loss_thres / 200
+    disc_loss_thres = 3.0
+    min_disc_loss_thres = 1.0
+    disc_loss_step = 0.1
     disc_loss_p_buffer = 0.1
     disc_train_min_p = 0.02
     disc_train_count = 0
@@ -885,7 +886,7 @@ def main(cfg: DictConfig):
                         ).sum(dim=0)
                         value_loss = masked_mean(value_loss_, time_mask)
 
-                        entropy = masked_mean(entropies, time_mask)
+                        entropy = masked_mean(entropies["selection_entropy"], time_mask)
                         entropy_loss = -entropy_scale * entropy
 
                         loss = policy_loss + entropy_loss
@@ -926,7 +927,9 @@ def main(cfg: DictConfig):
                             -0.5,
                             1.0,
                         )
-                        entropy_scale = entropy_scale * (1 + scale_update_)
+                        entropy_scale = np.clip(
+                            entropy_scale * (1 + scale_update_), 1e-5, 1e-1
+                        )
 
                     # Discriminator:
                     # ==========================================
@@ -1005,17 +1008,26 @@ def main(cfg: DictConfig):
 
                     pbar.set_postfix(postfix)
 
+                    if disc_ema_loss < disc_loss_thres and obs_train_frac == 0:
+                        pbar.close()
+                        logger.info("Early termination")
+                        obs_train_frac = 1.0
+                        break
+
             # League handling:
             # =======================================
             # Append current discriminator to league
             disc_train_count += sum(losses_metrics_d["train_disc"])
-            if disc_train_count > 50:
+            if disc_train_count > 25:
                 disc_league = _append_to_league(disc_league, discriminator.state_dict())
                 mlflow.pytorch.log_model(
                     discriminator, name=f"rldisc-{disc_league[-1][0]}", step=e
                 )
                 disc_train_count = 0
+
                 disc_loss_thres -= disc_loss_step
+                if disc_loss_thres < min_disc_loss_thres:
+                    disc_loss_thres = min_disc_loss_thres
             # obs_league = _append_to_league(obs_league, obs.state_dict())
 
             # Padding and entropy scale updates:
