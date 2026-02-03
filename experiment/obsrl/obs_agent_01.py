@@ -735,14 +735,16 @@ def main(cfg: DictConfig):
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
     disc_league = _append_to_league([], discriminator_orig.state_dict())
-    # disc_league = _append_to_league(disc_league, discriminator.state_dict())
+    disc_league = _append_to_league(disc_league, discriminator.state_dict())
     # obs_league = _append_to_league([], obs.state_dict())
 
     lr = 0.005
-    obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr / 3)
+    obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr / cfg.rnn_lr_reduction)
 
     lr_critic = lr / 2
-    critic_optim = _get_optim(critic, lr=lr_critic, lr_rnn=lr_critic / 3)
+    critic_optim = _get_optim(
+        critic, lr=lr_critic, lr_rnn=lr_critic / cfg.rnn_lr_reduction
+    )
 
     disc_optim = _get_optim(discriminator, lr=0.001, lr_rnn=0.001)
 
@@ -750,23 +752,23 @@ def main(cfg: DictConfig):
 
     # Entropy scale
     selection_entropy_scale = 0.005
-    conditional_entropy_scale = 0.0001
+    conditional_entropy_scale = 0.001
     ema_entropy = 1.0
 
     entropy_target = 0.3
 
     # Padding reward scale
-    padding_scale = 0.0005
-    padding_scale_max = 0.001
+    padding_scale = 0.001
+    padding_scale_max = 0.01
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     league_update_frac = 0.2
     active_league_idx = None
-    disc_loss_thres = 3.0
-    min_disc_loss_thres = 1.0
+    disc_loss_thres = 2.0
+    min_disc_loss_thres = 0.5
     disc_loss_step = 0.1
     disc_loss_p_buffer = 0.1
-    disc_train_min_p = 0.02
+    disc_train_min_p = 0.01
     disc_train_count = 0
 
     disc_ema_loss = 10.0
@@ -774,7 +776,6 @@ def main(cfg: DictConfig):
     obs_train_frac = 0.0
 
     e = 0
-    detach_period = cfg.h_detach_period
     with mlflow.start_run(log_system_metrics=True):
         while True:
             reward_scales = {"clf_scale": 0.1, "padding_scale": padding_scale}
@@ -858,7 +859,7 @@ def main(cfg: DictConfig):
                             y=y,
                             disc_features=disc_feats,
                             disc_league=active_disc_league,
-                            detach_period=detach_period,
+                            detach_period=cfg.h_detach_period,
                             reward_scales=reward_scales if train_obs else None,
                         )
 
@@ -1135,6 +1136,10 @@ def main(cfg: DictConfig):
                 logger.info(f"\t{k:<40} : {v:.03f}")
 
             # =============================================
+
+            if cfg.max_epochs > 0 and e >= cfg.max_epochs:
+                logger.info("Max epochs %s reached!" % e)
+                break
 
             e += 1
 
