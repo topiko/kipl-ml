@@ -35,9 +35,22 @@ def get_rewards(
     padding = X[Feats.PADDING][:, :N].bool()
 
     # (B, N, C)
-    probs = nn.functional.softmax(disc_logits, dim=-1)
+    # probs = nn.functional.softmax(disc_logits, dim=-1)
     # (B, N)
-    target_probs = probs.gather(2, y[:, None, None].expand(-1, N, 1)).squeeze(-1)
+    # target_probs = probs.gather(2, y[:, None, None].expand(-1, N, 1)).squeeze(-1)
+
+    # (B, N, 1)
+    target_idx = y[:, None, None].expand(-1, N, 1)
+
+    # (B, N)
+    target_logits = disc_logits.gather(2, target_idx).squeeze(-1)
+    # (B, N, C)
+    other_logits = disc_logits.scatter(2, target_idx, float("-inf"))
+    # (B, N)
+    rest_lse = torch.logsumexp(other_logits, dim=-1)
+
+    # (B, N)
+    m = target_logits - rest_lse
 
     # Assign each packet time to an action interval [t_i, t_{i+1}).
     # We treat NaNs in action_times as +inf, which makes the last finite action
@@ -64,16 +77,21 @@ def get_rewards(
     rewards["padding"] -= npad * reward_scales["padding_scale"]
 
     # Classifier reward: mean over normal packets per interval.
-    rmax = 10.0
     normal_w = ((~padding) & valid).to(times.dtype)
     normal_cnt = torch.zeros(
         (bs, T), device=times.device, dtype=times.dtype
     ).scatter_add_(1, idx_clamped, normal_w)
+    # rmax = 10.0
+    # normal_sum = torch.zeros(
+    #     (bs, T), device=times.device, dtype=times.dtype
+    # ).scatter_add_(
+    #     1, idx_clamped, torch.clamp(torch.log1p(-target_probs), -rmax, 0) * normal_w
+    # )
+    r_pkt = torch.clamp(-m, min=10, max=10.0)
     normal_sum = torch.zeros(
         (bs, T), device=times.device, dtype=times.dtype
-    ).scatter_add_(
-        1, idx_clamped, torch.clamp(torch.log(1 - target_probs), -rmax, 0) * normal_w
-    )
+    ).scatter_add_(1, idx_clamped, r_pkt * normal_w)
+
     mean_p = torch.where(normal_cnt > 0, normal_sum / normal_cnt, 0.0)
     rewards["clf"] += mean_p * reward_scales["clf_scale"]
 
