@@ -87,7 +87,7 @@ def get_rewards(
     # ).scatter_add_(
     #     1, idx_clamped, torch.clamp(torch.log1p(-target_probs), -rmax, 0) * normal_w
     # )
-    r_pkt = torch.clamp(-m, min=10, max=10.0)
+    r_pkt = torch.clamp(-m, min=-10, max=10.0)
     normal_sum = torch.zeros(
         (bs, T), device=times.device, dtype=times.dtype
     ).scatter_add_(1, idx_clamped, r_pkt * normal_w)

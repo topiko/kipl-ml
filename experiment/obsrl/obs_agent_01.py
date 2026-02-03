@@ -650,7 +650,7 @@ def get_active_league(
         weights -= weights.min()
         if weights.max() == 0:
             logger.warning("Same score for several discs!")
-            weights = torch.ondes_like(weights) / weights.numel()
+            weights = torch.ones_like(weights) / weights.numel()
         else:
             weights /= weights.max()
         weights = torch.clamp(weights, 0.1, 1.0)
@@ -777,7 +777,7 @@ def main(cfg: DictConfig):
     detach_period = cfg.h_detach_period
     with mlflow.start_run(log_system_metrics=True):
         while True:
-            reward_scales = {"clf_scale": 1.0, "padding_scale": padding_scale}
+            reward_scales = {"clf_scale": 0.1, "padding_scale": padding_scale}
             losses_metrics_d: dict[str, list[float] | float] = {
                 "loss": [],
                 "policy_loss": [],
