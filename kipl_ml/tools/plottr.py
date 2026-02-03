@@ -249,14 +249,12 @@ def plot_obs_features(
     down_count = fd_[Feats.DOWN_COUNT]
     Dt = fd_[Feats.Dt]
 
-    _plot_boxes(times[:-1], Dt[1:], up_count[:-1], color=UP_COLOR, alpha=0.5, ax=ax)
+    _plot_boxes(times, Dt, up_count, color=UP_COLOR, alpha=0.5, ax=ax)
+    _plot_boxes(times, Dt, -down_count, color=DOWN_COLOR, alpha=0.5, ax=ax)
     _plot_boxes(
-        times[:-1], Dt[1:], -down_count[:-1], color=DOWN_COLOR, alpha=0.5, ax=ax
-    )
-    _plot_boxes(
-        times[:-1],
-        Dt[1:],
-        (up_count[:-1] == 0) & (down_count[:-1] == 0),
+        times,
+        Dt,
+        (up_count == 0) & (down_count == 0),
         color="gray",
         alpha=0.5,
         ax=ax,

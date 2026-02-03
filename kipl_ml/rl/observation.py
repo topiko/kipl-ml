@@ -15,20 +15,18 @@ def _add_actions_to_silence_periods(
 ) -> dict[Feats, torch.Tensor]:
     times = feature_dict[Feats.TIMES]
 
+    # TODO: make these use time bin idx instead of the actual float values.
     packet_window_start_times = times
     packet_window_end_times = times + time_step
 
     dts = packet_window_start_times[:, 1:] - packet_window_end_times[:, :-1]
 
-    # dts = times.diff(
-    #    dim=1, prepend=torch.zeros((times.shape[0], 1), device=times.device)
-    # )
-
-    if dts[dts.isfinite()].max() <= max_silence_s:
+    if dts[dts.isfinite()].max() < time_step:
         return feature_dict
 
+    dt_ = 1e-4
     lt = (
-        torch.where(dts.isfinite() & (dts >= time_step), dts // max_silence_s + 1, 0)
+        torch.where(dts.isfinite() & (dts > dt_), dts // max_silence_s + 1, 0)
         .sum(dim=1)
         .max()
         .ceil()
@@ -42,13 +40,11 @@ def _add_actions_to_silence_periods(
         Feats.DOWN_COUNT: add_action_times.clone(),
         Feats.TIMES: add_action_times,
     }
-    dt_ = 1e-3
     for row in range(dts.shape[0]):
-        mask = dts[row] > (max_silence_s + dt_)
+        mask = dts[row] > dt_
         # Silence starts from window end.
         silence_starts = packet_window_end_times[row, :-1][mask]
-        # times[row, mask.roll(-1)]
-        deltas = dts[row, mask]  # times[row, mask] - silence_starts
+        deltas = dts[row, mask]
 
         counts = deltas // (max_silence_s + dt_)
 
@@ -110,6 +106,7 @@ def get_window_feature_dict(
     feature_dict: dict[Feats, torch.Tensor] = {}
     device = times.device
     shape = (times.shape[0], bin_idx.max() + 1)
+    bs = shape[0]
 
     up_counts = torch.zeros(shape, device=device).scatter_add_(
         1, bin_idx, (X[Feats.DIRS] == UPLOAD).float()
@@ -117,27 +114,30 @@ def get_window_feature_dict(
     down_counts = torch.zeros(shape, device=device).scatter_add_(
         1, bin_idx, (X[Feats.DIRS] == DOWNLOAD).float()
     )
-    times_ = torch.zeros(shape, device=device).scatter_(
-        1, bin_idx, bin_idx.float() * dt
-    )
+    times_idx = torch.zeros(shape, device=device).scatter_(1, bin_idx, bin_idx.float())
 
     mask = (up_counts != 0) | (down_counts != 0)
     max_l = mask.sum(dim=1).max()
     feature_dict[Feats.UP_COUNT] = _flush_left(up_counts, mask)[:, :max_l]
     feature_dict[Feats.DOWN_COUNT] = _flush_left(down_counts, mask)[:, :max_l]
 
-    times_ = _flush_left(times_, mask)[:, :max_l]
+    times_idx = _flush_left(times_idx, mask)[:, :max_l]
 
-    times_ = _fill_after_seq_end(times_, pad_val=0)
+    times_ = _fill_after_seq_end(times_idx, pad_val=0) * dt
     feature_dict[Feats.TIMES] = times_
+
     feature_dict = _add_actions_to_silence_periods(feature_dict, dt, max_silence_s)
 
+    mask = feature_dict[Feats.TIMES].isfinite()
+
+    seq_lens = mask.sum(dim=1)
     dts = feature_dict[Feats.TIMES].diff(
-        dim=1, prepend=torch.zeros((times.shape[0], 1), device=times.device)
+        dim=1, append=torch.zeros((bs, 1), device=times.device)
     )
+    # The last window is considered to be dt wide.
+    dts[torch.arange(bs), seq_lens - 1] = dt
 
     feature_dict[Feats.Dt] = dts
-    mask = feature_dict[Feats.TIMES].isfinite()
     max_l = mask.sum(dim=1).max()
     # dict[Feats, Tensor (B, max_l)]
     feature_dict = {

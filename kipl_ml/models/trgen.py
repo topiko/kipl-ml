@@ -560,7 +560,8 @@ class AGENT1(nn.Module):
         # (B, L)
         values = action_outputs[Feats.STATE_VALUE]
 
-        times = x[Feats.TIMES][:, : values.shape[1]]
+        # The actions take place only after the current window is processed -> + Dt
+        times = x[Feats.TIMES] + x[Feats.Dt]
 
         return times, actions, log_probs, sel_probs, values, entropies, h
 
