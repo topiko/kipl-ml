@@ -755,7 +755,7 @@ def main(cfg: DictConfig):
     conditional_entropy_scale = 0.001
     ema_entropy = 1.0
 
-    entropy_target = 0.3
+    sel_entropy_target = 0.5
 
     # Padding reward scale
     padding_scale = 0.001
@@ -936,7 +936,8 @@ def main(cfg: DictConfig):
                             + (1 - ema_decay) * selection_entropy.item()
                         )
                         scale_update_ = np.clip(
-                            ((entropy_target - ema_entropy) / entropy_target) ** 3,
+                            ((sel_entropy_target - ema_entropy) / sel_entropy_target)
+                            ** 3,
                             -0.5,
                             1.0,
                         )
@@ -1128,7 +1129,7 @@ def main(cfg: DictConfig):
                 key=key,
             )
 
-            d["entropy_target"] = entropy_target
+            d["selection_entropy_target"] = sel_entropy_target
 
             for k, v in d.items():
                 k = keymap(k)
