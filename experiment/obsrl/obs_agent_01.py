@@ -725,7 +725,7 @@ def main(cfg: DictConfig):
         max_silence_s=obs_max_silence_s,
         zero_init=False,
         hsize=128,
-        nlayers=1,
+        nlayers=2,
     ).to(device)
 
     critic = CRITIC01(obs, hsize=256, nlayers=3, use_machine_id=False).to(
@@ -749,14 +749,15 @@ def main(cfg: DictConfig):
     satlen = 50
 
     # Entropy scale
-    entropy_scale = 0.005
+    selection_entropy_scale = 0.005
+    conditional_entropy_scale = 0.0001
     ema_entropy = 1.0
 
     entropy_target = 0.3
 
     # Padding reward scale
-    padding_scale = 0.001
-    padding_scale_max = 0.01
+    padding_scale = 0.0005
+    padding_scale_max = 0.001
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     league_update_frac = 0.2
@@ -783,6 +784,8 @@ def main(cfg: DictConfig):
                 "value_loss": [],
                 "disc_loss": [],
                 "avg_return": [],
+                "sel_entropy": [],
+                "cond_entropy": [],
                 "entropy": [],
                 "entropy_loss": [],
                 "mean_padding_frac": [],
@@ -886,8 +889,16 @@ def main(cfg: DictConfig):
                         ).sum(dim=0)
                         value_loss = masked_mean(value_loss_, time_mask)
 
-                        entropy = masked_mean(entropies["selection_entropy"], time_mask)
-                        entropy_loss = -entropy_scale * entropy
+                        selection_entropy = masked_mean(
+                            entropies["selection_entropy"], time_mask
+                        )
+                        conditional_entropy = masked_mean(
+                            entropies["conditional_entropy"], time_mask
+                        )
+                        entropy_loss = (
+                            -selection_entropy_scale * selection_entropy
+                            - conditional_entropy_scale * conditional_entropy
+                        )
 
                         loss = policy_loss + entropy_loss
 
@@ -920,15 +931,16 @@ def main(cfg: DictConfig):
                         critic_optim.step()
 
                         ema_entropy = (
-                            ema_decay * ema_entropy + (1 - ema_decay) * entropy.item()
+                            ema_decay * ema_entropy
+                            + (1 - ema_decay) * selection_entropy.item()
                         )
                         scale_update_ = np.clip(
                             ((entropy_target - ema_entropy) / entropy_target) ** 3,
                             -0.5,
                             1.0,
                         )
-                        entropy_scale = np.clip(
-                            entropy_scale * (1 + scale_update_), 1e-5, 1e-1
+                        selection_entropy_scale = np.clip(
+                            selection_entropy_scale * (1 + scale_update_), 1e-5, 1e-1
                         )
 
                     # Discriminator:
@@ -965,7 +977,14 @@ def main(cfg: DictConfig):
                         losses_metrics_d["loss"].append(loss.item())
                         losses_metrics_d["policy_loss"].append(policy_loss.item())
                         losses_metrics_d["value_loss"].append(value_loss.item())
-                        losses_metrics_d["entropy"].append(entropy.item())
+                        losses_metrics_d["sel_entropy"].append(selection_entropy.item())
+                        losses_metrics_d["cond_entropy"].append(
+                            conditional_entropy.item()
+                        )
+
+                        losses_metrics_d["entropy"].append(
+                            selection_entropy.item() + conditional_entropy.item()
+                        )
                         losses_metrics_d["entropy_loss"].append(entropy_loss.item())
                         losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
                         losses_metrics_d["avg_return"].append(
@@ -998,13 +1017,14 @@ def main(cfg: DictConfig):
                     postfix = {
                         "dloss": disc_ema_loss,
                         "d_tr_f": np.mean(losses_metrics_d["train_disc"][-nhist:]),
+                        "p_f": np.mean(losses_metrics_d["mean_padding_frac"]),
                     }
                     if losses_metrics_d["avg_return"]:
                         postfix["ret"] = np.mean(
                             losses_metrics_d["avg_return"][-nhist:]
                         )
                         postfix["H"] = ema_entropy
-                        postfix["Hs"] = entropy_scale
+                        postfix["Hs"] = selection_entropy_scale
 
                     pbar.set_postfix(postfix)
 
@@ -1032,7 +1052,7 @@ def main(cfg: DictConfig):
 
             # Padding and entropy scale updates:
             # =============================================
-            losses_metrics_d["entropy_scale"] = entropy_scale
+            losses_metrics_d["entropy_scale"] = selection_entropy_scale
             if e < satlen:
                 padding_scale += padding_scale_step
 

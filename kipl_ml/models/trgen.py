@@ -289,7 +289,7 @@ class AGENT1(nn.Module):
         nlayers: int = 3,
         send_count_bins: list[int] | None = None,
         decay_time_bins: list[float] | None = None,
-        dropout: float = 0.2,
+        dropout: float = 0.0,
         zero_init: bool = False,
     ):
         super().__init__()
