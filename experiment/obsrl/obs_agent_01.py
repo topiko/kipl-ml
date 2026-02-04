@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from torch import nn
 from torch.utils.data import SubsetRandomSampler
 from tqdm import tqdm
@@ -777,6 +777,9 @@ def main(cfg: DictConfig):
 
     e = 0
     with mlflow.start_run(log_system_metrics=True):
+        d = OmegaConf.to_container(cfg, resolve=True)
+        mlflow.log_params(d)
+
         while True:
             reward_scales = {"clf_scale": 0.1, "padding_scale": padding_scale}
             losses_metrics_d: dict[str, list[float] | float] = {
