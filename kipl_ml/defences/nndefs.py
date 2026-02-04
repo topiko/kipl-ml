@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import random
 from collections.abc import Sequence
+from typing import Any
 
 import dotenv
 import mlflow
@@ -38,6 +39,7 @@ class _NNDef(_Def):
         fixed_per_trace: bool = False,
         simul_kwargs: dict | None = None,
         state_dicts: Sequence[nn.Module.state_dict] | None = None,
+        mlflow_keys: dict[str, Any] | None = None,
     ):
         if not network_delay_millis != (0, 0) or not network_pps != (0, 0):
             logger.warning(
@@ -55,6 +57,7 @@ class _NNDef(_Def):
             fixed_per_trace=fixed_per_trace,
         )
 
+        self.mlflow_keys = mlflow_keys
         self._model_ids: list[str | None] = [None]
         self.defence_model_state_dicts = None
 
@@ -124,6 +127,8 @@ class _NNDef(_Def):
         d = {}
         d[DEFENCE_TYPE_KW] = self.__class__.__name__.lower()
         d["model-id"] = str(self._model_ids)
+        if self.mlflow_keys is not None:
+            d.update(self.mlflow_keys)
 
         return d
 
