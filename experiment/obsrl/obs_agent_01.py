@@ -13,10 +13,10 @@ from torch.utils.data import SubsetRandomSampler
 from tqdm import tqdm
 
 from experiment.obsrl.sim import rollout
-from experiment.obsrl.utils import one_batch_train_disc
+from experiment.obsrl.utils import ema_update, one_batch_train_disc
 from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
-from kipl_ml.data.utils import Datasets, assets
+from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.defences.base import NoDefence
 from kipl_ml.defences.nndefs import RNNDef
@@ -25,6 +25,7 @@ from kipl_ml.metrics.clf_metrics import Accuracy
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.trgen import AGENT1, CRITIC01
 from kipl_ml.rl.advantages import get_gae, get_returns
+from kipl_ml.rl.enums import Actions
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
 from kipl_ml.tools.plottr import (
     plot_actions,
@@ -717,16 +718,25 @@ def main(cfg: DictConfig):
     obs_max_silence_s = k * cfg.obs_time_step_s
     if not np.isclose(cfg.obs_max_silence_s, obs_max_silence_s).all():
         raise ValueError(
-            f"obs_max_silence_s must be multiple of obs_time_step_s, got {cfg.obs_max_silence_s} and {cfg.obs_time_step_s}"
+            "obs_max_silence_s must be multiple of obs_time_step_s,"
+            + f" got {cfg.obs_max_silence_s} and {cfg.obs_time_step_s}"
         )
 
+    eps = cfg.obs_prob_eps
+    f_ = 0.5
     obs = AGENT1(
         time_step=cfg.obs_time_step_s,
         max_silence_s=obs_max_silence_s,
-        zero_init=False,
         hsize=128,
         nlayers=2,
-        prob_eps=cfg.obs_prob_eps,
+        prob_eps={
+            Actions.SELECTOR: cfg.obs_prob_eps,
+            Actions.SEND_COUNT_UP: f_ * eps,
+            Actions.SEND_TIME_UP: f_ * eps,
+            Actions.SEND_COUNT_DOWN: f_ * eps,
+            Actions.SEND_TIME_DOWN: f_ * eps,
+        },
+        prefer_wait_bias=4.0 if cfg.init_for_wait else 0.0,
     ).to(device)
 
     critic = CRITIC01(obs, hsize=256, nlayers=3, use_machine_id=False).to(
@@ -736,10 +746,11 @@ def main(cfg: DictConfig):
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
     disc_league = _append_to_league([], discriminator_orig.state_dict())
-    disc_league = _append_to_league(disc_league, discriminator.state_dict())
+    if not cfg.init_for_wait:
+        disc_league = _append_to_league(disc_league, discriminator.state_dict())
     # obs_league = _append_to_league([], obs.state_dict())
 
-    lr = 0.005
+    lr = 0.001
     obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr * cfg.rnn_lr_reduction)
 
     lr_critic = lr / 2
@@ -754,7 +765,8 @@ def main(cfg: DictConfig):
     # Entropy scale
     selection_entropy_scale = 0.005
     conditional_entropy_scale = 0.001
-    ema_entropy = 1.0
+    ema_sel_entropy = 1.0
+    ema_cond_entropy = 1.0
 
     sel_entropy_target = 0.5
 
@@ -776,7 +788,7 @@ def main(cfg: DictConfig):
     ema_decay = 0.95
     obs_train_frac = 0.0
 
-    enable_entropy_loss = float(cfg.enable_entropy)
+    enable_entropy_loss = float(cfg.enable_entropy_loss)
 
     e = 0
     with mlflow.start_run(log_system_metrics=True):
@@ -796,6 +808,8 @@ def main(cfg: DictConfig):
                 "entropy": [],
                 "entropy_loss": [],
                 "mean_padding_frac": [],
+                "mean_padding_frac_up": [],
+                "mean_padding_frac_down": [],
                 "mean_trace_len": [],
                 "sel vs. cond std ratio": [],
                 "train_disc": [],
@@ -937,9 +951,25 @@ def main(cfg: DictConfig):
                         )
                         critic_optim.step()
 
-                        ema_entropy = (
-                            ema_decay * ema_entropy
-                            + (1 - ema_decay) * selection_entropy.item()
+                        ema_sel_entropy = ema_update(
+                            ema_sel_entropy, selection_entropy.item(), ema_decay
+                        )
+
+                        scale_update_ = np.clip(
+                            (
+                                (sel_entropy_target - ema_sel_entropy)
+                                / sel_entropy_target
+                            )
+                            ** 3,
+                            -0.5,
+                            1.0,
+                        )
+                        selection_entropy_scale = np.clip(
+                            selection_entropy_scale * (1 + scale_update_), 1e-5, 1e-1
+                        )
+
+                        ema_cond_entropy = ema_update(
+                            ema_cond_entropy, conditional_entropy.item(), ema_decay
                         )
 
                     # Discriminator:
@@ -966,9 +996,7 @@ def main(cfg: DictConfig):
                         get_accuracy=False,
                     )
 
-                    disc_ema_loss = (
-                        ema_decay * disc_ema_loss + (1 - ema_decay) * disc_loss
-                    )
+                    disc_ema_loss = ema_update(disc_ema_loss, disc_loss, ema_decay)
 
                     # Logging:
                     # =========================================
@@ -1001,12 +1029,22 @@ def main(cfg: DictConfig):
                         (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 0)
                     ).sum(dim=1)
                     # (B, )
-                    padding_packets = (
-                        (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 1)
+                    padding_packets_up = (
+                        (Xobs[Feats.DIRS] == UPLOAD) & (Xobs[Feats.PADDING] == 1)
                     ).sum(dim=1)
+                    padding_packets_down = (
+                        (Xobs[Feats.DIRS] == DOWNLOAD) & (Xobs[Feats.PADDING] == 1)
+                    ).sum(dim=1)
+                    padding_packets = padding_packets_down + padding_packets_up
 
                     losses_metrics_d["mean_padding_frac"].append(
                         (padding_packets / normal_packets).mean().item()
+                    )
+                    losses_metrics_d["mean_padding_frac_up"].append(
+                        (padding_packets_up / normal_packets).mean().item()
+                    )
+                    losses_metrics_d["mean_padding_frac_down"].append(
+                        (padding_packets_down / normal_packets).mean().item()
                     )
                     losses_metrics_d["mean_trace_len"].append(
                         (Xobs[Feats.DIRS] != 0).sum(dim=1).float().mean().item()
@@ -1016,15 +1054,17 @@ def main(cfg: DictConfig):
                     postfix = {
                         "dloss": disc_ema_loss,
                         "d_tr_f": np.mean(losses_metrics_d["train_disc"][-nhist:]),
-                        "p_f": np.mean(losses_metrics_d["mean_padding_frac"]),
+                        "pfu": np.mean(losses_metrics_d["mean_padding_frac_up"]),
+                        "pfd": np.mean(losses_metrics_d["mean_padding_frac_down"]),
                     }
                     if losses_metrics_d["avg_return"]:
                         postfix["ret"] = np.mean(
                             losses_metrics_d["avg_return"][-nhist:]
                         )
-                        postfix["H"] = ema_entropy
+                        postfix["Hs"] = ema_sel_entropy
+                        postfix["Hc"] = ema_cond_entropy
 
-                    pbar.set_postfix(postfix)
+                    pbar.set_postfix({k: f"{v:.04f}" for k, v in postfix.items()})
 
                     if disc_ema_loss < disc_loss_thres and obs_train_frac == 0:
                         pbar.close()
@@ -1093,7 +1133,7 @@ def main(cfg: DictConfig):
 
                 mlflow.log_metric(k, v, step=e)
 
-            if e > 0 and e % cfg.figs_period == 0:
+            if e % cfg.figs_period == 0:
                 _plot_set(
                     cfg=cfg,
                     ds=ds_valid,

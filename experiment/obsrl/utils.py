@@ -11,6 +11,10 @@ logger = get_logger(__name__)
 dotenv.load_dotenv()
 
 
+def ema_update(value: float, cur_value: float, ema_decay: float) -> float:
+    return ema_decay * value + (1 - ema_decay) * cur_value
+
+
 def train_one_epoch(
     clf: nn.Module,
     dl_train: torch.utils.data.DataLoader,

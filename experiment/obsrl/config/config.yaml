@@ -13,9 +13,10 @@ advantages:
 
 experiment_name: obsrl
 debug: False
-enable_entropy_loss: False
+enable_entropy_loss: True
+init_for_wait: True
 
-obs_prob_eps: 0.05
+obs_prob_eps: 0.0
 
 figs_period: 1
 
