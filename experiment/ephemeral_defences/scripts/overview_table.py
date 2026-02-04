@@ -9,6 +9,12 @@ from kipl_ml.tools.mlflow_utils import list_runs
 logger = get_logger(__name__)
 
 
+def _map_index(idx: str) -> str:
+    if idx in DEFENCE_NAME_MAP:
+        return DEFENCE_NAME_MAP[idx]
+    return idx
+
+
 def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.DataFrame:
     def_type = "params.defence.defence-type"
     mbnt_mask = df.loc[:, def_type].isin(["maybenot", "ephemeral"])
@@ -111,8 +117,7 @@ def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.Data
 
     res = _to_str(means, stds)
 
-    idx = res.index
-    res.index = [DEFENCE_NAME_MAP[id_[0]] + id_[1] for id_ in idx]
+    res.index = [_map_index(id_[0]) + id_[1] for id_ in res.index]
     res.index.name = dataset
 
     if metric.startswith("metrics.def."):
@@ -148,8 +153,9 @@ def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.Data
         "RegulaTor",
         "Tamaraw\\bottleneck",
         "Tamaraw",
-        "RL-tasteful-lark-30",
     ]
+
+    index += sorted([idx for idx in res.index if idx not in index])
 
     index = [idx for idx in index if idx in res.index]
     res = res.loc[index]
