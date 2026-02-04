@@ -10,10 +10,10 @@ from omegaconf import OmegaConf
 from kipl_ml.data.wf_dataset import WFDataset
 from kipl_ml.logging.logger import get_logger
 
-# dotenv.load_dotenv()
-# MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
-# if MLFLOW_TRACKING_URI:
-#     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+dotenv.load_dotenv()
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
+if MLFLOW_TRACKING_URI:
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 logger = get_logger(__name__)
 
