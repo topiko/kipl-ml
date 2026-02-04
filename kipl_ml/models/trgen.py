@@ -299,6 +299,7 @@ class AGENT1(nn.Module):
         dropout: float = 0.0,
         zero_init: bool = False,
         prob_eps: dict[Actions, float] | float | None = None,
+        prefer_wait_bias: float = 0.0,
     ):
         super().__init__()
 
@@ -324,10 +325,17 @@ class AGENT1(nn.Module):
         # Exploration prob eps for each action:
         if prob_eps is not None:
             if isinstance(prob_eps, float):
+                if prob_eps < 0 or prob_eps > 1:
+                    raise ValueError(f"prob_eps must be in [0, 1], got {prob_eps}")
                 self.prob_eps = {a: prob_eps for a in self.ACTIONS}
             else:
                 if not set(prob_eps.keys()).issuperset(set(self.ACTIONS)):
                     raise ValueError("prob_eps keys must cover all actions.")
+                for a in self.ACTIONS:
+                    eps = float(prob_eps[a])
+                    if eps < 0 or eps > 1:
+                        raise ValueError(f"prob_eps[{a}] must be in [0, 1], got {eps}")
+                self.prob_eps = {a: float(prob_eps[a]) for a in self.ACTIONS}
         else:
             self.prob_eps = {a: 0.0 for a in self.ACTIONS}
 
@@ -373,6 +381,21 @@ class AGENT1(nn.Module):
             nn.Linear(hsize, hsize), nn.ReLU(), nn.Linear(hsize, 1)
         )
         self.cond_beta = 0.25
+
+        if prefer_wait_bias != 0.0:
+            self._init_action_selection_prefer_wait(prefer_wait_bias=prefer_wait_bias)
+
+    def _init_action_selection_prefer_wait(self, prefer_wait_bias: float) -> None:
+        """Initialize selector logits to heavily prefer WAIT (selector index 0)."""
+        if prefer_wait_bias < 0:
+            raise ValueError(f"prefer_wait_bias must be >= 0, got {prefer_wait_bias}")
+
+        head = self.actor["action_selection"]
+        lin = head[-1]
+        if not isinstance(lin, nn.Linear) or lin.out_features != 4:
+            raise TypeError("action_selection head must end with Linear(..., 4)")
+
+        lin.bias[0] = float(prefer_wait_bias)
 
     @property
     def cond_beta(self) -> float:
