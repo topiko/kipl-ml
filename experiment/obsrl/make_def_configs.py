@@ -20,7 +20,7 @@ def _write_rlobs_defence_yaml(
 ) -> None:
     # Match existing defence config style in this repo (minimal keys).
     txt = (
-        f'type: "rlobs"\nrun-name: {run_name}\nstep: {step}\n'
+        f'type: "rlobs"\nrun_name: {run_name}\nstep: {step}\n'
         + f"model_id:\n  - {model_id}\n  - {model_id}\n  - {model_id}\n\n"
     )
     path.write_text(txt, encoding="utf-8")
