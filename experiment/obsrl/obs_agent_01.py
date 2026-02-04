@@ -810,7 +810,6 @@ def main(cfg: DictConfig):
                 "mean_padding_frac": [],
                 "mean_padding_frac_up": [],
                 "mean_padding_frac_down": [],
-                "mean_trace_len": [],
                 "sel vs. cond std ratio": [],
                 "train_disc": [],
                 "grad_norm": [],
@@ -1048,9 +1047,6 @@ def main(cfg: DictConfig):
                     losses_metrics_d["mean_padding_frac_down"].append(
                         (padding_packets_down / normal_packets).mean().item()
                     )
-                    losses_metrics_d["mean_trace_len"].append(
-                        (Xobs[Feats.DIRS] != 0).sum(dim=1).float().mean().item()
-                    )
 
                     nhist = 20
                     postfix = {
@@ -1066,7 +1062,7 @@ def main(cfg: DictConfig):
                         postfix["Hs"] = ema_sel_entropy
                         postfix["Hc"] = ema_cond_entropy
 
-                    pbar.set_postfix({k: f"{v:.04f}" for k, v in postfix.items()})
+                    pbar.set_postfix({k: f"{v:.03f}" for k, v in postfix.items()})
 
                     if disc_ema_loss < disc_loss_thres and obs_train_frac == 0:
                         pbar.close()
