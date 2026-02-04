@@ -297,7 +297,6 @@ class AGENT1(nn.Module):
         send_count_bins: list[int] | None = None,
         decay_time_bins: list[float] | None = None,
         dropout: float = 0.0,
-        zero_init: bool = False,
         prob_eps: dict[Actions, float] | float | None = None,
         prefer_wait_bias: float = 0.0,
     ):
@@ -347,7 +346,6 @@ class AGENT1(nn.Module):
         ]
         self.num_layers = nlayers
         self.hidden_size = hsize
-        self.zero_init = zero_init
         nfeat = len(self.features)
 
         self.scaler = nn.Sequential(nn.Linear(nfeat, nfeat, bias=False), nn.Tanh())
@@ -395,7 +393,10 @@ class AGENT1(nn.Module):
         if not isinstance(lin, nn.Linear) or lin.out_features != 4:
             raise TypeError("action_selection head must end with Linear(..., 4)")
 
-        lin.bias[0] = float(prefer_wait_bias)
+        with torch.no_grad():
+            lin.bias.zero_()
+            lin.weight *= 0.1
+            lin.bias[0] = float(prefer_wait_bias)
 
     @property
     def cond_beta(self) -> float:
