@@ -211,7 +211,7 @@ def _parse_run_name(cfg: OmegaConf) -> str:
             f"{defence_str} | {cfg.defence.deck_name} | sc={cfg.defence.scale:.02f}"
         )
     if cfg.defence.type == "rlobs":
-        defence_str = f"{defence_str} | {cfg.defence.run_name}-{cfg.defence.step}"
+        defence_str = f"{defence_str} | {cfg.defence.run_name}-{cfg.defence.train_step:03d}&{cfg.defence.test_step:03d}"
 
     return f"{defence_str} vs. {cfg.model.name} | aug={aug}"
 

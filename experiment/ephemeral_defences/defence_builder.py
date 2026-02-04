@@ -238,6 +238,11 @@ def rlobs(cfg: OmegaConf) -> dict[str, RNNDef]:
             seed=seed,
             fixed_per_trace=False,
             simul_kwargs=_get_simul_kwargs(cfg),
+            mlflow_keys={
+                "run_name": cfg.defence.run_name,
+                "train_step": cfg.defence.train_step,
+                "test_step": cfg.defence.test_step,
+            },
         )
 
     return {

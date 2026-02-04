@@ -15,8 +15,12 @@ def _map_index(idx: str) -> str:
     return idx
 
 
-def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.DataFrame:
+def _parse_df(
+    df: pd.DataFrame, metric: str, make_bold: bool = False, latex: bool = False
+) -> pd.DataFrame:
     def_type = "params.defence.defence-type"
+
+    # Map defence names
     mbnt_mask = df.loc[:, def_type].isin(["maybenot", "ephemeral"])
     df.loc[mbnt_mask, def_type] = df.loc[mbnt_mask, :].apply(
         lambda x: f"{x.loc[def_type]} | sc.={x.loc['params.defence.scale']} | {x.loc['params.defence.deck']}",
@@ -25,7 +29,9 @@ def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.Data
 
     rlobs_mask = df.loc[:, def_type].isin(["rnndef"])
     df.loc[rlobs_mask, def_type] = df.loc[rlobs_mask, :].apply(
-        lambda x: f"{x.loc[def_type]} | {x.loc['params.defence.model-id'][4:14]}",
+        lambda x: f"RL->{x.loc['params.defence.run_name']} | "
+        + f"{int(x.loc['params.defence.train_step']):03d} & "
+        + f"{int(x.loc['params.defence.test_step']):03d}",
         axis=1,
     )
 
@@ -100,10 +106,13 @@ def _parse_df(df: pd.DataFrame, metric: str, make_bold: bool = False) -> pd.Data
                 m = f"{m_val:.1f}"
                 s = f"{stds.loc[row_idx, col_idx]:.1f}"
 
-                if (col_idx == max_idx) and make_bold:
-                    str_ = rf"$\mathbf{{{m}^{{\pm {s}}}}}$"
+                if latex:
+                    if (col_idx == max_idx) and make_bold:
+                        str_ = rf"$\mathbf{{{m}^{{\pm {s}}}}}$"
+                    else:
+                        str_ = rf"${m}^{{\pm {s}}}$"
                 else:
-                    str_ = rf"${m}^{{\pm {s}}}$"
+                    str_ = f"{m}\u00b1{s}"
                 df.loc[row_idx, col_idx] = str_
 
         return df
@@ -183,6 +192,8 @@ def main():
         help="Which experiment(s) to consider",
     )
     parser.add_argument("--missing", action="store_true")
+    parser.add_argument("--bold", action="store_true")
+    parser.add_argument("--latex", action="store_true")
     parser.add_argument("--timings", action="store_true")
 
     args = parser.parse_args()
@@ -203,7 +214,7 @@ def main():
         logger.warning("Removing lb runs over xv 2.")
         df = df[~mask]
 
-    res_acc = _parse_df(df, "test_accuracy", make_bold=True)
+    res_acc = _parse_df(df, "test_accuracy", make_bold=args.bold, latex=args.latex)
     res_bw = _parse_df(df, "def.bandwidth")
     res_delay = _parse_df(df, "def.delay")
 
