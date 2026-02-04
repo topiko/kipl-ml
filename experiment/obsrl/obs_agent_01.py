@@ -813,6 +813,7 @@ def main(cfg: DictConfig):
                 "mean_trace_len": [],
                 "sel vs. cond std ratio": [],
                 "train_disc": [],
+                "grad_norm": [],
             }
             losses_metrics_d.update(
                 {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
@@ -934,11 +935,12 @@ def main(cfg: DictConfig):
                         # Obs step:
                         # ==========================================
                         loss.backward()
-                        nn.utils.clip_grad_norm_(
+                        norm_ = nn.utils.clip_grad_norm_(
                             obs.parameters(),
                             cfg.grad_norm_clip,
                             error_if_nonfinite=True,
                         )
+                        losses_metrics_d["grad_norm"].append(norm_.item())
                         obs_optim.step()
 
                         # Critic step:
@@ -1086,6 +1088,9 @@ def main(cfg: DictConfig):
                 disc_loss_thres -= disc_loss_step
                 if disc_loss_thres < min_disc_loss_thres:
                     disc_loss_thres = min_disc_loss_thres
+
+            if np.mean(losses_metrics_d["grad_norm"] > cfg.grad_norm_clip) > 0.05:
+                logger.warning("Gradient clipping occurred often!")
             # obs_league = _append_to_league(obs_league, obs.state_dict())
 
             # Padding and entropy scale updates:
