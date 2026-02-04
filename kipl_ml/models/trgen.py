@@ -280,6 +280,13 @@ def _forward_w_detach(
 
 class AGENT1(nn.Module):
     name: str = "agent"
+    ACTIONS: list[Actions] = [
+        Actions.SELECTOR,
+        Actions.SEND_COUNT_UP,
+        Actions.SEND_COUNT_DOWN,
+        Actions.SEND_TIME_UP,
+        Actions.SEND_TIME_DOWN,
+    ]
 
     def __init__(
         self,
@@ -291,6 +298,7 @@ class AGENT1(nn.Module):
         decay_time_bins: list[float] | None = None,
         dropout: float = 0.0,
         zero_init: bool = False,
+        prob_eps: dict[Actions, float] | float | None = None,
     ):
         super().__init__()
 
@@ -312,6 +320,16 @@ class AGENT1(nn.Module):
         self.time_step = time_step
         # Maximum silence the model tolerates before acting.
         self.max_silence_s = max_silence_s
+
+        # Exploration prob eps for each action:
+        if prob_eps is not None:
+            if isinstance(prob_eps, float):
+                self.prob_eps = {a: prob_eps for a in self.ACTIONS}
+            else:
+                if not set(prob_eps.keys()).issuperset(set(self.ACTIONS)):
+                    raise ValueError("prob_eps keys must cover all actions.")
+        else:
+            self.prob_eps = {a: 0.0 for a in self.ACTIONS}
 
         self.features = [
             Feats.UP_COUNT,
@@ -422,6 +440,11 @@ class AGENT1(nn.Module):
             Feats.STATE_VALUE: state_values,
         }, h
 
+    def _get_probs(self, logits: torch.Tensor, eps: float) -> torch.Tensor:
+        probs = nn.functional.softmax(logits, dim=-1)
+        probs = (1 - eps) * probs + eps / probs.shape[-1]
+        return probs
+
     def act(
         self,
         x: dict[Feats, torch.Tensor],
@@ -439,7 +462,14 @@ class AGENT1(nn.Module):
         action_outputs, h = self(x, h, h_detach_period, seq_lens)
 
         # Select action:
-        sel_dist = Categorical(logits=action_outputs[Actions.SELECTOR])
+        sel_probs = nn.functional.softmax(action_outputs[Actions.SELECTOR], dim=-1)
+
+        # For exploration we always add some prob eps to each action:
+        sel_dist = Categorical(
+            probs=self._get_probs(
+                action_outputs[Actions.SELECTOR], self.prob_eps[Actions.SELECTOR]
+            )
+        )
 
         # (B, L)
         selections = sel_dist.sample()
@@ -449,11 +479,31 @@ class AGENT1(nn.Module):
 
         # Send u/d, note! These are conditional on the selection.
         # They will be ignored if the selection is not SEND_UP/DOWN/BOTH.
-        suc = Categorical(logits=action_outputs[Actions.SEND_COUNT_UP])
-        sut = Categorical(logits=action_outputs[Actions.SEND_TIME_UP])
+        suc = Categorical(
+            probs=self._get_probs(
+                action_outputs[Actions.SEND_COUNT_UP],
+                self.prob_eps[Actions.SEND_COUNT_UP],
+            )
+        )
+        sut = Categorical(
+            probs=self._get_probs(
+                action_outputs[Actions.SEND_TIME_UP],
+                self.prob_eps[Actions.SEND_TIME_UP],
+            )
+        )
 
-        sdc = Categorical(logits=action_outputs[Actions.SEND_COUNT_DOWN])
-        sdt = Categorical(logits=action_outputs[Actions.SEND_TIME_DOWN])
+        sdc = Categorical(
+            probs=self._get_probs(
+                action_outputs[Actions.SEND_COUNT_DOWN],
+                self.prob_eps[Actions.SEND_COUNT_DOWN],
+            )
+        )
+        sdt = Categorical(
+            probs=self._get_probs(
+                action_outputs[Actions.SEND_TIME_DOWN],
+                self.prob_eps[Actions.SEND_TIME_DOWN],
+            )
+        )
 
         # (B, L)
         send_count_u_idx = suc.sample()

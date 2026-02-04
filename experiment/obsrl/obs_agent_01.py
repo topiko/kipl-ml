@@ -726,6 +726,7 @@ def main(cfg: DictConfig):
         zero_init=False,
         hsize=128,
         nlayers=2,
+        prob_eps=cfg.obs_prob_eps,
     ).to(device)
 
     critic = CRITIC01(obs, hsize=256, nlayers=3, use_machine_id=False).to(
@@ -774,6 +775,8 @@ def main(cfg: DictConfig):
     disc_ema_loss = 10.0
     ema_decay = 0.95
     obs_train_frac = 0.0
+
+    enable_entropy_loss = float(cfg.enable_entropy)
 
     e = 0
     with mlflow.start_run(log_system_metrics=True):
@@ -899,7 +902,7 @@ def main(cfg: DictConfig):
                         conditional_entropy = masked_mean(
                             entropies["conditional_entropy"], time_mask
                         )
-                        entropy_loss = (
+                        entropy_loss = enable_entropy_loss * (
                             -selection_entropy_scale * selection_entropy
                             - conditional_entropy_scale * conditional_entropy
                         )
@@ -937,15 +940,6 @@ def main(cfg: DictConfig):
                         ema_entropy = (
                             ema_decay * ema_entropy
                             + (1 - ema_decay) * selection_entropy.item()
-                        )
-                        scale_update_ = np.clip(
-                            ((sel_entropy_target - ema_entropy) / sel_entropy_target)
-                            ** 3,
-                            -0.5,
-                            1.0,
-                        )
-                        selection_entropy_scale = np.clip(
-                            selection_entropy_scale * (1 + scale_update_), 1e-5, 1e-1
                         )
 
                     # Discriminator:
@@ -1029,7 +1023,6 @@ def main(cfg: DictConfig):
                             losses_metrics_d["avg_return"][-nhist:]
                         )
                         postfix["H"] = ema_entropy
-                        postfix["Hs"] = selection_entropy_scale
 
                     pbar.set_postfix(postfix)
 

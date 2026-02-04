@@ -13,6 +13,9 @@ advantages:
 
 experiment_name: obsrl
 debug: False
+enable_entropy_loss: False
+
+obs_prob_eps: 0.05
 
 figs_period: 1
 
