@@ -2,7 +2,6 @@ import argparse
 import re
 from pathlib import Path
 
-import mlflow
 from mlflow.tracking import MlflowClient
 
 from experiment.utils.list_models import list_logged_models_for_run
@@ -16,10 +15,13 @@ def _slugify(s: str) -> str:
     return s.strip("_-") or "run"
 
 
-def _write_rlobs_defence_yaml(path: Path, model_id: str) -> None:
+def _write_rlobs_defence_yaml(
+    path: Path, run_name: str, step: int, model_id: str
+) -> None:
     # Match existing defence config style in this repo (minimal keys).
     txt = (
-        f'type: "rlobs"\nmodel_id:\n  - {model_id}\n  - {model_id}\n  - {model_id}\n\n'
+        f'type: "rlobs"\nrun-name: {run_name}\nstep: {step}\n'
+        + f"model_id:\n  - {model_id}\n  - {model_id}\n  - {model_id}\n\n"
     )
     path.write_text(txt, encoding="utf-8")
 
@@ -78,7 +80,9 @@ def main() -> None:
         step = _infer_step(row)
         step_str = f"{step:03d}" if step is not None else "na"
         out_path = out_dir / f"{run_name}-{step_str}.yaml"
-        _write_rlobs_defence_yaml(out_path, model_id=model_id)
+        _write_rlobs_defence_yaml(
+            out_path, run_name=run_name, step=step, model_id=model_id
+        )
         created += 1
 
     print(f"Wrote {created} config(s) to {out_dir}/")
