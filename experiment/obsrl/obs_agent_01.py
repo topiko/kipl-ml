@@ -607,7 +607,7 @@ def get_active_league(
         disc_features=disc_feats,
         reward_scales=reward_scales,
         device=device,
-        subset_indices=torch.randint(0, len(ds), (1000,)).numpy(),
+        subset_indices=np.random.choice(np.arange(len(ds)), 500, replace=False),
     )
 
     if prune:
@@ -848,7 +848,7 @@ def main(cfg: DictConfig):
                         device=device,
                         league_size=cfg.league_size,
                         league_update_frac=league_update_frac,
-                        prune=len(disc_league) > 20,
+                        prune=len(disc_league) > cfg.league_size * 2,
                     )
                 )
 
@@ -857,7 +857,7 @@ def main(cfg: DictConfig):
             dl_train.sampler = SubsetRandomSampler(
                 np.random.choice(
                     len(ds_train),
-                    size=len(ds_train) * cfg.subset_frac,
+                    size=len(ds_train) * cfg.train_subset_frac,
                     replace=False,
                 )
             )
