@@ -201,7 +201,7 @@ def rollout(
         # Make the values tensor
         league_values = critic(
             fd, None, h_detach_period=detach_period, seq_lens=action_seq_lens
-        )[0][Feats.STATE_VALUE].view(1, -1, L)
+        )[0][Feats.STATE_VALUE]
 
         # Make sure correct state is restored.
         disc.load_state_dict(current_disc_state)

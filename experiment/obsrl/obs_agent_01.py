@@ -109,7 +109,7 @@ def _plot_set(
     (
         _,
         sel_probs,
-        league_values,
+        values,
         league_rewards,
         entropies,
         times,
@@ -128,7 +128,7 @@ def _plot_set(
     )
 
     action_seq_lens = get_action_seq_lens(fd)
-    G, advantages = get_advantages(league_rewards, league_values, action_seq_lens, cfg)
+    G, advantages = get_advantages(league_rewards, values, action_seq_lens, cfg)
 
     # Pre-compute discriminator probabilities in batch to avoid per-figure forwards.
     # Orig traces
@@ -162,7 +162,7 @@ def _plot_set(
                 sel_probs=sel_probs,
                 probs_orig=probs_d,
                 probs_obs=probs_o,
-                league_values=league_values,
+                values=values,
                 league_rewards=league_rewards,
                 entropies=entropies,
                 times=times,
@@ -191,7 +191,7 @@ def _plot_single(
     sel_probs: torch.Tensor,
     probs_orig: torch.Tensor,
     probs_obs: torch.Tensor,
-    league_values: torch.Tensor,
+    values: torch.Tensor,
     league_rewards: dict[str, torch.Tensor] | None,
     entropies: dict[str, torch.Tensor],
     times: torch.Tensor,
@@ -292,7 +292,7 @@ def _plot_single(
     # Plot returns
 
     G_mean = (weights[:, None, None] * G).sum(dim=0)[batch_i, :]
-    values_i = league_values[0, batch_i]
+    values_i = values[batch_i, :]
     ax_ret.plot(
         times_np,
         G_mean.squeeze().cpu().numpy(),
@@ -367,7 +367,7 @@ def get_advantages(
         G_l = []
         advantages_l = []
         for i in range(rewards.shape[0]):
-            G_, advantages_ = get_advantages(rewards[i], values[i], seq_lens, cfg)
+            G_, advantages_ = get_advantages(rewards[i], values, seq_lens, cfg)
             G_l.append(G_)
             advantages_l.append(advantages_)
 
@@ -421,7 +421,7 @@ def get_advantages(
 
     if cfg.advantages.standardize:
         mask = make_time_mask(
-            seq_lens.to(values.device), values.shape[1], device=values.device
+            seq_lens.to(values.device), values.shape[0], device=values.device
         )
         mean, std = masked_mean_std(advantages, mask, per_trace=True)
         advantages = (advantages) / std
@@ -564,7 +564,7 @@ def get_league_scores(
             for X, y in pbar:
                 X = dict_to_device(X, device)
                 y = y.to(device)
-                league_values, league_rewards, _, _, _, _, fd = rollout(
+                values, league_rewards, _, _, _, _, fd = rollout(
                     obs=obs,
                     critic=critic,
                     disc=disc,
@@ -1012,7 +1012,7 @@ def main(cfg: DictConfig):
                         # valus.shape = (nleague, bs, T), G.shape = (nleague, bs, T)
                         # -> value_loss_.shape = (bs, T)
                         value_loss_ = 0.5 * (
-                            weights[:, None, None] * (values - G).pow(2)
+                            weights[:, None, None] * (values[None, ...] - G).pow(2)
                         ).sum(dim=0)
                         value_loss = masked_mean(
                             value_loss_, time_mask, per_trace=True
