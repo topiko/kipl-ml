@@ -727,7 +727,6 @@ def main(cfg: DictConfig):
     # Discriminator features, w.o. limit on n_packets
     disc_feats = FeatureTrs(feature_names=discriminator.features, n_packets=None)
 
-    dl_train = dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     k = round(cfg.obs_max_silence_s / cfg.obs_time_step_s)
@@ -855,12 +854,19 @@ def main(cfg: DictConfig):
 
             # Train obs:
             # ===========================================
-            dl_train.sampler = SubsetRandomSampler(
+            sampler = SubsetRandomSampler(
                 np.random.choice(
                     len(ds_train),
                     size=len(ds_train) * cfg.train_subset_frac,
                     replace=False,
                 )
+            )
+            dl_train = dl_(
+                ds_train,
+                bs=cfg.batch_size,
+                collate_fn=None,
+                shuffle=False,
+                sampler=sampler,
             )
 
             with tqdm(
