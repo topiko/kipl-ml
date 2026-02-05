@@ -10,6 +10,7 @@ advantages:
   type: "gae"
   lambda_: 0.95
   standardize: False
+  divide_by_Z: False
 
 experiment_name: obsrl
 debug: False

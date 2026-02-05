@@ -331,25 +331,26 @@ def get_advantages(
     else:
         raise NotImplementedError(f"Invalid advantage type: {cfg.advantages.type}")
 
-    # Normalize advantages so that point in time on the seq does not matter.
-    # (1, T)
-    t = torch.arange(advantages.shape[1], device=advantages.device)[None, :]
-    # (bs, T)
-    gamma = cfg.discounting
-    seq_lens_ = seq_lens.to(device=advantages.device)
-    to_seq_end = (seq_lens_[:, None] - t).clamp_min(1).to(advantages.dtype)
-    if abs(gamma - 1.0) < 1e-8:
-        Z = to_seq_end
-    else:
-        Z = (1 - gamma**to_seq_end) / (1 - gamma)
+    if cfg.advantages.divide_by_Z:
+        # Normalize advantages so that point in time on the seq does not matter.
+        # (1, T)
+        t = torch.arange(advantages.shape[1], device=advantages.device)[None, :]
+        # (bs, T)
+        gamma = cfg.discounting
+        seq_lens_ = seq_lens.to(device=advantages.device)
+        to_seq_end = (seq_lens_[:, None] - t).clamp_min(1).to(advantages.dtype)
+        if abs(gamma - 1.0) < 1e-8:
+            Z = to_seq_end
+        else:
+            Z = (1 - gamma**to_seq_end) / (1 - gamma)
 
-    advantages /= Z + 1e-8
+        advantages /= Z + 1e-8
 
     if cfg.advantages.standardize:
         mask = make_time_mask(
             seq_lens.to(values.device), values.shape[1], device=values.device
         )
-        mean, std = masked_mean_std(advantages, mask)
+        mean, std = masked_mean_std(advantages, mask, per_trace=True)
         advantages = (advantages) / std
         # Optional: keep padding at 0
         advantages = advantages * mask.to(advantages.dtype)
@@ -529,18 +530,32 @@ def make_time_mask(seq_lens: torch.Tensor, L: int, device=None) -> torch.Tensor:
     return torch.arange(L, device=device)[None, :] < seq_lens[:, None]  # (B, L) bool
 
 
-def masked_mean(x: torch.Tensor, mask: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+def masked_mean(
+    x: torch.Tensor, mask: torch.Tensor, per_trace: bool = False, eps: float = 1e-8
+) -> torch.Tensor:
     if isinstance(x, dict):
-        return masked_mean(sum(x.values()), mask, eps)
-    return masked_mean_std(x, mask, eps)[0]
+        return masked_mean(sum(x.values()), mask, per_trace, eps)
+    return masked_mean_std(x, mask, per_trace, eps)[0]
 
 
-def masked_mean_std(x: torch.Tensor, mask: torch.Tensor, eps: float = 1e-8):
+def masked_mean_std(
+    x: torch.Tensor, mask: torch.Tensor, per_trace: bool = False, eps: float = 1e-8
+) -> tuple[torch.Tensor, torch.Tensor]:
     m = mask.to(dtype=x.dtype)
+
+    if per_trace:
+        seq_lens = m.sum(dim=1)
+        mean = (x * m).sum(dim=1) / seq_lens
+        var = ((x - mean[:, None]) * m).pow(2).sum(dim=1) / seq_lens
+        std = (var + eps).sqrt()
+        # (bs, )
+        return mean, std
+
     denom = m.sum().clamp(min=1.0)
     mean = (x * m).sum() / denom
     var = ((x - mean) * m).pow(2).sum() / denom
     std = (var + eps).sqrt()
+    # (, )
     return mean, std
 
 
@@ -901,21 +916,25 @@ def main(cfg: DictConfig):
                         advantages = (weights[:, None, None] * advantages).sum(dim=0)
 
                         policy_loss_ = -(log_ps * advantages)
-                        policy_loss = masked_mean(policy_loss_, time_mask)
+                        policy_loss = masked_mean(
+                            policy_loss_, time_mask, per_trace=True
+                        ).mean()
 
                         # valus.shape = (nleague, bs, T), G.shape = (nleague, bs, T)
                         # -> value_loss_.shape = (bs, T)
                         value_loss_ = 0.5 * (
                             weights[:, None, None] * (values - G).pow(2)
                         ).sum(dim=0)
-                        value_loss = masked_mean(value_loss_, time_mask)
+                        value_loss = masked_mean(
+                            value_loss_, time_mask, per_trace=True
+                        ).mean()
 
                         selection_entropy = masked_mean(
-                            entropies["selection_entropy"], time_mask
-                        )
+                            entropies["selection_entropy"], time_mask, per_trace=True
+                        ).mean()
                         conditional_entropy = masked_mean(
-                            entropies["conditional_entropy"], time_mask
-                        )
+                            entropies["conditional_entropy"], time_mask, per_trace=True
+                        ).mean()
                         entropy_loss = enable_entropy_loss * (
                             -selection_entropy_scale * selection_entropy
                             - conditional_entropy_scale * conditional_entropy
@@ -1016,9 +1035,13 @@ def main(cfg: DictConfig):
                         losses_metrics_d["entropy_loss"].append(entropy_loss.item())
                         losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
                         losses_metrics_d["avg_return"].append(
-                            masked_mean_std(
-                                (weights[:, None, None] * G).sum(dim=0), time_mask
-                            )[0].item()
+                            masked_mean(
+                                (weights[:, None, None] * G).sum(dim=0),
+                                time_mask,
+                                per_trace=True,
+                            )
+                            .mean()
+                            .item()
                         )
                         for k, v in league_rewards.items():
                             losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
