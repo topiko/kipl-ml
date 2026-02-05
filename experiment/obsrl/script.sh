@@ -3,13 +3,19 @@
 #
 
 
-for adv in mc_w_bootstrap mc
+for per in 100 200 50
 do
-	for per in 50 100 200
+	for rnn_lr_reduction in  1.0 0.5
 	do
-		for rnn_lr_reduction in  0.33 0.2 0.5 0.8 1.0
+		for adv in mc mc_w_bootstrap
 		do
-			uv run python obs_agent_01.py advantages.type=$adv  h_detach_period=$per rnn_lr_reduction=$rnn_lr_reduction max_epochs=30 experiment_name=obsrl_sweep
+			uv run python obs_agent_01.py \
+				advantages.type=$adv  \
+				h_detach_period=$per \
+				rnn_lr_reduction=$rnn_lr_reduction \
+				max_epochs=30 \
+				league_size=10 \
+				experiment_name=obsrl_sweep2
 		done
 	done
 done
