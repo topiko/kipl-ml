@@ -249,6 +249,14 @@ def plot_obs_features(
     down_count = fd_[Feats.DOWN_COUNT]
     Dt = fd_[Feats.Dt]
 
+    # fd is padded with NaNs after seq end.
+    # Filter those out so plotting and limits stay finite.
+    mask = np.isfinite(times)
+    times = times[mask]
+    up_count = up_count[mask]
+    down_count = down_count[mask]
+    Dt = Dt[mask]
+
     _plot_boxes(times, Dt, up_count, color=UP_COLOR, alpha=0.5, ax=ax)
     _plot_boxes(times, Dt, -down_count, color=DOWN_COLOR, alpha=0.5, ax=ax)
     _plot_boxes(
@@ -260,7 +268,11 @@ def plot_obs_features(
         ax=ax,
     )
 
-    ax.set_ylim(-down_count.max() * 1.1, up_count.max() * 1.1)
+    if times.size == 0:
+        ax.set_ylim(-1.0, 1.0)
+    else:
+        ymax = float(max(np.max(up_count), np.max(down_count), 1.0))
+        ax.set_ylim(-ymax * 1.1, ymax * 1.1)
 
     return ax
 
