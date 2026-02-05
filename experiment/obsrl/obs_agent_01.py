@@ -1108,7 +1108,10 @@ def main(cfg: DictConfig):
                 if disc_loss_thres < min_disc_loss_thres:
                     disc_loss_thres = min_disc_loss_thres
 
-            if np.mean(losses_metrics_d["grad_norm"] > cfg.grad_norm_clip) > 0.05:
+            if (
+                np.mean(np.array(losses_metrics_d["grad_norm"]) > cfg.grad_norm_clip)
+                > 0.05
+            ):
                 logger.warning("Gradient clipping occurred often!")
             # obs_league = _append_to_league(obs_league, obs.state_dict())
 
