@@ -16,6 +16,7 @@ experiment_name: obsrl
 debug: False
 enable_entropy_loss: True
 init_for_wait: True
+separate_critic: True
 
 obs_prob_eps: 0.01
 

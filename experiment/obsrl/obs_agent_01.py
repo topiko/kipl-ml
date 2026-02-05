@@ -62,7 +62,7 @@ def _plot_set(
     cfg: DictConfig,
     ds: WFDataset,
     obs: nn.Module,
-    critic: nn.Module,
+    critic: nn.Module | None,
     obs_features: FeatureTrs,
     disc_orig: nn.Module,
     disc_trained: nn.Module,
@@ -82,7 +82,8 @@ def _plot_set(
     disc_orig.eval()
     disc_trained.eval()
     obs.eval()
-    critic.eval()
+    if critic is not None:
+        critic.eval()
 
     # Build one batch for rollout.
     # NOTE: We keep the original per-trace dicts for the "orig disc" plot.
@@ -832,7 +833,19 @@ def main(cfg: DictConfig):
         prefer_wait_bias=4.0 if cfg.init_for_wait else 0.0,
     ).to(device)
 
-    critic = CRITIC01(obs, hsize=256, nlayers=3).to(device)  # (256, 3)
+    lr = 0.001
+    obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr * cfg.rnn_lr_reduction)
+
+    disc_optim = _get_optim(discriminator, lr=0.001, lr_rnn=0.001)
+
+    critic = None
+    if cfg.separate_critic:
+        critic = CRITIC01(obs, hsize=256, nlayers=3).to(device)  # (256, 3)
+
+        lr_critic = lr / 2
+        critic_optim = _get_optim(
+            critic, lr=lr_critic, lr_rnn=lr_critic * cfg.rnn_lr_reduction
+        )
 
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
@@ -840,16 +853,6 @@ def main(cfg: DictConfig):
     if not cfg.init_for_wait:
         disc_league = _append_to_league(disc_league, discriminator.state_dict())
     # obs_league = _append_to_league([], obs.state_dict())
-
-    lr = 0.001
-    obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr * cfg.rnn_lr_reduction)
-
-    lr_critic = lr / 2
-    critic_optim = _get_optim(
-        critic, lr=lr_critic, lr_rnn=lr_critic * cfg.rnn_lr_reduction
-    )
-
-    disc_optim = _get_optim(discriminator, lr=0.001, lr_rnn=0.001)
 
     satlen = 50
 
@@ -953,18 +956,21 @@ def main(cfg: DictConfig):
                 for X, y in pbar:
                     train_obs = False
                     obs.eval()
-                    critic.eval()
                     discriminator.eval()
                     if np.random.rand() < obs_train_frac:
                         train_obs = True
                         obs.train()
-                        critic.train()
+
+                    if critic is not None:
+                        critic.eval()
+                        if train_obs:
+                            critic.train()
+                        critic_optim.zero_grad()
 
                     X = dict_to_device(X, device)
                     y = y.to(device)
 
                     obs_optim.zero_grad()
-                    critic_optim.zero_grad()
 
                     context = torch.enable_grad() if train_obs else torch.no_grad()
                     with context:
@@ -1032,15 +1038,21 @@ def main(cfg: DictConfig):
                             - conditional_entropy_scale * conditional_entropy
                         )
 
-                        loss = policy_loss + entropy_loss
+                        if critic is not None:
+                            loss = policy_loss + entropy_loss
 
-                        # Track the effect of selection vs conditional
-                        sel_log_ps = torch.log(sel_probs)
-                        sel_term = (advantages[..., None] * sel_log_ps).std()
-                        cond_term = (
-                            advantages[..., None] * (log_ps[..., None] - sel_log_ps)
-                        ).std()
-                        ratio = cond_term / (sel_term + 1e-8)
+                            # Critic step:
+                            # ==========================================
+                            value_loss.backward()
+                            nn.utils.clip_grad_norm_(
+                                critic.parameters(),
+                                cfg.grad_norm_clip,
+                                error_if_nonfinite=True,
+                            )
+                            critic_optim.step()
+                            # ==========================================
+                        else:
+                            loss = policy_loss + value_loss + entropy_loss
 
                         # Obs step:
                         # ==========================================
@@ -1050,18 +1062,18 @@ def main(cfg: DictConfig):
                             cfg.grad_norm_clip,
                             error_if_nonfinite=True,
                         )
-                        losses_metrics_d["grad_norm"].append(norm_.item())
                         obs_optim.step()
-
-                        # Critic step:
                         # ==========================================
-                        value_loss.backward()
-                        nn.utils.clip_grad_norm_(
-                            critic.parameters(),
-                            cfg.grad_norm_clip,
-                            error_if_nonfinite=True,
-                        )
-                        critic_optim.step()
+
+                        losses_metrics_d["grad_norm"].append(norm_.item())
+
+                        # Track the effect of selection vs conditional
+                        sel_log_ps = torch.log(sel_probs)
+                        sel_term = (advantages[..., None] * sel_log_ps).std()
+                        cond_term = (
+                            advantages[..., None] * (log_ps[..., None] - sel_log_ps)
+                        ).std()
+                        ratio = cond_term / (sel_term + 1e-8)
 
                         ema_sel_entropy = ema_update(
                             ema_sel_entropy, selection_entropy.item(), ema_decay

@@ -100,7 +100,7 @@ def get_rewards(
 
 def rollout(
     obs: nn.Module,
-    critic: nn.Module,
+    critic: nn.Module | None,
     disc: nn.Module,
     X: dict[Feats, torch.Tensor],
     y: torch.Tensor,
@@ -137,7 +137,7 @@ def rollout(
     action_seq_lens = fd.pop(Feats.SEQ_LENS)
     L = action_seq_lens.max().item()
 
-    act_times, actions, log_ps, sel_probs, _, entropies, h = obs.act(
+    act_times, actions, log_ps, sel_probs, values_actor, entropies, h = obs.act(
         fd, hobs, h_detach_period=detach_period, seq_lens=action_seq_lens
     )
 
@@ -163,10 +163,10 @@ def rollout(
             X_ = Xobs
 
         # Critic feat building:
-        if Feats.LABEL in critic.features:
+        if critic is not None and Feats.LABEL in critic.features:
             fd[Feats.LABEL] = y.unsqueeze(1).repeat(1, L)
 
-        for disc_id, state_d in disc_league:
+        for _, state_d in disc_league:
             if state_d is None:
                 disc.load_state_dict(current_disc_state)
             else:
@@ -195,9 +195,12 @@ def rollout(
         }
 
         # Make the values tensor
-        values = critic(
-            fd, None, h_detach_period=detach_period, seq_lens=action_seq_lens
-        )[0][Feats.STATE_VALUE]
+        if critic is not None:
+            values = critic(
+                fd, None, h_detach_period=detach_period, seq_lens=action_seq_lens
+            )[0][Feats.STATE_VALUE]
+        else:
+            values = values_actor
 
         # Make sure correct state is restored.
         disc.load_state_dict(current_disc_state)
