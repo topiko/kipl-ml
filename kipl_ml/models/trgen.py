@@ -278,6 +278,24 @@ def _forward_w_detach(
     return outputs_concat, h
 
 
+def _feature_map(x: dict[Feats, torch.Tensor], features: list[Feats]) -> torch.Tensor:
+    fs = []
+    for f in features:
+        if f == Feats.SILENCE_FLAG:
+            x_ = x[f].unsqueeze(-1)  # keep 0/1
+        elif f == Feats.TIMES:
+            x_ = x[f] / (x[f] + 10).unsqueeze(-1)
+        elif f == Feats.DISC_ID:
+            continue
+        elif f == Feats.LABEL:
+            continue
+        else:
+            x_ = torch.log1p(x[f]).unsqueeze(-1)
+        fs.append(x_)
+
+    return fs
+
+
 class AGENT1(nn.Module):
     name: str = "agent"
     ACTIONS: list[Actions] = [
@@ -342,6 +360,7 @@ class AGENT1(nn.Module):
             Feats.UP_COUNT,
             Feats.DOWN_COUNT,
             Feats.Dt,
+            Feats.TIMES,
             Feats.SILENCE_FLAG,
         ]
         self.num_layers = nlayers
@@ -421,13 +440,7 @@ class AGENT1(nn.Module):
 
         # Typically we have time in dim=1, here we always(?)
         # (N, L) x nfeat
-        fs = []
-        for f in self.features:
-            if f == Feats.SILENCE_FLAG:
-                x_ = x[f]  # keep 0/1
-            else:
-                x_ = torch.log10(1 + x[f])
-            fs.append(x_.unsqueeze(-1))
+        fs = _feature_map(x, self.features)
 
         # (N, L, nfeat)
         inputs = torch.cat(fs, dim=-1)
@@ -715,17 +728,7 @@ class CRITIC01(nn.Module):
 
         # Typically we have time in dim=1, here we always(?)
         # (N, L) x nfeat
-        fs = []
-        for f in self.features:
-            if f == Feats.SILENCE_FLAG:
-                x_ = x[f].unsqueeze(-1)  # keep 0/1
-            elif f == Feats.DISC_ID:
-                continue
-            elif f == Feats.LABEL:
-                continue
-            else:
-                x_ = torch.log10(1 + x[f]).unsqueeze(-1)
-            fs.append(x_)
+        fs = _feature_map(x, self.features)
 
         # (N, L, nfeat)
         inputs = torch.cat(fs, dim=-1)
