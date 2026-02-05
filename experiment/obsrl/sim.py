@@ -154,7 +154,6 @@ def rollout(
             k: v.detach().clone() for k, v in disc.state_dict().items()
         }
         rewards_l = []
-        league_values_l = []
         packet_seq_lens_gpu = (Xobs[Feats.DIRS] != 0).sum(dim=1).long()
         packet_seq_lens = packet_seq_lens_gpu.cpu()
 
@@ -191,12 +190,7 @@ def rollout(
 
             if Feats.DISC_ID in critic.features:
                 fd[Feats.DISC_ID] = torch.full_like(fd[critic.features[0]], disc_id)
-
-            league_values_ = critic(
-                fd, None, h_detach_period=detach_period, seq_lens=action_seq_lens
-            )[0][Feats.STATE_VALUE]
-
-            league_values_l.append(league_values_)
+                raise ValueError("Deprecated")
 
         # Rewards from different disc. checkpoints.
         rewards = {
@@ -205,7 +199,9 @@ def rollout(
         }
 
         # Make the values tensor
-        league_values = torch.stack(league_values_l, dim=0)
+        league_values = critic(
+            fd, None, h_detach_period=detach_period, seq_lens=action_seq_lens
+        )[0][Feats.STATE_VALUE].view(1, -1, L)
 
         # Make sure correct state is restored.
         disc.load_state_dict(current_disc_state)

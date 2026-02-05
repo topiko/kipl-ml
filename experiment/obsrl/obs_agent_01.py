@@ -203,8 +203,8 @@ def _plot_single(
     weights: torch.Tensor,
     max_len: int = 10_000,
 ):
-    fig, (ax, ax_o, ax_fd, ax_a, ax_b) = plt.subplots(
-        5, 1, figsize=(20, 12.0), sharex=True
+    fig, (ax, ax_o, ax_fd, ax_a, ax_b, ax_ret, ax_adv) = plt.subplots(
+        7, 1, figsize=(20, 15.0), sharex=True
     )
 
     # Orig disc on trace:
@@ -289,45 +289,18 @@ def _plot_single(
     rewards = {k: v[0] for k, v in league_rewards.items()}
     plot_rewards(times, rewards, idx=batch_i, ax=ax_b)
 
-    ax_advantages = ax_b.twinx()
-    ax_advantages.axes.spines["right"].set_visible(True)
-
-    # (league, T)
-    advantages_i = advantages[:, batch_i, :]
-
-    advantages_mean = (weights[:, None, None] * advantages).sum(dim=0)[batch_i, :]
-    breakpoint()
-    ax_advantages.plot(
-        times_np,
-        advantages_mean.cpu().numpy(),
-        label="advantage_w_mean",
-        color="green",
-    )
-    ax_advantages.plot(
-        times_np,
-        advantages_i.permute(1, 0).cpu().numpy(),
-        lw=0.5,
-        alpha=0.5,
-        color="green",
-    )
-    ax_b.set_title("Rewards, returns... ")
-    ax_advantages.set_ylabel("Advantages", color="k")
-
     # Plot returns
-    ax_r = ax_b.twinx()
-    ax_r.axes.spines["right"].set_visible(True)
-    ax_r.spines["right"].set_position(("outward", 40))  # offset by 40 points
 
     G_mean = (weights[:, None, None] * G).sum(dim=0)[batch_i, :]
     values_i = league_values[0, batch_i]
-    ax_r.plot(
+    ax_ret.plot(
         times_np,
         G_mean.squeeze().cpu().numpy(),
         "k-",
         label="Return",
         lw=1,
     )
-    ax_r.plot(
+    ax_ret.plot(
         times_np,
         G[:, batch_i, :].permute(1, 0).cpu().numpy(),
         "k-",
@@ -335,21 +308,42 @@ def _plot_single(
         lw=0.5,
     )
 
-    ax_r.plot(
+    ax_ret.plot(
         times_np,
         values_i.squeeze().cpu().numpy(),
         "--",
         label="Values estim.",
         color="black",
-        lw=1,
+        lw=2,
     )
 
-    ax_r.set_ylabel("Return", color="k")
+    ax_ret.set_ylabel("Return", color="k")
 
-    ax_r.legend(frameon=False, loc=1)
+    ax_ret.legend(frameon=False, loc=1)
     ax_b.legend(frameon=False, loc=2)
-    ax_advantages.legend(frameon=False, loc=3)
-    ax_b.set_xlabel("Time [s]")
+
+    # Advantages (league, T)
+    advantages_i = advantages[:, batch_i, :]
+
+    advantages_mean = (weights[:, None, None] * advantages).sum(dim=0)[batch_i, :]
+    ax_adv.plot(
+        times_np,
+        advantages_mean.cpu().numpy(),
+        label="advantage_w_mean",
+        color="green",
+    )
+    ax_adv.plot(
+        times_np,
+        advantages_i.permute(1, 0).cpu().numpy(),
+        lw=0.5,
+        alpha=0.5,
+        color="green",
+    )
+    ax_b.set_title("Rewards, returns... ")
+    ax_adv.set_ylabel("Advantages", color="k")
+    ax_adv.legend(frameon=False, loc=3)
+
+    ax_adv.set_xlabel("Time [s]")
 
     mlflow.log_figure(fig, f"trace_{ds_idx}_clf_epoch={e:03d}.png")
 
