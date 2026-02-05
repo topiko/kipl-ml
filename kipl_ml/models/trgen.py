@@ -284,7 +284,7 @@ def _feature_map(x: dict[Feats, torch.Tensor], features: list[Feats]) -> torch.T
         if f == Feats.SILENCE_FLAG:
             x_ = x[f].unsqueeze(-1)  # keep 0/1
         elif f == Feats.TIMES:
-            x_ = x[f] / (x[f] + 10).unsqueeze(-1)
+            x_ = (x[f] / (x[f] + 10)).unsqueeze(-1)
         elif f == Feats.DISC_ID:
             continue
         elif f == Feats.LABEL:
