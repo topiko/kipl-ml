@@ -78,23 +78,83 @@ def _plot_set(
 
     idxs = rng.choice(len(ds), size=ntraces, replace=False)
 
+    disc_orig.eval()
+    disc_trained.eval()
+    obs.eval()
+    critic.eval()
+
+    # Build one batch for rollout.
+    # NOTE: We keep the original per-trace dicts for the "orig disc" plot.
+    X_orig_l: list[dict[Feats, torch.Tensor]] = []
+    y_l: list[torch.Tensor] = []
+    X_rollin_l: list[dict[Feats, torch.Tensor]] = []
+
+    for idx in idxs:
+        idx = int(idx)
+        X_i, y_i = ds[idx]
+        X_orig_l.append(X_i)
+        y_l.append(y_i)
+        X_rollin_l.append(obs_features(X_i))
+
+    # Stack feature dict batch.
+    keys = list(X_rollin_l[0].keys())
+    X_batch = {k: torch.stack([x[k] for x in X_rollin_l], dim=0) for k in keys}
+    y_batch = torch.stack(y_l, dim=0)
+
+    X_batch = dict_to_device(X_batch, device)
+    y_batch = y_batch.to(device)
+
+    # One rollout for the whole set.
+    disc_state = disc_trained.state_dict()
+    (
+        _,
+        sel_probs,
+        league_values,
+        league_rewards,
+        entropies,
+        times,
+        actions,
+        Xobs,
+        fd,
+    ) = rollout(
+        obs,
+        critic,
+        disc_trained,
+        X_batch,
+        y_batch,
+        disc_league=[(disc_league_idx, disc_state)],
+        disc_features=disc_features,
+        reward_scales=reward_scales,
+    )
+
+    action_seq_lens = get_action_seq_lens(fd)
+    G, advantages = get_advantages(league_rewards, league_values, action_seq_lens, cfg)
+
     logger.info("Generating figs:")
-    with tqdm(idxs, desc="Gen figs", ncols=TQDM_W) as pbar:
-        for idx in pbar:
+    with tqdm(list(enumerate(idxs)), desc="Gen figs", ncols=TQDM_W) as pbar:
+        for batch_i, ds_idx in pbar:
             _plot_single(
                 cfg=cfg,
-                ds=ds,
-                obs=obs,
-                critic=critic,
-                obs_features=obs_features,
                 disc_orig=disc_orig,
                 disc_trained=disc_trained,
                 disc_features=disc_features,
                 disc_league_idx=disc_league_idx,
                 e=e,
-                reward_scales=reward_scales,
                 device=device,
-                idx=idx,
+                ds_idx=int(ds_idx),
+                batch_i=int(batch_i),
+                X_orig=X_orig_l[batch_i],
+                y_orig=y_l[batch_i],
+                sel_probs=sel_probs,
+                league_values=league_values,
+                league_rewards=league_rewards,
+                entropies=entropies,
+                times=times,
+                actions=actions,
+                Xobs=Xobs,
+                fd=fd,
+                G=G,
+                advantages=advantages,
                 max_len=max_len,
             )
 
@@ -102,27 +162,31 @@ def _plot_set(
 @torch.no_grad()
 def _plot_single(
     cfg: DictConfig,
-    ds: WFDataset,
-    obs: nn.Module,
-    critic: nn.Module,
-    obs_features: FeatureTrs,
     disc_orig: nn.Module,
     disc_trained: nn.Module,
     disc_features: FeatureTrs,
     disc_league_idx: int,
     e: int,
-    reward_scales: dict[str, float],
     device: torch.DeviceObjType,
-    idx: int,
+    ds_idx: int,
+    batch_i: int,
+    X_orig: dict[Feats, torch.Tensor],
+    y_orig: torch.Tensor,
+    sel_probs: torch.Tensor,
+    league_values: torch.Tensor,
+    league_rewards: dict[str, torch.Tensor] | None,
+    entropies: dict[str, torch.Tensor],
+    times: torch.Tensor,
+    actions: dict[Actions, torch.Tensor],
+    Xobs: dict[Feats, torch.Tensor],
+    fd: dict[Feats, torch.Tensor],
+    G: torch.Tensor,
+    advantages: torch.Tensor,
     max_len: int = 10_000,
 ):
     fig, (ax, ax_o, ax_fd, ax_a, ax_b) = plt.subplots(
         5, 1, figsize=(20, 12.0), sharex=True
     )
-
-    disc_orig.eval()
-    disc_trained.eval()
-    obs.eval()
 
     def _unsqueeze(X: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         return {k: v.unsqueeze(0) for k, v in X.items()}
@@ -135,10 +199,9 @@ def _plot_single(
 
     # Orig disc on trace:
     # ========================================
-    X_d, y = ds[idx]
-    X_d = disc_features(X_d)
+    X_d = disc_features(X_orig)
     X_d = dict_to_device(X_d, device)
-    y = y.to(device).unsqueeze(-1)
+    y = y_orig.to(device).unsqueeze(-1)
 
     plot_trace(
         X_d,
@@ -149,63 +212,43 @@ def _plot_single(
     ax.set_title(f"True class: {y.item()}")
     # ========================================
 
-    # Trained disc on obsfuscated trace:
+    # Trained disc on obsfuscated trace (from batched rollout):
     # ========================================
-    # Use the obsfuscator features when entering rollout,
-    # the disc feats insiderollout make sure disc gets right set of features.
-    X, y = ds[idx]
-    X = _unsqueeze(obs_features(X))
-    X = dict_to_device(X, device)
-    y = y.to(device).unsqueeze(-1)
-
-    _, sel_probs, state_values, league_rewards, entropies, times, actions, Xobs, fd = (
-        rollout(
-            obs,
-            critic,
-            disc_trained,
-            X,
-            y,
-            disc_league=[(disc_league_idx, disc_trained.state_dict())],
-            disc_features=disc_features,
-            reward_scales=reward_scales,
-        )
-    )
-
-    G, advantages = get_advantages(
-        league_rewards, state_values, get_action_seq_lens(fd), cfg
-    )
-
-    Xobs = {k: v.squeeze(0) for k, v in Xobs.items()}
-    mask = Xobs[Feats.DIRS] != 0
-    if mask.sum() > max_len:
+    Xobs_i = {k: v[batch_i] for k, v in Xobs.items()}
+    mask = Xobs_i[Feats.DIRS] != 0
+    if mask.sum().item() > max_len:
         logger.warning("Long seqs. detected -> truncating to %d.", max_len)
-        Xobs[Feats.TIMES] = Xobs[Feats.TIMES][:max_len]
-        Xobs[Feats.DIRS] = Xobs[Feats.DIRS][:max_len]
-        Xobs[Feats.PADDING] = Xobs[Feats.PADDING][:max_len]
+        Xobs_i[Feats.TIMES] = Xobs_i[Feats.TIMES][:max_len]
+        Xobs_i[Feats.DIRS] = Xobs_i[Feats.DIRS][:max_len]
+        Xobs_i[Feats.PADDING] = Xobs_i[Feats.PADDING][:max_len]
 
     # Plot obsfuscated
     plot_trace(
-        Xobs,
+        Xobs_i,
         ax=ax_o,
-        cl_probs=X_to_probs(disc_trained, disc_features(Xobs)),
+        cl_probs=X_to_probs(disc_trained, disc_features(Xobs_i)),
         true_class=y.item(),
     )
     ax_o.set_title("Obs. trace, disc trained")
 
     # Plot obs inputs
-    plot_obs_features(fd, ax=ax_fd)
+    plot_obs_features(fd, idx=batch_i, ax=ax_fd)
     ax_fd.set_title("Obs. features")
 
     # Plot actions
-    plot_actions(times, actions, ax=ax_a)
+    plot_actions(times, actions, idx=batch_i, ax=ax_a)
+
+    times_i = times[batch_i]
+    times_np = times_i.squeeze().cpu().numpy()
 
     # Plot entropy
     ax_entropy = ax_a.twinx()
     ax_entropy.axes.spines["right"].set_visible(True)
     for entropy, values in entropies.items():
+        values_i = values[batch_i]
         ax_entropy.plot(
-            times.squeeze().cpu().numpy(),
-            values.squeeze().cpu().numpy(),
+            times_np,
+            values_i.squeeze().cpu().numpy(),
             "--",
             lw=2,
             label=entropy,
@@ -220,8 +263,8 @@ def _plot_single(
     ax_probs.set_ylabel("Selection probs.")
 
     ax_probs.plot(
-        times.squeeze().cpu().numpy(),
-        sel_probs.squeeze(0).cpu().numpy(),
+        times_np,
+        sel_probs[batch_i].squeeze().cpu().numpy(),
         "-",
         lw=1,
     )
@@ -229,14 +272,18 @@ def _plot_single(
     ax_a.set_title("Actions, entropies")
 
     # Plot rewards
-    rewards = {k: v.squeeze(0) for k, v in league_rewards.items()}
-    plot_rewards(times, rewards, ax=ax_b)
+    if league_rewards is None:
+        raise ValueError("league_rewards is None; plotting requires reward_scales")
+    rewards = {k: v[0] for k, v in league_rewards.items()}
+    plot_rewards(times, rewards, idx=batch_i, ax=ax_b)
 
     ax_advantages = ax_b.twinx()
     ax_advantages.axes.spines["right"].set_visible(True)
+
+    advantages_i = advantages[0, batch_i]
     ax_advantages.plot(
-        times.squeeze().cpu().numpy(),
-        advantages.squeeze().cpu().numpy(),
+        times_np,
+        advantages_i.squeeze().cpu().numpy(),
         label="advantage",
     )
     ax_b.set_title(f"Rewards, returns, disc_id={disc_league_idx}")
@@ -247,16 +294,18 @@ def _plot_single(
     ax_r.axes.spines["right"].set_visible(True)
     ax_r.spines["right"].set_position(("outward", 40))  # offset by 40 points
 
+    G_i = G[0, batch_i]
+    values_i = league_values[0, batch_i]
     ax_r.plot(
-        times.squeeze().cpu().numpy(),
-        G.squeeze().cpu().numpy(),
+        times_np,
+        G_i.squeeze().cpu().numpy(),
         "k-",
         label="Return",
         lw=1,
     )
     ax_r.plot(
-        times.squeeze().cpu().numpy(),
-        state_values.squeeze().cpu().numpy(),
+        times_np,
+        values_i.squeeze().cpu().numpy(),
         "--",
         label="Values estim.",
         color="black",
@@ -272,7 +321,7 @@ def _plot_single(
 
     fig.canvas.draw()
 
-    mlflow.log_figure(fig, f"trace_{idx}_clf_epoch={e:03d}.png")
+    mlflow.log_figure(fig, f"trace_{ds_idx}_clf_epoch={e:03d}.png")
 
     plt.close()
 
