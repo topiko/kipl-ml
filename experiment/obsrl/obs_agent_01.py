@@ -1161,9 +1161,9 @@ def main(cfg: DictConfig):
             disc_train_count += sum(losses_metrics_d["train_disc"])
             if disc_train_count > 25 and obs_train_frac > 0.0:
                 disc_league = _append_to_league(disc_league, discriminator.state_dict())
-                mlflow.pytorch.log_model(
-                    discriminator, name=f"rldisc-{disc_league[-1][0]}", step=e
-                )
+                # mlflow.pytorch.log_model(
+                #     discriminator, name=f"rldisc-{disc_league[-1][0]}", step=e
+                # )
                 disc_train_count = 0
 
                 disc_loss_thres -= disc_loss_step
@@ -1240,28 +1240,26 @@ def main(cfg: DictConfig):
                     max_len=20_000,
                 )
 
-            if e % 5 == 0:
-                mlflow.pytorch.log_model(obs, name=f"rlobs-{e}", step=e)
-                # mlflow.pytorch.log_model(discriminator, name=f"rldisc-{e}", step=e)
+                key = "valid:obs_vs._disc"
+                d = valid_metrics(
+                    disc=discriminator,
+                    obs=obs,
+                    ds_valid=ds_valid,
+                    n_packets=cfg.trace_len,
+                    device=device,
+                    key=key,
+                )
 
-            key = "valid:obs_vs._disc"
-            d = valid_metrics(
-                disc=discriminator,
-                obs=obs,
-                ds_valid=ds_valid,
-                n_packets=cfg.trace_len,
-                device=device,
-                key=key,
-            )
+                d["selection_entropy_target"] = sel_entropy_target
 
-            d["selection_entropy_target"] = sel_entropy_target
-
-            for k, v in d.items():
-                k = keymap(k)
-                mlflow.log_metric(k, v, step=e)
-                logger.info(f"\t{k:<40} : {v:.03f}")
+                for k, v in d.items():
+                    k = keymap(k)
+                    mlflow.log_metric(k, v, step=e)
+                    logger.info(f"\t{k:<40} : {v:.03f}")
 
             # =============================================
+            if e % 5 == 0:
+                mlflow.pytorch.log_model(obs, name=f"rlobs-{e}", step=e)
 
             if cfg.max_epochs > 0 and e >= cfg.max_epochs:
                 logger.info("Max epochs %s reached!" % e)

@@ -19,7 +19,7 @@ init_for_wait: True
 
 obs_prob_eps: 0.01
 
-figs_period: 1
+figs_period: 5
 
 train_subset_frac: 1.0
 

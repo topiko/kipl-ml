@@ -13,7 +13,7 @@ do
 				advantages.type=$adv  \
 				h_detach_period=$per \
 				rnn_lr_reduction=$rnn_lr_reduction \
-				max_epochs=30 \
+				max_epochs=100 \
 				league_size=50 \
 				train_subset_frac=0.2 \
 				experiment_name=obsrl_sweep2
