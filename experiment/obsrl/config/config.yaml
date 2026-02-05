@@ -17,7 +17,7 @@ debug: False
 enable_entropy_loss: True
 init_for_wait: True
 
-obs_prob_eps: 0.0
+obs_prob_eps: 0.01
 
 figs_period: 1
 

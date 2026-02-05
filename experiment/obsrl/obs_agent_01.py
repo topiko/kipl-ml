@@ -779,21 +779,21 @@ def main(cfg: DictConfig):
 
     # Entropy scale
     selection_entropy_scale = 0.005
-    conditional_entropy_scale = 0.001
+    conditional_entropy_scale = 0.0001
     ema_sel_entropy = 1.0
     ema_cond_entropy = 1.0
 
     sel_entropy_target = 0.5
 
     # Padding reward scale
-    padding_scale = 0.001
-    padding_scale_max = 0.01
+    padding_scale = 0.005
+    padding_scale_max = 0.02
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     league_update_frac = 0.2
     active_league_idx = None
-    disc_loss_thres = 2.0
-    min_disc_loss_thres = 0.5
+    disc_loss_thres = 1.2
+    min_disc_loss_thres = 0.3
     disc_loss_step = 0.1
     disc_loss_p_buffer = 0.1
     disc_train_min_p = 0.01
@@ -848,7 +848,7 @@ def main(cfg: DictConfig):
                         device=device,
                         league_size=cfg.league_size,
                         league_update_frac=league_update_frac,
-                        prune=len(disc_league) > 10,
+                        prune=len(disc_league) > 20,
                     )
                 )
 
@@ -985,7 +985,7 @@ def main(cfg: DictConfig):
                             1.0,
                         )
                         selection_entropy_scale = np.clip(
-                            selection_entropy_scale * (1 + scale_update_), 1e-5, 1e-1
+                            selection_entropy_scale * (1 + scale_update_), 1e-7, 1e-1
                         )
 
                         ema_cond_entropy = ema_update(
@@ -1135,11 +1135,11 @@ def main(cfg: DictConfig):
             # =============================================
             losses_metrics_d["disc_l_thres"] = disc_loss_thres
             losses_metrics_d["obs_train_frac"] = obs_train_frac
-            if (d_train_frac := np.mean(losses_metrics_d["train_disc"])) > 0.90:
-                if d_train_frac == 1:
-                    obs_train_frac *= 0.8
-            elif d_train_frac < 0.5:
-                obs_train_frac = 1.0
+            # if (d_train_frac := np.mean(losses_metrics_d["train_disc"])) > 0.90:
+            #     if d_train_frac == 1:
+            #         obs_train_frac *= 0.8
+            # elif d_train_frac < 0.5:
+            #     obs_train_frac = 1.0
 
             # disc_loss_thres -= disc_loss_step
 
