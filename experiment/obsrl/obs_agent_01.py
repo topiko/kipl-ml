@@ -67,7 +67,8 @@ def _plot_set(
     disc_orig: nn.Module,
     disc_trained: nn.Module,
     disc_features: FeatureTrs,
-    disc_league_idx: int,
+    active_disc_league: list[torch.nn.Module.state_dict],
+    weights: torch.Tensor,
     e: int,
     reward_scales: dict[str, float],
     device: torch.DeviceObjType,
@@ -105,7 +106,6 @@ def _plot_set(
     y_batch = y_batch.to(device)
 
     # One rollout for the whole set.
-    disc_state = disc_trained.state_dict()
     (
         _,
         sel_probs,
@@ -122,7 +122,7 @@ def _plot_set(
         disc_trained,
         X_batch,
         y_batch,
-        disc_league=[(disc_league_idx, disc_state)],
+        disc_league=active_disc_league,
         disc_features=disc_features,
         reward_scales=reward_scales,
     )
@@ -153,7 +153,6 @@ def _plot_set(
                 disc_orig=disc_orig,
                 disc_trained=disc_trained,
                 disc_features=disc_features,
-                disc_league_idx=disc_league_idx,
                 e=e,
                 device=device,
                 ds_idx=int(ds_idx),
@@ -172,6 +171,7 @@ def _plot_set(
                 fd=fd,
                 G=G,
                 advantages=advantages,
+                weights=weights,
                 max_len=max_len,
             )
 
@@ -182,7 +182,6 @@ def _plot_single(
     disc_orig: nn.Module,
     disc_trained: nn.Module,
     disc_features: FeatureTrs,
-    disc_league_idx: int,
     e: int,
     device: torch.DeviceObjType,
     ds_idx: int,
@@ -201,6 +200,7 @@ def _plot_single(
     fd: dict[Feats, torch.Tensor],
     G: torch.Tensor,
     advantages: torch.Tensor,
+    weights: torch.Tensor,
     max_len: int = 10_000,
 ):
     fig, (ax, ax_o, ax_fd, ax_a, ax_b) = plt.subplots(
@@ -292,13 +292,25 @@ def _plot_single(
     ax_advantages = ax_b.twinx()
     ax_advantages.axes.spines["right"].set_visible(True)
 
-    advantages_i = advantages[0, batch_i]
+    # (league, T)
+    advantages_i = advantages[:, batch_i, :]
+
+    advantages_mean = (weights[:, None, None] * advantages).sum(dim=0)[batch_i, :]
+    breakpoint()
     ax_advantages.plot(
         times_np,
-        advantages_i.squeeze().cpu().numpy(),
-        label="advantage",
+        advantages_mean.cpu().numpy(),
+        label="advantage_w_mean",
+        color="green",
     )
-    ax_b.set_title(f"Rewards, returns, disc_id={disc_league_idx}")
+    ax_advantages.plot(
+        times_np,
+        advantages_i.permute(1, 0).cpu().numpy(),
+        lw=0.5,
+        alpha=0.5,
+        color="green",
+    )
+    ax_b.set_title("Rewards, returns... ")
     ax_advantages.set_ylabel("Advantages", color="k")
 
     # Plot returns
@@ -306,15 +318,23 @@ def _plot_single(
     ax_r.axes.spines["right"].set_visible(True)
     ax_r.spines["right"].set_position(("outward", 40))  # offset by 40 points
 
-    G_i = G[0, batch_i]
+    G_mean = (weights[:, None, None] * G).sum(dim=0)[batch_i, :]
     values_i = league_values[0, batch_i]
     ax_r.plot(
         times_np,
-        G_i.squeeze().cpu().numpy(),
+        G_mean.squeeze().cpu().numpy(),
         "k-",
         label="Return",
         lw=1,
     )
+    ax_r.plot(
+        times_np,
+        G[:, batch_i, :].permute(1, 0).cpu().numpy(),
+        "k-",
+        alpha=0.5,
+        lw=0.5,
+    )
+
     ax_r.plot(
         times_np,
         values_i.squeeze().cpu().numpy(),
@@ -838,7 +858,7 @@ def main(cfg: DictConfig):
 
     # Entropy scale
     selection_entropy_scale = 0.005
-    conditional_entropy_scale = 0.0001
+    conditional_entropy_scale = 0.0002
     ema_sel_entropy = 1.0
     ema_cond_entropy = 1.0
 
@@ -936,9 +956,12 @@ def main(cfg: DictConfig):
                 for X, y in pbar:
                     train_obs = False
                     obs.eval()
+                    critic.eval()
+                    discriminator.eval()
                     if np.random.rand() < obs_train_frac:
                         train_obs = True
                         obs.train()
+                        critic.train()
 
                     X = dict_to_device(X, device)
                     y = y.to(device)
@@ -1242,7 +1265,8 @@ def main(cfg: DictConfig):
                     disc_orig=discriminator_orig,
                     disc_trained=discriminator,
                     disc_features=disc_feats,
-                    disc_league_idx=len(disc_league),
+                    active_disc_league=active_disc_league,
+                    weights=weights,
                     e=e,
                     reward_scales=reward_scales,
                     device=device,
