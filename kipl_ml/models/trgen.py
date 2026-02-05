@@ -665,7 +665,6 @@ class CRITIC01(nn.Module):
         disc_embedding_dim: int = 4,
         n_classes: int = 100,
         label_embedding_dim: int = 1,
-        use_machine_id: bool = True,
         use_label: bool = False,
     ):
         super().__init__()
@@ -680,12 +679,6 @@ class CRITIC01(nn.Module):
 
         self.features = agent.features.copy()
 
-        self.use_machine_id = use_machine_id
-        if use_machine_id:
-            self.features.append(Feats.DISC_ID)
-        else:
-            disc_embedding_dim = 0
-
         self.use_label = use_label
         if use_label:
             self.features.append(Feats.LABEL)
@@ -695,7 +688,7 @@ class CRITIC01(nn.Module):
         self.num_layers = nlayers
         self.hidden_size = hsize
         # scaler does not apply to embeddings
-        nfeat = len(self.features) - use_machine_id - use_label
+        nfeat = len(self.features) - use_label
 
         self.scaler = nn.Sequential(nn.Linear(nfeat, nfeat, bias=False), nn.Tanh())
         self.rnn = nn.LSTM(
@@ -740,11 +733,6 @@ class CRITIC01(nn.Module):
         if self.use_label:
             inputs = torch.cat(
                 (inputs, self.label_embedding(x[Feats.LABEL].long())), dim=-1
-            )
-
-        if self.use_machine_id:
-            inputs = torch.cat(
-                (inputs, self.disc_embedding(x[Feats.DISC_ID].long())), dim=-1
             )
 
         # (N, L, H) (N, n_hidden, H)
