@@ -121,7 +121,7 @@ def rollout(
 ]:
     hobs = None
     rewards = None
-    league_values = None
+    values = None
     device = y.device
 
     if X[Feats.TIMES].isnan().any():
@@ -199,7 +199,7 @@ def rollout(
         }
 
         # Make the values tensor
-        league_values = critic(
+        values = critic(
             fd, None, h_detach_period=detach_period, seq_lens=action_seq_lens
         )[0][Feats.STATE_VALUE]
 
@@ -209,7 +209,7 @@ def rollout(
     return (
         log_ps,
         sel_probs,
-        league_values,
+        values,
         rewards,
         entropies,
         act_times,

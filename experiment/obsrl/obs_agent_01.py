@@ -256,8 +256,8 @@ def _plot_single(
     # Plot entropy
     ax_entropy = ax_a.twinx()
     ax_entropy.axes.spines["right"].set_visible(True)
-    for entropy, values in entropies.items():
-        values_i = values[batch_i]
+    for entropy, entropy_values in entropies.items():
+        values_i = entropy_values[batch_i]
         ax_entropy.plot(
             times_np,
             values_i.squeeze().cpu().numpy(),
@@ -298,14 +298,14 @@ def _plot_single(
         G_mean.squeeze().cpu().numpy(),
         "k-",
         label="Return",
-        lw=1,
+        lw=2,
     )
     ax_ret.plot(
         times_np,
         G[:, batch_i, :].permute(1, 0).cpu().numpy(),
         "k-",
         alpha=0.5,
-        lw=0.5,
+        lw=0.2,
     )
 
     ax_ret.plot(
@@ -314,8 +314,9 @@ def _plot_single(
         "--",
         label="Values estim.",
         color="black",
-        lw=2,
+        lw=1,
     )
+    ax_ret.axhline(color="black", lw=0.5)
 
     ax_ret.set_ylabel("Return", color="k")
 
@@ -326,22 +327,25 @@ def _plot_single(
     advantages_i = advantages[:, batch_i, :]
 
     advantages_mean = (weights[:, None, None] * advantages).sum(dim=0)[batch_i, :]
+
     ax_adv.plot(
         times_np,
         advantages_mean.cpu().numpy(),
         label="advantage_w_mean",
         color="green",
+        lw=2,
     )
     ax_adv.plot(
         times_np,
         advantages_i.permute(1, 0).cpu().numpy(),
         lw=0.5,
-        alpha=0.5,
+        alpha=0.2,
         color="green",
     )
     ax_b.set_title("Rewards, returns... ")
     ax_adv.set_ylabel("Advantages", color="k")
     ax_adv.legend(frameon=False, loc=3)
+    ax_adv.axhline(color="black", lw=0.5)
 
     ax_adv.set_xlabel("Time [s]")
 
@@ -1009,7 +1013,7 @@ def main(cfg: DictConfig):
                             policy_loss_, time_mask, per_trace=True
                         ).mean()
 
-                        # valus.shape = (nleague, bs, T), G.shape = (nleague, bs, T)
+                        # valus.shape = (bs, T), G.shape = (nleague, bs, T)
                         # -> value_loss_.shape = (bs, T)
                         value_loss_ = 0.5 * (
                             weights[:, None, None] * (values[None, ...] - G).pow(2)
