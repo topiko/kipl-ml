@@ -597,6 +597,7 @@ def get_active_league(
     list[nn.Module.state_dict],
     torch.Tensor,
 ]:
+    rng = np.random.default_rng()
     league_scores = get_league_scores(
         league=league,
         ds=ds,
@@ -607,7 +608,7 @@ def get_active_league(
         disc_features=disc_feats,
         reward_scales=reward_scales,
         device=device,
-        subset_indices=np.random.choice(np.arange(len(ds)), 500, replace=False),
+        subset_indices=rng.choice(np.arange(len(ds)), 500, replace=False),
     )
 
     if prune:
