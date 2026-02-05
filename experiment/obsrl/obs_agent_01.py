@@ -857,7 +857,7 @@ def main(cfg: DictConfig):
             sampler = SubsetRandomSampler(
                 np.random.choice(
                     len(ds_train),
-                    size=len(ds_train) * cfg.train_subset_frac,
+                    size=int(len(ds_train) * cfg.train_subset_frac),
                     replace=False,
                 )
             )
