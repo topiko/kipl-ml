@@ -854,7 +854,13 @@ def main(cfg: DictConfig):
 
             # Train obs:
             # ===========================================
-            obs.cond_beta = 0.3
+            dl_train.sampler = SubsetRandomSampler(
+                np.random.choice(
+                    len(ds_train),
+                    size=len(ds_train) * cfg.subset_frac,
+                    replace=False,
+                )
+            )
 
             with tqdm(
                 dl_train,

@@ -397,7 +397,7 @@ class AGENT1(nn.Module):
         self.critic = nn.Sequential(
             nn.Linear(hsize, hsize), nn.ReLU(), nn.Linear(hsize, 1)
         )
-        self.cond_beta = 0.25
+        self.cond_beta = 1.0
 
         if prefer_wait_bias != 0.0:
             self._init_action_selection_prefer_wait(prefer_wait_bias=prefer_wait_bias)
