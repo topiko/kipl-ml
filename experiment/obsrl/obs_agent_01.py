@@ -286,7 +286,8 @@ def _plot_single(
     # Plot rewards
     if league_rewards is None:
         raise ValueError("league_rewards is None; plotting requires reward_scales")
-    rewards = {k: v[0] for k, v in league_rewards.items()}
+    # The current disc rewards are at latest idx.
+    rewards = {k: v[-1] for k, v in league_rewards.items()}
     plot_rewards(times, rewards, idx=batch_i, ax=ax_b)
 
     # Plot returns
@@ -831,9 +832,7 @@ def main(cfg: DictConfig):
         prefer_wait_bias=4.0 if cfg.init_for_wait else 0.0,
     ).to(device)
 
-    critic = CRITIC01(obs, hsize=256, nlayers=3, use_machine_id=False).to(
-        device
-    )  # (256, 3)
+    critic = CRITIC01(obs, hsize=256, nlayers=3).to(device)  # (256, 3)
 
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)

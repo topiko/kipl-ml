@@ -662,7 +662,6 @@ class CRITIC01(nn.Module):
         hsize: int = 256,
         nlayers: int = 3,
         dropout: float = 0.0,
-        disc_embedding_dim: int = 4,
         n_classes: int = 100,
         label_embedding_dim: int = 1,
         use_label: bool = False,
@@ -692,7 +691,7 @@ class CRITIC01(nn.Module):
 
         self.scaler = nn.Sequential(nn.Linear(nfeat, nfeat, bias=False), nn.Tanh())
         self.rnn = nn.LSTM(
-            nfeat + disc_embedding_dim + label_embedding_dim,
+            nfeat + label_embedding_dim,
             hsize,
             nlayers,
             batch_first=True,
@@ -706,7 +705,6 @@ class CRITIC01(nn.Module):
             nn.Linear(hsize, hsize), nn.LeakyReLU(), nn.Linear(hsize, 1)
         )
 
-        self.disc_embedding = nn.Embedding(100, disc_embedding_dim)
         self.label_embedding = nn.Embedding(n_classes, label_embedding_dim)
 
     def forward(

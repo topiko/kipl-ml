@@ -188,10 +188,6 @@ def rollout(
 
             rewards_l.append(rewards_)
 
-            if Feats.DISC_ID in critic.features:
-                fd[Feats.DISC_ID] = torch.full_like(fd[critic.features[0]], disc_id)
-                raise ValueError("Deprecated")
-
         # Rewards from different disc. checkpoints.
         rewards = {
             k: torch.stack([r[k] for r in rewards_l], dim=0)
