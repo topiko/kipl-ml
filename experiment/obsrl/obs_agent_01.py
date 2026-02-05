@@ -130,6 +130,21 @@ def _plot_set(
     action_seq_lens = get_action_seq_lens(fd)
     G, advantages = get_advantages(league_rewards, league_values, action_seq_lens, cfg)
 
+    # Pre-compute discriminator probabilities in batch to avoid per-figure forwards.
+    # Orig traces
+    Xd_l = [disc_features(x) for x in X_orig_l]
+    Xd_keys = list(Xd_l[0].keys())
+    Xd_batch = {k: torch.stack([x[k] for x in Xd_l], dim=0) for k in Xd_keys}
+    Xd_batch = dict_to_device(Xd_batch, device)
+    logits_d, _ = disc_orig(Xd_batch)
+    probs_d = nn.functional.softmax(logits_d, dim=-1)
+
+    # Obs traces
+    Xobs_d = disc_features.transform_batch(Xobs)
+    Xobs_d = dict_to_device(Xobs_d, device)
+    logits_o, _ = disc_trained(Xobs_d)
+    probs_o = nn.functional.softmax(logits_o, dim=-1)
+
     logger.info("Generating figs:")
     with tqdm(list(enumerate(idxs)), desc="Gen figs", ncols=TQDM_W) as pbar:
         for batch_i, ds_idx in pbar:
@@ -146,6 +161,8 @@ def _plot_set(
                 X_orig=X_orig_l[batch_i],
                 y_orig=y_l[batch_i],
                 sel_probs=sel_probs,
+                probs_orig=probs_d,
+                probs_obs=probs_o,
                 league_values=league_values,
                 league_rewards=league_rewards,
                 entropies=entropies,
@@ -173,6 +190,8 @@ def _plot_single(
     X_orig: dict[Feats, torch.Tensor],
     y_orig: torch.Tensor,
     sel_probs: torch.Tensor,
+    probs_orig: torch.Tensor,
+    probs_obs: torch.Tensor,
     league_values: torch.Tensor,
     league_rewards: dict[str, torch.Tensor] | None,
     entropies: dict[str, torch.Tensor],
@@ -188,15 +207,6 @@ def _plot_single(
         5, 1, figsize=(20, 12.0), sharex=True
     )
 
-    def _unsqueeze(X: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
-        return {k: v.unsqueeze(0) for k, v in X.items()}
-
-    def X_to_probs(clf: nn.Module, X: dict[Feats, torch.Tensor]) -> torch.Tensor:
-        with torch.no_grad():
-            logits, _ = clf(_unsqueeze(X))
-            probs = nn.functional.softmax(logits, dim=-1)
-        return probs
-
     # Orig disc on trace:
     # ========================================
     X_d = disc_features(X_orig)
@@ -206,7 +216,8 @@ def _plot_single(
     plot_trace(
         X_d,
         ax=ax,
-        cl_probs=X_to_probs(disc_orig, X_d),
+        cl_probs=probs_orig,
+        idx=batch_i,
         true_class=y.item(),
     )
     ax.set_title(f"True class: {y.item()}")
@@ -226,7 +237,8 @@ def _plot_single(
     plot_trace(
         Xobs_i,
         ax=ax_o,
-        cl_probs=X_to_probs(disc_trained, disc_features(Xobs_i)),
+        cl_probs=probs_obs,
+        idx=batch_i,
         true_class=y.item(),
     )
     ax_o.set_title("Obs. trace, disc trained")
@@ -318,8 +330,6 @@ def _plot_single(
     ax_b.legend(frameon=False, loc=2)
     ax_advantages.legend(frameon=False, loc=3)
     ax_b.set_xlabel("Time [s]")
-
-    fig.canvas.draw()
 
     mlflow.log_figure(fig, f"trace_{ds_idx}_clf_epoch={e:03d}.png")
 
