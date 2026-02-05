@@ -7,7 +7,7 @@ import pandas as pd
 import torch
 
 from kipl_ml.data.utils import Datasets, assets, load_dataset_meta_df
-from kipl_ml.data.wf_dataset import WFDataset
+from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.action import send_exec
 from kipl_ml.rl.observation import get_window_feature_dict
@@ -27,7 +27,7 @@ TARGET = assets.PAGE_LABEL
 DATASET = Datasets.BIGENOUGH
 
 
-N_REALIZATIONS = 200
+N_REALIZATIONS = 100
 
 DATA_DIR = "action_data/"
 AGENT_IDS = (
@@ -41,10 +41,17 @@ AGENT_IDS = (
 
 
 def generate_for(
-    obs, model_id: str, ds: WFDataset, trace_idx: int, meta_df: pd.DataFrame
+    obs,
+    model_id: str,
+    ds: WFDataset,
+    trace_idx: int,
+    meta_df: pd.DataFrame,
+    device: torch.DeviceObjType,
 ):
     meta_ser = meta_df.iloc[trace_idx]
     X, y = ds[trace_idx]
+
+    X = dict_to_device(X, device)
 
     X = {k: x.unsqueeze(0) for k, x in X.items()}
 
@@ -100,18 +107,24 @@ def main():
         feature_trs=FeatureTrs(feature_names=feature_names, n_packets=10_000),
     )
 
-    idxs = np.arange(0, len(meta_df), len(meta_df) // 25)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    idxs = np.arange(0, len(meta_df), len(meta_df) // 10)
     for agent_id, agent_idx in AGENT_IDS:
         print(agent_idx, agent_idx)
         obs = mlflow.pytorch.load_model(
             mlflow.get_logged_model(agent_id).model_uri,
             map_location="cpu",
-        )
+        ).to(device)
 
         for idx in idxs:
             print(idx)
             generate_for(
-                obs, f"model_id={agent_idx:03d}", ds, trace_idx=idx, meta_df=meta_df
+                obs,
+                f"model_id={agent_idx:03d}",
+                ds,
+                trace_idx=idx,
+                meta_df=meta_df,
+                device=device,
             )
 
 
