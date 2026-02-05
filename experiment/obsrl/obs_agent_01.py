@@ -1159,7 +1159,7 @@ def main(cfg: DictConfig):
             # =======================================
             # Append current discriminator to league
             disc_train_count += sum(losses_metrics_d["train_disc"])
-            if disc_train_count > 25:
+            if disc_train_count > 25 and obs_train_frac > 0.0:
                 disc_league = _append_to_league(disc_league, discriminator.state_dict())
                 mlflow.pytorch.log_model(
                     discriminator, name=f"rldisc-{disc_league[-1][0]}", step=e
