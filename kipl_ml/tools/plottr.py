@@ -104,6 +104,7 @@ def _plot_boxes(
 
 def plot_trace(
     trace_dict: dict[Feats, torch.tensor],
+    time_step: float,
     idx: int | None = None,
     ax: plt.Axes | None = None,
     cl_probs: torch.Tensor | None = None,
@@ -141,7 +142,6 @@ def plot_trace(
     if Feats.PADDING in trace_dict:
         pad = _squeeze_batched(trace_dict[Feats.PADDING].bool(), idx)
 
-        time_step = 0.02
         bins = times // time_step
 
         up_idxs, up_counts = np.unique(bins[pad & (dirs == UPLOAD)], return_counts=True)

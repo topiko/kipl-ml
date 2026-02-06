@@ -216,6 +216,7 @@ def _plot_single(
 
     plot_trace(
         X_d,
+        time_step=cfg.obs_time_step_s,
         ax=ax,
         cl_probs=probs_orig,
         idx=batch_i,
@@ -237,6 +238,7 @@ def _plot_single(
     # Plot obsfuscated
     plot_trace(
         Xobs_i,
+        time_step=cfg.obs_time_step_s,
         ax=ax_o,
         cl_probs=probs_obs,
         idx=batch_i,
