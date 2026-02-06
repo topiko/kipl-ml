@@ -43,6 +43,7 @@ def _plot_probs(
     ax: plt.Axes,
     idx: int | None = None,
     true_class: int | None = None,
+    move_right: bool = False,
 ) -> None:
     cl_probs = _squeeze_batched(cl_probs, idx)
 
@@ -76,6 +77,8 @@ def _plot_probs(
         ax3.spines["right"].set_visible(True)
 
     ax2.spines["right"].set_visible(True)
+    if move_right:
+        ax2.spines["right"].set_position(("outward", 40))  # offset by 40 points
 
     mask = preds == true_class
     ax2.scatter(x[mask], max_p[mask], marker="D", color="green", s=10)
@@ -95,7 +98,7 @@ def _plot_boxes(
         else:
             y = 0
 
-        rect = plt.Rectangle((xi, y), w, h, **kwargs)
+        rect = plt.Rectangle((xi, y), w, h, edgecolor=None, **kwargs)
         ax.add_patch(rect)
 
 
@@ -119,6 +122,7 @@ def plot_trace(
         times = np.arange(len(dirs))
 
     times = _squeeze_batched(times, idx)
+    times_ = times
 
     ax = ax or plt.subplots(figsize=(12, 3))[1]
 
@@ -132,9 +136,28 @@ def plot_trace(
     colors[:] = "cyan"
     colors[dirs == UPLOAD] = UP_COLOR
     colors[dirs == DOWNLOAD] = DOWN_COLOR
+
+    move_right = False
     if Feats.PADDING in trace_dict:
         pad = _squeeze_batched(trace_dict[Feats.PADDING].bool(), idx)
-        colors[pad] = PAD_COLOR
+
+        time_step = 0.02
+        bins = times // time_step
+
+        up_idxs, up_counts = np.unique(bins[pad & (dirs == UPLOAD)], return_counts=True)
+        down_idxs, down_counts = np.unique(
+            bins[pad & (dirs == DOWNLOAD)], return_counts=True
+        )
+
+        up_times = time_step * up_idxs
+        up_dts = np.ones_like(up_times) * time_step
+        down_times = time_step * down_idxs
+        down_dts = np.ones_like(down_times) * time_step
+        ax_pad = ax.twinx()
+        _plot_boxes(up_times, up_dts, up_counts, color="black", alpha=0.5, ax=ax_pad)
+        _plot_boxes(
+            down_times, down_dts, -down_counts, color="black", alpha=0.5, ax=ax_pad
+        )
 
         info_d["pad nup"] = (pad & (dirs == 1)).sum()
         info_d["pad ndown"] = (pad & (dirs == -1)).sum()
@@ -142,10 +165,18 @@ def plot_trace(
         info_d["nup"] -= info_d["pad nup"]
         info_d["ndown"] -= info_d["pad ndown"]
 
-        dirs[pad] *= 0.7
+        dirs = dirs[~pad]
+        times_ = times[~pad]
+        colors = colors[~pad]
+        move_right = True
+
+        ax_pad.axes.spines["right"].set_visible(True)
+        lim = 1.1 * max(max(up_counts), max(down_counts), 1)
+        ax_pad.set_ylim(-lim, lim)
+        ax_pad.set_ylabel("Padding p. count")
 
     ax.vlines(
-        times,
+        times_,
         0,
         dirs,
         colors=colors,
@@ -163,7 +194,7 @@ def plot_trace(
     )
 
     if cl_probs is not None:
-        _plot_probs(cl_probs, times, ax, idx, true_class)
+        _plot_probs(cl_probs, times, ax, idx, true_class, move_right=move_right)
 
     return ax
 

@@ -953,7 +953,11 @@ def main(cfg: DictConfig):
         mlflow.log_params(d)
 
         while True:
-            reward_scales = {"clf_scale": 0.1, "padding_scale": padding_scale}
+            reward_scales = {
+                "clf_scale": 0.1,
+                "d_clf_scale": 0.2,
+                "padding_scale": padding_scale,
+            }
             losses_metrics_d: dict[str, list[float] | float] = {
                 "loss": [],
                 "policy_loss": [],

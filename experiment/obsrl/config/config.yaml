@@ -41,5 +41,5 @@ grad_norm_clip: 1
 label_smoothing: 0.02
 
 predict_ks: 21
-rnn_lr_reduction: 2
+rnn_lr_reduction: 1.0
 max_epochs: -1

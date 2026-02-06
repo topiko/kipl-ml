@@ -70,6 +70,7 @@ def get_rewards(
     idx_clamped = idx.clamp(0, T - 1)
 
     # Padding penalty: count padding packets per action interval.
+    # =============================================
     pad_w = (padding & valid).to(times.dtype)
     npad = torch.zeros((bs, T), device=times.device, dtype=times.dtype).scatter_add_(
         1, idx_clamped, pad_w
@@ -77,23 +78,28 @@ def get_rewards(
     rewards["padding"] -= npad * reward_scales["padding_scale"]
 
     # Classifier reward: mean over normal packets per interval.
+    # =============================================
     normal_w = ((~padding) & valid).to(times.dtype)
     normal_cnt = torch.zeros(
         (bs, T), device=times.device, dtype=times.dtype
     ).scatter_add_(1, idx_clamped, normal_w)
-    # rmax = 10.0
-    # normal_sum = torch.zeros(
-    #     (bs, T), device=times.device, dtype=times.dtype
-    # ).scatter_add_(
-    #     1, idx_clamped, torch.clamp(torch.log1p(-target_probs), -rmax, 0) * normal_w
-    # )
+
     r_pkt = torch.clamp(-m, min=-10, max=10.0)
     normal_sum = torch.zeros(
         (bs, T), device=times.device, dtype=times.dtype
     ).scatter_add_(1, idx_clamped, r_pkt * normal_w)
-
     mean_p = torch.where(normal_cnt > 0, normal_sum / normal_cnt, 0.0)
     rewards["clf"] += mean_p * reward_scales["clf_scale"]
+
+    # change in prob reward
+
+    mask = mean_p != 0
+    rewards["d_clf"] += torch.where(
+        mask & mask.roll(1, dims=1),
+        mean_p.diff(dim=1, prepend=mean_p[:, :1].clone())
+        * reward_scales["d_clf_scale"],
+        0,
+    )
 
     return rewards
 
