@@ -865,8 +865,8 @@ def main(cfg: DictConfig):
     sel_entropy_target = 0.5
 
     # Padding reward scale
-    padding_scale = 0.005
-    padding_scale_max = 0.02
+    padding_scale = 0.001
+    padding_scale_max = 0.01
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     league_update_frac = 0.2
