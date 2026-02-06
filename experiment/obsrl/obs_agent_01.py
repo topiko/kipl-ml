@@ -749,7 +749,7 @@ def get_active_league(
             weights = torch.ones_like(weights) / weights.numel()
         else:
             weights /= weights.max()
-        weights = torch.clamp(weights, 0.1, 1.0)
+        weights = torch.clamp(weights, 1 / (10 * league_size), 1.0)
     else:
         weights = torch.tensor([1.0], device=device)
 
@@ -1067,6 +1067,27 @@ def main(cfg: DictConfig):
 
                         losses_metrics_d["grad_norm"].append(norm_.item())
 
+                        ema_sel_entropy = ema_update(
+                            ema_sel_entropy, selection_entropy.item(), ema_decay
+                        )
+
+                        ema_cond_entropy = ema_update(
+                            ema_cond_entropy, conditional_entropy.item(), ema_decay
+                        )
+
+                        # scale_update_ = np.clip(
+                        #    (
+                        #        (sel_entropy_target - ema_sel_entropy)
+                        #        / sel_entropy_target
+                        #    )
+                        #    ** 3,
+                        #    -0.5,
+                        #    1.0,
+                        # )
+                        # selection_entropy_scale = np.clip(
+                        #    selection_entropy_scale * (1 + scale_update_), 1e-7, 1e-1
+                        # )
+
                         # Track the effect of selection vs conditional
                         sel_log_ps = torch.log(sel_probs)
                         sel_term = (advantages[..., None] * sel_log_ps).std()
@@ -1074,27 +1095,6 @@ def main(cfg: DictConfig):
                             advantages[..., None] * (log_ps[..., None] - sel_log_ps)
                         ).std()
                         ratio = cond_term / (sel_term + 1e-8)
-
-                        ema_sel_entropy = ema_update(
-                            ema_sel_entropy, selection_entropy.item(), ema_decay
-                        )
-
-                        scale_update_ = np.clip(
-                            (
-                                (sel_entropy_target - ema_sel_entropy)
-                                / sel_entropy_target
-                            )
-                            ** 3,
-                            -0.5,
-                            1.0,
-                        )
-                        selection_entropy_scale = np.clip(
-                            selection_entropy_scale * (1 + scale_update_), 1e-7, 1e-1
-                        )
-
-                        ema_cond_entropy = ema_update(
-                            ema_cond_entropy, conditional_entropy.item(), ema_decay
-                        )
 
                     # Discriminator:
                     # ==========================================

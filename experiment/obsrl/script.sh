@@ -3,7 +3,7 @@
 #
 
 
-for per in 100 200 50
+for per in 300 100 50
 do
 	for rnn_lr_reduction in  1.0 0.5
 	do
