@@ -491,6 +491,7 @@ def _get_obs_def_dl(
     n_packets: int,
     bs: int = 64,
     obs_league: list[nn.Module.state_dict] | None = None,
+    sampler: SubsetRandomSampler | None = None,
 ) -> WFDataset:
     # Set features the fetures:
     ds.feature_trs = FeatureTrs(feature_names=disc.features, n_packets=n_packets)
@@ -507,7 +508,9 @@ def _get_obs_def_dl(
     if ds.defence_aug != 0:
         raise ValueError("If def aug != 0 - you are reusing traces from previous runs")
 
-    return dl_(ds, bs=bs, collate_fn=None, shuffle=False, nworkers=None)
+    return dl_(
+        ds, bs=bs, collate_fn=None, shuffle=False, nworkers=None, sampler=sampler
+    )
 
 
 def _restore_obs_def_ds(
@@ -517,11 +520,11 @@ def _restore_obs_def_ds(
     device: torch.DeviceObjType,
 ):
     # Restore no defence
-    ds.defence = NoDefence(network_delay_millis=(0, 0), network_pps=(40_000, 40_000))
+    ds.defence = NoDefence(network_delay_millis=(25, 250), network_pps=(40_000, 40_000))
     # Restore no features.
     ds.feature_trs = feature_trs
 
-    obs.to(device)
+    obs = obs.to(device)
 
 
 def valid_metrics(
@@ -569,56 +572,89 @@ def get_league_scores(
     reward_scales: dict[str, float],
     device: torch.DeviceObjType,
     subset_indices: torch.Tensor,
+    score_type: str = "acc",
+    n_packets: int | None = None,
 ) -> torch.Tensor:
-    orig_features = ds.feature_trs
-
     # Set the defence and features:
-    ds.feature_trs = obs_features
-
-    sampler = SubsetRandomSampler(subset_indices)
-    dl = dl_(ds, bs=64, collate_fn=None, shuffle=False, nworkers=None, sampler=sampler)
+    orig_features = ds.feature_trs
     obs.eval()
+    sampler = SubsetRandomSampler(subset_indices)
+    if score_type == "acc":
+        if n_packets is None:
+            raise ValueError("Provide npackets")
+        dl = _get_obs_def_dl(
+            disc=disc,
+            obs=obs,
+            ds=ds,
+            n_packets=n_packets,
+            bs=32,
+            obs_league=None,
+            sampler=sampler,
+        )
+
+    elif score_type == "neg_rewards":
+        ds.feature_trs = obs_features
+        dl = dl_(
+            ds, bs=64, collate_fn=None, shuffle=False, nworkers=None, sampler=sampler
+        )
 
     with torch.no_grad():
-        with tqdm(
-            dl,
-            desc="league scoring",
-            ncols=TQDM_W,
-        ) as pbar:
-            rewards_l = []
-            for X, y in pbar:
-                X = dict_to_device(X, device)
-                y = y.to(device)
-                values, league_rewards, _, _, _, _, fd = rollout(
-                    obs=obs,
-                    critic=critic,
-                    disc=disc,
-                    X=X,
-                    y=y,
-                    disc_features=disc_features,
-                    disc_league=league,
-                    detach_period=500,
-                    reward_scales=reward_scales,
-                )[2:]
+        if score_type == "acc":
+            orig_state_d = {k: v.detach().clone() for k, v in disc.state_dict().items()}
+            scores_ = []
+            for _, state_d in league:
+                disc.load_state_dict(state_d)
+                d = evaluate_model(disc, dl, metrics=[Accuracy()])
+                scores_.append(d["accuracy"])
 
-                action_seq_lens = get_action_seq_lens(fd)
+            disc.load_state_dict(orig_state_d)
+            league_scores = torch.tensor(scores_).to(device)
 
-                time_mask = make_time_mask(
-                    action_seq_lens, fd[Feats.TIMES].shape[1], device=device
-                )
-                # (nleague, nbatch, ntimesteps) -> (nleague, nbatch) -> (nleague, 1)
-                rewards = {
-                    k: torch.tensor(
-                        [masked_mean_std(v[i], time_mask)[0] for i in range(v.shape[0])]
+            _restore_obs_def_ds(ds, orig_features, obs, device)
+
+        elif score_type == "neg_rewards":
+            with tqdm(
+                dl,
+                desc="league scoring",
+                ncols=TQDM_W,
+            ) as pbar:
+                rewards_l = []
+                for X, y in pbar:
+                    X = dict_to_device(X, device)
+                    y = y.to(device)
+                    values, league_rewards, _, _, _, _, fd = rollout(
+                        obs=obs,
+                        critic=critic,
+                        disc=disc,
+                        X=X,
+                        y=y,
+                        disc_features=disc_features,
+                        disc_league=league,
+                        detach_period=500,
+                        reward_scales=reward_scales,
+                    )[2:]
+
+                    action_seq_lens = get_action_seq_lens(fd)
+
+                    time_mask = make_time_mask(
+                        action_seq_lens, fd[Feats.TIMES].shape[1], device=device
                     )
-                    for k, v in league_rewards.items()
-                }
-                rewards_ = sum(rewards.values())
-                rewards_l.append(rewards_)
+                    # (nleague, nbatch, ntimesteps) -> (nleague, nbatch) -> (nleague, 1)
+                    rewards = {
+                        k: torch.tensor(
+                            [
+                                masked_mean_std(v[i], time_mask)[0]
+                                for i in range(v.shape[0])
+                            ]
+                        )
+                        for k, v in league_rewards.items()
+                    }
+                    rewards_ = sum(rewards.values())
+                    rewards_l.append(rewards_)
 
-        league_scores = -torch.stack(rewards_l, dim=0).mean(dim=0).to(device)
+            league_scores = -torch.stack(rewards_l, dim=0).mean(dim=0).to(device)
 
-    ds.feature_trs = orig_features
+            ds.feature_trs = orig_features
 
     return league_scores
 
@@ -689,6 +725,8 @@ def get_active_league(
     league_size: int,
     league_update_frac: float,
     prune: bool = False,
+    score_type: str = "acc",
+    n_packets: int | None = None,
 ) -> tuple[
     list[tuple[int, nn.Module.state_dict]],
     np.ndarray,
@@ -707,6 +745,8 @@ def get_active_league(
         reward_scales=reward_scales,
         device=device,
         subset_indices=rng.choice(np.arange(len(ds)), 500, replace=False),
+        score_type=score_type,
+        n_packets=n_packets,
     )
 
     if prune:
@@ -764,19 +804,21 @@ def get_active_league(
 
     if len(active_league_idx) > 1:
         weights = league_scores[active_league_idx]
-        weights -= weights.min()
-        if weights.max() == 0:
-            logger.warning("Same score for several discs!")
-            weights = torch.ones_like(weights) / weights.numel()
-        else:
-            weights /= weights.max()
-        weights = torch.clamp(weights, 1 / (10 * league_size), 1.0)
+
+        if score_type != "acc":
+            weights -= weights.min()
+            if weights.max() == 0:
+                logger.warning("Same score for several discs!")
+                weights = torch.ones_like(weights) / weights.numel()
+            else:
+                weights /= weights.max()
+            weights = torch.clamp(weights, 1 / (10 * league_size), 1.0)
     else:
         weights = torch.tensor([1.0], device=device)
 
     weights /= weights.sum()
 
-    logger.info("League scores:")
+    logger.info(f"League scores ({score_type}):")
     for i, s in enumerate(league_scores):
         str_ = "           "
         if i in active_league_idx:
@@ -949,6 +991,8 @@ def main(cfg: DictConfig):
                         league_size=cfg.league_size,
                         league_update_frac=league_update_frac,
                         prune=len(disc_league) > cfg.league_size * 2,
+                        score_type=cfg.league_score_type,
+                        n_packets=cfg.trace_len,
                     )
                 )
 

@@ -3,7 +3,7 @@
 #
 
 
-for per in 300 100 50
+for per in 100 300 50
 do
 	for rnn_lr_reduction in  1.0 0.5
 	do
@@ -19,6 +19,7 @@ do
 					league_size=40 \
 					train_subset_frac=0.2 \
 					separate_critic=$sep_critic \
+					padding_scale=0.001 \
 					experiment_name=obsrl_sweep2
 			done
 		done

@@ -22,6 +22,7 @@ padding_scale: 0.001
 
 # Floor for action prob:
 obs_prob_eps: 0.01
+league_score_type: "acc"
 
 figs_period: 5
 
