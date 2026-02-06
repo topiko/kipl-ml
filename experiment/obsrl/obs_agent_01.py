@@ -107,26 +107,27 @@ def _plot_set(
     y_batch = y_batch.to(device)
 
     # One rollout for the whole set.
-    (
-        _,
-        sel_probs,
-        values,
-        league_rewards,
-        entropies,
-        times,
-        actions,
-        Xobs,
-        fd,
-    ) = rollout(
-        obs,
-        critic,
-        disc_trained,
-        X_batch,
-        y_batch,
-        disc_league=active_disc_league,
-        disc_features=disc_features,
-        reward_scales=reward_scales,
-    )
+    with torch.no_grad():
+        (
+            _,
+            sel_probs,
+            values,
+            league_rewards,
+            entropies,
+            times,
+            actions,
+            Xobs,
+            fd,
+        ) = rollout(
+            obs,
+            critic,
+            disc_trained,
+            X_batch,
+            y_batch,
+            disc_league=active_disc_league,
+            disc_features=disc_features,
+            reward_scales=reward_scales,
+        )
 
     action_seq_lens = get_action_seq_lens(fd)
     G, advantages = get_advantages(league_rewards, values, action_seq_lens, cfg)
@@ -177,7 +178,6 @@ def _plot_set(
             )
 
 
-@torch.no_grad()
 def _plot_single(
     cfg: DictConfig,
     disc_orig: nn.Module,
@@ -290,11 +290,12 @@ def _plot_single(
     # The current disc rewards are at latest idx.
     rewards = {k: v[-1] for k, v in league_rewards.items()}
     plot_rewards(times, rewards, idx=batch_i, ax=ax_b)
+    ax_b.legend(frameon=False, loc=2)
 
     # Plot returns
 
     G_mean = (weights[:, None, None] * G).sum(dim=0)[batch_i, :]
-    values_i = values[batch_i, :]
+    # Mean
     ax_ret.plot(
         times_np,
         G_mean.squeeze().cpu().numpy(),
@@ -302,6 +303,7 @@ def _plot_single(
         label="Return",
         lw=2,
     )
+    # League cloud
     ax_ret.plot(
         times_np,
         G[:, batch_i, :].permute(1, 0).cpu().numpy(),
@@ -309,7 +311,17 @@ def _plot_single(
         alpha=0.5,
         lw=0.2,
     )
+    # Current active
+    ax_ret.plot(
+        times_np,
+        G[-1, batch_i, :].squeeze().cpu().numpy(),
+        "k-",
+        alpha=1.0,
+        lw=0.5,
+    )
 
+    # Values
+    values_i = values[batch_i, :]
     ax_ret.plot(
         times_np,
         values_i.squeeze().cpu().numpy(),
@@ -319,17 +331,15 @@ def _plot_single(
         lw=1,
     )
     ax_ret.axhline(color="black", lw=0.5)
-
     ax_ret.set_ylabel("Return", color="k")
-
     ax_ret.legend(frameon=False, loc=1)
-    ax_b.legend(frameon=False, loc=2)
+    ax_ret.axes.spines["bottom"].set_visible(False)
 
     # Advantages (league, T)
     advantages_i = advantages[:, batch_i, :]
-
     advantages_mean = (weights[:, None, None] * advantages).sum(dim=0)[batch_i, :]
 
+    # Mean
     ax_adv.plot(
         times_np,
         advantages_mean.cpu().numpy(),
@@ -337,6 +347,7 @@ def _plot_single(
         color="green",
         lw=2,
     )
+    # Cloud
     ax_adv.plot(
         times_np,
         advantages_i.permute(1, 0).cpu().numpy(),
@@ -344,6 +355,14 @@ def _plot_single(
         alpha=0.2,
         color="green",
     )
+    ax_adv.plot(
+        times_np,
+        advantages_i[-1, :].squeeze().cpu().numpy(),
+        lw=0.5,
+        alpha=1.0,
+        color="green",
+    )
+
     ax_b.set_title("Rewards, returns... ")
     ax_adv.set_ylabel("Advantages", color="k")
     ax_adv.legend(frameon=False, loc=3)
@@ -723,7 +742,8 @@ def get_active_league(
     else:
         active_league_idx = np.arange(len(league))
 
-        # =======================================
+    active_league_idx.sort()
+    # =======================================
 
     active_league = [league[i] for i in active_league_idx]
 
@@ -731,8 +751,9 @@ def get_active_league(
     if cur_disc_pos in active_league_idx:
         cur_disc_idx_ = np.where(active_league_idx == cur_disc_pos)[0]
         if len(cur_disc_idx_) != 1:
-            breakpoint()
             raise ValueError("Disc several times in league!?")
+        if cur_disc_idx_ != len(active_league_idx) - 1:
+            raise KeyError("Cur disc at wrong position")
         cur_disc_idx_ = cur_disc_idx_[0]
     else:
         cur_disc_idx_ = -1
@@ -865,8 +886,8 @@ def main(cfg: DictConfig):
     sel_entropy_target = 0.5
 
     # Padding reward scale
-    padding_scale = 0.001
-    padding_scale_max = 0.01
+    padding_scale = cfg.padding_scale
+    padding_scale_max = 10 * padding_scale
     padding_scale_step = (padding_scale_max - padding_scale) / satlen
 
     league_update_frac = 0.2

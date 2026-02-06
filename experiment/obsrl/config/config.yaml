@@ -18,6 +18,9 @@ enable_entropy_loss: True
 init_for_wait: True
 separate_critic: True
 
+padding_scale: 0.001
+
+# Floor for action prob:
 obs_prob_eps: 0.01
 
 figs_period: 5
