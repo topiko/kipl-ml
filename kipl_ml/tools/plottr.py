@@ -171,7 +171,10 @@ def plot_trace(
         move_right = True
 
         ax_pad.axes.spines["right"].set_visible(True)
-        lim = 1.1 * max(max(up_counts), max(down_counts), 1)
+        max_u = max(up_counts) if len(up_counts) > 0 else 0
+        max_d = max(down_counts) if len(down_counts) > 0 else 0
+
+        lim = 1.1 * max(max_u, max_d, 1)
         ax_pad.set_ylim(-lim, lim)
         ax_pad.set_ylabel("Padding p. count")
 

@@ -22,7 +22,7 @@ do
 					train_subset_frac=0.2 \
 					separate_critic=$sep_critic \
 					padding_scale=$padding_scale \
-					rewards.d_clf_scale=$d_clf_scale \
+					rewards.d_clf=$d_clf_scale \
 					experiment_name=obsrl_sweep2
 			done
 		done
