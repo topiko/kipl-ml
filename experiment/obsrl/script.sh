@@ -1,6 +1,8 @@
 #/bin/bash
 #
 #
+# Exit if anything fails..
+set -e
 
 adv=mc
 
@@ -10,15 +12,19 @@ do
 	do
 		for padding_scale in 0.001 0.002 0.005
 		do
-			uv run python obs_agent_01.py \
-				advantages.type=$adv  \
-				h_detach_period=$per \
-				max_epochs=120 \
-				league_size=40 \
-				train_subset_frac=0.2 \
-				separate_critic=$sep_critic \
-				padding_scale=$padding_scale \
-				experiment_name=obsrl_sweep2
+			for d_clf_scale in 0.01 0.03 0.1
+			do
+				uv run python obs_agent_01.py \
+					advantages.type=$adv  \
+					h_detach_period=$per \
+					max_epochs=120 \
+					league_size=40 \
+					train_subset_frac=0.2 \
+					separate_critic=$sep_critic \
+					padding_scale=$padding_scale \
+					rewards.d_clf_scale=$d_clf_scale \
+					experiment_name=obsrl_sweep2
+			done
 		done
 	done
 done

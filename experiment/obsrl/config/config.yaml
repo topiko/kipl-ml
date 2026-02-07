@@ -7,10 +7,13 @@ defaults:
 
 
 advantages:
-  type: "gae"
+  type: "mc"
   lambda_: 0.95
   standardize: False
   divide_by_Z: False
+
+rewards:
+  d_clf_scale: 0.03
 
 experiment_name: obsrl
 debug: False

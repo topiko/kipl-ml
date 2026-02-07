@@ -957,7 +957,7 @@ def main(cfg: DictConfig):
         while True:
             reward_scales = {
                 "clf_scale": 0.1,
-                "d_clf_scale": 0.2,
+                "d_clf_scale": cfg.rewards.d_clf_reward,
                 "padding_scale": padding_scale,
             }
             losses_metrics_d: dict[str, list[float] | float] = {
