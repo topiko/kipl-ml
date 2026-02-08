@@ -96,11 +96,13 @@ def get_rewards(
     mask = mean_p != 0
     rewards["d_clf"] += torch.where(
         mask & mask.roll(1, dims=1),
-        mean_p.diff(dim=1, prepend=mean_p[:, :1].clone())
-        / action_times.diff(
-            dim=1,
-            prepend=torch.ones((bs, 1), device=action_times.device) * float("inf"),
-        )
+        (
+            mean_p.diff(dim=1, prepend=mean_p[:, :1].clone())
+            / action_times.diff(
+                dim=1,
+                prepend=torch.ones((bs, 1), device=action_times.device) * float("inf"),
+            )
+        ).clamp(max=0)
         * reward_scales["d_clf_scale"],
         0,
     )

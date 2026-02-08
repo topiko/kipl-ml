@@ -12,7 +12,7 @@ do
 	do
 		for padding_scale in 0.001 0.002 0.005
 		do
-			for d_clf_scale in 0.01 0.03 0.1
+			for d_clf_scale in 0.0 0.01 0.05
 			do
 				uv run python obs_agent_01.py \
 					advantages.type=$adv  \
