@@ -651,7 +651,12 @@ class _TAM(_TR):
                 mask = torch.zeros_like(mask, dtype=torch.bool)
 
         # NOTE: we expect the time to be in "s"!
-        counts = torch.histogram(times[mask], bins=self.bins)[0]
+        # counts2, edges = torch.histogram(
+        #     times[mask], bins=len(self.bins) - 1, range=(0, self.bins[-1].item())
+        # )
+        counts = torch.histc(
+            times[mask], bins=len(self.bins) - 1, min=0.0, max=self.bins[-1]
+        )
 
         mask = torch.ones_like(counts, dtype=torch.bool)
         if self.prune_empty:
@@ -659,7 +664,7 @@ class _TAM(_TR):
 
         if self.TIMES:
             # We can also return the time of each bin
-            bin_times = self.bins[:-1][mask]
+            bin_times = self.bins[:-1].to(times.device)[mask]
 
             return {self.name: bin_times}
 

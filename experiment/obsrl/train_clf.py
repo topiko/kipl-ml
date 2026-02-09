@@ -85,7 +85,7 @@ def main(cfg: DictConfig):
         ds_train.n_classes,
         feature_names,
         dropout=cfg.dropout,
-        hsize=126,
+        hsize=512,
         nlayer=2,
         tam_dict=tam_d,
     )
