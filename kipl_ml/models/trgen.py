@@ -59,12 +59,10 @@ def _feature_map(
 
     if f == Feats.SILENCE_FLAG:
         return x[f].unsqueeze(-1)  # keep 0/1
-    if f == Feats.TIMES:
+    if f in (Feats.TIMES, Feats.TAM_TIMES):
         return (x[f] / (x[f] + 10)).unsqueeze(-1)
-    if f in (Feats.TAM_UP_TIMES, Feats.TAM_DOWN_TIMES):
-        return (x[f] / (x[f] + 10)).unsqueeze(-1)
-    else:
-        return torch.log1p(x[f]).unsqueeze(-1)
+
+    return torch.log1p(x[f]).unsqueeze(-1)
 
 
 class RNNCLF1(nn.Module):
@@ -99,8 +97,7 @@ class RNNCLF1(nn.Module):
             {
                 Feats.TAM_UP_COUNTS,
                 Feats.TAM_DOWN_COUNTS,
-                Feats.TAM_UP_TIMES,
-                Feats.TAM_DOWN_TIMES,
+                Feats.TAM_TIMES,
             }
         ):
             self.seq_len_fun = tam_seq_len_fun

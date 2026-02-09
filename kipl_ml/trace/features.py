@@ -595,21 +595,19 @@ class _TAM(_TR):
             self.window_width_s = self.bins[1] - self.bins[0]
 
         # To ensure the capture of "outside bins values"
-        self.bins[0] = -1
-        self.bins[-1] = float("inf")
+        # self.bins[0] = -1
+        # self.bins[-1] = float("inf")
 
     @property
     def name(self) -> Feats:
-        if self.DIR == "upload" and self.TIMES:
-            return Feats.TAM_UP_TIMES
-        elif self.DIR == "download" and self.TIMES:
-            return Feats.TAM_DOWN_TIMES
-        elif self.DIR == "upload" and not self.TIMES:
+        if self.TIMES:
+            return Feats.TAM_TIMES
+        if self.DIR == "upload" and not self.TIMES:
             return Feats.TAM_UP_COUNTS
-        elif self.DIR == "download" and not self.TIMES:
+        if self.DIR == "download" and not self.TIMES:
             return Feats.TAM_DOWN_COUNTS
-        else:
-            raise KeyError(f"Invalid dir {self.DIR}")
+
+        raise KeyError(f"Invalid dir {self.DIR}")
 
     def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> _TAM:
         if self.prune_empty:
@@ -632,6 +630,9 @@ class _TAM(_TR):
             case _:
                 raise KeyError(f"Invalid dir {self.DIR}")
 
+        if self.TIMES:
+            mask = dirs != 0
+
         # NOTE: we expect the time to be in "s"!
         counts = torch.histogram(times[mask], bins=self.bins)[0]
 
@@ -642,6 +643,7 @@ class _TAM(_TR):
         if self.TIMES:
             # We can also return the time of each bin
             bin_times = self.bins[:-1][mask]
+
             return {self.name: bin_times}
 
         counts = counts[mask]
@@ -653,18 +655,13 @@ class TAM_UP(_TAM):
     TIMES = False
 
 
-class TAM_UP_TIMES(_TAM):
-    DIR = "upload"
-    TIMES = True
-
-
 class TAM_DOWN(_TAM):
     DIR = "download"
     TIMES = False
 
 
-class TAM_DOWN_TIMES(_TAM):
-    DIR = "download"
+class TAM_TIMES(_TAM):
+    DIR = "up/download"
     TIMES = True
 
 
@@ -1051,8 +1048,6 @@ def get_feature_tr(
             )
         case Feats.TAM_UP_COUNTS:
             return TAM_UP(**tam_kwargs)
-        case Feats.TAM_UP_TIMES:
-            return TAM_UP_TIMES(**tam_kwargs)
         case Feats.TAM_UP_COUNTS_MAX_NORMALIZED:
             return Compose(
                 TAM_UP(**tam_kwargs),
@@ -1064,8 +1059,8 @@ def get_feature_tr(
             )
         case Feats.TAM_DOWN_COUNTS:
             return TAM_DOWN(**tam_kwargs)
-        case Feats.TAM_DOWN_TIMES:
-            return TAM_DOWN_TIMES(**tam_kwargs)
+        case Feats.TAM_TIMES:
+            return TAM_TIMES(**tam_kwargs)
         case Feats.TAM_DOWN_COUNTS_MAX_NORMALIZED:
             return Compose(
                 TAM_DOWN(**tam_kwargs),
