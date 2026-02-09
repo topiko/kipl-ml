@@ -51,7 +51,14 @@ def main(cfg: DictConfig):
     if cfg.tam_features:
         feature_names = cfg.tam_features
         feature_trs = [
-            get_feature_tr(fn, 100_000, tam_kwargs={"window_width_s": cfg.tam_ww})
+            get_feature_tr(
+                fn,
+                100_000,
+                tam_kwargs={
+                    "window_width_s": cfg.tam_ww,
+                    "max_load_time_s": cfg.tam_max_load_time_s,
+                },
+            )
             for fn in feature_names
         ]
 
