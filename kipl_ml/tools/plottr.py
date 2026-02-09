@@ -102,6 +102,14 @@ def _plot_boxes(
         ax.add_patch(rect)
 
 
+def plot_tam(
+    trace_dict: dict[Feats, torch.Tensor],
+    idx: int | None = None,
+    ax: plt.Axes | None = None,
+) -> plt.Axes:
+    pass
+
+
 def plot_trace(
     trace_dict: dict[Feats, torch.tensor],
     time_step: float,

@@ -174,12 +174,15 @@ def main(cfg: DictConfig):
 
                     logits, _ = clf({k: v.unsqueeze(0) for k, v in X.items()})
 
-                    ax = plot_trace(
-                        X,
-                        ax=ax,
-                        cl_probs=nn.functional.softmax(logits, dim=-1),
-                        true_class=y.item(),
-                    )
+                    if cfg.tam_features:
+                        pass
+                    else:
+                        ax = plot_trace(
+                            X,
+                            ax=ax,
+                            cl_probs=nn.functional.softmax(logits, dim=-1),
+                            true_class=y.item(),
+                        )
                     ax.set_title(f"True class: {y.item()}")
 
                 fig.canvas.draw()

@@ -51,6 +51,22 @@ def tam_seq_len_fun(x: dict[Feats, torch.Tensor]) -> torch.Tensor:
     return seq_lens
 
 
+def _feature_map(
+    x: dict[Feats, torch.Tensor], f: Feats | list[Feats]
+) -> list[torch.Tensor] | torch.Tensor:
+    if isinstance(f, list):
+        return [_feature_map(x, fi) for fi in f]
+
+    if f == Feats.SILENCE_FLAG:
+        return x[f].unsqueeze(-1)  # keep 0/1
+    if f == Feats.TIMES:
+        return (x[f] / (x[f] + 10)).unsqueeze(-1)
+    if f in (Feats.TAM_UP_TIMES, Feats.TAM_DOWN_TIMES):
+        return (x[f] / (x[f] + 10)).unsqueeze(-1)
+    else:
+        return torch.log1p(x[f]).unsqueeze(-1)
+
+
 class RNNCLF1(nn.Module):
     name: str = "rnnclf1"
 
@@ -115,7 +131,7 @@ class RNNCLF1(nn.Module):
             if x[f].ndim != 2:
                 raise ValueError("Inputs should be (B, L) tensors.")
 
-            fs.append(x[f].unsqueeze(-1))
+            fs.append(_feature_map(x, f))
 
         mask = seq_lens != 0
 
@@ -160,7 +176,7 @@ class RNNCLF1(nn.Module):
         for f in self.features:
             if (not isinstance(x[f], PackedSequence)) and (x[f].ndim != 2):
                 raise ValueError(f"Inputs should be (B, L) tensors, got {x[f].shape}.")
-            fs.append(x[f].unsqueeze(-1))
+            fs.append(_feature_map(x, f))
 
         # (B, L, nfeat)
         inputs = torch.cat(fs, dim=-1)
@@ -311,24 +327,6 @@ def _forward_w_detach(
             raise ValueError(f"Times len mismatch, {v.shape[1]} vs. {T}")
 
     return outputs_concat, h
-
-
-def _feature_map(x: dict[Feats, torch.Tensor], features: list[Feats]) -> torch.Tensor:
-    fs = []
-    for f in features:
-        if f == Feats.SILENCE_FLAG:
-            x_ = x[f].unsqueeze(-1)  # keep 0/1
-        elif f == Feats.TIMES:
-            x_ = (x[f] / (x[f] + 10)).unsqueeze(-1)
-        elif f == Feats.DISC_ID:
-            continue
-        elif f == Feats.LABEL:
-            continue
-        else:
-            x_ = torch.log1p(x[f]).unsqueeze(-1)
-        fs.append(x_)
-
-    return fs
 
 
 class AGENT1(nn.Module):
