@@ -3,7 +3,6 @@ import os
 
 import dotenv
 import hydra
-import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import torch
@@ -12,8 +11,14 @@ from torch import nn
 from torch.utils.data import SubsetRandomSampler
 from tqdm import tqdm
 
+from experiment.obsrl.plot_utils import _plot_set
 from experiment.obsrl.sim import rollout
-from experiment.obsrl.utils import ema_update, one_batch_train_disc
+from experiment.obsrl.utils import (
+    ema_update,
+    get_action_seq_lens,
+    get_advantages,
+    one_batch_train_disc,
+)
 from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
@@ -24,15 +29,8 @@ from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.metrics.clf_metrics import Accuracy
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.trgen import AGENT1, CRITIC01
-from kipl_ml.rl.advantages import get_gae, get_returns
 from kipl_ml.rl.enums import Actions
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
-from kipl_ml.tools.plottr import (
-    plot_actions,
-    plot_obs_features,
-    plot_rewards,
-    plot_trace,
-)
 from kipl_ml.trace.features import Feats, FeatureTrs, get_feature_tr
 
 logger = get_logger(__name__)
@@ -56,422 +54,6 @@ def keymap(key: str) -> str:
         key = f"entropies / {key}"
 
     return key
-
-
-def _plot_set(
-    cfg: DictConfig,
-    ds: WFDataset,
-    obs: nn.Module,
-    critic: nn.Module | None,
-    obs_features: FeatureTrs,
-    disc_orig: nn.Module,
-    disc_trained: nn.Module,
-    disc_features: FeatureTrs,
-    active_disc_league: list[torch.nn.Module.state_dict],
-    weights: torch.Tensor,
-    e: int,
-    reward_scales: dict[str, float],
-    device: torch.DeviceObjType,
-    ntraces: int = 3,
-    max_len: int = 10_000,
-):
-    rng = np.random.default_rng(seed=42)
-
-    idxs = rng.choice(len(ds), size=ntraces, replace=False)
-
-    disc_orig.eval()
-    disc_trained.eval()
-    obs.eval()
-    if critic is not None:
-        critic.eval()
-
-    # Build one batch for rollout.
-    # NOTE: We keep the original per-trace dicts for the "orig disc" plot.
-    X_orig_l: list[dict[Feats, torch.Tensor]] = []
-    y_l: list[torch.Tensor] = []
-    X_rollin_l: list[dict[Feats, torch.Tensor]] = []
-
-    for idx in idxs:
-        idx = int(idx)
-        X_i, y_i = ds[idx]
-        X_orig_l.append(X_i)
-        y_l.append(y_i)
-        X_rollin_l.append(obs_features(X_i))
-
-    # Stack feature dict batch.
-    keys = list(X_rollin_l[0].keys())
-    X_batch = {k: torch.stack([x[k] for x in X_rollin_l], dim=0) for k in keys}
-    y_batch = torch.stack(y_l, dim=0)
-
-    X_batch = dict_to_device(X_batch, device)
-    y_batch = y_batch.to(device)
-
-    # One rollout for the whole set.
-    with torch.no_grad():
-        (
-            _,
-            sel_probs,
-            values,
-            league_rewards,
-            entropies,
-            times,
-            actions,
-            Xobs,
-            fd,
-        ) = rollout(
-            obs,
-            critic,
-            disc_trained,
-            X_batch,
-            y_batch,
-            disc_league=active_disc_league,
-            disc_features=disc_features,
-            reward_scales=reward_scales,
-        )
-
-    action_seq_lens = get_action_seq_lens(fd)
-    G, advantages = get_advantages(league_rewards, values, action_seq_lens, cfg)
-
-    # Pre-compute discriminator probabilities in batch to avoid per-figure forwards.
-    # Orig traces
-    Xd_l = [disc_features(x) for x in X_orig_l]
-    Xd_keys = list(Xd_l[0].keys())
-    Xd_batch = {k: torch.stack([x[k] for x in Xd_l], dim=0) for k in Xd_keys}
-    Xd_batch = dict_to_device(Xd_batch, device)
-    logits_d, _ = disc_orig(Xd_batch)
-    probs_d = nn.functional.softmax(logits_d, dim=-1)
-
-    # Obs traces
-    Xobs_d = disc_features.transform_batch(Xobs)
-    Xobs_d = dict_to_device(Xobs_d, device)
-    logits_o, _ = disc_trained(Xobs_d)
-    probs_o = nn.functional.softmax(logits_o, dim=-1)
-
-    logger.info("Generating figs:")
-    with tqdm(list(enumerate(idxs)), desc="Gen figs", ncols=TQDM_W) as pbar:
-        for batch_i, ds_idx in pbar:
-            _plot_single(
-                cfg=cfg,
-                disc_orig=disc_orig,
-                disc_trained=disc_trained,
-                disc_features=disc_features,
-                e=e,
-                device=device,
-                ds_idx=int(ds_idx),
-                batch_i=int(batch_i),
-                X_orig=X_orig_l[batch_i],
-                y_orig=y_l[batch_i],
-                sel_probs=sel_probs,
-                probs_orig=probs_d,
-                probs_obs=probs_o,
-                values=values,
-                league_rewards=league_rewards,
-                entropies=entropies,
-                times=times,
-                actions=actions,
-                Xobs=Xobs,
-                fd=fd,
-                G=G,
-                advantages=advantages,
-                weights=weights,
-                max_len=max_len,
-            )
-
-
-def _plot_single(
-    cfg: DictConfig,
-    disc_orig: nn.Module,
-    disc_trained: nn.Module,
-    disc_features: FeatureTrs,
-    e: int,
-    device: torch.DeviceObjType,
-    ds_idx: int,
-    batch_i: int,
-    X_orig: dict[Feats, torch.Tensor],
-    y_orig: torch.Tensor,
-    sel_probs: torch.Tensor,
-    probs_orig: torch.Tensor,
-    probs_obs: torch.Tensor,
-    values: torch.Tensor,
-    league_rewards: dict[str, torch.Tensor] | None,
-    entropies: dict[str, torch.Tensor],
-    times: torch.Tensor,
-    actions: dict[Actions, torch.Tensor],
-    Xobs: dict[Feats, torch.Tensor],
-    fd: dict[Feats, torch.Tensor],
-    G: torch.Tensor,
-    advantages: torch.Tensor,
-    weights: torch.Tensor,
-    max_len: int = 10_000,
-):
-    fig, (ax, ax_o, ax_fd, ax_a, ax_b, ax_ret, ax_adv) = plt.subplots(
-        7, 1, figsize=(20, 15.0), sharex=True
-    )
-
-    # Orig disc on trace:
-    # ========================================
-    X_d = disc_features(X_orig)
-    X_d = dict_to_device(X_d, device)
-    y = y_orig.to(device).unsqueeze(-1)
-
-    plot_trace(
-        X_d,
-        time_step=cfg.obs_time_step_s,
-        ax=ax,
-        cl_probs=probs_orig,
-        idx=batch_i,
-        true_class=y.item(),
-    )
-    ax.set_title(f"True class: {y.item()}")
-    # ========================================
-
-    # Trained disc on obsfuscated trace (from batched rollout):
-    # ========================================
-    Xobs_i = {k: v[batch_i] for k, v in Xobs.items()}
-    mask = Xobs_i[Feats.DIRS] != 0
-    if mask.sum().item() > max_len:
-        logger.warning("Long seqs. detected -> truncating to %d.", max_len)
-        Xobs_i[Feats.TIMES] = Xobs_i[Feats.TIMES][:max_len]
-        Xobs_i[Feats.DIRS] = Xobs_i[Feats.DIRS][:max_len]
-        Xobs_i[Feats.PADDING] = Xobs_i[Feats.PADDING][:max_len]
-
-    # Plot obsfuscated
-    plot_trace(
-        Xobs_i,
-        time_step=cfg.obs_time_step_s,
-        ax=ax_o,
-        cl_probs=probs_obs,
-        idx=batch_i,
-        true_class=y.item(),
-    )
-    ax_o.set_title("Obs. trace, disc trained")
-
-    # Plot obs inputs
-    plot_obs_features(fd, idx=batch_i, ax=ax_fd)
-    ax_fd.set_title("Obs. features")
-
-    # Plot actions
-    plot_actions(times, actions, idx=batch_i, ax=ax_a)
-
-    times_i = times[batch_i]
-    times_np = times_i.squeeze().cpu().numpy()
-
-    # Plot entropy
-    ax_entropy = ax_a.twinx()
-    ax_entropy.axes.spines["right"].set_visible(True)
-    for entropy, entropy_values in entropies.items():
-        values_i = entropy_values[batch_i]
-        ax_entropy.plot(
-            times_np,
-            values_i.squeeze().cpu().numpy(),
-            "--",
-            lw=2,
-            label=entropy,
-        )
-    ax_entropy.set_ylabel("Action entropy")
-    ax_entropy.legend(frameon=False, loc=1)
-
-    # Plot selection probs
-    ax_probs = ax_a.twinx()
-    ax_probs.axes.spines["right"].set_visible(True)
-    ax_probs.spines["right"].set_position(("outward", 40))  # offset by 40 points
-    ax_probs.set_ylabel("Selection probs.")
-
-    ax_probs.plot(
-        times_np,
-        sel_probs[batch_i].squeeze().cpu().numpy(),
-        "-",
-        lw=1,
-    )
-
-    ax_a.set_title("Actions, entropies")
-
-    # Plot rewards
-    if league_rewards is None:
-        raise ValueError("league_rewards is None; plotting requires reward_scales")
-    # The current disc rewards are at latest idx.
-    rewards = {k: v[-1] for k, v in league_rewards.items()}
-    plot_rewards(times, rewards, idx=batch_i, ax=ax_b)
-    ax_b.legend(frameon=False, loc=2)
-
-    # Plot returns
-
-    G_mean = (weights[:, None, None] * G).sum(dim=0)[batch_i, :]
-    # Mean
-    ax_ret.plot(
-        times_np,
-        G_mean.squeeze().cpu().numpy(),
-        "k-",
-        label="Return",
-        lw=2,
-    )
-    # League cloud
-    ax_ret.plot(
-        times_np,
-        G[:, batch_i, :].permute(1, 0).cpu().numpy(),
-        "k-",
-        alpha=0.5,
-        lw=0.2,
-    )
-    # Current active
-    ax_ret.plot(
-        times_np,
-        G[-1, batch_i, :].squeeze().cpu().numpy(),
-        "k-",
-        alpha=1.0,
-        lw=0.5,
-    )
-
-    # Values
-    values_i = values[batch_i, :]
-    ax_ret.plot(
-        times_np,
-        values_i.squeeze().cpu().numpy(),
-        "--",
-        label="Values estim.",
-        color="black",
-        lw=1,
-    )
-    ax_ret.axhline(color="black", lw=0.5)
-    ax_ret.set_ylabel("Return", color="k")
-    ax_ret.legend(frameon=False, loc=1)
-    ax_ret.axes.spines["bottom"].set_visible(False)
-
-    # Advantages (league, T)
-    advantages_i = advantages[:, batch_i, :]
-    advantages_mean = (weights[:, None, None] * advantages).sum(dim=0)[batch_i, :]
-
-    # Mean
-    ax_adv.plot(
-        times_np,
-        advantages_mean.cpu().numpy(),
-        label="advantage_w_mean",
-        color="green",
-        lw=2,
-    )
-    # Cloud
-    ax_adv.plot(
-        times_np,
-        advantages_i.permute(1, 0).cpu().numpy(),
-        lw=0.5,
-        alpha=0.2,
-        color="green",
-    )
-    ax_adv.plot(
-        times_np,
-        advantages_i[-1, :].squeeze().cpu().numpy(),
-        lw=0.5,
-        alpha=1.0,
-        color="green",
-    )
-
-    ax_b.set_title("Rewards, returns... ")
-    ax_adv.set_ylabel("Advantages", color="k")
-    ax_adv.legend(frameon=False, loc=3)
-    ax_adv.axhline(color="black", lw=0.5)
-
-    ax_adv.set_xlabel("Time [s]")
-
-    mlflow.log_figure(fig, f"trace_{ds_idx}_clf_epoch={e:03d}.png")
-
-    plt.close()
-
-
-def get_advantages(
-    rewards: torch.Tensor | dict[str, torch.Tensor],
-    values: torch.Tensor,
-    seq_lens: torch.Tensor,
-    cfg: DictConfig,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    if isinstance(rewards, dict):
-        rewards = sum(rewards.values())
-
-    # In case of "league rewards"
-    if rewards.ndim == 3:
-        if cfg.advantages.standardize and cfg.league_size > 1:
-            raise NotImplementedError("You should not standardize here for league")
-
-        G_l = []
-        advantages_l = []
-        for i in range(rewards.shape[0]):
-            G_, advantages_ = get_advantages(rewards[i], values, seq_lens, cfg)
-            G_l.append(G_)
-            advantages_l.append(advantages_)
-
-        return torch.stack(G_l, dim=0), torch.stack(advantages_l, dim=0)
-
-    values_detached = values.detach()
-
-    if cfg.advantages.type in {"mc", "mc_w_bootstrap"}:
-        # NOTE: this is not pure MC when bootstrap != 0.
-        if cfg.advantages.type == "mc":
-            bootstrap = None
-        elif cfg.advantages.type == "mc_w_bootstrap":
-            # Time-limit truncation bootstrap: treat end-of-trace as non-terminal.
-            bootstrap = values_detached.gather(1, seq_lens[:, None] - 1).squeeze(1)
-        else:
-            raise KeyError()
-
-        G = get_returns(
-            rewards,
-            seq_lens,
-            gamma=cfg.discounting,
-            bootstrap=bootstrap,
-        )
-        advantages = G - values_detached
-    elif cfg.advantages.type == "gae":
-        advantages = get_gae(
-            rewards,
-            values_detached,
-            seq_lens,
-            lambda_=cfg.advantages.lambda_,
-            gamma=cfg.discounting,
-        )
-        G = advantages + values_detached
-    else:
-        raise NotImplementedError(f"Invalid advantage type: {cfg.advantages.type}")
-
-    if cfg.advantages.divide_by_Z:
-        # Normalize advantages so that point in time on the seq does not matter.
-        # (1, T)
-        t = torch.arange(advantages.shape[1], device=advantages.device)[None, :]
-        # (bs, T)
-        gamma = cfg.discounting
-        seq_lens_ = seq_lens.to(device=advantages.device)
-        to_seq_end = (seq_lens_[:, None] - t).clamp_min(1).to(advantages.dtype)
-        if abs(gamma - 1.0) < 1e-8:
-            Z = to_seq_end
-        else:
-            Z = (1 - gamma**to_seq_end) / (1 - gamma)
-
-        advantages /= Z + 1e-8
-
-    if cfg.advantages.standardize:
-        mask = make_time_mask(
-            seq_lens.to(values.device), values.shape[0], device=values.device
-        )
-        mean, std = masked_mean_std(advantages, mask, per_trace=True)
-        advantages = (advantages) / std
-        # Optional: keep padding at 0
-        advantages = advantages * mask.to(advantages.dtype)
-
-    return G, advantages
-
-
-def assert_finite(name, x):
-    raise_ = False
-    if isinstance(x, (float, int)):
-        if not np.isfinite(x):
-            raise_ = True
-
-    elif not torch.isfinite(x).all():
-        raise_ = True
-    elif torch.isnan(x).any():
-        raise_ = True
-
-    if raise_:
-        print(f"Non-finite in {name}")
-        raise ValueError
 
 
 def _append_to_league(
@@ -555,12 +137,6 @@ def valid_metrics(
     _restore_obs_def_ds(ds_valid, orig_features_trs, obs, device)
 
     return d
-
-
-def league_rewards2rewards(
-    league_rewards: dict[str, torch.Tensor],
-) -> dict[str, torch.Tensor]:
-    return {k: v.mean(dim=0) for k, v in league_rewards.items()}
 
 
 def get_league_scores(
@@ -693,10 +269,6 @@ def masked_mean_std(
     std = (var + eps).sqrt()
     # (, )
     return mean, std
-
-
-def get_action_seq_lens(fd: dict[Feats, torch.Tensor]) -> torch.Tensor:
-    return fd[Feats.TIMES].isnan().logical_not().sum(dim=1)
 
 
 def _get_optim(
@@ -838,9 +410,9 @@ def main(cfg: DictConfig):
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
 
+    model_id = "m-e30a0dd900c740c8a33db9c0f45d8b37"
     discriminator_orig = mlflow.pytorch.load_model(
-        mlflow.get_logged_model("m-bf9ca769dfd040b5afdab0b5ec55c2d6").model_uri,
-        map_location="cpu",
+        mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
     )
 
     if discriminator_orig.feat_mode == "tam":
@@ -851,6 +423,10 @@ def main(cfg: DictConfig):
         disc_feats = FeatureTrs(
             feature_trs=[
                 get_feature_tr(fn, npackets, tam_kwargs=tam_d) for fn in feature_names
+            ]
+            + [
+                get_feature_tr(f, npackets, tam_kwargs=tam_d)
+                for f in (Feats.TAM_DOWN_PAD, Feats.TAM_UP_PAD)
             ],
             n_packets=None,
         )
@@ -863,8 +439,7 @@ def main(cfg: DictConfig):
 
     # This one already somewhat trained for obsfuscation.
     discriminator = mlflow.pytorch.load_model(
-        mlflow.get_logged_model("m-bf9ca769dfd040b5afdab0b5ec55c2d6").model_uri,
-        map_location="cpu",
+        mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
     )
     discriminator.predict_ks = cfg.predict_ks
 
@@ -1283,6 +858,8 @@ def main(cfg: DictConfig):
                         logger.info("Early termination")
                         obs_train_frac = 1.0
                         break
+
+                    break
 
             # League handling:
             # =======================================

@@ -87,16 +87,28 @@ def _plot_probs(
 
 
 def _plot_boxes(
-    x: np.ndarray, widths: np.ndarray, heights: np.ndarray, ax: plt.Axes, **kwargs
+    x: np.ndarray,
+    widths: np.ndarray,
+    heights: np.ndarray,
+    ax: plt.Axes,
+    start_heights: np.ndarray | float = 0.0,
+    **kwargs,
 ) -> None:
-    for xi, w, h in zip(x, widths, heights):
+    if isinstance(start_heights, (float, int)):
+        start_heights = np.full_like(x, start_heights)
+
+    for xi, w, h, hs in zip(x, widths, heights, start_heights):
         if h == 0:
             continue
         if h < 0:
-            y = h
+            if hs > 0:
+                raise ValueError(
+                    "Negative height with positive start height not supported"
+                )
+            y = h + hs
             h = -h
         else:
-            y = 0
+            y = hs
 
         rect = plt.Rectangle((xi, y), w, h, edgecolor=None, **kwargs)
         ax.add_patch(rect)
@@ -142,37 +154,93 @@ def plot_tam(
         trace_dict[Feats.TAM_TIMES].detach().cpu().numpy(), idx
     )
 
+    try:
+        tam_u_pad = _squeeze_batched(
+            trace_dict[Feats.TAM_UP_PAD].detach().cpu().numpy(), idx
+        )
+        tam_d_pad = _squeeze_batched(
+            trace_dict[Feats.TAM_DOWN_PAD].detach().cpu().numpy(), idx
+        )
+    except KeyError:
+        tam_u_pad = np.zeros_like(tam_u_c, dtype=int)
+        tam_d_pad = np.zeros_like(tam_d_c, dtype=int)
+
     ax = ax or plt.subplots(figsize=(12, 3))[1]
+
+    miny = (-1) * _get_lims(tam_u_c, tam_d_c, 1)
+    maxy = _get_lims(tam_u_c, tam_d_c, 1)
+
+    ax.set_ylim(miny, maxy)
+    ax.set_title(f"TAM counts ww={window_width:.02f} s")
+    ax.set_ylabel("TAM count")
+
+    if tam_u_pad.sum() > 0:
+        _plot_boxes(
+            tam_times,
+            np.ones_like(tam_times) * window_width,
+            tam_u_pad,
+            ax,
+            start_heights=0.0,
+            color=PAD_COLOR,
+            alpha=0.5,
+        )
+    if tam_d_pad.sum() > 0:
+        _plot_boxes(
+            tam_times,
+            np.ones_like(tam_times) * window_width,
+            -tam_d_pad,
+            ax,
+            start_heights=0.0,
+            color=PAD_COLOR,
+            alpha=0.5,
+        )
+
     _plot_boxes(
         tam_times,
         np.ones_like(tam_times) * window_width,
-        tam_u_c,
+        tam_u_c - tam_u_pad,
         ax,
+        start_heights=tam_u_pad,
         color=UP_COLOR,
         alpha=0.5,
     )
     _plot_boxes(
         tam_times,
         np.ones_like(tam_times) * window_width,
-        -tam_d_c,
+        -tam_d_c + tam_d_pad,
         ax,
+        start_heights=-tam_d_pad,
         color=DOWN_COLOR,
         alpha=0.5,
     )
 
-    minx = _get_lims(tam_times, tam_times, -1, lim="min")
-    maxx = _get_lims(tam_times, tam_times, 1)
+    info_d = {
+        "nup": tam_u_c.sum(),
+        "ndown": tam_d_c.sum(),
+        "maxt": tam_times[(tam_u_c != 0) | (tam_d_c != 0)].max(),
+    }
 
-    miny = (-1) * _get_lims(tam_u_c, tam_d_c, 1)
-    maxy = _get_lims(tam_u_c, tam_d_c, 1)
+    if tam_u_pad.sum() > 0:
+        info_d["pad nup"] = tam_u_pad.sum()
+        info_d["nup"] -= tam_u_pad.sum()
+    if tam_d_pad.sum() > 0:
+        info_d["pad ndown"] = tam_d_pad.sum()
+        info_d["ndown"] -= tam_d_pad.sum()
 
-    ax.set_xlim(minx, maxx)
-    ax.set_ylim(miny, maxy)
-    ax.set_title(f"TAM counts ww={window_width:.02f} s")
-    ax.set_ylabel("TAM count")
+    ax.text(
+        0.98,
+        0.99,
+        "\n".join([f"{k} : {v}" for k, v in info_d.items()]),
+        transform=ax.transAxes,
+        va="top",
+        ha="right",
+    )
 
     if cl_probs is not None:
-        _plot_probs(cl_probs, tam_times, ax, idx, true_class, move_right=False)
+        _plot_probs(cl_probs, tam_times, ax, idx=idx, true_class=true_class)
+
+    ax.set_xlim(0, info_d["maxt"] * 1.01)
+
     return ax
 
 

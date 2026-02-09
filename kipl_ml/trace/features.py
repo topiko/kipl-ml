@@ -569,6 +569,7 @@ class _TAM(_TR):
     NAME = "tam"
     DIR: str
     TIMES: bool
+    PADDING: bool
 
     def __init__(
         self,
@@ -603,8 +604,12 @@ class _TAM(_TR):
         if self.TIMES:
             return Feats.TAM_TIMES
         if self.DIR == "upload" and not self.TIMES:
+            if self.PADDING:
+                return Feats.TAM_UP_PAD
             return Feats.TAM_UP_COUNTS
         if self.DIR == "download" and not self.TIMES:
+            if self.PADDING:
+                return Feats.TAM_DOWN_PAD
             return Feats.TAM_DOWN_COUNTS
 
         raise KeyError(f"Invalid dir {self.DIR}")
@@ -635,6 +640,16 @@ class _TAM(_TR):
         if self.TIMES:
             mask = dirs != 0
 
+        if self.PADDING:
+            try:
+                mask = mask & (trace[Feats.PADDING] == 1)
+            except KeyError:
+                logger.warning(
+                    "PADDING key not found in trace, but PADDING is True. "
+                    + "Proceeding without padding mask."
+                )
+                mask = torch.zeros_like(mask, dtype=torch.bool)
+
         # NOTE: we expect the time to be in "s"!
         counts = torch.histogram(times[mask], bins=self.bins)[0]
 
@@ -655,16 +670,31 @@ class _TAM(_TR):
 class TAM_UP(_TAM):
     DIR = "upload"
     TIMES = False
+    PADDING = False
 
 
 class TAM_DOWN(_TAM):
     DIR = "download"
     TIMES = False
+    PADDING = False
+
+
+class TAM_UP_PAD(_TAM):
+    DIR = "upload"
+    TIMES = False
+    PADDING = True
+
+
+class TAM_DOWN_PAD(_TAM):
+    DIR = "download"
+    TIMES = False
+    PADDING = True
 
 
 class TAM_TIMES(_TAM):
     DIR = "up/download"
     TIMES = True
+    PADDING = False
 
 
 class Compose(_TR):
@@ -1050,6 +1080,8 @@ def get_feature_tr(
             )
         case Feats.TAM_UP_COUNTS:
             return TAM_UP(**tam_kwargs)
+        case Feats.TAM_UP_PAD:
+            return TAM_UP_PAD(**tam_kwargs)
         case Feats.TAM_UP_COUNTS_MAX_NORMALIZED:
             return Compose(
                 TAM_UP(**tam_kwargs),
@@ -1061,6 +1093,8 @@ def get_feature_tr(
             )
         case Feats.TAM_DOWN_COUNTS:
             return TAM_DOWN(**tam_kwargs)
+        case Feats.TAM_DOWN_PAD:
+            return TAM_DOWN_PAD(**tam_kwargs)
         case Feats.TAM_TIMES:
             return TAM_TIMES(**tam_kwargs)
         case Feats.TAM_DOWN_COUNTS_MAX_NORMALIZED:

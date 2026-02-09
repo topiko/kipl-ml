@@ -1,18 +1,111 @@
 import dotenv
 import torch
+from omegaconf import DictConfig
 from torch import nn
 from tqdm import tqdm
 
 from kipl_ml.data.wf_dataset import dict_to_device
 from kipl_ml.logging.logger import TQDM_W, get_logger
+from kipl_ml.rl.advantages import get_gae, get_returns
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
 dotenv.load_dotenv()
 
 
+def get_action_seq_lens(fd: dict[Feats, torch.Tensor]) -> torch.Tensor:
+    return fd[Feats.TIMES].isnan().logical_not().sum(dim=1)
+
+
 def ema_update(value: float, cur_value: float, ema_decay: float) -> float:
     return ema_decay * value + (1 - ema_decay) * cur_value
+
+
+def league_rewards2rewards(
+    league_rewards: dict[str, torch.Tensor],
+) -> dict[str, torch.Tensor]:
+    return {k: v.mean(dim=0) for k, v in league_rewards.items()}
+
+
+def get_advantages(
+    rewards: torch.Tensor | dict[str, torch.Tensor],
+    values: torch.Tensor,
+    seq_lens: torch.Tensor,
+    cfg: DictConfig,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if isinstance(rewards, dict):
+        rewards = sum(rewards.values())
+
+    # In case of "league rewards"
+    if rewards.ndim == 3:
+        if cfg.advantages.standardize and cfg.league_size > 1:
+            raise NotImplementedError("You should not standardize here for league")
+
+        G_l = []
+        advantages_l = []
+        for i in range(rewards.shape[0]):
+            G_, advantages_ = get_advantages(rewards[i], values, seq_lens, cfg)
+            G_l.append(G_)
+            advantages_l.append(advantages_)
+
+        return torch.stack(G_l, dim=0), torch.stack(advantages_l, dim=0)
+
+    values_detached = values.detach()
+
+    if cfg.advantages.type in {"mc", "mc_w_bootstrap"}:
+        # NOTE: this is not pure MC when bootstrap != 0.
+        if cfg.advantages.type == "mc":
+            bootstrap = None
+        elif cfg.advantages.type == "mc_w_bootstrap":
+            # Time-limit truncation bootstrap: treat end-of-trace as non-terminal.
+            bootstrap = values_detached.gather(1, seq_lens[:, None] - 1).squeeze(1)
+        else:
+            raise KeyError()
+
+        G = get_returns(
+            rewards,
+            seq_lens,
+            gamma=cfg.discounting,
+            bootstrap=bootstrap,
+        )
+        advantages = G - values_detached
+    elif cfg.advantages.type == "gae":
+        advantages = get_gae(
+            rewards,
+            values_detached,
+            seq_lens,
+            lambda_=cfg.advantages.lambda_,
+            gamma=cfg.discounting,
+        )
+        G = advantages + values_detached
+    else:
+        raise NotImplementedError(f"Invalid advantage type: {cfg.advantages.type}")
+
+    if cfg.advantages.divide_by_Z:
+        # Normalize advantages so that point in time on the seq does not matter.
+        # (1, T)
+        t = torch.arange(advantages.shape[1], device=advantages.device)[None, :]
+        # (bs, T)
+        gamma = cfg.discounting
+        seq_lens_ = seq_lens.to(device=advantages.device)
+        to_seq_end = (seq_lens_[:, None] - t).clamp_min(1).to(advantages.dtype)
+        if abs(gamma - 1.0) < 1e-8:
+            Z = to_seq_end
+        else:
+            Z = (1 - gamma**to_seq_end) / (1 - gamma)
+
+        advantages /= Z + 1e-8
+
+    if cfg.advantages.standardize:
+        mask = make_time_mask(
+            seq_lens.to(values.device), values.shape[0], device=values.device
+        )
+        mean, std = masked_mean_std(advantages, mask, per_trace=True)
+        advantages = (advantages) / std
+        # Optional: keep padding at 0
+        advantages = advantages * mask.to(advantages.dtype)
+
+    return G, advantages
 
 
 def train_one_epoch(

@@ -173,7 +173,7 @@ def rollout(
         else:
             X_ = Xobs
 
-        disc_seq_lens = disc.seq_len_fun(Xobs)
+        disc_seq_lens = disc.seq_len_fun(X_)
 
         # Critic feat building:
         if critic is not None and Feats.LABEL in critic.features:
