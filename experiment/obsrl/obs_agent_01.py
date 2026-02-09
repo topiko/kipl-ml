@@ -487,7 +487,7 @@ def main(cfg: DictConfig):
             Actions.SEND_COUNT_DOWN: f_ * eps,
             Actions.SEND_TIME_DOWN: f_ * eps,
         },
-        prefer_wait_bias=4.0 if cfg.init_for_wait else 0.0,
+        prefer_wait_bias=6.0 if cfg.init_for_wait else 0.0,
     ).to(device)
 
     lr = 0.001

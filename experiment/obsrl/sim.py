@@ -54,34 +54,35 @@ def get_rewards(
     # (B, N)
     m = target_logits - rest_lse
 
-    # Assign each packet time to an action interval [t_i, t_{i+1}).
-    # We treat NaNs in action_times as +inf, which makes the last finite action
-    # cover the rest of the trace.
     boundaries = action_times.nan_to_num(nan=float("inf"))
-    # (B, N) in [0..T], then shift to [ -1 .. T-1 ]
-    idx = torch.searchsorted(boundaries, times, right=True) - 1
-    valid_idx = (idx >= 0) & (idx < T)
 
-    # Ignore padded packets beyond seq_lens.
-    pkt_valid = (
-        torch.arange(N, device=times.device)[None, :]
-        < packet_seq_lens.to(times.device)[:, None]
-    )
-    valid = valid_idx & pkt_valid
-
-    idx_clamped = idx.clamp(0, T - 1)
-
-    # Padding penalty: count padding packets per action interval.
-    # =============================================
-    pad_w = (padding & valid).to(times.dtype)
-    npad = torch.zeros((bs, T), device=times.device, dtype=times.dtype).scatter_add_(
-        1, idx_clamped, pad_w
-    )
-    rewards["padding"] -= npad * reward_scales["padding_scale"]
-
-    # Classifier reward: mean over normal packets per interval.
-    # =============================================
     if feat_mode == "dir":
+        # Assign each packet time to an action interval [t_i, t_{i+1}).
+        # We treat NaNs in action_times as +inf, which makes the last finite action
+        # cover the rest of the trace.
+        # (B, N) in [0..T], then shift to [ -1 .. T-1 ]
+        idx = torch.searchsorted(boundaries, times, right=True) - 1
+        valid_idx = (idx >= 0) & (idx < T)
+
+        # Ignore padded packets beyond seq_lens.
+        pkt_valid = (
+            torch.arange(N, device=times.device)[None, :]
+            < packet_seq_lens.to(times.device)[:, None]
+        )
+        valid = valid_idx & pkt_valid
+
+        idx_clamped = idx.clamp(0, T - 1)
+
+        # Padding penalty: count padding packets per action interval.
+        # =============================================
+        pad_w = (padding & valid).to(times.dtype)
+        npad = torch.zeros(
+            (bs, T), device=times.device, dtype=times.dtype
+        ).scatter_add_(1, idx_clamped, pad_w)
+        rewards["padding"] -= npad * reward_scales["padding_scale"]
+
+        # Classifier reward: mean over normal packets per interval.
+        # =============================================
         normal_w = ((~padding) & valid).to(times.dtype)
         normal_cnt = torch.zeros(
             (bs, T), device=times.device, dtype=times.dtype
@@ -99,9 +100,18 @@ def get_rewards(
         disc_times = X[Feats.TAM_TIMES][:, 1:]
         m = m[:, 1:]
 
-        r_pkt = torch.clamp(-m, min=-10, max=10.0)
         idxs = torch.searchsorted(boundaries, disc_times, right=True) - 1
         idxs = idxs.clamp(0, T - 1)
+
+        # padding
+        rewards["padding"] -= reward_scales["padding_scale"] * torch.zeros(
+            (bs, T), device=times.device, dtype=times.dtype
+        ).scatter_add_(
+            1, idxs, X[Feats.TAM_DOWN_PAD][:, 1:] + X[Feats.TAM_UP_PAD][:, 1:]
+        )
+
+        # clf
+        r_pkt = torch.clamp(-m, min=-10, max=10.0)
         mp = torch.zeros((bs, T), device=times.device, dtype=times.dtype).scatter_add_(
             1, idxs, r_pkt
         )
@@ -191,7 +201,7 @@ def rollout(
         else:
             X_ = Xobs
 
-        disc_seq_lens = disc.seq_len_fun(X_)
+        disc_seq_lens = disc.seq_len_fun(X_).to("cpu")
 
         X_ = {k: v[:, : disc_seq_lens.max()] for k, v in X_.items()}
 

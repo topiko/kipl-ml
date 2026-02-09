@@ -136,6 +136,15 @@ def _get_lims(*args, lim="max") -> float:
     return v_
 
 
+def _format_val(v: int | float) -> str:
+    if isinstance(v, (int, np.integer)):
+        return f"{v}"
+    if isinstance(v, (float, np.floating)):
+        return f"{v:.02f}"
+
+    raise NotImplementedError(f"Not implemented for type {type(v)}")
+
+
 def plot_tam(
     trace_dict: dict[Feats, torch.Tensor],
     window_width: float,
@@ -217,7 +226,7 @@ def plot_tam(
     info_d = {
         "nup": tam_u_c.sum(),
         "ndown": tam_d_c.sum(),
-        "maxt": f"{tam_times[(tam_u_c != 0) | (tam_d_c != 0)].max():.02f} s",
+        "maxt": tam_times[(tam_u_c != 0) | (tam_d_c != 0)].max().round(2),
     }
 
     if tam_u_pad.sum() > 0:
@@ -230,7 +239,7 @@ def plot_tam(
     ax.text(
         0.98,
         0.99,
-        "\n".join([f"{k} : {v}" for k, v in info_d.items()]),
+        "\n".join([f"{k} : {_format_val(v)}" for k, v in info_d.items()]),
         transform=ax.transAxes,
         va="top",
         ha="right",
