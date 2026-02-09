@@ -418,6 +418,7 @@ def main(cfg: DictConfig):
     if discriminator_orig.feat_mode == "tam":
         feature_names = discriminator_orig.features
         tam_d = discriminator_orig.tam_dict
+        tam_d["max_load_time_s"] = 1000
         npackets = None
 
         disc_feats = FeatureTrs(
@@ -858,8 +859,6 @@ def main(cfg: DictConfig):
                         logger.info("Early termination")
                         obs_train_frac = 1.0
                         break
-
-                    break
 
             # League handling:
             # =======================================

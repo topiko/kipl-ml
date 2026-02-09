@@ -217,7 +217,7 @@ def plot_tam(
     info_d = {
         "nup": tam_u_c.sum(),
         "ndown": tam_d_c.sum(),
-        "maxt": tam_times[(tam_u_c != 0) | (tam_d_c != 0)].max(),
+        "maxt": f"{tam_times[(tam_u_c != 0) | (tam_d_c != 0)].max():.02f} s",
     }
 
     if tam_u_pad.sum() > 0:

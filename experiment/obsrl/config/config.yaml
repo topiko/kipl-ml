@@ -13,7 +13,7 @@ advantages:
   divide_by_Z: False
 
 rewards:
-  d_clf: 0.03
+  d_clf: 0.001
 
 experiment_name: obsrl
 debug: False

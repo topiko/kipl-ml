@@ -54,8 +54,6 @@ def get_rewards(
     # (B, N)
     m = target_logits - rest_lse
 
-    breakpoint()
-
     # Assign each packet time to an action interval [t_i, t_{i+1}).
     # We treat NaNs in action_times as +inf, which makes the last finite action
     # cover the rest of the trace.
@@ -96,26 +94,37 @@ def get_rewards(
         mean_p = torch.where(normal_cnt > 0, normal_sum / normal_cnt, 0.0)
         rewards["clf"] += mean_p * reward_scales["clf_scale"]
 
-        # change in prob reward
-
-        mask = mean_p != 0
-        rewards["d_clf"] += torch.where(
-            mask & mask.roll(1, dims=1),
-            (
-                mean_p.diff(dim=1, prepend=mean_p[:, :1].clone())
-                / action_times.diff(
-                    dim=1,
-                    prepend=torch.ones((bs, 1), device=action_times.device) * float("inf"),
-                )
-            ).clamp(max=0)
-            * reward_scales["d_clf_scale"],
-            0,
-        )
     elif feat_mode == "tam":
         # (bs, T)
-        mask = (action_times.unsqueeze(2) == X[Feats.TAM_TIMES].unsqueeze(1)).any(dim=2)
-        breakpoint()
+        disc_times = X[Feats.TAM_TIMES][:, 1:]
+        m = m[:, 1:]
 
+        r_pkt = torch.clamp(-m, min=-10, max=10.0)
+        idxs = torch.searchsorted(boundaries, disc_times, right=True) - 1
+        idxs = idxs.clamp(0, T - 1)
+        mp = torch.zeros((bs, T), device=times.device, dtype=times.dtype).scatter_add_(
+            1, idxs, r_pkt
+        )
+        sum_ = torch.zeros(
+            (bs, T), device=times.device, dtype=times.dtype
+        ).scatter_add_(1, idxs, torch.ones_like(m))
+        mean_p = torch.where(sum_ > 0, mp / sum_, 0.0)
+        rewards["clf"] += mean_p * reward_scales["clf_scale"]
+
+    # change in prob reward
+    mask = mean_p != 0
+    rewards["d_clf"] += torch.where(
+        mask & mask.roll(1, dims=1),
+        (
+            mean_p.diff(dim=1, prepend=mean_p[:, :1].clone())
+            / action_times.diff(
+                dim=1,
+                prepend=torch.ones((bs, 1), device=action_times.device) * float("-inf"),
+            )
+        ).clamp(max=0)
+        * reward_scales["d_clf_scale"],
+        0,
+    )
     return rewards
 
 
@@ -183,6 +192,8 @@ def rollout(
             X_ = Xobs
 
         disc_seq_lens = disc.seq_len_fun(X_)
+
+        X_ = {k: v[:, : disc_seq_lens.max()] for k, v in X_.items()}
 
         # Critic feat building:
         if critic is not None and Feats.LABEL in critic.features:
