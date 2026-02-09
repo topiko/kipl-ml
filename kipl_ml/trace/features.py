@@ -589,7 +589,7 @@ class _TAM(_TR):
             )
             self.max_matrix_len = self.max_load_time_s // window_width_s + 1
             self.window_width_s = window_width_s
-            self.bins = torch.arange(0, self.max_matrix_len) * window_width_s
+            self.bins = torch.arange(0, self.max_matrix_len + 1) * window_width_s
         else:
             self.max_matrix_len = max_matrix_len
             self.bins = torch.linspace(0, self.max_load_time_s, self.max_matrix_len + 1)
