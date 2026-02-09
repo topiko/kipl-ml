@@ -46,21 +46,25 @@ def main(cfg: DictConfig):
     dataset = cfg.dataset.name
     npackets = cfg.trace_len
 
-    # [Feats.DIRS, Feats.LOG1P_IATS, Feats.TIMES]
-
     if cfg.tam_features:
+        tam_d = {
+            "window_width_s": cfg.tam_ww,
+            "max_load_time_s": cfg.tam_max_load_time_s,
+        }
         feature_names = cfg.tam_features
+        npackets = None
         feature_trs = [
             get_feature_tr(
                 fn,
                 100_000,
-                tam_kwargs={
-                    "window_width_s": cfg.tam_ww,
-                    "max_load_time_s": cfg.tam_max_load_time_s,
-                },
+                tam_kwargs=tam_d,
             )
             for fn in feature_names
         ]
+    else:
+        tam_d = None
+        feature_names = cfg.features
+        feature_trs = [get_feature_tr(fn, npackets) for fn in feature_names]
 
     ds_train, ds_valid, _ = get_train_valid_test(
         dataset=dataset,
@@ -78,7 +82,12 @@ def main(cfg: DictConfig):
     dl_valid = dl_(ds_valid, 64, None, nworkers=None)
 
     clf = RNNCLF1(
-        ds_train.n_classes, feature_names, dropout=cfg.dropout, hsize=126, nlayer=2
+        ds_train.n_classes,
+        feature_names,
+        dropout=cfg.dropout,
+        hsize=126,
+        nlayer=2,
+        tam_dict=tam_d,
     )
 
     logger.info(f"Model parameters: {count_parameters(clf)}")

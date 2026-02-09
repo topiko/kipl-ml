@@ -76,6 +76,7 @@ class RNNCLF1(nn.Module):
         nlayer: int = 3,
         dropout: float = 0.2,
         predict_ks: int = 21,
+        tam_dict: dict[str, int] | None = None,
     ):
         super().__init__()
 
@@ -83,6 +84,7 @@ class RNNCLF1(nn.Module):
             {Feats.BURST_LENS, Feats.BURST_DURS, Feats.BURST_RELDURS}
         ):
             raise NotImplementedError("Deprecated")
+
         elif set(features).issubset(
             {
                 Feats.DIRS,
@@ -93,6 +95,7 @@ class RNNCLF1(nn.Module):
             }
         ):
             self.seq_len_fun = dir_seq_len_fun
+            self.op_mode = "dir"
         elif set(features).issubset(
             {
                 Feats.TAM_UP_COUNTS,
@@ -101,6 +104,8 @@ class RNNCLF1(nn.Module):
             }
         ):
             self.seq_len_fun = tam_seq_len_fun
+            self.tam_dict = tam_dict or {}
+            self.op_mode = "tam"
         else:
             raise ValueError(f"Invalid set of feats. {'-'.join(features)}")
 
