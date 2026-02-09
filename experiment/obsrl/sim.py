@@ -13,11 +13,13 @@ logger = get_logger(__name__)
 
 def get_rewards(
     action_times: torch.Tensor,
+    Xobs: dict[Feats, torch.Tensor],
     X: dict[Feats, torch.Tensor],
     y: torch.Tensor,
     disc_logits: torch.Tensor,
-    seq_lens: torch.Tensor,
-    reward_scales: dict[str, float] = {"clf_scale": 1.0, "padding_scale": 1.0},
+    packet_seq_lens: torch.Tensor,
+    feat_mode: str,
+    reward_scales: dict[str, float],
 ) -> dict[str, torch.Tensor]:
     # Shapes:
     # - action_times: (B, T)
@@ -31,8 +33,8 @@ def get_rewards(
     }
 
     # (B, N)
-    times = X[Feats.TIMES][:, :N]
-    padding = X[Feats.PADDING][:, :N].bool()
+    times = Xobs[Feats.TIMES][:, :N]
+    padding = Xobs[Feats.PADDING][:, :N].bool()
 
     # (B, N, C)
     # probs = nn.functional.softmax(disc_logits, dim=-1)
@@ -52,6 +54,8 @@ def get_rewards(
     # (B, N)
     m = target_logits - rest_lse
 
+    breakpoint()
+
     # Assign each packet time to an action interval [t_i, t_{i+1}).
     # We treat NaNs in action_times as +inf, which makes the last finite action
     # cover the rest of the trace.
@@ -63,7 +67,7 @@ def get_rewards(
     # Ignore padded packets beyond seq_lens.
     pkt_valid = (
         torch.arange(N, device=times.device)[None, :]
-        < seq_lens.to(times.device)[:, None]
+        < packet_seq_lens.to(times.device)[:, None]
     )
     valid = valid_idx & pkt_valid
 
@@ -79,33 +83,38 @@ def get_rewards(
 
     # Classifier reward: mean over normal packets per interval.
     # =============================================
-    normal_w = ((~padding) & valid).to(times.dtype)
-    normal_cnt = torch.zeros(
-        (bs, T), device=times.device, dtype=times.dtype
-    ).scatter_add_(1, idx_clamped, normal_w)
+    if feat_mode == "dir":
+        normal_w = ((~padding) & valid).to(times.dtype)
+        normal_cnt = torch.zeros(
+            (bs, T), device=times.device, dtype=times.dtype
+        ).scatter_add_(1, idx_clamped, normal_w)
 
-    r_pkt = torch.clamp(-m, min=-10, max=10.0)
-    normal_sum = torch.zeros(
-        (bs, T), device=times.device, dtype=times.dtype
-    ).scatter_add_(1, idx_clamped, r_pkt * normal_w)
-    mean_p = torch.where(normal_cnt > 0, normal_sum / normal_cnt, 0.0)
-    rewards["clf"] += mean_p * reward_scales["clf_scale"]
+        r_pkt = torch.clamp(-m, min=-10, max=10.0)
+        normal_sum = torch.zeros(
+            (bs, T), device=times.device, dtype=times.dtype
+        ).scatter_add_(1, idx_clamped, r_pkt * normal_w)
+        mean_p = torch.where(normal_cnt > 0, normal_sum / normal_cnt, 0.0)
+        rewards["clf"] += mean_p * reward_scales["clf_scale"]
 
-    # change in prob reward
+        # change in prob reward
 
-    mask = mean_p != 0
-    rewards["d_clf"] += torch.where(
-        mask & mask.roll(1, dims=1),
-        (
-            mean_p.diff(dim=1, prepend=mean_p[:, :1].clone())
-            / action_times.diff(
-                dim=1,
-                prepend=torch.ones((bs, 1), device=action_times.device) * float("inf"),
-            )
-        ).clamp(max=0)
-        * reward_scales["d_clf_scale"],
-        0,
-    )
+        mask = mean_p != 0
+        rewards["d_clf"] += torch.where(
+            mask & mask.roll(1, dims=1),
+            (
+                mean_p.diff(dim=1, prepend=mean_p[:, :1].clone())
+                / action_times.diff(
+                    dim=1,
+                    prepend=torch.ones((bs, 1), device=action_times.device) * float("inf"),
+                )
+            ).clamp(max=0)
+            * reward_scales["d_clf_scale"],
+            0,
+        )
+    elif feat_mode == "tam":
+        # (bs, T)
+        mask = (action_times.unsqueeze(2) == X[Feats.TAM_TIMES].unsqueeze(1)).any(dim=2)
+        breakpoint()
 
     return rewards
 
@@ -193,9 +202,11 @@ def rollout(
             rewards_ = get_rewards(
                 act_times,
                 Xobs,
+                X_,
                 y,
                 logits,
                 packet_seq_lens_gpu,
+                feat_mode=disc.feat_mode,
                 reward_scales=reward_scales,
             )
 
