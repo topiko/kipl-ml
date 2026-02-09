@@ -41,8 +41,10 @@ def tam_seq_len_fun(x: dict[Feats, torch.Tensor]) -> torch.Tensor:
 
     seq_lens = (
         torch.where(
-            mask, torch.arange(nt, device=mask.device)[None, :].repeat(bs, 1)[mask], 0
-        ).max(dim=1)[0]
+            mask, torch.arange(nt, device=mask.device)[None, :].repeat(bs, 1), 0
+        )
+        .max(dim=1)
+        .values
         + 1
     )
 

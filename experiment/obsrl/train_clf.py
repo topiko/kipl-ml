@@ -103,11 +103,7 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device, non_blocking=True)
                     y = y.to(device)
 
-                    seq_lens = torch.full_like(
-                        y,
-                        fill_value=X[feature_names[0]].shape[1],
-                        dtype=torch.long,
-                    )
+                    seq_lens = clf.seq_len_fun(X)
                     loss, _ = one_batch_train_disc(
                         clf,
                         X,
@@ -152,7 +148,6 @@ def main(cfg: DictConfig):
                 break
 
             if (e - 1) % 10 == 0:
-                dl_train.batch_size = 8
                 train_metrics_d = evaluate_model(
                     clf, dl_train, [Accuracy()], loss_fn, key="train"
                 )
