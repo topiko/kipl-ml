@@ -76,7 +76,7 @@ def main(cfg: DictConfig):
 
     logger.info(f"Model parameters: {count_parameters(clf)}")
 
-    optimG = torch.optim.Adam(clf.parameters(), lr=0.001)
+    optimG = torch.optim.Adam(clf.parameters(), lr=0.005)
 
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer=optimG, factor=0.5, patience=3
@@ -175,7 +175,13 @@ def main(cfg: DictConfig):
                     logits, _ = clf({k: v.unsqueeze(0) for k, v in X.items()})
 
                     if cfg.tam_features:
-                        ax = plot_tam(X, window_width=cfg.tam_ww, ax=ax)
+                        ax = plot_tam(
+                            X,
+                            window_width=cfg.tam_ww,
+                            ax=ax,
+                            cl_probs=nn.functional.softmax(logits, dim=-1),
+                            true_class=y.item(),
+                        )
 
                     else:
                         ax = plot_trace(

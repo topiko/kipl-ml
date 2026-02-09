@@ -14,8 +14,7 @@ features:
 tam_features:
   - tam-upload
   - tam-download
-  - tam-upload-times
-  - tam-download-times
+  - tam-times
 
 tam_ww: 0.02
 trace_len: 5000

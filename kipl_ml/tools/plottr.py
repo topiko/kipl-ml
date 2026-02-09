@@ -102,11 +102,35 @@ def _plot_boxes(
         ax.add_patch(rect)
 
 
+def _get_lims(*args, lim="max") -> float:
+    if lim == "max":
+        op = max
+        v_ = float("-inf")
+    elif lim == "min":
+        op = min
+        v_ = float("inf")
+    else:
+        raise KeyError("Only min and max allowed")
+
+    for v in args:
+        if isinstance(v, (float, int)):
+            v_ = op(v_, v)
+        elif isinstance(v, np.ndarray):
+            if len(v) > 0:
+                v_ = op(v_, op(v))
+        else:
+            raise TypeError(f"Invalid value type {type(v)}")
+
+    return v_
+
+
 def plot_tam(
     trace_dict: dict[Feats, torch.Tensor],
     window_width: float,
     idx: int | None = None,
     ax: plt.Axes | None = None,
+    cl_probs: torch.Tensor | None = None,
+    true_class: int | None = None,
 ) -> plt.Axes:
     tam_d_c = _squeeze_batched(
         trace_dict[Feats.TAM_DOWN_COUNTS].detach().cpu().numpy(), idx
@@ -114,32 +138,41 @@ def plot_tam(
     tam_u_c = _squeeze_batched(
         trace_dict[Feats.TAM_UP_COUNTS].detach().cpu().numpy(), idx
     )
-    tam_d_times = _squeeze_batched(
-        trace_dict[Feats.TAM_DOWN_TIMES].detach().cpu().numpy(), idx
-    )
-    tam_u_times = _squeeze_batched(
-        trace_dict[Feats.TAM_UP_TIMES].detach().cpu().numpy(), idx
+    tam_times = _squeeze_batched(
+        trace_dict[Feats.TAM_TIMES].detach().cpu().numpy(), idx
     )
 
+    ax = ax or plt.subplots(figsize=(12, 3))[1]
     _plot_boxes(
-        tam_u_times,
-        np.ones_like(tam_u_times) * window_width,
+        tam_times,
+        np.ones_like(tam_times) * window_width,
         tam_u_c,
         ax,
         color=UP_COLOR,
         alpha=0.5,
     )
     _plot_boxes(
-        tam_d_times,
-        np.ones_like(tam_d_times) * window_width,
+        tam_times,
+        np.ones_like(tam_times) * window_width,
         -tam_d_c,
         ax,
         color=DOWN_COLOR,
         alpha=0.5,
     )
 
-    ax.title(f"TAM counts ww={window_width:.02f} s")
+    minx = _get_lims(tam_times, tam_times, -1, lim="min")
+    maxx = _get_lims(tam_times, tam_times, 1)
+
+    miny = (-1) * _get_lims(tam_u_c, tam_d_c, 1)
+    maxy = _get_lims(tam_u_c, tam_d_c, 1)
+
+    ax.set_xlim(minx, maxx)
+    ax.set_ylim(miny, maxy)
+    ax.set_title(f"TAM counts ww={window_width:.02f} s")
     ax.set_ylabel("TAM count")
+
+    if cl_probs is not None:
+        _plot_probs(cl_probs, tam_times, ax, idx, true_class, move_right=False)
     return ax
 
 

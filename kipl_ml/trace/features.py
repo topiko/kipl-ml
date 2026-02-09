@@ -627,6 +627,8 @@ class _TAM(_TR):
                 mask = dirs == UPLOAD
             case "download":
                 mask = dirs == DOWNLOAD
+            case "up/download":
+                mask = (dirs == DOWNLOAD) | (dirs == UPLOAD)
             case _:
                 raise KeyError(f"Invalid dir {self.DIR}")
 
