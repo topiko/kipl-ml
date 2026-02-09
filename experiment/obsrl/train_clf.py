@@ -22,7 +22,7 @@ from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.trgen import RNNCLF1
 from kipl_ml.models.utils import count_parameters
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
-from kipl_ml.tools.plottr import plot_trace
+from kipl_ml.tools.plottr import plot_tam, plot_trace
 from kipl_ml.trace.features import FeatureTrs, get_feature_tr
 
 logger = get_logger(__name__)
@@ -175,7 +175,8 @@ def main(cfg: DictConfig):
                     logits, _ = clf({k: v.unsqueeze(0) for k, v in X.items()})
 
                     if cfg.tam_features:
-                        pass
+                        ax = plot_tam(X, window_width=cfg.tam_ww, ax=ax)
+
                     else:
                         ax = plot_trace(
                             X,

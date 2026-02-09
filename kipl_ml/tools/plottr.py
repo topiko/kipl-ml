@@ -104,15 +104,47 @@ def _plot_boxes(
 
 def plot_tam(
     trace_dict: dict[Feats, torch.Tensor],
+    window_width: float,
     idx: int | None = None,
     ax: plt.Axes | None = None,
 ) -> plt.Axes:
-    pass
+    tam_d_c = _squeeze_batched(
+        trace_dict[Feats.TAM_DOWN_COUNTS].detach().cpu().numpy(), idx
+    )
+    tam_u_c = _squeeze_batched(
+        trace_dict[Feats.TAM_UP_COUNTS].detach().cpu().numpy(), idx
+    )
+    tam_d_times = _squeeze_batched(
+        trace_dict[Feats.TAM_DOWN_TIMES].detach().cpu().numpy(), idx
+    )
+    tam_u_times = _squeeze_batched(
+        trace_dict[Feats.TAM_UP_TIMES].detach().cpu().numpy(), idx
+    )
+
+    _plot_boxes(
+        tam_u_times,
+        np.ones_like(tam_u_times) * window_width,
+        tam_u_c,
+        ax,
+        color=UP_COLOR,
+        alpha=0.5,
+    )
+    _plot_boxes(
+        tam_d_times,
+        np.ones_like(tam_d_times) * window_width,
+        -tam_d_c,
+        ax,
+        color=DOWN_COLOR,
+        alpha=0.5,
+    )
+
+    ax.title(f"TAM counts ww={window_width:.02f} s")
+    ax.set_ylabel("TAM count")
+    return ax
 
 
 def plot_trace(
     trace_dict: dict[Feats, torch.tensor],
-    time_step: float,
     idx: int | None = None,
     ax: plt.Axes | None = None,
     cl_probs: torch.Tensor | None = None,
@@ -146,26 +178,8 @@ def plot_trace(
     colors[dirs == UPLOAD] = UP_COLOR
     colors[dirs == DOWNLOAD] = DOWN_COLOR
 
-    move_right = False
     if Feats.PADDING in trace_dict:
         pad = _squeeze_batched(trace_dict[Feats.PADDING].bool(), idx)
-
-        bins = times // time_step
-
-        up_idxs, up_counts = np.unique(bins[pad & (dirs == UPLOAD)], return_counts=True)
-        down_idxs, down_counts = np.unique(
-            bins[pad & (dirs == DOWNLOAD)], return_counts=True
-        )
-
-        up_times = time_step * up_idxs
-        up_dts = np.ones_like(up_times) * time_step
-        down_times = time_step * down_idxs
-        down_dts = np.ones_like(down_times) * time_step
-        ax_pad = ax.twinx()
-        _plot_boxes(up_times, up_dts, up_counts, color="black", alpha=0.5, ax=ax_pad)
-        _plot_boxes(
-            down_times, down_dts, -down_counts, color="black", alpha=0.5, ax=ax_pad
-        )
 
         info_d["pad nup"] = (pad & (dirs == 1)).sum()
         info_d["pad ndown"] = (pad & (dirs == -1)).sum()
@@ -173,18 +187,7 @@ def plot_trace(
         info_d["nup"] -= info_d["pad nup"]
         info_d["ndown"] -= info_d["pad ndown"]
 
-        dirs = dirs[~pad]
-        times_ = times[~pad]
-        colors = colors[~pad]
-        move_right = True
-
-        ax_pad.axes.spines["right"].set_visible(True)
-        max_u = max(up_counts) if len(up_counts) > 0 else 0
-        max_d = max(down_counts) if len(down_counts) > 0 else 0
-
-        lim = 1.1 * max(max_u, max_d, 1)
-        ax_pad.set_ylim(-lim, lim)
-        ax_pad.set_ylabel("Padding p. count")
+        colors[pad] = PAD_COLOR
 
     ax.vlines(
         times_,
@@ -205,7 +208,7 @@ def plot_trace(
     )
 
     if cl_probs is not None:
-        _plot_probs(cl_probs, times, ax, idx, true_class, move_right=move_right)
+        _plot_probs(cl_probs, times, ax, idx, true_class, move_right=False)
 
     return ax
 
