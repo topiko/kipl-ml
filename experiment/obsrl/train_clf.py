@@ -23,7 +23,7 @@ from kipl_ml.models.trgen import RNNCLF1
 from kipl_ml.models.utils import count_parameters
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
 from kipl_ml.tools.plottr import plot_trace
-from kipl_ml.trace.features import Feats, FeatureTrs
+from kipl_ml.trace.features import FeatureTrs, get_feature_tr
 
 logger = get_logger(__name__)
 dotenv.load_dotenv()
@@ -46,7 +46,14 @@ def main(cfg: DictConfig):
     dataset = cfg.dataset.name
     npackets = cfg.trace_len
 
-    feature_names = [Feats.DIRS, Feats.LOG1P_IATS, Feats.TIMES]
+    # [Feats.DIRS, Feats.LOG1P_IATS, Feats.TIMES]
+
+    if cfg.tam_features:
+        feature_names = cfg.tam_features
+        feature_trs = [
+            get_feature_tr(fn, 100_000, tam_kwargs={"window_width_s": cfg.tam_ww})
+            for fn in feature_names
+        ]
 
     ds_train, ds_valid, _ = get_train_valid_test(
         dataset=dataset,
@@ -54,14 +61,14 @@ def main(cfg: DictConfig):
         n_splits=5,
         test_xv=0,
         random_state=42,
-        feature_trs=FeatureTrs(feature_names=feature_names, n_packets=npackets),
+        feature_trs=FeatureTrs(feature_trs=feature_trs, n_packets=npackets),
         **defence_builder.get_defence(cfg),
     )
 
     dl_train = dl_(
         ds_train, cfg.batch_size, None, shuffle=True, nworkers=None, pin_memory=True
     )
-    dl_valid = dl_(ds_valid, 256, None, nworkers=None)
+    dl_valid = dl_(ds_valid, 64, None, nworkers=None)
 
     clf = RNNCLF1(
         ds_train.n_classes, feature_names, dropout=cfg.dropout, hsize=126, nlayer=2
@@ -91,18 +98,25 @@ def main(cfg: DictConfig):
             loss_mean = 0.0
             n = 1
             clf.train()
-            dl_train.batch_size = cfg.batch_size
             with tqdm(dl_train, desc=f"epoch {e:02d}", ncols=TQDM_W) as pbar:
                 for X, y in pbar:
                     X = dict_to_device(X, device, non_blocking=True)
                     y = y.to(device)
 
+                    breakpoint()
+
+                    seq_lens = torch.full_like(
+                        y,
+                        fill_value=X[feature_names[0]].shape[1],
+                        dtype=torch.long,
+                    )
                     loss, _ = one_batch_train_disc(
                         clf,
                         X,
                         y,
                         optimG,
                         feature_trs=None,
+                        seq_lens=seq_lens,
                         train=True,
                         grad_clip=cfg.grad_norm_clip,
                         detach_period=10000,

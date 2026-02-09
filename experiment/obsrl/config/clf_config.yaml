@@ -5,6 +5,19 @@ defaults:
   - network: infinite
   - misc: default
 
+
+features:
+  - dirs
+  - log1p_iats
+  - times
+
+tam_features:
+  - tam-upload
+  - tam-download
+  - tam-upload-times
+  - tam-download-times
+
+tam_ww: 0.02
 trace_len: 5000
 batch_size: 32
 dropout: 0.25

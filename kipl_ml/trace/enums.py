@@ -45,10 +45,12 @@ class Feats(StrEnum):
     SIZE_DIRS = f"{SIZES}_dirs"
     CUM_SIZE_DIRS = f"cum_{SIZE_DIRS}"
     CUM_SIZE_DIRS_MAX_NORMALIZED = f"max_normalized_{CUM_SIZE_DIRS}"
-    TAM_UP = "tam-upload"
-    TAM_UP_MAX_NORMALIZED = f"{TAM_UP}_max_normalized"
-    TAM_DOWN = "tam-download"
-    TAM_DOWN_MAX_NORMALIZED = f"{TAM_DOWN}_max_normalized"
+    TAM_UP_COUNTS = "tam-upload"
+    TAM_UP_TIMES = "tam-upload-times"
+    TAM_UP_COUNTS_MAX_NORMALIZED = f"{TAM_UP_COUNTS}_max_normalized"
+    TAM_DOWN_COUNTS = "tam-download"
+    TAM_DOWN_TIMES = "tam-download-times"
+    TAM_DOWN_COUNTS_MAX_NORMALIZED = f"{TAM_DOWN_COUNTS}_max_normalized"
 
     # Helpers:
     DIR_PROBS = "dir_probs"

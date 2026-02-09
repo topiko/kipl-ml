@@ -46,12 +46,31 @@ class RNNCLF1(nn.Module):
         super().__init__()
 
         if (
-            not set(features).issubset(
-                {Feats.BURST_LENS, Feats.BURST_DURS, Feats.BURST_RELDURS}
+            (
+                not set(features).issubset(
+                    {Feats.BURST_LENS, Feats.BURST_DURS, Feats.BURST_RELDURS}
+                )
             )
-        ) and (
-            not set(features).issubset(
-                {Feats.DIRS, Feats.DIR_PROBS, Feats.IATS, Feats.TIMES, Feats.LOG1P_IATS}
+            and (
+                not set(features).issubset(
+                    {
+                        Feats.DIRS,
+                        Feats.DIR_PROBS,
+                        Feats.IATS,
+                        Feats.TIMES,
+                        Feats.LOG1P_IATS,
+                    }
+                )
+            )
+            and (
+                not set(features).issubset(
+                    {
+                        Feats.TAM_UP_COUNTS,
+                        Feats.TAM_DOWN_COUNTS,
+                        Feats.TAM_UP_TIMES,
+                        Feats.TAM_DOWN_TIMES,
+                    }
+                )
             )
         ):
             raise ValueError(f"Invalid set of feats. {'-'.join(features)}")

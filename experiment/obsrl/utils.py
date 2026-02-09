@@ -58,6 +58,7 @@ def one_batch_train_disc(
     y: torch.Tensor,
     disc_opm: torch.optim.Optimizer,
     feature_trs: FeatureTrs | None,
+    seq_lens: torch.Tensor,
     train: bool = True,
     grad_clip: float = 3.0,
     detach_period: int = 1000,
@@ -76,7 +77,7 @@ def one_batch_train_disc(
     i = 0
     loss_mean = 0.0
     context = torch.enable_grad() if train else torch.inference_mode()
-    max_len = (X[Feats.DIRS] != 0).sum(dim=1).max()
+    max_len = seq_lens.max()
     with context:
         while True:
             if i * detach_period >= max_len - 1:
@@ -87,7 +88,9 @@ def one_batch_train_disc(
                 k: v[:, i * detach_period : (i + 1) * detach_period]
                 for k, v in X.items()
             }
-            seq_lens = (X_chunk[Feats.DIRS] != 0).sum(dim=1)
+            seq_lens = (seq_lens - i * detach_period).clamp(
+                min=0
+            )  # (X_chunk[Feats.DIRS] != 0).sum(dim=1)
 
             logits, h = disc.pack_and_forward(X_chunk, h, seq_lens.cpu())
 

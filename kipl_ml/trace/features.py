@@ -568,32 +568,56 @@ class RunningRate(_TR):
 class _TAM(_TR):
     NAME = "tam"
     DIR: str
+    TIMES: bool
 
     def __init__(
         self,
         max_matrix_len: int = 1800,
         max_load_time_s: float = 80.0,
+        window_width_s: float | None = None,
+        prune_empty_bins: bool = False,
+        max_len: int | None = None,
     ):
-        self.max_matrix_len = max_matrix_len
         self.max_load_time_s = max_load_time_s
+        self.max_len = max_len
+        self.prune_empty = prune_empty_bins
+        if window_width_s is not None:
+            logger.warning(
+                f"window_width_s overrides max_matrix_les {max_matrix_len}"
+                + f"-> {max_load_time_s / window_width_s}"
+            )
+            self.max_matrix_len = self.max_load_time_s // window_width_s + 1
+            self.window_width_s = window_width_s
+            self.bins = torch.arange(0, self.max_matrix_len) * window_width_s
+        else:
+            self.max_matrix_len = max_matrix_len
+            self.bins = torch.linspace(0, self.max_load_time_s, self.max_matrix_len + 1)
+            self.window_width_s = self.bins[1] - self.bins[0]
 
-        self.bins = torch.linspace(0, self.max_load_time_s, self.max_matrix_len + 1)
         # To ensure the capture of "outside bins values"
         self.bins[0] = -1
         self.bins[-1] = float("inf")
 
     @property
     def name(self) -> Feats:
-        match self.DIR:
-            case "upload":
-                return Feats.TAM_UP
-            case "download":
-                return Feats.TAM_DOWN
-            case _:
-                raise KeyError(f"Invalid dir {self.DIR}")
+        if self.DIR == "upload" and self.TIMES:
+            return Feats.TAM_UP_TIMES
+        elif self.DIR == "download" and self.TIMES:
+            return Feats.TAM_DOWN_TIMES
+        elif self.DIR == "upload" and not self.TIMES:
+            return Feats.TAM_UP_COUNTS
+        elif self.DIR == "download" and not self.TIMES:
+            return Feats.TAM_DOWN_COUNTS
+        else:
+            raise KeyError(f"Invalid dir {self.DIR}")
 
-    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> RunningRate:
-        self._output_sizes = {self.name: self.max_matrix_len}
+    def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> _TAM:
+        if self.prune_empty:
+            len_ = None  # Variable length, depends on trace
+        else:
+            len_ = min(self.max_len or float("inf"), self.max_matrix_len)
+
+        self._output_sizes = {self.name: len_}
         return self
 
     def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
@@ -611,15 +635,37 @@ class _TAM(_TR):
         # NOTE: we expect the time to be in "s"!
         counts = torch.histogram(times[mask], bins=self.bins)[0]
 
+        mask = torch.ones_like(counts, dtype=torch.bool)
+        if self.prune_empty:
+            mask = counts > 0
+
+        if self.TIMES:
+            # We can also return the time of each bin
+            bin_times = self.bins[:-1][mask]
+            return {self.name: bin_times}
+
+        counts = counts[mask]
         return {self.name: counts}
 
 
 class TAM_UP(_TAM):
     DIR = "upload"
+    TIMES = False
+
+
+class TAM_UP_TIMES(_TAM):
+    DIR = "upload"
+    TIMES = True
 
 
 class TAM_DOWN(_TAM):
     DIR = "download"
+    TIMES = False
+
+
+class TAM_DOWN_TIMES(_TAM):
+    DIR = "download"
+    TIMES = True
 
 
 class Compose(_TR):
@@ -718,7 +764,7 @@ class FeatureTrs:
         return trace_
 
     def transform_batch(
-        self, trace_batch: dict[Feats, torch.Tensor]
+        self, trace_batch: dict[Feats, torch.Tensor], pad_val: float | None = None
     ) -> dict[Feats, torch.Tensor]:
         # Very inefficient implementation, but ok for now
         bs = trace_batch[next(iter(trace_batch))].shape[0]
@@ -728,6 +774,7 @@ class FeatureTrs:
 
         trace_batch_l: list[dict[Feats, torch.Tensor]] = []
 
+        max_len = 0
         for i in range(bs):
             current_trace = {key: val[i] for key, val in trace_batch.items()}
             trace_: dict[Feats, torch.Tensor] = {}
@@ -741,6 +788,31 @@ class FeatureTrs:
                 trace_.update(out)
             trace_batch_l.append(trace_)
 
+            if pad_val is not None:
+                v_l = []
+                for k, v in trace_.items():
+                    if v.ndim != 1:
+                        raise ValueError(
+                            "Padding batch only supports 1D tensors, "
+                            + "but got {v.ndim}D tensor for key {k}"
+                        )
+                    v_l.append(v.shape[0])
+
+                    if len(set(v_l)) != 1:
+                        raise ValueError(
+                            "All tensors in a trace must have the same "
+                            + f"length for padding, but got lengths {v_l}"
+                        )
+
+                max_len = max(max_len, v_l[0])
+
+        if pad_val is not None:
+            for trace_ in trace_batch_l:
+                for k, v in trace_.items():
+                    trace_[k] = torch.cat(
+                        v, torch.full((max_len - v.shape[0],), pad_val)
+                    )
+
         transformed_trace_batch: dict[Feats, torch.Tensor] = {
             k: torch.stack([d[k] for d in trace_batch_l], dim=0)
             for k in trace_batch_l[0].keys()
@@ -753,7 +825,10 @@ def build_feature_trs(feature_name: list[Feats], n_packets: int) -> list[_TR]:
     return [get_feature_tr(f, n_packets) for f in feature_name]
 
 
-def get_feature_tr(feature_name: Feats, n_packets: int | None) -> _TR:
+def get_feature_tr(
+    feature_name: Feats, n_packets: int | None, tam_kwargs: dict[str, Any] | None = None
+) -> _TR:
+    tam_kwargs = tam_kwargs or {}
     match feature_name:
         case Feats.DIRS:
             return Compose(PadOrCutTrace(n_packets), Select(Feats.DIRS))
@@ -974,22 +1049,26 @@ def get_feature_tr(feature_name: Feats, n_packets: int | None) -> _TR:
                     division="max",
                 ),
             )
-        case Feats.TAM_UP:
-            return TAM_UP()
-        case Feats.TAM_UP_MAX_NORMALIZED:
+        case Feats.TAM_UP_COUNTS:
+            return TAM_UP(**tam_kwargs)
+        case Feats.TAM_UP_TIMES:
+            return TAM_UP_TIMES(**tam_kwargs)
+        case Feats.TAM_UP_COUNTS_MAX_NORMALIZED:
             return Compose(
-                TAM_UP(),
+                TAM_UP(**tam_kwargs),
                 Normalize(
                     normalized_asset=Feats.TAM_UP,
                     input_asset=Feats.TAM_UP,
                     division="max",
                 ),
             )
-        case Feats.TAM_DOWN:
-            return TAM_DOWN()
-        case Feats.TAM_DOWN_MAX_NORMALIZED:
+        case Feats.TAM_DOWN_COUNTS:
+            return TAM_DOWN(**tam_kwargs)
+        case Feats.TAM_DOWN_TIMES:
+            return TAM_DOWN_TIMES(**tam_kwargs)
+        case Feats.TAM_DOWN_COUNTS_MAX_NORMALIZED:
             return Compose(
-                TAM_DOWN(),
+                TAM_DOWN(**tam_kwargs),
                 Normalize(
                     normalized_asset=Feats.TAM_DOWN,
                     input_asset=Feats.TAM_DOWN,
