@@ -167,12 +167,13 @@ def rollout(
         }
         rewards_l = []
         packet_seq_lens_gpu = (Xobs[Feats.DIRS] != 0).sum(dim=1).long()
-        packet_seq_lens = packet_seq_lens_gpu.cpu()
 
         if disc_features is not None:
             X_ = disc_features.transform_batch(Xobs)
         else:
             X_ = Xobs
+
+        disc_seq_lens = disc.seq_len_fun(Xobs)
 
         # Critic feat building:
         if critic is not None and Feats.LABEL in critic.features:
@@ -187,7 +188,7 @@ def rollout(
             hdisc = None
             disc.eval()
             with torch.no_grad():
-                logits, hdisc = disc.pack_and_forward(X_, hdisc, packet_seq_lens)
+                logits, hdisc = disc.pack_and_forward(X_, hdisc, disc_seq_lens)
 
             rewards_ = get_rewards(
                 act_times,
