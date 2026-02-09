@@ -103,8 +103,6 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device, non_blocking=True)
                     y = y.to(device)
 
-                    breakpoint()
-
                     seq_lens = torch.full_like(
                         y,
                         fill_value=X[feature_names[0]].shape[1],
