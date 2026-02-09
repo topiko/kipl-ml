@@ -33,7 +33,7 @@ from kipl_ml.tools.plottr import (
     plot_rewards,
     plot_trace,
 )
-from kipl_ml.trace.features import Feats, FeatureTrs
+from kipl_ml.trace.features import Feats, FeatureTrs, get_feature_tr, get_feature_trs
 
 logger = get_logger(__name__)
 dotenv.load_dotenv()
@@ -842,6 +842,23 @@ def main(cfg: DictConfig):
         mlflow.get_logged_model("m-a1bec780ec314b95b4f0caac4dec5f46").model_uri,
         map_location="cpu",
     )
+
+    if discriminator_orig.feat_mode == "tam":
+        feature_names = discriminator_orig.features
+        tam_d = discriminator_orig.tam_dict
+        npackets = None
+
+        disc_feature_trs = [
+            get_feature_tr(fn, npackets, tam_kwargs=tam_d) for fn in feature_names
+        ]
+    elif discriminator_orig.feat_mode == "dir":
+        feature_names = discriminator_orig.features
+        npackets = cfg.trace_len
+
+        disc_feature_trs = get_feature_trs(
+            feature_names=feature_names, n_packets=npackets
+        )
+
     # This one already somewhat trained for obsfuscation.
     discriminator = mlflow.pytorch.load_model(
         mlflow.get_logged_model("m-946ec1db2aba467ea6524450b6f06a21").model_uri,
@@ -869,7 +886,7 @@ def main(cfg: DictConfig):
     # obs_features = ds_train.feature_trs
 
     # Discriminator features, w.o. limit on n_packets
-    disc_feats = FeatureTrs(feature_names=discriminator.features, n_packets=None)
+    disc_feats = FeatureTrs(feature_trs=disc_feature_trs, n_packets=None)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

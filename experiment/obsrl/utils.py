@@ -58,7 +58,7 @@ def one_batch_train_disc(
     y: torch.Tensor,
     disc_opm: torch.optim.Optimizer,
     feature_trs: FeatureTrs | None,
-    seq_lens: torch.Tensor,
+    seq_lens: torch.Tensor | None = None,
     train: bool = True,
     grad_clip: float = 3.0,
     detach_period: int = 1000,
@@ -72,6 +72,9 @@ def one_batch_train_disc(
 
     if feature_trs is not None:
         X = feature_trs.transform_batch(X)
+
+    if seq_lens is None:
+        seq_lens = disc.seq_len_fun(X)
 
     h = None
     i = 0

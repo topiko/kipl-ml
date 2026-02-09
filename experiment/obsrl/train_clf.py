@@ -119,14 +119,12 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device, non_blocking=True)
                     y = y.to(device)
 
-                    seq_lens = clf.seq_len_fun(X)
                     loss, _ = one_batch_train_disc(
                         clf,
                         X,
                         y,
                         optimG,
                         feature_trs=None,
-                        seq_lens=seq_lens,
                         train=True,
                         grad_clip=cfg.grad_norm_clip,
                         detach_period=10000,

@@ -95,7 +95,7 @@ class RNNCLF1(nn.Module):
             }
         ):
             self.seq_len_fun = dir_seq_len_fun
-            self.op_mode = "dir"
+            self.feat_mode = "dir"
         elif set(features).issubset(
             {
                 Feats.TAM_UP_COUNTS,
@@ -105,7 +105,7 @@ class RNNCLF1(nn.Module):
         ):
             self.seq_len_fun = tam_seq_len_fun
             self.tam_dict = tam_dict or {}
-            self.op_mode = "tam"
+            self.feat_mode = "tam"
         else:
             raise ValueError(f"Invalid set of feats. {'-'.join(features)}")
 
