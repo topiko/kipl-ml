@@ -31,6 +31,24 @@ def _hidden_w_mask(
     return h
 
 
+def dir_seq_len_fun(x: dict[Feats, torch.Tensor]) -> torch.Tensor:
+    return (x[Feats.DIRS] != 0).sum(dim=1)
+
+
+def tam_seq_len_fun(x: dict[Feats, torch.Tensor]) -> torch.Tensor:
+    bs, nt = x[Feats.TAM_UP_COUNTS].shape
+    mask = x[Feats.TAM_UP_COUNTS] + x[Feats.TAM_DOWN_COUNTS] != 0
+
+    seq_lens = (
+        torch.where(
+            mask, torch.arange(nt, device=mask.device)[None, :].repeat(bs, 1)[mask], 0
+        ).max(dim=1)[0]
+        + 1
+    )
+
+    return seq_lens
+
+
 class RNNCLF1(nn.Module):
     name: str = "rnnclf1"
 
@@ -45,34 +63,30 @@ class RNNCLF1(nn.Module):
     ):
         super().__init__()
 
-        if (
-            (
-                not set(features).issubset(
-                    {Feats.BURST_LENS, Feats.BURST_DURS, Feats.BURST_RELDURS}
-                )
-            )
-            and (
-                not set(features).issubset(
-                    {
-                        Feats.DIRS,
-                        Feats.DIR_PROBS,
-                        Feats.IATS,
-                        Feats.TIMES,
-                        Feats.LOG1P_IATS,
-                    }
-                )
-            )
-            and (
-                not set(features).issubset(
-                    {
-                        Feats.TAM_UP_COUNTS,
-                        Feats.TAM_DOWN_COUNTS,
-                        Feats.TAM_UP_TIMES,
-                        Feats.TAM_DOWN_TIMES,
-                    }
-                )
-            )
+        if set(features).issubset(
+            {Feats.BURST_LENS, Feats.BURST_DURS, Feats.BURST_RELDURS}
         ):
+            raise NotImplementedError("Deprecated")
+        elif set(features).issubset(
+            {
+                Feats.DIRS,
+                Feats.DIR_PROBS,
+                Feats.IATS,
+                Feats.TIMES,
+                Feats.LOG1P_IATS,
+            }
+        ):
+            self.seq_len_fun = dir_seq_len_fun
+        elif set(features).issubset(
+            {
+                Feats.TAM_UP_COUNTS,
+                Feats.TAM_DOWN_COUNTS,
+                Feats.TAM_UP_TIMES,
+                Feats.TAM_DOWN_TIMES,
+            }
+        ):
+            self.seq_len_fun = tam_seq_len_fun
+        else:
             raise ValueError(f"Invalid set of feats. {'-'.join(features)}")
 
         self.features = features
@@ -191,7 +205,7 @@ class RNNCLF1(nn.Module):
         ).squeeze(1)
 
         if seq_lens is None:
-            seq_lens = (x[Feats.DIRS] != 0).sum(dim=1)
+            seq_lens = self.seq_len_fun(x)
 
         # (N, nt)
         seq_lens_mask = (
