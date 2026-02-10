@@ -292,6 +292,7 @@ def train_obs_one_epoch(
 
     # Logging:
     # =============================================
+    mean_d = {}
     for k, v in losses_metrics_d.items():
         if isinstance(v, list):
             if len(v) == 0:
@@ -302,9 +303,9 @@ def train_obs_one_epoch(
         else:
             raise ValueError("Invalid value to be logged")
 
-        losses_metrics_d[k] = v
+        mean_d[k] = v
 
-    return losses_metrics_d
+    return mean_d
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="sisyphus", version_base=None)
@@ -474,6 +475,8 @@ def main(cfg: DictConfig):
                         n_packets=cfg.trace_len,
                     )
                 )
+                logger.info("Re-scaling league weights to uniform...")
+                weights = torch.ones_like(weights) / len(weights)
 
             # Pushing:
             # ============================================
@@ -503,12 +506,13 @@ def main(cfg: DictConfig):
 
                 if (ret := metrics_d["avg_return"]) > ret_thres:
                     logger.info(
-                        f"Achieved return {ret:.03f} > {ret_thres:.03f}, stopping obs training!"
+                        f"Achieved return {ret:.03f} > {ret_thres:.03f}, "
+                        + "stopping obs training!"
                     )
 
                     obs_league = _append_to_league(obs_league, obs.state_dict())
                     logger.info(f"Obs league len: {len(obs_league)}")
-                    # mlflow.pytorch.log_model(obs, name=f"rlobs-{e}", step=e)
+                    mlflow.pytorch.log_model(obs, name=f"rlobs-{e}", step=e)
 
                     for k, v in metrics_d.items():
                         k = keymap(k)
