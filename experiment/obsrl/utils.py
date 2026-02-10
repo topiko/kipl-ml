@@ -48,6 +48,7 @@ def _append_to_league(
 
 def _get_obs_def_dl(
     disc: nn.Module,
+    disc_feats: FeatureTrs,
     obs: nn.Module,
     ds: WFDataset,
     n_packets: int,
@@ -56,7 +57,7 @@ def _get_obs_def_dl(
     sampler: SubsetRandomSampler | None = None,
 ) -> WFDataset:
     # Set features the fetures:
-    ds.feature_trs = FeatureTrs(feature_names=disc.features, n_packets=n_packets)
+    ds.feature_trs = disc_feats
 
     # Set the defense:
     ds.defence = RNNDef(
@@ -91,6 +92,7 @@ def _restore_obs_def_ds(
 
 def valid_metrics(
     disc: nn.Module,
+    disc_feats: FeatureTrs,
     obs: nn.Module,
     ds_valid: WFDataset,
     n_packets: int,
@@ -101,6 +103,7 @@ def valid_metrics(
     orig_features_trs = ds_valid.feature_trs
     dl_valid = _get_obs_def_dl(
         disc=disc,
+        disc_feats=disc_feats,
         obs=obs,
         ds=ds_valid,
         n_packets=n_packets,
@@ -140,6 +143,7 @@ def get_league_scores(
             raise ValueError("Provide npackets")
         dl = _get_obs_def_dl(
             disc=disc,
+            disc_feats=disc_features,
             obs=obs,
             ds=ds,
             n_packets=n_packets,

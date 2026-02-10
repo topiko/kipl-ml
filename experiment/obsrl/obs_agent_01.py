@@ -601,6 +601,7 @@ def main(cfg: DictConfig):
                 key = "valid:obs_vs._disc"
                 d = valid_metrics(
                     disc=discriminator,
+                    disc_feats=disc_feats,
                     obs=obs,
                     ds_valid=ds_valid,
                     n_packets=cfg.trace_len,

@@ -355,6 +355,12 @@ class AGENT1(nn.Module):
     ):
         super().__init__()
 
+        if abs(max_silence_s % time_step) > 1e-12:
+            raise ValueError(
+                "max_silence_s should be a multiple of time_step."
+                + f"Got max_silence_s={max_silence_s}, time_step={time_step}."
+            )
+
         send_count_bins = send_count_bins or [1, 5, 20, 50]
         # if max_silence_s < 0.1:
         #    raise ValueError("invalid decay time bins")
