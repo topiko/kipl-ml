@@ -65,7 +65,7 @@ def train_obs_one_epoch(
     selection_entropy_scale: float,
     conditional_entropy_scale: float,
     e: int,
-) -> float:
+) -> dict[str, float]:
     ema_sel_entropy = 1.0
     ema_cond_entropy = 1.0
 
@@ -302,12 +302,9 @@ def train_obs_one_epoch(
         else:
             raise ValueError("Invalid value to be logged")
 
-        k = keymap(k)
-        logger.info(f"\t{k:<40} : {v:.03f}")
+        losses_metrics_d[k] = v
 
-        mlflow.log_metric(k, v, step=e)
-
-    return np.mean(losses_metrics_d["avg_return"])
+    return losses_metrics_d
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="sisyphus", version_base=None)
@@ -453,8 +450,6 @@ def main(cfg: DictConfig):
                 )
                 _restore_obs_def_ds(ds_train, orig_feat_trs, obs, device)
 
-                e += 1
-
                 if loss < cfg.disc_loss_thres_roll:
                     _append_to_league(disc_league, discriminator.state_dict())
                     break
@@ -484,7 +479,7 @@ def main(cfg: DictConfig):
             # ============================================
             ret_thres = cfg.ret_thres_push
             while True:
-                ret = train_obs_one_epoch(
+                metrics_d = train_obs_one_epoch(
                     dl_train=dl_(
                         ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True
                     ),
@@ -506,9 +501,7 @@ def main(cfg: DictConfig):
                     e=e,
                 )
 
-                e += 1
-
-                if ret > ret_thres:
+                if (ret := metrics_d["avg_return"]) > ret_thres:
                     logger.info(
                         f"Achieved return {ret:.03f} > {ret_thres:.03f}, stopping obs training!"
                     )
@@ -516,6 +509,11 @@ def main(cfg: DictConfig):
                     obs_league = _append_to_league(obs_league, obs.state_dict())
                     logger.info(f"Obs league len: {len(obs_league)}")
                     # mlflow.pytorch.log_model(obs, name=f"rlobs-{e}", step=e)
+
+                    for k, v in metrics_d.items():
+                        k = keymap(k)
+                        logger.info(f"\t{k:<40} : {v:.03f}")
+                        mlflow.log_metric(k, v, step=e)
                     break
                 # ============================================
 
@@ -540,6 +538,8 @@ def main(cfg: DictConfig):
             if e > cfg.max_epochs:
                 logger.info("Max epochs reached.")
                 break
+
+            e += 1
 
 
 if __name__ == "__main__":

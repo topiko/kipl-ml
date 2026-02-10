@@ -17,7 +17,7 @@ rewards:
 
 # When going up the ret needs to be higher than this
 # against the curent disc league.
-ret_thres_push: 20
+ret_thres_push: 30
 # When coming down the disc needs to get below this against the
 # current obs league
 disc_loss_thres_roll: 1.5
@@ -28,7 +28,7 @@ enable_entropy_loss: True
 init_for_wait: True
 separate_critic: True
 
-padding_scale: 0.01
+padding_scale: 0.005
 
 # Floor for action prob:
 obs_prob_eps: 0.01
@@ -51,4 +51,4 @@ label_smoothing: 0.02
 
 predict_ks: 21
 rnn_lr_reduction: 1.0
-max_epochs: 120
+max_epochs: 128
