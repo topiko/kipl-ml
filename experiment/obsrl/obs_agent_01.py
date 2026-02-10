@@ -528,7 +528,7 @@ def main(cfg: DictConfig):
 
     league_update_frac = 0.2
     active_league_idx = None
-    disc_loss_thres = 7.5
+    disc_loss_thres = 2.0
     min_disc_loss_thres = 0.3
     disc_loss_step = 0.1
     disc_loss_p_buffer = 0.1
