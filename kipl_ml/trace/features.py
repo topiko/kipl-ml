@@ -595,6 +595,7 @@ class _TAM(_TR):
             self.bins = torch.linspace(0, self.max_load_time_s, self.max_matrix_len + 1)
             self.window_width_s = self.bins[1] - self.bins[0]
 
+        self.padding_warned = False
         # To ensure the capture of "outside bins values"
         # self.bins[0] = -1
         # self.bins[-1] = float("inf")
@@ -644,10 +645,12 @@ class _TAM(_TR):
             try:
                 mask = mask & (trace[Feats.PADDING] == 1)
             except KeyError:
-                logger.warning(
-                    "PADDING key not found in trace, but PADDING is True. "
-                    + "Proceeding without padding mask."
-                )
+                if not self.padding_warned:
+                    logger.warning(
+                        "PADDING key not found in trace, but PADDING is True. "
+                        + "Proceeding without padding mask."
+                    )
+                    self.padding_warned = True
                 mask = torch.zeros_like(mask, dtype=torch.bool)
 
         # NOTE: we expect the time to be in "s"!
