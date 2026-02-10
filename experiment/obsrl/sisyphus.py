@@ -417,7 +417,6 @@ def main(cfg: DictConfig):
     conditional_entropy_scale = 0.0002
 
     active_league_idx = None
-    disc_loss_thres = 2.0
 
     ema_decay = 0.95
 
@@ -454,7 +453,7 @@ def main(cfg: DictConfig):
                 )
                 _restore_obs_def_ds(ds_train, orig_feat_trs, obs, device)
 
-                if loss < disc_loss_thres:
+                if loss < cfg.disc_loss_thres_roll:
                     _append_to_league(disc_league, discriminator.state_dict())
                     break
 

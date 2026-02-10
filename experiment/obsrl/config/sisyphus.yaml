@@ -15,7 +15,13 @@ advantages:
 rewards:
   d_clf: 0.001
 
+# When going up the ret needs to be higher than this
+# against the curent disc league.
 ret_thres_push: 20
+# When coming down the disc needs to get below this against the
+# current obs league
+disc_loss_thres_roll: 1.5
+
 experiment_name: sisypus
 debug: False
 enable_entropy_loss: True
