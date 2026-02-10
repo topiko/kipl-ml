@@ -453,6 +453,8 @@ def main(cfg: DictConfig):
                 )
                 _restore_obs_def_ds(ds_train, orig_feat_trs, obs, device)
 
+                e += 1
+
                 if loss < cfg.disc_loss_thres_roll:
                     _append_to_league(disc_league, discriminator.state_dict())
                     break
@@ -503,6 +505,9 @@ def main(cfg: DictConfig):
                     conditional_entropy_scale=conditional_entropy_scale,
                     e=e,
                 )
+
+                e += 1
+
                 if ret > ret_thres:
                     logger.info(
                         f"Achieved return {ret:.03f} > {ret_thres:.03f}, stopping obs training!"
@@ -531,8 +536,6 @@ def main(cfg: DictConfig):
                 ntraces=10,
                 max_len=20_000,
             )
-
-            e += 1
 
             if e > cfg.max_epochs:
                 logger.info("Max epochs reached.")
