@@ -99,7 +99,7 @@ def get_rewards(
 
     elif feat_mode == "tam":
         # (bs, T)
-        disc_times = X[Feats.TAM_TIMES][:, 1:]
+        disc_times = X[Feats.TAM_TIMES][:, 1:].contiguous()
         m = m[:, 1:]
 
         idxs = torch.searchsorted(boundaries, disc_times, right=True) - 1

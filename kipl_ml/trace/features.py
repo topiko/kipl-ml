@@ -584,7 +584,7 @@ class _TAM(_TR):
         self.prune_empty = prune_empty_bins
         if window_width_s is not None:
             logger.warning(
-                f"window_width_s overrides max_matrix_les {max_matrix_len}"
+                f"window_width_s overrides max_matrix_len {max_matrix_len}"
                 + f"-> {max_load_time_s / window_width_s}"
             )
             self.max_matrix_len = self.max_load_time_s // window_width_s + 1
