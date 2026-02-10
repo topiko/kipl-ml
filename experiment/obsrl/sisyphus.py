@@ -20,6 +20,7 @@ from experiment.obsrl.utils import (
     get_action_seq_lens,
     get_active_league,
     get_advantages,
+    keymap,
     make_time_mask,
     masked_mean,
     train_one_epoch,
@@ -288,6 +289,23 @@ def train_obs_one_epoch(
                 postfix["Hc"] = ema_cond_entropy
 
             pbar.set_postfix({k: f"{v:.03f}" for k, v in postfix.items()})
+
+    # Logging:
+    # =============================================
+    for k, v in losses_metrics_d.items():
+        if isinstance(v, list):
+            if len(v) == 0:
+                continue
+            v = np.mean(v)
+        elif isinstance(v, (int, float)):
+            pass
+        else:
+            raise ValueError("Invalid value to be logged")
+
+        k = keymap(k)
+        logger.info(f"\t{k:<40} : {v:.03f}")
+
+        mlflow.log_metric(k, v, step=e)
 
     return np.mean(losses_metrics_d["avg_return"])
 
