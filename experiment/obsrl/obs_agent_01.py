@@ -1,4 +1,3 @@
-import copy
 import os
 
 import dotenv
@@ -14,20 +13,23 @@ from tqdm import tqdm
 from experiment.obsrl.plot_utils import _plot_set
 from experiment.obsrl.sim import rollout
 from experiment.obsrl.utils import (
+    _append_to_league,
+    _get_optim,
     ema_update,
     get_action_seq_lens,
+    get_active_league,
     get_advantages,
+    keymap,
+    make_time_mask,
+    masked_mean,
     one_batch_train_disc,
+    valid_metrics,
 )
 from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
-from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
-from kipl_ml.defences.base import NoDefence
-from kipl_ml.defences.nndefs import RNNDef
+from kipl_ml.data.wf_dataset import dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
-from kipl_ml.metrics.clf_metrics import Accuracy
-from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.trgen import AGENT1, CRITIC01
 from kipl_ml.rl.enums import Actions
 from kipl_ml.tools.mlflow_utils import get_mlflow_expr
@@ -43,365 +45,6 @@ N_SPLITS = 5
 TEST_XV = 0
 TARGET = assets.PAGE_LABEL
 DATASET = Datasets.BIGENOUGH
-
-
-def keymap(key: str) -> str:
-    if "_ms" in key:
-        key = f"timings / {key}"
-    if "loss" in key:
-        key = f"losses / {key}"
-    if "entropy" in key:
-        key = f"entropies / {key}"
-
-    return key
-
-
-def _append_to_league(
-    league: list[tuple[int, dict]], state_dict: dict
-) -> list[tuple[int, nn.Module.state_dict]]:
-    if league:
-        id_ = max(id_ for id_, _ in league) + 1
-    else:
-        id_ = 0
-    league.append((id_, {k: v.cpu() for k, v in copy.deepcopy(state_dict).items()}))
-
-    return league
-
-
-def _get_obs_def_dl(
-    disc: nn.Module,
-    obs: nn.Module,
-    ds: WFDataset,
-    n_packets: int,
-    bs: int = 64,
-    obs_league: list[nn.Module.state_dict] | None = None,
-    sampler: SubsetRandomSampler | None = None,
-) -> WFDataset:
-    # Set features the fetures:
-    ds.feature_trs = FeatureTrs(feature_names=disc.features, n_packets=n_packets)
-
-    # Set the defense:
-    ds.defence = RNNDef(
-        (0, 0),
-        (40_000, 40_000),
-        obs.to("cpu"),
-        n_packets=n_packets,
-        state_dicts=obs_league,
-    )
-
-    if ds.defence_aug != 0:
-        raise ValueError("If def aug != 0 - you are reusing traces from previous runs")
-
-    return dl_(
-        ds, bs=bs, collate_fn=None, shuffle=False, nworkers=None, sampler=sampler
-    )
-
-
-def _restore_obs_def_ds(
-    ds: WFDataset,
-    feature_trs: FeatureTrs | None,
-    obs: nn.Module,
-    device: torch.DeviceObjType,
-):
-    # Restore no defence
-    ds.defence = NoDefence(network_delay_millis=(25, 250), network_pps=(40_000, 40_000))
-    # Restore no features.
-    ds.feature_trs = feature_trs
-
-    obs = obs.to(device)
-
-
-def valid_metrics(
-    disc: nn.Module,
-    obs: nn.Module,
-    ds_valid: WFDataset,
-    n_packets: int,
-    key: str = "valid:obs_vs._disc",
-    device: torch.DeviceObjType = "cpu",
-    obs_league: list[nn.Module.state_dict] | None = None,
-) -> dict[str, float]:
-    orig_features_trs = ds_valid.feature_trs
-    dl_valid = _get_obs_def_dl(
-        disc=disc,
-        obs=obs,
-        ds=ds_valid,
-        n_packets=n_packets,
-        bs=32,
-        obs_league=obs_league,
-    )
-
-    d = evaluate_model(
-        disc, dl_valid, metrics=[Accuracy()], key=key, loss_fn=nn.CrossEntropyLoss()
-    )
-
-    _restore_obs_def_ds(ds_valid, orig_features_trs, obs, device)
-
-    return d
-
-
-def get_league_scores(
-    league: list[tuple[int, nn.Module]],
-    ds: WFDataset,
-    obs: nn.Module,
-    critic: nn.Module,
-    obs_features: FeatureTrs,
-    disc: nn.Module,
-    disc_features: FeatureTrs,
-    reward_scales: dict[str, float],
-    device: torch.DeviceObjType,
-    subset_indices: torch.Tensor,
-    score_type: str = "acc",
-    n_packets: int | None = None,
-) -> torch.Tensor:
-    # Set the defence and features:
-    orig_features = ds.feature_trs
-    obs.eval()
-    sampler = SubsetRandomSampler(subset_indices)
-    if score_type == "acc":
-        if n_packets is None:
-            raise ValueError("Provide npackets")
-        dl = _get_obs_def_dl(
-            disc=disc,
-            obs=obs,
-            ds=ds,
-            n_packets=n_packets,
-            bs=32,
-            obs_league=None,
-            sampler=sampler,
-        )
-
-    elif score_type == "neg_rewards":
-        ds.feature_trs = obs_features
-        dl = dl_(
-            ds, bs=64, collate_fn=None, shuffle=False, nworkers=None, sampler=sampler
-        )
-
-    with torch.no_grad():
-        if score_type == "acc":
-            orig_state_d = {k: v.detach().clone() for k, v in disc.state_dict().items()}
-            scores_ = []
-            for _, state_d in league:
-                disc.load_state_dict(state_d)
-                d = evaluate_model(disc, dl, metrics=[Accuracy()])
-                scores_.append(d["accuracy"])
-
-            disc.load_state_dict(orig_state_d)
-            league_scores = torch.tensor(scores_).to(device)
-
-            _restore_obs_def_ds(ds, orig_features, obs, device)
-
-        elif score_type == "neg_rewards":
-            with tqdm(
-                dl,
-                desc="league scoring",
-                ncols=TQDM_W,
-            ) as pbar:
-                rewards_l = []
-                for X, y in pbar:
-                    X = dict_to_device(X, device)
-                    y = y.to(device)
-                    values, league_rewards, _, _, _, _, fd = rollout(
-                        obs=obs,
-                        critic=critic,
-                        disc=disc,
-                        X=X,
-                        y=y,
-                        disc_features=disc_features,
-                        disc_league=league,
-                        detach_period=500,
-                        reward_scales=reward_scales,
-                    )[2:]
-
-                    action_seq_lens = get_action_seq_lens(fd)
-
-                    time_mask = make_time_mask(
-                        action_seq_lens, fd[Feats.TIMES].shape[1], device=device
-                    )
-                    # (nleague, nbatch, ntimesteps) -> (nleague, nbatch) -> (nleague, 1)
-                    rewards = {
-                        k: torch.tensor(
-                            [
-                                masked_mean_std(v[i], time_mask)[0]
-                                for i in range(v.shape[0])
-                            ]
-                        )
-                        for k, v in league_rewards.items()
-                    }
-                    rewards_ = sum(rewards.values())
-                    rewards_l.append(rewards_)
-
-            league_scores = -torch.stack(rewards_l, dim=0).mean(dim=0).to(device)
-
-            ds.feature_trs = orig_features
-
-    return league_scores
-
-
-def make_time_mask(seq_lens: torch.Tensor, L: int, device=None) -> torch.Tensor:
-    device = device or seq_lens.device
-    return torch.arange(L, device=device)[None, :] < seq_lens[:, None]  # (B, L) bool
-
-
-def masked_mean(
-    x: torch.Tensor, mask: torch.Tensor, per_trace: bool = False, eps: float = 1e-8
-) -> torch.Tensor:
-    if isinstance(x, dict):
-        return masked_mean(sum(x.values()), mask, per_trace, eps)
-    return masked_mean_std(x, mask, per_trace, eps)[0]
-
-
-def masked_mean_std(
-    x: torch.Tensor, mask: torch.Tensor, per_trace: bool = False, eps: float = 1e-8
-) -> tuple[torch.Tensor, torch.Tensor]:
-    m = mask.to(dtype=x.dtype)
-
-    if per_trace:
-        seq_lens = m.sum(dim=1)
-        mean = (x * m).sum(dim=1) / seq_lens
-        var = ((x - mean[:, None]) * m).pow(2).sum(dim=1) / seq_lens
-        std = (var + eps).sqrt()
-        # (bs, )
-        return mean, std
-
-    denom = m.sum().clamp(min=1.0)
-    mean = (x * m).sum() / denom
-    var = ((x - mean) * m).pow(2).sum() / denom
-    std = (var + eps).sqrt()
-    # (, )
-    return mean, std
-
-
-def _get_optim(
-    nn: nn.Module, lr: float, lr_rnn: float | None = None
-) -> torch.optim.Optimizer:
-    lr_rnn = lr_rnn or lr * 0.1
-    rnn_params = list(nn.rnn.parameters())
-    other_params = [p for n, p in nn.named_parameters() if not n.startswith("rnn.")]
-    return torch.optim.Adam(
-        [
-            {"params": rnn_params, "lr": lr_rnn},
-            {"params": other_params, "lr": lr},
-        ]
-    )
-
-
-def get_active_league(
-    active_league_idx: np.ndarray | None,
-    league: list[tuple[int, nn.Module.state_dict]],
-    ds: WFDataset,
-    obs: nn.Module,
-    critic: nn.Module,
-    obs_feats: FeatureTrs,
-    disc: nn.Module,
-    disc_feats: FeatureTrs,
-    reward_scales: dict[str, float],
-    device: torch.DeviceObjType,
-    league_size: int,
-    league_update_frac: float,
-    prune: bool = False,
-    score_type: str = "acc",
-    n_packets: int | None = None,
-) -> tuple[
-    list[tuple[int, nn.Module.state_dict]],
-    np.ndarray,
-    list[nn.Module.state_dict],
-    torch.Tensor,
-]:
-    rng = np.random.default_rng()
-    league_scores = get_league_scores(
-        league=league,
-        ds=ds,
-        obs=obs,
-        critic=critic,
-        obs_features=obs_feats,
-        disc=disc,
-        disc_features=disc_feats,
-        reward_scales=reward_scales,
-        device=device,
-        subset_indices=rng.choice(np.arange(len(ds)), 500, replace=False),
-        score_type=score_type,
-        n_packets=n_packets,
-    )
-
-    if prune:
-        logger.info("Pruning disc league.")
-        val = league_scores.min().item()
-        mask = league_scores > val
-        # The latest disc shall not be removed..
-        mask[-1] = True
-        league_scores = league_scores[mask]
-        league = [l_ for i, l_ in enumerate(league) if mask[i]]
-
-    # We ensure that the latest disc is always in the leaque
-    cur_disc_pos = len(league) - 1
-    cur_disc_id = league[-1][0]
-
-    if active_league_idx is None:
-        active_league_idx = np.random.choice(
-            len(league), min(len(league), league_size), replace=False
-        )
-        active_league_idx[-1] = cur_disc_pos
-
-    if league_size == 1:
-        active_league_idx = np.array([cur_disc_pos])
-
-    elif len(league) > league_size:
-        scores = np.array(league_scores.cpu().numpy())
-        probs = (scores - scores.min()) / (scores.max() - scores.min() + 1e-8)
-        probs /= probs.sum()
-
-        active_league_idx = np.random.choice(
-            len(league), league_size, p=probs, replace=False
-        )
-    else:
-        active_league_idx = np.arange(len(league))
-
-    active_league_idx.sort()
-    # =======================================
-
-    active_league = [league[i] for i in active_league_idx]
-
-    # If the latest disc is already in the active_league
-    if cur_disc_pos in active_league_idx:
-        cur_disc_idx_ = np.where(active_league_idx == cur_disc_pos)[0]
-        if len(cur_disc_idx_) != 1:
-            raise ValueError("Disc several times in league!?")
-        if cur_disc_idx_ != len(active_league_idx) - 1:
-            raise KeyError("Cur disc at wrong position")
-        cur_disc_idx_ = cur_disc_idx_[0]
-    else:
-        cur_disc_idx_ = -1
-
-    # The acive disc is a special one in the league..
-    active_league[cur_disc_idx_] = (cur_disc_id, None)
-    active_league_idx[cur_disc_idx_] = cur_disc_pos
-
-    if len(active_league_idx) > 1:
-        weights = league_scores[active_league_idx]
-
-        if score_type != "acc":
-            weights -= weights.min()
-            if weights.max() == 0:
-                logger.warning("Same score for several discs!")
-                weights = torch.ones_like(weights) / weights.numel()
-            else:
-                weights /= weights.max()
-            weights = torch.clamp(weights, 1 / (10 * league_size), 1.0)
-    else:
-        weights = torch.tensor([1.0], device=device)
-
-    weights /= weights.sum()
-
-    logger.info(f"League scores ({score_type}):")
-    for i, s in enumerate(league_scores):
-        str_ = "           "
-        if i in active_league_idx:
-            w = weights[active_league_idx == i][0].item()
-            str_ = f"* [w={w:.03f}]"
-
-        logger.info(f"\t{i:4d} == {league[i][0]:4d}{str_} : {s:.4f}")
-
-    return league, active_league_idx, active_league, weights
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
@@ -870,6 +513,7 @@ def main(cfg: DictConfig):
 
             # League handling:
             # =======================================
+
             # Append current discriminator to league
             disc_train_count += sum(losses_metrics_d["train_disc"])
             if disc_train_count > 25 and obs_train_frac > 0.0:
