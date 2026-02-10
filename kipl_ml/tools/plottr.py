@@ -57,7 +57,7 @@ def _plot_probs(
 
     x = xs
 
-    ax2.plot(x, max_p, "-", lw=0.5, color="gray", alpha=1, label=label)
+    ax2.plot(x, max_p, "-|", lw=0.5, ms=3, color="gray", alpha=1, label=label)
 
     preds = cl_probs.argmax(axis=1)
     if true_class is None:
@@ -385,7 +385,7 @@ def plot_actions(
 
             _plot_boxes(times, durs, counts, color="gray", alpha=0.2, ax=ax)
 
-        ax.vlines(times, -0.1, 0.1, color="black", lw=0.5)
+        ax.vlines(times, -2, 2, color="black", lw=1.0)
 
     ax.set_ylim(-max_c * 1.1, max_c * 1.1)
     return ax
@@ -446,7 +446,7 @@ def plot_rewards(
 
     for k, r in rewards.items():
         r_ = _squeeze_batched(r, idx)
-        ax.plot(times, r_, lw=1, label=f"rewards, {k}")
+        ax.plot(times, r_, "-|", lw=1, ms=3, label=f"rewards, {k}")
 
     return ax
 

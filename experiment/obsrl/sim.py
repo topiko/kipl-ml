@@ -13,11 +13,13 @@ logger = get_logger(__name__)
 
 def get_rewards(
     action_times: torch.Tensor,
+    actions: dict[Actions, torch.Tensor],
     Xobs: dict[Feats, torch.Tensor],
     X: dict[Feats, torch.Tensor],
     y: torch.Tensor,
     disc_logits: torch.Tensor,
     packet_seq_lens: torch.Tensor,
+    disc_seq_lens: torch.Tensor,
     feat_mode: str,
     reward_scales: dict[str, float],
 ) -> dict[str, torch.Tensor]:
@@ -104,22 +106,45 @@ def get_rewards(
         idxs = idxs.clamp(0, T - 1)
 
         # padding
-        rewards["padding"] -= reward_scales["padding_scale"] * torch.zeros(
-            (bs, T), device=times.device, dtype=times.dtype
-        ).scatter_add_(
-            1, idxs, X[Feats.TAM_DOWN_PAD][:, 1:] + X[Feats.TAM_UP_PAD][:, 1:]
+        # =============================================
+        rewards["padding"] -= (
+            actions[Actions.SEND_COUNT_DOWN] * reward_scales["padding_scale"]
+        )
+        rewards["padding"] -= (
+            actions[Actions.SEND_COUNT_UP] * reward_scales["padding_scale"]
         )
 
         # clf
-        r_pkt = torch.clamp(-m, min=-10, max=10.0)
-        mp = torch.zeros((bs, T), device=times.device, dtype=times.dtype).scatter_add_(
-            1, idxs, r_pkt
-        )
+        # =============================================
+        # (bs, N)
+        disc_seq_len_mask = (
+            torch.arange(N, device=disc_logits.device)[None, :] < disc_seq_lens[:, None]
+        )[:, 1:].float()
+
+        # (bs, T)
         sum_ = torch.zeros(
             (bs, T), device=times.device, dtype=times.dtype
-        ).scatter_add_(1, idxs, torch.ones_like(m))
+        ).scatter_add_(1, idxs, torch.ones_like(m) * disc_seq_len_mask)
+
+        # (bs, N)
+        r_pkt = torch.clamp(-m, min=-10, max=10.0)
+        # (bs, T)
+        mp = torch.zeros((bs, T), device=times.device, dtype=times.dtype).scatter_add_(
+            1, idxs, r_pkt * disc_seq_len_mask
+        )
+
+        max_t_idxs = action_times.nan_to_num(nan=float("-inf")).max(dim=1).indices
+        if (sum_.gather(1, max_t_idxs[:, None] - 1) < 1).any():
+            raise ValueError(
+                "There are action intervals w. no disc. clf score. "
+                + "Increase the TAM max_load_time_s (to increase the seq. "
+                + "lens the disc sees) or dcrease the trace_len (to limit "
+                + "the max len of action seq. lens)"
+            )
+
         mean_p = torch.where(sum_ > 0, mp / sum_, 0.0)
         rewards["clf"] += mean_p * reward_scales["clf_scale"]
+        # =============================================
 
     # change in prob reward
     mask = mean_p != 0
@@ -222,11 +247,13 @@ def rollout(
 
             rewards_ = get_rewards(
                 act_times,
+                actions,
                 Xobs,
                 X_,
                 y,
                 logits,
                 packet_seq_lens_gpu,
+                disc_seq_lens,
                 feat_mode=disc.feat_mode,
                 reward_scales=reward_scales,
             )
