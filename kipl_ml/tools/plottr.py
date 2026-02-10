@@ -385,7 +385,7 @@ def plot_actions(
 
             _plot_boxes(times, durs, counts, color="gray", alpha=0.2, ax=ax)
 
-        ax.vlines(times, -2, 2, color="black", lw=1.0)
+        ax.vlines(times, -1, 1, color="black", lw=0.7)
 
     ax.set_ylim(-max_c * 1.1, max_c * 1.1)
     return ax

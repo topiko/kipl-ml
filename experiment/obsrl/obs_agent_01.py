@@ -528,7 +528,7 @@ def main(cfg: DictConfig):
 
     league_update_frac = 0.2
     active_league_idx = None
-    disc_loss_thres = 1.5
+    disc_loss_thres = 7.5
     min_disc_loss_thres = 0.3
     disc_loss_step = 0.1
     disc_loss_p_buffer = 0.1
@@ -812,7 +812,13 @@ def main(cfg: DictConfig):
                         )
                         for k, v in league_rewards.items():
                             losses_metrics_d[f"mean_reward_{k}"].append(
-                                masked_mean(v, time_mask, per_trace=True).mean().item()
+                                masked_mean(
+                                    (weights[:, None, None] * v).sum(dim=0),
+                                    time_mask,
+                                    per_trace=True,
+                                )
+                                .mean()
+                                .item()
                             )
 
                     losses_metrics_d["train_disc"].append(1 if train_disc else 0)
