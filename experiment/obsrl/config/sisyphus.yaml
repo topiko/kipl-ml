@@ -1,0 +1,49 @@
+defaults:
+  - _self_
+  - defence: no_defence
+  - dataset: bigenough
+  - network: infinite
+  - misc: default
+
+
+advantages:
+  type: "mc"
+  lambda_: 0.95
+  standardize: False
+  divide_by_Z: False
+
+rewards:
+  d_clf: 0.001
+
+ret_thres_push: 20
+experiment_name: obsrl
+debug: False
+enable_entropy_loss: True
+init_for_wait: True
+separate_critic: True
+
+padding_scale: 0.001
+
+# Floor for action prob:
+obs_prob_eps: 0.01
+league_score_type: "acc"
+
+figs_period: 5
+
+train_subset_frac: 1.0
+
+min_packets_in_trace: 1000
+league_size: 5
+obs_time_step_s: 0.02
+obs_max_silence_s: 0.2
+h_detach_period: 100
+discounting: 0.99
+trace_len: 5_000
+batch_size: 32
+dropout: 0.25
+grad_norm_clip: 1
+label_smoothing: 0.02
+
+predict_ks: 21
+rnn_lr_reduction: 1.0
+max_epochs: -1

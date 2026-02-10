@@ -254,46 +254,45 @@ def train_obs_one_epoch(
                     .item()
                 )
 
-        # (B, )
-        normal_packets = ((Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 0)).sum(
-            dim=1
-        )
-        # (B, )
-        padding_packets_up = (
-            (Xobs[Feats.DIRS] == UPLOAD) & (Xobs[Feats.PADDING] == 1)
-        ).sum(dim=1)
-        padding_packets_down = (
-            (Xobs[Feats.DIRS] == DOWNLOAD) & (Xobs[Feats.PADDING] == 1)
-        ).sum(dim=1)
-        padding_packets = padding_packets_down + padding_packets_up
+            # (B, )
+            normal_packets = ((Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 0)).sum(
+                dim=1
+            )
+            # (B, )
+            padding_packets_up = (
+                (Xobs[Feats.DIRS] == UPLOAD) & (Xobs[Feats.PADDING] == 1)
+            ).sum(dim=1)
+            padding_packets_down = (
+                (Xobs[Feats.DIRS] == DOWNLOAD) & (Xobs[Feats.PADDING] == 1)
+            ).sum(dim=1)
+            padding_packets = padding_packets_down + padding_packets_up
 
-        losses_metrics_d["mean_padding_frac"].append(
-            (padding_packets / normal_packets).mean().item()
-        )
-        losses_metrics_d["mean_padding_frac_up"].append(
-            (padding_packets_up / normal_packets).mean().item()
-        )
-        losses_metrics_d["mean_padding_frac_down"].append(
-            (padding_packets_down / normal_packets).mean().item()
-        )
+            losses_metrics_d["mean_padding_frac"].append(
+                (padding_packets / normal_packets).mean().item()
+            )
+            losses_metrics_d["mean_padding_frac_up"].append(
+                (padding_packets_up / normal_packets).mean().item()
+            )
+            losses_metrics_d["mean_padding_frac_down"].append(
+                (padding_packets_down / normal_packets).mean().item()
+            )
 
-        nhist = 20
-        postfix = {
-            "d_tr_f": np.mean(losses_metrics_d["train_disc"][-nhist:]),
-            "pfu": np.mean(losses_metrics_d["mean_padding_frac_up"]),
-            "pfd": np.mean(losses_metrics_d["mean_padding_frac_down"]),
-        }
-        if losses_metrics_d["avg_return"]:
-            postfix["ret"] = np.mean(losses_metrics_d["avg_return"][-nhist:])
-            postfix["Hs"] = ema_sel_entropy
-            postfix["Hc"] = ema_cond_entropy
+            nhist = 20
+            postfix = {
+                "pfu": np.mean(losses_metrics_d["mean_padding_frac_up"]),
+                "pfd": np.mean(losses_metrics_d["mean_padding_frac_down"]),
+            }
+            if losses_metrics_d["avg_return"]:
+                postfix["ret"] = np.mean(losses_metrics_d["avg_return"][-nhist:])
+                postfix["Hs"] = ema_sel_entropy
+                postfix["Hc"] = ema_cond_entropy
 
-        pbar.set_postfix({k: f"{v:.03f}" for k, v in postfix.items()})
+            pbar.set_postfix({k: f"{v:.03f}" for k, v in postfix.items()})
 
     return np.mean(losses_metrics_d["avg_return"])
 
 
-@hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
+@hydra.main(config_path=CONFIG_DIR_PATH, config_name="sisyphus", version_base=None)
 def main(cfg: DictConfig):
     experiment_name = cfg.experiment_name
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
@@ -307,7 +306,7 @@ def main(cfg: DictConfig):
     if discriminator_orig.feat_mode == "tam":
         feature_names = discriminator_orig.features
         tam_d = discriminator_orig.tam_dict
-        tam_d["max_load_time_s"] = 1000
+        tam_d["max_load_time_s"] = 100
         npackets = None
 
         disc_feats = FeatureTrs(
@@ -400,7 +399,7 @@ def main(cfg: DictConfig):
     conditional_entropy_scale = 0.0002
 
     active_league_idx = None
-    disc_loss_thres = 1.0
+    disc_loss_thres = 2.0
 
     ema_decay = 0.95
 
@@ -428,7 +427,7 @@ def main(cfg: DictConfig):
                         ds=ds_train,
                         n_packets=cfg.trace_len,
                         bs=cfg.batch_size,
-                        obs_league=[d for _, d in obs_league],
+                        obs_league=[d for _, d in obs_league[-cfg.league_size :]],
                     ),
                     optimG=disc_optim,
                     device=device,
@@ -493,6 +492,7 @@ def main(cfg: DictConfig):
                     )
 
                     obs_league = _append_to_league(obs_league, obs.state_dict())
+                    logger.info(f"Obs league len: {len(obs_league)}")
                     # mlflow.pytorch.log_model(obs, name=f"rlobs-{e}", step=e)
                     break
                 # ============================================
@@ -516,6 +516,10 @@ def main(cfg: DictConfig):
             )
 
             e += 1
+
+            if e > cfg.max_epochs:
+                logger.info("Max epochs reached.")
+                break
 
 
 if __name__ == "__main__":
