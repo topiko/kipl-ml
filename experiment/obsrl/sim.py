@@ -118,7 +118,8 @@ def get_rewards(
         # =============================================
         # (bs, N)
         disc_seq_len_mask = (
-            torch.arange(N, device=disc_logits.device)[None, :] < disc_seq_lens[:, None]
+            torch.arange(N, device=disc_logits.device)[None, :]
+            < disc_seq_lens[:, None].to(disc_logits.device)
         )[:, 1:].float()
 
         # (bs, T)

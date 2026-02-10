@@ -811,7 +811,9 @@ def main(cfg: DictConfig):
                             .item()
                         )
                         for k, v in league_rewards.items():
-                            losses_metrics_d[f"mean_reward_{k}"].append(v.mean().item())
+                            losses_metrics_d[f"mean_reward_{k}"].append(
+                                masked_mean(v, time_mask, per_trace=True).mean().item()
+                            )
 
                     losses_metrics_d["train_disc"].append(1 if train_disc else 0)
                     losses_metrics_d["disc_loss"].append(disc_loss)
