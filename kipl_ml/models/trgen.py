@@ -362,7 +362,12 @@ class AGENT1(nn.Module):
             )
 
         send_count_bins = send_count_bins or [5, 20, 50, 100, 200]
-        decay_time_bins = decay_time_bins or [0.02, 0.04, 0.8]  # , max_silence_s]
+        decay_time_bins = decay_time_bins or [
+            0.02,
+            0.04,
+            0.08,
+            0.16,
+        ]  # , max_silence_s]
         n_send_counts = len(send_count_bins)
         n_decay_times = len(decay_time_bins)
 
