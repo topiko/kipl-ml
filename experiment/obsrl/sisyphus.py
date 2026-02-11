@@ -314,8 +314,6 @@ def train_disc_on_league(
     ds_train: WFDataset,
     disc_feats: FeatureTrs,
     obs: AGENT1,
-    disc_optim: torch.optim.Optimizer,
-    disc_lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None,
     disc_league: list[tuple[int, torch.nn.Module.state_dict]],
     obs_league: list[tuple[int, dict]],
     device: torch.device,
@@ -331,6 +329,12 @@ def train_disc_on_league(
         n_packets=cfg.trace_len,
         bs=cfg.batch_size,
         obs_league=[d for _, d in obs_league[-cfg.league_size :]],
+    )
+
+    disc_optim = _get_optim(discriminator, lr=0.005, lr_rnn=0.005)
+
+    disc_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer=disc_optim, factor=0.8, patience=7
     )
 
     ed = 0
@@ -374,14 +378,25 @@ def train_obs_on_league(
     active_disc_league: list[nn.Module.state_dict],
     weights: torch.Tensor,
     reward_scales: dict[str, float],
-    obs_optim: torch.optim.Optimizer,
-    obs_lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None,
-    critic_optim: torch.optim.Optimizer | None,
-    critic_lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None,
-    device: torch.device,
+    device: torch.DeviceObjType,
     e: int,
     cfg: DictConfig,
 ) -> list[tuple[int, nn.Module.state_dict]]:
+    lr = 0.001
+    obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr * cfg.rnn_lr_reduction)
+    obs_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer=obs_optim, factor=0.8, patience=7
+    )
+
+    if critic is not None:
+        lr_critic = lr / 2
+        critic_optim = _get_optim(
+            critic, lr=lr_critic, lr_rnn=lr_critic * cfg.rnn_lr_reduction
+        )
+        critic_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer=critic_optim, factor=0.8, patience=7
+        )
+
     ret_thres = cfg.ret_thres_push
 
     eo = 0
@@ -512,36 +527,9 @@ def main(cfg: DictConfig):
         prefer_wait_bias=6.0 if cfg.init_for_wait else 0.0,
     ).to(device)
 
-    # Defense optimizers:
-    # ============================================
-    lr = 0.001
-    obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr * cfg.rnn_lr_reduction)
-    obs_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer=obs_optim, factor=0.8, patience=7
-    )
-
     critic = None
-    critic_optim = None
-    critic_lr_scheduler = None
     if cfg.separate_critic:
         critic = CRITIC01(obs, hsize=256, nlayers=3).to(device)  # (256, 3)
-
-        lr_critic = lr / 2
-        critic_optim = _get_optim(
-            critic, lr=lr_critic, lr_rnn=lr_critic * cfg.rnn_lr_reduction
-        )
-        critic_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer=critic_optim, factor=0.8, patience=7
-        )
-    # ============================================
-
-    # Disc optimizing:
-    # ============================================
-    disc_optim = _get_optim(discriminator, lr=0.005, lr_rnn=0.005)
-
-    disc_lr_csheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer=disc_optim, factor=0.8, patience=7
-    )
     # ============================================
 
     discriminator = discriminator.to(device)
@@ -570,8 +558,6 @@ def main(cfg: DictConfig):
                 ds_train=ds_train,
                 disc_feats=disc_feats,
                 obs=obs,
-                disc_optim=disc_optim,
-                disc_lr_scheduler=disc_lr_csheduler,
                 disc_league=disc_league,
                 obs_league=obs_league,
                 device=device,
@@ -616,10 +602,6 @@ def main(cfg: DictConfig):
                 active_disc_league=active_disc_league,
                 weights=weights,
                 reward_scales=reward_scales,
-                obs_optim=obs_optim,
-                obs_lr_scheduler=obs_lr_scheduler,
-                critic_optim=critic_optim,
-                critic_lr_scheduler=critic_lr_scheduler,
                 device=device,
                 e=e,
                 cfg=cfg,

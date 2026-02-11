@@ -125,7 +125,7 @@ def get_league_scores(
     ds: WFDataset,
     obs: nn.Module,
     critic: nn.Module,
-    obs_features: FeatureTrs,
+    obs_features: FeatureTrs | None,
     disc: nn.Module,
     disc_features: FeatureTrs,
     reward_scales: dict[str, float],
@@ -182,7 +182,7 @@ def get_league_scores(
                 for X, y in pbar:
                     X = dict_to_device(X, device)
                     y = y.to(device)
-                    values, league_rewards, _, _, _, _, fd = rollout(
+                    _, league_rewards, _, _, _, _, fd = rollout(
                         obs=obs,
                         critic=critic,
                         disc=disc,
@@ -281,7 +281,7 @@ def get_active_league(
     ds: WFDataset,
     obs: nn.Module,
     critic: nn.Module,
-    obs_feats: FeatureTrs,
+    obs_feats: FeatureTrs | None,
     disc: nn.Module,
     disc_feats: FeatureTrs,
     reward_scales: dict[str, float],
