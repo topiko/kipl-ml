@@ -361,9 +361,7 @@ class AGENT1(nn.Module):
                 + f"Got max_silence_s={max_silence_s}, time_step={time_step}."
             )
 
-        send_count_bins = send_count_bins or [1, 5, 20, 50]
-        # if max_silence_s < 0.1:
-        #    raise ValueError("invalid decay time bins")
+        send_count_bins = send_count_bins or [5, 20, 50, 100, 200]
         decay_time_bins = decay_time_bins or [0.02, 0.04, 0.8]  # , max_silence_s]
         n_send_counts = len(send_count_bins)
         n_decay_times = len(decay_time_bins)
