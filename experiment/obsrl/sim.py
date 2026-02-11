@@ -211,7 +211,11 @@ def rollout(
         h_norm = h[0].norm(2, dim=-1).max().item()
         c_norm = h[1].norm(2, dim=-1).max().item()
         if h_norm > 100 or c_norm > 400:
+            h_std = h[0].std().item()
+            c_std = h[1].std().item()
+
             print("Huge hidden/cell:", h_norm, c_norm)
+            print("Stds hidden/cell:", h_std, c_std)
 
     Xobs = send_exec(X, act_times, actions)
 

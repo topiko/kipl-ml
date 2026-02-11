@@ -493,7 +493,7 @@ def train_one_epoch(
     loss_mean = 0.0
     n = 1
     clf.train()
-    with tqdm(dl_train, desc="Train disc {epoch}:", ncols=TQDM_W) as pbar:
+    with tqdm(dl_train, desc=f"Train disc {epoch:02d}:", ncols=TQDM_W) as pbar:
         for X, y in pbar:
             X = dict_to_device(X, device, non_blocking=True)
             y = y.to(device)

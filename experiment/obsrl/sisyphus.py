@@ -92,7 +92,7 @@ def train_obs_one_epoch(
 
     with tqdm(
         dl_train,
-        desc=f"epoch {e:02d}",
+        desc=f"Train obs {e:02d}",
         ncols=2 * TQDM_W,
     ) as pbar:
         for X, y in pbar:
@@ -314,13 +314,13 @@ def train_disc_on_league(
     disc_feats: FeatureTrs,
     obs: AGENT1,
     disc_optim: torch.optim.Optimizer,
-    disc_lr_csheduler: torch.optim.lr_scheduler | None,
-    disc_league: list[tuple(int, torch.nn.Module.state_dict)],
+    disc_lr_csheduler: torch.optim.lr_scheduler.LRScheduler | None,
+    disc_league: list[tuple[int, torch.nn.Module.state_dict]],
     obs_league: list[tuple[int, dict]],
     device: torch.device,
     e: int,
     cfg: DictConfig,
-) -> list[tuple(int, torch.nn.Module.state_dict)]:
+) -> list[tuple[int, torch.nn.Module.state_dict]]:
     orig_feat_trs = ds_train.feature_trs
     dl_train_ = _get_obs_def_dl(
         disc=discriminator,
@@ -368,9 +368,9 @@ def train_obs_on_league(
     weights: torch.Tensor,
     reward_scales: dict[str, float],
     obs_optim: torch.optim.Optimizer,
-    obs_lr_scheduler: torch.optim.lr_scheduler | None,
+    obs_lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None,
     critic_optim: torch.optim.Optimizer | None,
-    critic_lr_scheduler: torch.optim.lr_scheduler | None,
+    critic_lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None,
     device: torch.device,
     e: int,
     cfg: DictConfig,
@@ -548,7 +548,7 @@ def main(cfg: DictConfig):
         mlflow.log_params(d)
 
         while True:
-            logger.info(f"Epoch {e:02d} - Training discriminator on league...")
+            logger.info(f"Epoch {e:02d} - Training discriminator on obs league...")
             disc_league = train_disc_on_league(
                 discriminator=discriminator,
                 ds_train=ds_train,
