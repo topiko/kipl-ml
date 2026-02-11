@@ -63,11 +63,9 @@ def train_obs_one_epoch(
     e: int,
     cfg: DictConfig,
 ) -> dict[str, float]:
-    ema_sel_entropy = 1.0
-    ema_cond_entropy = 1.0
-    enable_entropy_loss = cfg.enable_entropy_loss
-    selection_entropy_scale = cfg.selection_entropy_scale
-    conditional_entropy_scale = cfg.conditional_entropy_scale
+    ema_sel_entropy = None
+    ema_cond_entropy = None
+    ema_ret = None
     ema_decay = cfg.ema_decay
 
     losses_metrics_d: dict[str, list[float] | float] = {
@@ -103,6 +101,8 @@ def train_obs_one_epoch(
 
             if critic is not None:
                 critic.train()
+                if critic_optim is None:
+                    raise ValueError("Critic given w.o. optimizer")
                 critic_optim.zero_grad()
 
             X = dict_to_device(X, device)
@@ -162,9 +162,9 @@ def train_obs_one_epoch(
             conditional_entropy = masked_mean(
                 entropies["conditional_entropy"], time_mask, per_trace=True
             ).mean()
-            entropy_loss = float(enable_entropy_loss) * (
-                -selection_entropy_scale * selection_entropy
-                - conditional_entropy_scale * conditional_entropy
+            entropy_loss = float(cfg.enable_entropy_loss) * (
+                -cfg.selection_entropy_scale * selection_entropy
+                - cfg.conditional_entropy_scale * conditional_entropy
             )
 
             if critic is not None:
@@ -223,6 +223,17 @@ def train_obs_one_epoch(
             cond_term = (advantages[..., None] * (log_ps[..., None] - sel_log_ps)).std()
             ratio = cond_term / (sel_term + 1e-8)
 
+            cur_ret = (
+                masked_mean(
+                    (weights[:, None, None] * G).sum(dim=0),
+                    time_mask,
+                    per_trace=True,
+                )
+                .mean()
+                .item()
+            )
+            ema_ret = ema_update(ema_ret, cur_ret, ema_decay)
+
             # Logging:
             # =========================================
             losses_metrics_d["loss"].append(loss.item())
@@ -236,15 +247,7 @@ def train_obs_one_epoch(
             )
             losses_metrics_d["entropy_loss"].append(entropy_loss.item())
             losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
-            losses_metrics_d["avg_return"].append(
-                masked_mean(
-                    (weights[:, None, None] * G).sum(dim=0),
-                    time_mask,
-                    per_trace=True,
-                )
-                .mean()
-                .item()
-            )
+            losses_metrics_d["avg_return"].append(cur_ret)
             for k, v in league_rewards.items():
                 losses_metrics_d[f"mean_reward_{k}"].append(
                     masked_mean(
@@ -279,15 +282,13 @@ def train_obs_one_epoch(
                 (padding_packets_down / normal_packets).mean().item()
             )
 
-            nhist = 20
             postfix = {
                 "pfu": np.mean(losses_metrics_d["mean_padding_frac_up"]),
                 "pfd": np.mean(losses_metrics_d["mean_padding_frac_down"]),
+                "ret": ema_ret,
+                "Hs": ema_sel_entropy,
+                "Hc": ema_cond_entropy,
             }
-            if losses_metrics_d["avg_return"]:
-                postfix["ret"] = np.mean(losses_metrics_d["avg_return"][-nhist:])
-                postfix["Hs"] = ema_sel_entropy
-                postfix["Hc"] = ema_cond_entropy
 
             pbar.set_postfix({k: f"{v:.03f}" for k, v in postfix.items()})
 
@@ -369,7 +370,6 @@ def train_disc_on_league(
 
 
 def train_obs_on_league(
-    obs: nn.Module,
     obs_league: list[tuple[int, dict]],
     critic: CRITIC01 | None,
     ds_train: WFDataset,
@@ -381,15 +381,17 @@ def train_obs_on_league(
     device: torch.DeviceObjType,
     e: int,
     cfg: DictConfig,
-) -> list[tuple[int, nn.Module.state_dict]]:
-    lr = 0.001
+) -> tuple[list[tuple[int, nn.Module.state_dict]], AGENT1, CRITIC01 | None]:
+    obs, critic = get_agent_and_critic(cfg)
+
+    lr = cfg.obs_lr
     obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr * cfg.rnn_lr_reduction)
     obs_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer=obs_optim, factor=0.8, patience=7
     )
 
     if critic is not None:
-        lr_critic = lr / 2
+        lr_critic = cfg.critic_lr
         critic_optim = _get_optim(
             critic, lr=lr_critic, lr_rnn=lr_critic * cfg.rnn_lr_reduction
         )
@@ -445,7 +447,32 @@ def train_obs_on_league(
 
         eo += 1
 
-    return obs_league
+    return obs_league, obs, critic
+
+
+def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
+    eps = cfg.obs_prob_eps
+    f_ = 0.5
+    obs = AGENT1(
+        time_step=cfg.obs_time_step_s,
+        max_silence_s=cfg.obs_max_silence_s,
+        hsize=128,
+        nlayers=2,
+        prob_eps={
+            Actions.SELECTOR: cfg.obs_prob_eps,
+            Actions.SEND_COUNT_UP: f_ * eps,
+            Actions.SEND_TIME_UP: f_ * eps,
+            Actions.SEND_COUNT_DOWN: f_ * eps,
+            Actions.SEND_TIME_DOWN: f_ * eps,
+        },
+        prefer_wait_bias=6.0 if cfg.init_for_wait else 0.0,
+    )
+
+    critic = None
+    if cfg.separate_critic:
+        critic = CRITIC01(obs, hsize=256, nlayers=3)
+
+    return obs, critic
 
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="sisyphus", version_base=None)
@@ -510,26 +537,8 @@ def main(cfg: DictConfig):
 
     # Defense initialization:
     # ============================================
-    eps = cfg.obs_prob_eps
-    f_ = 0.5
-    obs = AGENT1(
-        time_step=cfg.obs_time_step_s,
-        max_silence_s=cfg.obs_max_silence_s,
-        hsize=128,
-        nlayers=2,
-        prob_eps={
-            Actions.SELECTOR: cfg.obs_prob_eps,
-            Actions.SEND_COUNT_UP: f_ * eps,
-            Actions.SEND_TIME_UP: f_ * eps,
-            Actions.SEND_COUNT_DOWN: f_ * eps,
-            Actions.SEND_TIME_DOWN: f_ * eps,
-        },
-        prefer_wait_bias=6.0 if cfg.init_for_wait else 0.0,
-    ).to(device)
 
-    critic = None
-    if cfg.separate_critic:
-        critic = CRITIC01(obs, hsize=256, nlayers=3).to(device)  # (256, 3)
+    obs, critic = get_agent_and_critic(cfg)
     # ============================================
 
     discriminator = discriminator.to(device)
@@ -592,8 +601,7 @@ def main(cfg: DictConfig):
             # Pushing:
             # ============================================
             logger.info(f"Epoch {e:02d} - Training obs on disc league...")
-            obs_league = train_obs_on_league(
-                obs=obs,
+            obs_league, obs, critic = train_obs_on_league(
                 obs_league=obs_league,
                 critic=critic,
                 ds_train=ds_train,

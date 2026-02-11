@@ -398,7 +398,9 @@ def get_action_seq_lens(fd: dict[Feats, torch.Tensor]) -> torch.Tensor:
     return fd[Feats.TIMES].isnan().logical_not().sum(dim=1)
 
 
-def ema_update(value: float, cur_value: float, ema_decay: float) -> float:
+def ema_update(value: float | None, cur_value: float, ema_decay: float) -> float:
+    if value is None:
+        return cur_value
     return ema_decay * value + (1 - ema_decay) * cur_value
 
 
@@ -604,7 +606,7 @@ def one_batch_train_disc(
 
                 # Gradient clipping
                 nn.utils.clip_grad_norm_(
-                    disc.parameters(), grad_clip, error_if_nonfinite=False
+                    disc.parameters(), grad_clip, error_if_nonfinite=True
                 )
 
                 disc_opm.step()

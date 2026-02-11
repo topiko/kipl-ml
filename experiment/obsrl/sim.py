@@ -210,12 +210,15 @@ def rollout(
     if h is not None:
         h_norm = h[0].norm(2, dim=-1).max().item()
         c_norm = h[1].norm(2, dim=-1).max().item()
+        if (c_norm > 10_000) or (h_norm > 14):
+            logger.warning("Ill agent h state")
         if h_norm > 100 or c_norm > 400:
-            h_std = h[0].std().item()
-            c_std = h[1].std().item()
-
-            print("Huge hidden/cell:", h_norm, c_norm)
-            print("Stds hidden/cell:", h_std, c_std)
+            h_var = h[0].var().item()
+            c_var = h[1].var().item()
+            if (c_var * 1e2 < c_norm) or (h_var * 1e2 < h_norm):
+                logger.warning("Ill agent h state:")
+                logger.warning("Huge hidden/cell:", h_norm, c_norm)
+                logger.warning("Stds hidden/cell:", h_var, c_var)
 
     Xobs = send_exec(X, act_times, actions)
 
