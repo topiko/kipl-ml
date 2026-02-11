@@ -516,7 +516,9 @@ def main(cfg: DictConfig):
     # ============================================
     lr = 0.001
     obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr * cfg.rnn_lr_reduction)
-    obs_lr_scheduler = None
+    obs_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer=obs_optim, factor=0.8, patience=7
+    )
 
     critic = None
     critic_optim = None
@@ -527,6 +529,9 @@ def main(cfg: DictConfig):
         lr_critic = lr / 2
         critic_optim = _get_optim(
             critic, lr=lr_critic, lr_rnn=lr_critic * cfg.rnn_lr_reduction
+        )
+        critic_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer=critic_optim, factor=0.8, patience=7
         )
     # ============================================
 
