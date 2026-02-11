@@ -33,7 +33,7 @@ def _plot_set(
     ds: WFDataset,
     obs: nn.Module,
     critic: nn.Module | None,
-    obs_features: FeatureTrs,
+    obs_features: FeatureTrs | None,
     disc_orig: nn.Module,
     disc_trained: nn.Module,
     disc_features: FeatureTrs,
@@ -66,7 +66,10 @@ def _plot_set(
         X_i, y_i = ds[idx]
         X_orig_l.append(X_i)
         y_l.append(y_i)
-        X_rollin_l.append(obs_features(X_i))
+        if obs_features is not None:
+            X_rollin_l.append(obs_features(X_i))
+        else:
+            X_rollin_l.append(X_i)
 
     # Stack feature dict batch.
     keys = list(X_rollin_l[0].keys())

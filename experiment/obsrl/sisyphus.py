@@ -314,7 +314,7 @@ def train_disc_on_league(
     disc_feats: FeatureTrs,
     obs: AGENT1,
     disc_optim: torch.optim.Optimizer,
-    disc_lr_csheduler: torch.optim.lr_scheduler.LRScheduler | None,
+    disc_lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None,
     disc_league: list[tuple[int, torch.nn.Module.state_dict]],
     obs_league: list[tuple[int, dict]],
     device: torch.device,
@@ -344,8 +344,9 @@ def train_disc_on_league(
             epoch=ed,
         )
 
-        if disc_lr_csheduler is not None:
-            disc_lr_csheduler.step(loss)
+        if disc_lr_scheduler is not None:
+            disc_lr_scheduler.step(loss)
+            logger.info("Current lr: %.4f", disc_lr_scheduler.get_last_lr())
 
         if loss < cfg.disc_loss_thres_roll:
             disc_league = _append_to_league(disc_league, discriminator.state_dict())
@@ -397,9 +398,11 @@ def train_obs_on_league(
 
         if obs_lr_scheduler is not None:
             obs_lr_scheduler.step(-metrics_d["avg_return"])
+            logger.info("Current obs lr: %.4f", obs_lr_scheduler.get_last_lr())
 
         if critic_lr_scheduler is not None and critic_optim is not None:
             critic_lr_scheduler.step(metrics_d["value_loss"])
+            logger.info("Current criti lr: %.4f", critic_lr_scheduler.get_last_lr())
 
         if (ret := metrics_d["avg_return"]) > ret_thres:
             logger.info(
@@ -555,7 +558,7 @@ def main(cfg: DictConfig):
                 disc_feats=disc_feats,
                 obs=obs,
                 disc_optim=disc_optim,
-                disc_lr_csheduler=disc_lr_csheduler,
+                disc_lr_scheduler=disc_lr_csheduler,
                 disc_league=disc_league,
                 obs_league=obs_league,
                 device=device,
