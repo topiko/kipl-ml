@@ -28,7 +28,7 @@ from experiment.obsrl.utils import (
 from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
-from kipl_ml.data.wf_dataset import dict_to_device, get_train_valid_test
+from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.trgen import AGENT1, CRITIC01
 from kipl_ml.rl.enums import Actions
@@ -53,21 +53,21 @@ def train_obs_one_epoch(
     critic: CRITIC01 | None,
     discriminator: nn.Module,
     disc_feats: FeatureTrs,
-    active_disc_league: list[dict],
+    active_disc_league: list[nn.Module.state_dict],
     weights: torch.Tensor,
     reward_scales: dict[str, float],
     obs_optim: torch.optim.Optimizer,
     critic_optim: torch.optim.Optimizer | None,
     device: torch.device,
-    cfg: DictConfig,
-    ema_decay: float,
-    enable_entropy_loss: bool,
-    selection_entropy_scale: float,
-    conditional_entropy_scale: float,
     e: int,
+    cfg: DictConfig,
 ) -> dict[str, float]:
     ema_sel_entropy = 1.0
     ema_cond_entropy = 1.0
+    enable_entropy_loss = cfg.enable_entropy_loss
+    selection_entropy_scale = cfg.selection_entropy_scale
+    conditional_entropy_scale = cfg.conditional_entropy_scale
+    ema_decay = cfg.ema_decay
 
     losses_metrics_d: dict[str, list[float] | float] = {
         "loss": [],
@@ -161,7 +161,7 @@ def train_obs_one_epoch(
             conditional_entropy = masked_mean(
                 entropies["conditional_entropy"], time_mask, per_trace=True
             ).mean()
-            entropy_loss = enable_entropy_loss * (
+            entropy_loss = float(enable_entropy_loss) * (
                 -selection_entropy_scale * selection_entropy
                 - conditional_entropy_scale * conditional_entropy
             )
@@ -308,6 +308,120 @@ def train_obs_one_epoch(
     return mean_d
 
 
+def train_disc_on_league(
+    discriminator: nn.Module,
+    ds_train: WFDataset,
+    disc_feats: FeatureTrs,
+    obs: AGENT1,
+    disc_optim: torch.optim.Optimizer,
+    disc_lr_csheduler: torch.optim.lr_scheduler | None,
+    disc_league: list[tuple(int, torch.nn.Module.state_dict)],
+    obs_league: list[tuple[int, dict]],
+    device: torch.device,
+    e: int,
+    cfg: DictConfig,
+) -> list[tuple(int, torch.nn.Module.state_dict)]:
+    orig_feat_trs = ds_train.feature_trs
+    dl_train_ = _get_obs_def_dl(
+        disc=discriminator,
+        disc_feats=disc_feats,
+        obs=obs,
+        ds=ds_train,
+        n_packets=cfg.trace_len,
+        bs=cfg.batch_size,
+        obs_league=[d for _, d in obs_league[-cfg.league_size :]],
+    )
+
+    ed = 0
+    while True:
+        loss = train_one_epoch(
+            clf=discriminator,
+            dl_train=dl_train_,
+            optimG=disc_optim,
+            device=device,
+            grad_clip=cfg.grad_norm_clip,
+            detach_period=10000,
+            epoch=ed,
+        )
+
+        if disc_lr_csheduler is not None:
+            disc_lr_csheduler.step(loss)
+
+        if loss < cfg.disc_loss_thres_roll:
+            disc_league = _append_to_league(disc_league, discriminator.state_dict())
+            break
+
+        ed += 1
+    _restore_obs_def_ds(ds_train, orig_feat_trs, obs, device)
+
+    return disc_league
+
+
+def train_obs_on_league(
+    obs: nn.Module,
+    obs_league: list[tuple[int, dict]],
+    critic: CRITIC01 | None,
+    ds_train: WFDataset,
+    discriminator: nn.Module,
+    disc_feats: FeatureTrs,
+    active_disc_league: list[nn.Module.state_dict],
+    weights: torch.Tensor,
+    reward_scales: dict[str, float],
+    obs_optim: torch.optim.Optimizer,
+    obs_lr_scheduler: torch.optim.lr_scheduler | None,
+    critic_optim: torch.optim.Optimizer | None,
+    critic_lr_scheduler: torch.optim.lr_scheduler | None,
+    device: torch.device,
+    e: int,
+    cfg: DictConfig,
+) -> list[tuple[int, nn.Module.state_dict]]:
+    ret_thres = cfg.ret_thres_push
+
+    eo = 0
+    while True:
+        metrics_d = train_obs_one_epoch(
+            dl_train=dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True),
+            obs=obs,
+            critic=critic,
+            discriminator=discriminator,
+            disc_feats=disc_feats,
+            active_disc_league=active_disc_league,
+            weights=weights,
+            reward_scales=reward_scales,
+            obs_optim=obs_optim,
+            critic_optim=critic_optim,
+            device=device,
+            e=eo,
+            cfg=cfg,
+        )
+
+        if obs_lr_scheduler is not None:
+            obs_lr_scheduler.step(-metrics_d["avg_return"])
+
+        if critic_lr_scheduler is not None and critic_optim is not None:
+            critic_lr_scheduler.step(metrics_d["value_loss"])
+
+        if (ret := metrics_d["avg_return"]) > ret_thres:
+            logger.info(
+                f"Achieved return {ret:.03f} > {ret_thres:.03f}, "
+                + "stopping obs training!"
+            )
+
+            obs_league = _append_to_league(obs_league, obs.state_dict())
+            logger.info(f"Obs league len: {len(obs_league)}")
+            mlflow.pytorch.log_model(obs, name=f"rlobs-{e}", step=e)
+
+            for k, v in metrics_d.items():
+                k = keymap(k)
+                logger.info(f"\t{k:<40} : {v:.03f}")
+                mlflow.log_metric(k, v, step=e)
+            break
+
+        eo += 1
+
+    return obs_league
+
+
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="sisyphus", version_base=None)
 def main(cfg: DictConfig):
     experiment_name = cfg.experiment_name
@@ -352,27 +466,24 @@ def main(cfg: DictConfig):
     )
     discriminator.predict_ks = cfg.predict_ks
 
-    feature_names = [Feats.DIRS, Feats.TIMES]
-
     ds_train, ds_valid, _ = get_train_valid_test(
         dataset=DATASET,
         label=assets.PAGE_LABEL,
         n_splits=N_SPLITS,
         test_xv=TEST_XV,
         random_state=42,
-        feature_trs=FeatureTrs(feature_names=feature_names, n_packets=cfg.trace_len),
+        feature_trs=FeatureTrs(
+            feature_names=[Feats.DIRS, Feats.TIMES], n_packets=cfg.trace_len
+        ),
         defence_aug_valid=0,
         n_min_packets=cfg.min_packets_in_trace,
         **defence_builder.get_defence(cfg),
     )
-    # ds_train.meta_df = ds_train.meta_df.sample(frac=0.5)
-    # logger.warning("Using only subset of training data!")
-
-    # Obs feature trs
-    # obs_features = ds_train.feature_trs
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    # Defense initialization:
+    # ============================================
     eps = cfg.obs_prob_eps
     f_ = 0.5
     obs = AGENT1(
@@ -390,11 +501,15 @@ def main(cfg: DictConfig):
         prefer_wait_bias=6.0 if cfg.init_for_wait else 0.0,
     ).to(device)
 
+    # Defense optimizers:
+    # ============================================
     lr = 0.001
     obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr * cfg.rnn_lr_reduction)
-    disc_optim = _get_optim(discriminator, lr=0.001, lr_rnn=0.001)
+    obs_lr_scheduler = None
 
     critic = None
+    critic_optim = None
+    critic_lr_scheduler = None
     if cfg.separate_critic:
         critic = CRITIC01(obs, hsize=256, nlayers=3).to(device)  # (256, 3)
 
@@ -402,6 +517,16 @@ def main(cfg: DictConfig):
         critic_optim = _get_optim(
             critic, lr=lr_critic, lr_rnn=lr_critic * cfg.rnn_lr_reduction
         )
+    # ============================================
+
+    # Disc optimizing:
+    # ============================================
+    disc_optim = _get_optim(discriminator, lr=0.001, lr_rnn=0.001)
+
+    disc_lr_csheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer=disc_optim, factor=0.8, patience=10
+    )
+    # ============================================
 
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
@@ -410,15 +535,7 @@ def main(cfg: DictConfig):
         disc_league = _append_to_league(disc_league, discriminator.state_dict())
     obs_league = _append_to_league([], obs.state_dict())
 
-    # Entropy scale
-    selection_entropy_scale = 0.005
-    conditional_entropy_scale = 0.0002
-
     active_league_idx = None
-
-    ema_decay = 0.95
-
-    enable_entropy_loss = float(cfg.enable_entropy_loss)
 
     reward_scales = {
         "clf_scale": 0.1,
@@ -431,30 +548,22 @@ def main(cfg: DictConfig):
         mlflow.log_params(d)
 
         while True:
-            while True:
-                orig_feat_trs = ds_train.feature_trs
-                loss = train_one_epoch(
-                    clf=discriminator,
-                    dl_train=_get_obs_def_dl(
-                        disc=discriminator,
-                        disc_feats=disc_feats,
-                        obs=obs,
-                        ds=ds_train,
-                        n_packets=cfg.trace_len,
-                        bs=cfg.batch_size,
-                        obs_league=[d for _, d in obs_league[-cfg.league_size :]],
-                    ),
-                    optimG=disc_optim,
-                    device=device,
-                    grad_clip=cfg.grad_norm_clip,
-                    detach_period=10000,
-                )
-                _restore_obs_def_ds(ds_train, orig_feat_trs, obs, device)
+            logger.info(f"Epoch {e:02d} - Training discriminator on league...")
+            disc_league = train_disc_on_league(
+                discriminator=discriminator,
+                ds_train=ds_train,
+                disc_feats=disc_feats,
+                obs=obs,
+                disc_optim=disc_optim,
+                disc_lr_csheduler=disc_lr_csheduler,
+                disc_league=disc_league,
+                obs_league=obs_league,
+                device=device,
+                e=e,
+                cfg=cfg,
+            )
 
-                if loss < cfg.disc_loss_thres_roll:
-                    _append_to_league(disc_league, discriminator.state_dict())
-                    break
-
+            logger.info(f"Epoch {e:02d} - Getting active league and weights...")
             with torch.no_grad():
                 disc_league, active_league_idx, active_disc_league, weights = (
                     get_active_league(
@@ -475,51 +584,30 @@ def main(cfg: DictConfig):
                         n_packets=cfg.trace_len,
                     )
                 )
-                logger.info("Re-scaling league weights to uniform...")
-                weights = torch.ones_like(weights) / len(weights)
+            logger.info("\tRe-scaling league weights to uniform...")
+            weights = torch.ones_like(weights) / len(weights)
 
             # Pushing:
             # ============================================
-            ret_thres = cfg.ret_thres_push
-            while True:
-                metrics_d = train_obs_one_epoch(
-                    dl_train=dl_(
-                        ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True
-                    ),
-                    obs=obs,
-                    critic=critic,
-                    discriminator=discriminator,
-                    disc_feats=disc_feats,
-                    active_disc_league=active_disc_league,
-                    weights=weights,
-                    reward_scales=reward_scales,
-                    obs_optim=obs_optim,
-                    critic_optim=critic_optim,
-                    device=device,
-                    cfg=cfg,
-                    ema_decay=ema_decay,
-                    enable_entropy_loss=enable_entropy_loss,
-                    selection_entropy_scale=selection_entropy_scale,
-                    conditional_entropy_scale=conditional_entropy_scale,
-                    e=e,
-                )
-
-                if (ret := metrics_d["avg_return"]) > ret_thres:
-                    logger.info(
-                        f"Achieved return {ret:.03f} > {ret_thres:.03f}, "
-                        + "stopping obs training!"
-                    )
-
-                    obs_league = _append_to_league(obs_league, obs.state_dict())
-                    logger.info(f"Obs league len: {len(obs_league)}")
-                    mlflow.pytorch.log_model(obs, name=f"rlobs-{e}", step=e)
-
-                    for k, v in metrics_d.items():
-                        k = keymap(k)
-                        logger.info(f"\t{k:<40} : {v:.03f}")
-                        mlflow.log_metric(k, v, step=e)
-                    break
-                # ============================================
+            logger.info(f"Epoch {e:02d} - Training obs on disc league...")
+            obs_league = train_obs_on_league(
+                obs=obs,
+                obs_league=obs_league,
+                critic=critic,
+                ds_train=ds_train,
+                discriminator=discriminator,
+                disc_feats=disc_feats,
+                active_disc_league=active_disc_league,
+                weights=weights,
+                reward_scales=reward_scales,
+                obs_optim=obs_optim,
+                obs_lr_scheduler=obs_lr_scheduler,
+                critic_optim=critic_optim,
+                critic_lr_scheduler=critic_lr_scheduler,
+                device=device,
+                e=e,
+                cfg=cfg,
+            )
 
             _plot_set(
                 cfg=cfg,

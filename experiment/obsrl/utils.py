@@ -488,11 +488,12 @@ def train_one_epoch(
     device: torch.DeviceObjType,
     grad_clip: float,
     detach_period: int = 10000,
+    epoch: int = -1,
 ) -> float:
     loss_mean = 0.0
     n = 1
     clf.train()
-    with tqdm(dl_train, desc="Train disc:", ncols=TQDM_W) as pbar:
+    with tqdm(dl_train, desc="Train disc {epoch}:", ncols=TQDM_W) as pbar:
         for X, y in pbar:
             X = dict_to_device(X, device, non_blocking=True)
             y = y.to(device)

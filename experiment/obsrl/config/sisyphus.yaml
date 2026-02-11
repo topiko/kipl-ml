@@ -30,6 +30,11 @@ separate_critic: True
 
 padding_scale: 0.01
 
+ema_decay: 0.95
+
+selection_entropy_scale: 0.005
+conditional_entropy_scale: 0.0002
+
 # Floor for action prob:
 obs_prob_eps: 0.01
 league_score_type: "acc"
