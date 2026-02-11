@@ -256,7 +256,7 @@ def masked_mean_std(
 def _get_optim(
     nn: nn.Module, lr: float, lr_rnn: float | None = None
 ) -> torch.optim.Optimizer:
-    lr_rnn = lr_rnn or lr * 0.1
+    lr_rnn = lr_rnn or lr
     rnn_params = list(nn.rnn.parameters())
     other_params = [p for n, p in nn.named_parameters() if not n.startswith("rnn.")]
     return torch.optim.Adam(
@@ -568,11 +568,11 @@ def one_batch_train_disc(
                 k: v[:, i * detach_period : (i + 1) * detach_period]
                 for k, v in X.items()
             }
-            seq_lens = (seq_lens - i * detach_period).clamp(
-                min=0
+            chunk_seq_lens = (seq_lens - i * detach_period).clamp(
+                min=0, max=detach_period
             )  # (X_chunk[Feats.DIRS] != 0).sum(dim=1)
 
-            logits, h = disc.pack_and_forward(X_chunk, h, seq_lens.cpu())
+            logits, h = disc.pack_and_forward(X_chunk, h, chunk_seq_lens.cpu())
 
             if logits is None:
                 breakpoint()
@@ -585,15 +585,17 @@ def one_batch_train_disc(
             # Use PAD value to ignore loss on padded tokens
 
             # (B, T)
-            mask = torch.arange(logits.shape[1], device=seq_lens.device).unsqueeze(
-                0
-            ) >= (seq_lens + (seq_lens != 0)).unsqueeze(1)  # +1 for EOS
+            mask = torch.arange(
+                logits.shape[1], device=chunk_seq_lens.device
+            ).unsqueeze(0) >= (chunk_seq_lens + (chunk_seq_lens != 0)).unsqueeze(
+                1
+            )  # +1 for EOS
 
             # Where we are over seq. len --> ignore
             target = target.masked_fill(mask, -100)
 
             # Only operate on the seqs. that still are valid
-            target = target[seq_lens > 0]
+            target = target[chunk_seq_lens > 0]
 
             loss = nn.functional.cross_entropy(
                 logits.permute(0, 2, 1),

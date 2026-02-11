@@ -128,7 +128,7 @@ def train_obs_one_epoch(
                 y=y,
                 disc_features=disc_feats,
                 disc_league=active_disc_league,
-                detach_period=cfg.h_detach_period,
+                detach_period=cfg.obs.detach_period,
                 reward_scales=reward_scales,
             )
 
@@ -162,9 +162,9 @@ def train_obs_one_epoch(
             conditional_entropy = masked_mean(
                 entropies["conditional_entropy"], time_mask, per_trace=True
             ).mean()
-            entropy_loss = float(cfg.enable_entropy_loss) * (
-                -cfg.selection_entropy_scale * selection_entropy
-                - cfg.conditional_entropy_scale * conditional_entropy
+            entropy_loss = float(cfg.obs.enable_entropy_loss) * (
+                -cfg.obs.selection_entropy_scale * selection_entropy
+                - cfg.obs.conditional_entropy_scale * conditional_entropy
             )
 
             if critic is not None:
@@ -329,10 +329,10 @@ def train_disc_on_league(
         ds=ds_train,
         n_packets=cfg.trace_len,
         bs=cfg.batch_size,
-        obs_league=[d for _, d in obs_league[-cfg.league_size :]],
+        obs_league=[d for _, d in obs_league[-cfg.league.size :]],
     )
 
-    disc_optim = _get_optim(discriminator, lr=0.005, lr_rnn=0.005)
+    disc_optim = _get_optim(discriminator, lr=cfg.disc.lr)
 
     disc_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer=disc_optim, factor=0.8, patience=7
@@ -346,7 +346,7 @@ def train_disc_on_league(
             optimG=disc_optim,
             device=device,
             grad_clip=cfg.grad_norm_clip,
-            detach_period=10000,
+            detach_period=cfg.disc.detach_period,
             epoch=ed,
         )
 
@@ -355,11 +355,11 @@ def train_disc_on_league(
             logger.info("Disc lrs:")
             log_lrs(disc_lr_scheduler)
 
-        if loss < cfg.disc_loss_thres_roll:
+        if loss < cfg.disc.loss_thres_roll:
             disc_league = _append_to_league(disc_league, discriminator.state_dict())
             logger.info(
                 f"Disc train termination {e:02d}; cur loss {loss:.4f} "
-                + f"< {cfg.disc_loss_thres_roll:.4f}"
+                + f"< {cfg.disc.loss_thres_roll:.4f}"
             )
             break
 
@@ -383,23 +383,25 @@ def train_obs_on_league(
     cfg: DictConfig,
 ) -> tuple[list[tuple[int, nn.Module.state_dict]], AGENT1, CRITIC01 | None]:
     obs, critic = get_agent_and_critic(cfg)
+    obs.to(device)
 
-    lr = cfg.obs_lr
-    obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr * cfg.rnn_lr_reduction)
+    lr = cfg.obs.lr
+    obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr * cfg.obs.rnn_lr_reduction)
     obs_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer=obs_optim, factor=0.8, patience=7
     )
 
     if critic is not None:
-        lr_critic = cfg.critic_lr
+        critic.to(device)
+        lr_critic = cfg.obs.critic_lr
         critic_optim = _get_optim(
-            critic, lr=lr_critic, lr_rnn=lr_critic * cfg.rnn_lr_reduction
+            critic, lr=lr_critic, lr_rnn=lr_critic * cfg.obs.rnn_lr_reduction
         )
         critic_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer=critic_optim, factor=0.8, patience=7
         )
 
-    ret_thres = cfg.ret_thres_push
+    ret_thres = cfg.obs.ret_thres_push
 
     eo = 0
     while True:
@@ -451,25 +453,25 @@ def train_obs_on_league(
 
 
 def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
-    eps = cfg.obs_prob_eps
+    eps = cfg.obs.prob_eps
     f_ = 0.5
     obs = AGENT1(
-        time_step=cfg.obs_time_step_s,
-        max_silence_s=cfg.obs_max_silence_s,
+        time_step=cfg.obs.time_step_s,
+        max_silence_s=cfg.obs.max_silence_s,
         hsize=128,
         nlayers=2,
         prob_eps={
-            Actions.SELECTOR: cfg.obs_prob_eps,
+            Actions.SELECTOR: eps,
             Actions.SEND_COUNT_UP: f_ * eps,
             Actions.SEND_TIME_UP: f_ * eps,
             Actions.SEND_COUNT_DOWN: f_ * eps,
             Actions.SEND_TIME_DOWN: f_ * eps,
         },
-        prefer_wait_bias=6.0 if cfg.init_for_wait else 0.0,
+        prefer_wait_bias=6.0 if cfg.obs.init_for_wait else 0.0,
     )
 
     critic = None
-    if cfg.separate_critic:
+    if cfg.obs.separate_critic:
         critic = CRITIC01(obs, hsize=256, nlayers=3)
 
     return obs, critic
@@ -517,7 +519,7 @@ def main(cfg: DictConfig):
     discriminator = mlflow.pytorch.load_model(
         mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
     )
-    discriminator.predict_ks = cfg.predict_ks
+    discriminator.predict_ks = cfg.disc.predict_ks
 
     ds_train, ds_valid, _ = get_train_valid_test(
         dataset=DATASET,
@@ -544,7 +546,7 @@ def main(cfg: DictConfig):
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
     disc_league = _append_to_league([], discriminator_orig.state_dict())
-    if not cfg.init_for_wait:
+    if not cfg.obs.init_for_wait:
         disc_league = _append_to_league(disc_league, discriminator.state_dict())
     obs_league = _append_to_league([], obs.state_dict())
 
@@ -553,7 +555,7 @@ def main(cfg: DictConfig):
     reward_scales = {
         "clf_scale": 0.1,
         "d_clf_scale": cfg.rewards.d_clf,
-        "padding_scale": cfg.padding_scale,
+        "padding_scale": cfg.rewards.padding_scale,
     }
     e = 0
     with mlflow.start_run(log_system_metrics=True):
@@ -588,10 +590,10 @@ def main(cfg: DictConfig):
                         disc_feats=disc_feats,
                         reward_scales=reward_scales,
                         device=device,
-                        league_size=cfg.league_size,
+                        league_size=cfg.league.size,
                         league_update_frac=1.0,  # unused
-                        prune=len(disc_league) > cfg.league_size * 2,
-                        score_type=cfg.league_score_type,
+                        prune=len(disc_league) > cfg.league.size * 2,
+                        score_type=cfg.league.score_type,
                         n_packets=cfg.trace_len,
                     )
                 )

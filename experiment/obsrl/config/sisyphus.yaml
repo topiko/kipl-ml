@@ -5,6 +5,9 @@ defaults:
   - network: infinite
   - misc: default
 
+experiment_name: sisypus
+debug: False
+
 
 advantages:
   type: "mc"
@@ -14,51 +17,47 @@ advantages:
 
 rewards:
   d_clf: 0.001
+  padding_scale: 0.01
 
+obs:
+  # Floor for action prob:
+  prob_eps: 0.02
+  time_step_s: 0.02
+  max_silence_s: 0.2
+  detach_period: 100
+  lr: 0.001
+  critic_lr: 0.0005
+  #
+  # When going up the ret needs to be higher than this
+  # against the curent disc league.
+  ret_thres_push: 40
+  init_for_wait: True
+  enable_entropy_loss: True
+  separate_critic: True
+  selection_entropy_scale: 0.005
+  conditional_entropy_scale: 0.0002
+  rnn_lr_reduction: 1.0
 
-# When going up the ret needs to be higher than this
-# against the curent disc league.
-ret_thres_push: 50
-# When coming down the disc needs to get below this against the
-# current obs league
-disc_loss_thres_roll: 1.1
+disc:
+  detach_period: 500
+  # When coming down the disc needs to get below this against the
+  loss_thres_roll: 1.4
+  lr: 0.002
+  predict_ks: 21
 
-experiment_name: sisypus
-debug: False
-enable_entropy_loss: True
-init_for_wait: True
-separate_critic: True
+league:
+  score_type: "acc"
+  size: 10
 
-padding_scale: 0.007
 
 ema_decay: 0.95
-
-selection_entropy_scale: 0.005
-conditional_entropy_scale: 0.0002
-
-# Floor for action prob:
-obs_prob_eps: 0.02
-league_score_type: "acc"
-
-figs_period: 5
-
-train_subset_frac: 1.0
-
+grad_norm_clip: 1
 min_packets_in_trace: 1000
-league_size: 10
-obs_time_step_s: 0.02
-obs_max_silence_s: 0.2
-h_detach_period: 100
 discounting: 0.99
 trace_len: 10_000
 batch_size: 32
-grad_norm_clip: 1
 label_smoothing: 0.02
 
-predict_ks: 21
-rnn_lr_reduction: 1.0
 max_epochs: 128
 
 
-obs_lr: 0.003
-critic_lr: 0.002
