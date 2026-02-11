@@ -267,6 +267,14 @@ def _get_optim(
     )
 
 
+def log_lrs(lr_scheduler: torch.optim.lr_scheduler.LRScheduler):
+    lrs = lr_scheduler.get_last_lr()
+
+    logger.info("LRs")
+    for i, lr_ in enumerate(lrs):
+        logger.info(f"\tlr group {i:2d}: {lr_:.4f}")
+
+
 def get_active_league(
     active_league_idx: np.ndarray | None,
     league: list[tuple[int, nn.Module.state_dict]],
