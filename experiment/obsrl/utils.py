@@ -606,9 +606,13 @@ def one_batch_train_disc(
                 loss.backward()
 
                 # Gradient clipping
-                nn.utils.clip_grad_norm_(
-                    disc.parameters(), grad_clip, error_if_nonfinite=True
-                )
+                try:
+                    nn.utils.clip_grad_norm_(
+                        disc.parameters(), grad_clip, error_if_nonfinite=True
+                    )
+                except RuntimeError:
+                    logger.warning("Infinite grad in disc training!")
+                    return loss_mean, None
 
                 disc_opm.step()
 
