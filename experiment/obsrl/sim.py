@@ -220,8 +220,8 @@ def rollout(
             c_var = h[1].var().item()
             if (c_var * 1e2 < c_norm) or (h_var * 1e2 < h_norm):
                 logger.warning("Ill agent h state:")
-                logger.warning("Huge hidden/cell:", h_norm, c_norm)
-                logger.warning("Stds hidden/cell:", h_var, c_var)
+                logger.warning("Huge hidden/cell: %.05f, %.05f", h_norm, c_norm)
+                logger.warning("Stds hidden/cell: %.05f, %.05f", h_var, c_var)
 
     Xobs = send_exec(X, act_times, actions)
 
