@@ -195,7 +195,7 @@ def train_obs_one_epoch(
             obs_optim.step()
             # ==========================================
 
-            losses_metrics_d["grad_norm"].append(norm_.item())
+            losses_metrics_d["grad_norm"].append(norm_.item() > cfg.grad_norm_clip)
 
             ema_sel_entropy = ema_update(
                 ema_sel_entropy, selection_entropy.item(), ema_decay
