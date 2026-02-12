@@ -398,6 +398,8 @@ def train_obs_on_league(
         patience=cfg.obs.lr_scheduler_patience,
     )
 
+    critic_optim = None
+    critic_lr_scheduler = None
     if critic is not None:
         critic.to(device)
         lr_critic = cfg.obs.critic_lr

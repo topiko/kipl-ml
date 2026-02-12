@@ -16,8 +16,6 @@ do
 			advantages.type=$adv  \
 			trace_len=$trace_len \
 			obs.separate_critic=$sep_critic \
-			rewards.padding_scale=$padding_scale \
-			rewards.d_clf=$d_clf_scale \
 			obs.reuse_obs_and_critic=$reuse \
 			experiment_name=sisy_sweep
 	done
