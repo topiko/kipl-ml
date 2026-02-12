@@ -459,7 +459,7 @@ def train_obs_on_league(
             break
 
         if eo % cfg.obs.max_epochs:
-            reward_scales_["padding_scale"] *= 0.5
+            reward_scales_["padding_scale"] *= cfg.obs.padding_scale_reduction
         eo += 1
 
     return obs_league, obs, critic
@@ -504,7 +504,7 @@ def main(cfg: DictConfig):
     if discriminator_orig.feat_mode == "tam":
         feature_names = discriminator_orig.features
         tam_d = discriminator_orig.tam_dict
-        tam_d["max_load_time_s"] = 100
+        tam_d["max_load_time_s"] = cfg.disc.tam_max_load_time_s
         npackets = None
 
         disc_feats = FeatureTrs(

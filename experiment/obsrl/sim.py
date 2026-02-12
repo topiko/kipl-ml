@@ -138,6 +138,7 @@ def get_rewards(
         if (sum_.gather(1, max_t_idxs[:, None] - 1) < 1).any():
             raise ValueError(
                 "There are action intervals w. no disc. clf score. "
+                + f"Max. obs time: {action_times.nan_to_num(nan=0).max():.02f}. "
                 + "Increase the TAM max_load_time_s (to increase the seq. "
                 + "lens the disc sees) or dcrease the trace_len (to limit "
                 + "the max len of action seq. lens)"

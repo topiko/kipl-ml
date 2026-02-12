@@ -45,16 +45,21 @@ obs:
 
   # How many epochs to iterate before lowering padding scale.
   max_epochs_per_push: 10
+  # How much we decrease padding scale when hitting max epochs.
+  padding_scale_reduction: 0.7
 
   lr_scheduler_patience: 3
   lr_scheduler_factor: .7
 
+
 disc:
-  detach_period: 1000
+  detach_period: 500
   # When coming down the disc needs to get below this against the
   loss_thres_roll: 1.4
   lr: 0.001
   predict_ks: 21
+
+  tam_max_load_time_s: 90
 
 league:
   score_type: "acc"
@@ -65,10 +70,10 @@ ema_decay: 0.95
 grad_norm_clip: 1
 min_packets_in_trace: 1000
 discounting: 0.99
-trace_len: 10_000
-batch_size: 32
+trace_len: 6_000
+batch_size: 64
 label_smoothing: 0.02
 
-max_epochs: 128
+max_epochs: 32
 
 
