@@ -25,6 +25,7 @@ obs:
   time_step_s: 0.02
   max_silence_s: 0.2
   detach_period: 100
+  critic_detach_period: 500
   lr: 0.001
   critic_lr: 0.0005
   #
@@ -39,10 +40,10 @@ obs:
   rnn_lr_reduction: 1.0
 
 disc:
-  detach_period: 500
+  detach_period: 1000
   # When coming down the disc needs to get below this against the
   loss_thres_roll: 1.4
-  lr: 0.002
+  lr: 0.001
   predict_ks: 21
 
 league:

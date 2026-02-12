@@ -129,6 +129,7 @@ def train_obs_one_epoch(
                 disc_features=disc_feats,
                 disc_league=active_disc_league,
                 detach_period=cfg.obs.detach_period,
+                critic_detach_period=cfg.obs.critic_detach_period,
                 reward_scales=reward_scales,
             )
 

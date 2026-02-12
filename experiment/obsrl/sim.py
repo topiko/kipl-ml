@@ -173,6 +173,7 @@ def rollout(
     disc_league: list[tuple[int, nn.Module.state_dict]],
     disc_features: FeatureTrs | None = None,
     detach_period: int = 20,
+    critic_detach_period: int | None = None,
     reward_scales: dict[str, float] | None = None,
 ) -> tuple[
     torch.Tensor,
@@ -189,6 +190,7 @@ def rollout(
     rewards = None
     values = None
     device = y.device
+    critic_detach_period = critic_detach_period or detach_period
 
     if X[Feats.TIMES].isnan().any():
         raise ValueError("NaN in times feature")
@@ -277,7 +279,7 @@ def rollout(
         # Make the values tensor
         if critic is not None:
             values = critic(
-                fd, None, h_detach_period=detach_period, seq_lens=action_seq_lens
+                fd, None, h_detach_period=critic_detach_period, seq_lens=action_seq_lens
             )[0][Feats.STATE_VALUE]
         else:
             values = values_actor
