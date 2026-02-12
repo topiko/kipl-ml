@@ -77,6 +77,6 @@ trace_len: 6_000
 batch_size: 64
 label_smoothing: 0.02
 
-max_epochs: 32
+max_epochs: 24
 
 

@@ -10,7 +10,7 @@ trace_len=6000
 
 for reuse in True False
 do
-	for sep_critic in true false
+	for sep_critic in false true
 	do
 		uv run python sisyphus.py \
 			advantages.type=$adv  \
