@@ -458,10 +458,10 @@ def train_obs_on_league(
             mlflow.log_metric("padding_scale", reward_scales_["padding_scale"], step=e)
             break
 
-        if eo % cfg.obs.max_epochs:
+        if (eo > 0) and (eo % cfg.obs.max_epochs_per_push):
             reward_scales_["padding_scale"] *= cfg.obs.padding_scale_reduction
-        eo += 1
 
+        eo += 1
     return obs_league, obs, critic
 
 
