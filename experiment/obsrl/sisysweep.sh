@@ -19,7 +19,7 @@ do
 			obs.detach_period=$per \
 			obs.critic_detach_period=500 \
 			trace_len=$trace_len \
-			league_size=10 \
+			league.size=10 \
 			obs.separate_critic=$sep_critic \
 			rewards.padding_scale=$padding_scale \
 			rewards.d_clf=$d_clf_scale \
