@@ -47,7 +47,7 @@ obs:
   reuse_obs_and_critic: True
 
   # How many epochs to iterate before lowering padding scale.
-  max_epochs_per_push: 10
+  max_epochs_per_push: 7
   # How much we decrease padding scale when hitting max epochs.
   padding_scale_reduction: 0.7
 
