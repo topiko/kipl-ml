@@ -429,6 +429,7 @@ def train_obs_on_league(
             e=eo,
             cfg=cfg,
         )
+        logger.info("Current ret: %.02f", metrics_d["avg_return"])
 
         if obs_lr_scheduler is not None:
             obs_lr_scheduler.step(-metrics_d["avg_return"])
