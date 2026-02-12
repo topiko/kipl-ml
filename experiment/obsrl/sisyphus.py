@@ -460,6 +460,9 @@ def train_obs_on_league(
 
         if (eo > 0) and (eo % cfg.obs.max_epochs_per_push):
             reward_scales_["padding_scale"] *= cfg.obs.padding_scale_reduction
+            logger.info(f"At obs epoch {eo} re-scaled rewards -> ")
+            for k, v in reward_scales_.items():
+                logger.info(f"\t{k:>30} : {v:.02f}")
 
         eo += 1
     return obs_league, obs, critic
@@ -471,8 +474,8 @@ def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
     obs = AGENT1(
         time_step=cfg.obs.time_step_s,
         max_silence_s=cfg.obs.max_silence_s,
-        hsize=128,
-        nlayers=2,
+        hsize=cfg.obs.hsize,
+        nlayers=cfg.obs.nhidden,
         prob_eps={
             Actions.SELECTOR: eps,
             Actions.SEND_COUNT_UP: f_ * eps,
@@ -645,8 +648,7 @@ def main(cfg: DictConfig):
                 e=e,
                 reward_scales=reward_scales,
                 device=device,
-                ntraces=10,
-                max_len=20_000,
+                ntraces=20,
             )
 
             if e > cfg.max_epochs:

@@ -43,7 +43,6 @@ def _plot_set(
     reward_scales: dict[str, float],
     device: torch.DeviceObjType,
     ntraces: int = 3,
-    max_len: int = 10_000,
 ):
     rng = np.random.default_rng(seed=42)
 
@@ -145,7 +144,6 @@ def _plot_set(
                 G=G,
                 advantages=advantages,
                 weights=weights,
-                max_len=max_len,
             )
 
 
@@ -173,7 +171,6 @@ def _plot_single(
     G: torch.Tensor,
     advantages: torch.Tensor,
     weights: torch.Tensor,
-    max_len: int = 10_000,
 ):
     fig, (ax, ax_fd, ax_a, ax_o, ax_b, ax_ret, ax_adv) = plt.subplots(
         7, 1, figsize=(20, 15.0), sharex=True
