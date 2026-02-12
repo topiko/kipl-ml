@@ -39,6 +39,16 @@ obs:
   conditional_entropy_scale: 0.0002
   rnn_lr_reduction: 1.0
 
+  # When starting a new push; use the obs and critic from the last push.
+  # If false, the obs and critic will be randomly initialized at the start of each push.
+  reuse_obs_and_critic: True
+
+  # How many epochs to iterate before lowering padding scale.
+  max_epochs_per_push: 10
+
+  lr_scheduler_patience: 3
+  lr_scheduler_factor: .7
+
 disc:
   detach_period: 1000
   # When coming down the disc needs to get below this against the

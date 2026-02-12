@@ -372,6 +372,7 @@ def train_disc_on_league(
 
 def train_obs_on_league(
     obs_league: list[tuple[int, dict]],
+    obs: AGENT1,
     critic: CRITIC01 | None,
     ds_train: WFDataset,
     discriminator: nn.Module,
@@ -383,13 +384,18 @@ def train_obs_on_league(
     e: int,
     cfg: DictConfig,
 ) -> tuple[list[tuple[int, nn.Module.state_dict]], AGENT1, CRITIC01 | None]:
-    obs, critic = get_agent_and_critic(cfg)
+    reward_scales_ = reward_scales.copy()
+    if not cfg.obs.reuse_obs_and_critic:
+        obs, critic = get_agent_and_critic(cfg)
+
     obs.to(device)
 
     lr = cfg.obs.lr
     obs_optim = _get_optim(obs, lr=lr, lr_rnn=lr * cfg.obs.rnn_lr_reduction)
     obs_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer=obs_optim, factor=0.8, patience=7
+        optimizer=obs_optim,
+        factor=cfg.obs.lr_scheduler_factor,
+        patience=cfg.obs.lr_scheduler_patience,
     )
 
     if critic is not None:
@@ -399,7 +405,9 @@ def train_obs_on_league(
             critic, lr=lr_critic, lr_rnn=lr_critic * cfg.obs.rnn_lr_reduction
         )
         critic_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer=critic_optim, factor=0.8, patience=7
+            optimizer=critic_optim,
+            factor=cfg.obs.lr_scheduler_factor,
+            patience=cfg.obs.lr_scheduler_patience,
         )
 
     ret_thres = cfg.obs.ret_thres_push
@@ -414,7 +422,7 @@ def train_obs_on_league(
             disc_feats=disc_feats,
             active_disc_league=active_disc_league,
             weights=weights,
-            reward_scales=reward_scales,
+            reward_scales=reward_scales_,
             obs_optim=obs_optim,
             critic_optim=critic_optim,
             device=device,
@@ -446,8 +454,12 @@ def train_obs_on_league(
                 k = keymap(k)
                 logger.info(f"\t{k:<40} : {v:.03f}")
                 mlflow.log_metric(k, v, step=e)
+
+            mlflow.log_metric("padding_scale", reward_scales_["padding_scale"], step=e)
             break
 
+        if eo % cfg.obs.max_epochs:
+            reward_scales_["padding_scale"] *= 0.5
         eo += 1
 
     return obs_league, obs, critic
@@ -606,6 +618,7 @@ def main(cfg: DictConfig):
             logger.info(f"Epoch {e:02d} - Training obs on disc league...")
             obs_league, obs, critic = train_obs_on_league(
                 obs_league=obs_league,
+                obs=obs,
                 critic=critic,
                 ds_train=ds_train,
                 discriminator=discriminator,
