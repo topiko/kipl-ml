@@ -51,12 +51,17 @@ obs:
   reuse_obs_and_critic: True
 
   # How many epochs to iterate before lowering padding scale.
-  max_epochs_per_push: 7
+  rewards_map_epochs: 7
+
+  # After this you reset the obs and critic and return...
+  max_epochs_per_push: 28
+
+
   # How much we decrease padding scale when hitting max epochs.
   padding_scale_reduction: 0.7
 
-  lr_scheduler_patience: 3
-  lr_scheduler_factor: .7
+  lr_scheduler_patience: 7
+  lr_scheduler_factor: .8
 
 
 disc:

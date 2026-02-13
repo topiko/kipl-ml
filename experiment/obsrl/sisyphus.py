@@ -414,7 +414,7 @@ def train_obs_on_league(
 
     ret_thres = cfg.obs.ret_thres_push
 
-    eo = 0
+    eo = 1
     while True:
         metrics_d = train_obs_one_epoch(
             dl_train=dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True),
@@ -461,11 +461,16 @@ def train_obs_on_league(
             mlflow.log_metric("padding_scale", reward_scales_["padding_scale"], step=e)
             break
 
-        if (eo > 0) and (eo % cfg.obs.max_epochs_per_push == 0):
+        if eo % cfg.obs.rewards_map_epochs == 0:
             reward_scales_["padding_scale"] *= cfg.obs.padding_scale_reduction
             logger.info(f"At obs epoch {eo} re-scaled rewards -> ")
             for k, v in reward_scales_.items():
                 logger.info(f"\t{k:>30} : {v:.04f}")
+
+        if eo > cfg.obs.max_epochs_per_push:
+            obs, critic = get_agent_and_critic(cfg)
+            logger.warning("No obs found resetting...")
+            return obs_league, obs, critic
 
         eo += 1
     return obs_league, obs, critic
