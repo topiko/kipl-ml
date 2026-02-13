@@ -54,13 +54,7 @@ def main(cfg: DictConfig):
         feature_names = cfg.tam_features
         npackets = None
         feature_trs = [
-            get_feature_tr(
-                fn,
-                None,
-                tam_kwargs=tam_d,
-                trim_beginning=cfg.trim_beginning,
-            )
-            for fn in feature_names
+            get_feature_tr(fn, None, tam_kwargs=tam_d) for fn in feature_names
         ]
     else:
         tam_d = None
@@ -74,6 +68,7 @@ def main(cfg: DictConfig):
         test_xv=0,
         random_state=42,
         feature_trs=FeatureTrs(feature_trs=feature_trs, n_packets=npackets),
+        trim_raw=cfg.trim_beginning,
         **defence_builder.get_defence(cfg),
     )
 
