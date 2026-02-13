@@ -9,6 +9,9 @@ experiment_name: sisypus
 debug: False
 
 
+trace:
+  trim_beginning: 10
+
 advantages:
   type: "mc"
   lambda_: 0.95
