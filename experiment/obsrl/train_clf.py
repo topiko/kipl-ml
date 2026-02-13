@@ -10,7 +10,7 @@ from omegaconf import DictConfig
 from torch import nn
 from tqdm import tqdm
 
-from experiment.obsrl.utils import one_batch_train_disc
+from experiment.obsrl.utils import train_disc_one_batch
 from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import assets
@@ -116,7 +116,7 @@ def main(cfg: DictConfig):
                     X = dict_to_device(X, device, non_blocking=True)
                     y = y.to(device)
 
-                    loss, _ = one_batch_train_disc(
+                    loss, _ = train_disc_one_batch(
                         clf,
                         X,
                         y,

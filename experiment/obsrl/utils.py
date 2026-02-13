@@ -490,7 +490,7 @@ def get_advantages(
     return G, advantages
 
 
-def train_one_epoch(
+def train_disc_one_epoch(
     clf: nn.Module,
     dl_train: torch.utils.data.DataLoader,
     optimG: torch.optim.Optimizer,
@@ -507,7 +507,7 @@ def train_one_epoch(
             X = dict_to_device(X, device, non_blocking=True)
             y = y.to(device)
 
-            loss, _ = one_batch_train_disc(
+            loss, _ = train_disc_one_batch(
                 clf,
                 X,
                 y,
@@ -528,7 +528,7 @@ def train_one_epoch(
     return loss_mean
 
 
-def one_batch_train_disc(
+def train_disc_one_batch(
     disc: nn.Module,
     X: dict[Feats, torch.Tensor],
     y: torch.Tensor,

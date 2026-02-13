@@ -24,7 +24,7 @@ from experiment.obsrl.utils import (
     log_lrs,
     make_time_mask,
     masked_mean,
-    train_one_epoch,
+    train_disc_one_epoch,
 )
 from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
@@ -341,7 +341,7 @@ def train_disc_on_league(
 
     ed = 0
     while True:
-        loss = train_one_epoch(
+        loss = train_disc_one_epoch(
             clf=discriminator,
             dl_train=dl_train_,
             optimG=disc_optim,

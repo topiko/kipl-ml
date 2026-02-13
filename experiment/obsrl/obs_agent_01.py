@@ -22,7 +22,7 @@ from experiment.obsrl.utils import (
     keymap,
     make_time_mask,
     masked_mean,
-    one_batch_train_disc,
+    train_disc_one_batch,
     valid_metrics,
 )
 from experiment.trace_gan.data_utils import dl_
@@ -414,7 +414,7 @@ def main(cfg: DictConfig):
                         )
                     )
 
-                    disc_loss, _ = one_batch_train_disc(
+                    disc_loss, _ = train_disc_one_batch(
                         disc=discriminator,
                         X=Xobs,
                         y=y,
