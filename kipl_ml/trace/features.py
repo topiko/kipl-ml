@@ -38,7 +38,7 @@ def _pad_short_trace(
     asset_key: str,
     cut: bool = True,
 ) -> torch.Tensor:
-    if cut:
+    if cut and len(trace) > n_packets:
         return trace[:n_packets]
 
     if asset_key == Feats.TIMES:
@@ -1119,7 +1119,6 @@ def get_feature_tr(
             )
         case Feats.TAM_DOWN_COUNTS:
             return TAM_DOWN(**tam_kwargs)
-
         case Feats.TAM_DOWN_PAD:
             return TAM_DOWN_PAD(**tam_kwargs)
         case Feats.TAM_TIMES:

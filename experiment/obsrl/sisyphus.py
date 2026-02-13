@@ -504,7 +504,8 @@ def main(cfg: DictConfig):
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
 
-    model_id = "m-c5e6b5d53abd49f6aa2517703efc4e69"
+    model_id = "m-3a65302e5214463dbe7cb150ddcacdcb"
+    # "m-c5e6b5d53abd49f6aa2517703efc4e69"
     # trim = 10, "m-ab8613b6d3d64f7ebd3bacbea0ab619c"
     # m-ab8613b6d3d64f7ebd3bacbea0ab619c
     discriminator_orig = mlflow.pytorch.load_model(
@@ -588,6 +589,7 @@ def main(cfg: DictConfig):
         "d_clf_scale": cfg.rewards.d_clf,
         "padding_scale": cfg.rewards.padding_scale,
     }
+
     e = 0
     with mlflow.start_run(log_system_metrics=True):
         d = OmegaConf.to_container(cfg, resolve=True)

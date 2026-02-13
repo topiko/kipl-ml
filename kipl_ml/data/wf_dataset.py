@@ -70,7 +70,7 @@ class WFDataset(Dataset):
         str_ += key_val_fmt("n_traces (aug)", len(self))
         str_ += key_val_fmt("n_classes", self.n_classes)
         if self.trim_raw > 0:
-            str_ += key_val_fmt("trimming from start:", self.trim_raw)
+            str_ += key_val_fmt("trimming from start", self.trim_raw)
         if self.feature_trs is not None:
             str_ += self.feature_trs.report(to_log=False)
         else:

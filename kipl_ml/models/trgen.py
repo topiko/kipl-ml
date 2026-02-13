@@ -1,3 +1,5 @@
+from typing import Any
+
 import torch
 from torch import nn
 from torch.distributions import Categorical
