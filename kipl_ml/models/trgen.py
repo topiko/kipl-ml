@@ -349,9 +349,11 @@ class AGENT1(nn.Module):
         prob_eps: dict[Actions, float] | float | None = None,
         send_mode: str = "spread",
         prefer_wait_bias: float = 0.0,
+        train_env: dict[str, Any] | None = None,
     ):
         super().__init__()
 
+        self.train_env = train_env or {}
         self.ACTIONS: list[Actions] = [
             Actions.SELECTOR,
             Actions.SEND_COUNT_UP,
@@ -374,13 +376,9 @@ class AGENT1(nn.Module):
             send_time_bins = send_time_bins or [
                 0.00,
                 0.02,
-                0.04,
                 0.06,
-                0.08,
                 0.10,
-                0.12,
                 0.14,
-                0.16,
                 0.18,
             ]
 

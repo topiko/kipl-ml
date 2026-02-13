@@ -30,14 +30,14 @@ DATASET = Datasets.BIGENOUGH
 N_REALIZATIONS = 100
 
 DATA_DIR = "action_data/"
-AGENT_IDS = (
-    ("m-c4716e4974fb464d935073e102c77020", 30),
-    ("m-307d59cc10744c30b9b341586296954f", 20),
-    ("m-aaa78bb8bef343369498bbf9d8e91c41", 10),
-    ("m-af385f27e4f9411e8d4dd5ba2beb13a9", 15),
-    ("m-4710246c41084634af957af5ccdc58ec", 5),
-    ("m-fdae39e7b9a14b4e95e96097b4d2a4fc", 25),
-)
+AGENT_IDS = [("m-cdb491af84594bb09c33d6a99f3e9a6d", 2)]
+
+# ("m-c4716e4974fb464d935073e102c77020", 30),
+# ("m-307d59cc10744c30b9b341586296954f", 20),
+# ("m-aaa78bb8bef343369498bbf9d8e91c41", 10),
+# ("m-af385f27e4f9411e8d4dd5ba2beb13a9", 15),
+# ("m-4710246c41084634af957af5ccdc58ec", 5),
+# ("m-fdae39e7b9a14b4e95e96097b4d2a4fc", 25),
 
 
 def generate_for(
@@ -99,13 +99,6 @@ def main():
     set_tracking_uri_from_env()
 
     meta_df = load_dataset_meta_df(DATASET).sort_values("trace_id")
-    ds = WFDataset(
-        label=assets.PAGE_LABEL,
-        meta_df=meta_df,
-        defence=None,
-        dataset_key="train",
-        feature_trs=FeatureTrs(feature_names=feature_names, n_packets=10_000),
-    )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     idxs = np.arange(0, len(meta_df), len(meta_df) // 10)
@@ -115,7 +108,14 @@ def main():
             mlflow.get_logged_model(agent_id).model_uri,
             map_location="cpu",
         ).to(device)
-
+        ds = WFDataset(
+            label=assets.PAGE_LABEL,
+            meta_df=meta_df,
+            defence=None,
+            dataset_key="train",
+            feature_trs=FeatureTrs(feature_names=feature_names, n_packets=10_000),
+            trim_raw=obs.train_env["trim_beginning"],
+        )
         for idx in idxs:
             print(idx)
             generate_for(

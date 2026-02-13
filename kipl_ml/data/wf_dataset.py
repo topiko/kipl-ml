@@ -33,6 +33,7 @@ class WFDataset(Dataset):
     ) -> None:
         logger.info("Buidling dataset...")
 
+        self.trim_raw = trim_raw
         dataset_key = dataset_key or "".join(
             [random.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(10)]
         )

@@ -22,7 +22,7 @@ tam_ww: 0.02
 tam_max_load_time_s: 30
 
 detach_period: 500
-trim_beginning: 0
+trim_beginning: 10
 trace_len: 10000
 batch_size: 32
 dropout: 0.15
