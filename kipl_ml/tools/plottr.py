@@ -366,7 +366,6 @@ def plot_actions(
                 continue
             counts = actions[ackt[0]]
 
-            print(ackt)
             match ackt[0]:
                 case Actions.SEND_COUNT_UP:
                     color = UP_COLOR

@@ -354,11 +354,33 @@ class AGENT1(nn.Module):
             Actions.SEND_COUNT_UP,
             Actions.SEND_COUNT_DOWN,
         ]
+        send_count_bins = send_count_bins or [5, 20, 50, 100, 200]
+
         self.send_mode = send_mode
         if send_mode == "spread":
             self.ACTIONS += [Actions.SEND_TIME_UP, Actions.SEND_TIME_DOWN]
+            send_time_bins = send_time_bins or [
+                0.02,
+                0.04,
+                0.08,
+                0.16,
+            ]
+
         elif send_mode == "fixed":
             self.ACTIONS += [Actions.SEND_UP_AFTER_TIME, Actions.SEND_DOWN_AFTER_TIME]
+            send_time_bins = send_time_bins or [
+                0.00,
+                0.02,
+                0.04,
+                0.06,
+                0.08,
+                0.10,
+                0.12,
+                0.14,
+                0.16,
+                0.18,
+            ]
+
         else:
             raise ValueError(
                 f"Invalid send_mode {send_mode}, expected 'spread' or 'fix'."
@@ -370,13 +392,6 @@ class AGENT1(nn.Module):
                 + f"Got max_silence_s={max_silence_s}, time_step={time_step}."
             )
 
-        send_count_bins = send_count_bins or [5, 20, 50, 100, 200]
-        send_time_bins = send_time_bins or [
-            0.02,
-            0.04,
-            0.08,
-            0.16,
-        ]  # , max_silence_s]
         n_send_counts = len(send_count_bins)
         n_decay_times = len(send_time_bins)
 
