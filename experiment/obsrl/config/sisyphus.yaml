@@ -41,7 +41,7 @@ obs:
   ret_thres_push: 42
   init_for_wait: True
   enable_entropy_loss: True
-  separate_critic: True
+  separate_critic: False
   selection_entropy_scale: 0.005
   conditional_entropy_scale: 0.0002
   rnn_lr_reduction: 1.0

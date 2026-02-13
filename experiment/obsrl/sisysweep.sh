@@ -5,7 +5,6 @@
 set -e
 
 adv=mc
-trace_len=6000
 
 
 for reuse in True False
@@ -14,7 +13,6 @@ do
 	do
 		uv run python sisyphus.py \
 			advantages.type=$adv  \
-			trace_len=$trace_len \
 			obs.separate_critic=$sep_critic \
 			obs.reuse_obs_and_critic=$reuse \
 			experiment_name=sisy_sweep
