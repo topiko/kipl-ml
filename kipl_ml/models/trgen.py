@@ -333,13 +333,6 @@ def _forward_w_detach(
 
 class AGENT1(nn.Module):
     name: str = "agent"
-    ACTIONS: list[Actions] = [
-        Actions.SELECTOR,
-        Actions.SEND_COUNT_UP,
-        Actions.SEND_COUNT_DOWN,
-        Actions.SEND_TIME_UP,
-        Actions.SEND_TIME_DOWN,
-    ]
 
     def __init__(
         self,
@@ -348,12 +341,29 @@ class AGENT1(nn.Module):
         hsize: int = 256,
         nlayers: int = 3,
         send_count_bins: list[int] | None = None,
-        decay_time_bins: list[float] | None = None,
+        send_time_bins: list[float] | None = None,
         dropout: float = 0.0,
         prob_eps: dict[Actions, float] | float | None = None,
+        send_mode: str = "spread",
         prefer_wait_bias: float = 0.0,
     ):
         super().__init__()
+
+        self.ACTIONS: list[Actions] = [
+            Actions.SELECTOR,
+            Actions.SEND_COUNT_UP,
+            Actions.SEND_COUNT_DOWN,
+        ]
+        self.send_mode = send_mode
+        if send_mode == "spread":
+            self.ACTIONS += [Actions.SEND_TIME_UP, Actions.SEND_TIME_DOWN]
+        elif send_mode == "fix":
+            self.ACTIONS += [Actions.SEND_UP_AFTER_TIME, Actions.SEND_DOWN_AFTER_TIME]
+
+        else:
+            raise ValueError(
+                f"Invalid send_mode {send_mode}, expected 'spread' or 'fix'."
+            )
 
         if abs(max_silence_s % time_step) > 1e-12:
             raise ValueError(
@@ -362,20 +372,20 @@ class AGENT1(nn.Module):
             )
 
         send_count_bins = send_count_bins or [5, 20, 50, 100, 200]
-        decay_time_bins = decay_time_bins or [
+        send_time_bins = send_time_bins or [
             0.02,
             0.04,
             0.08,
             0.16,
         ]  # , max_silence_s]
         n_send_counts = len(send_count_bins)
-        n_decay_times = len(decay_time_bins)
+        n_decay_times = len(send_time_bins)
 
         self.register_buffer(
             "send_count_bins", torch.tensor(send_count_bins, dtype=torch.long)
         )
         self.register_buffer(
-            "decay_time_bins", torch.tensor(decay_time_bins, dtype=torch.float)
+            "send_time_bins", torch.tensor(send_time_bins, dtype=torch.float)
         )
 
         # Time step between feature extractions.
@@ -595,13 +605,13 @@ class AGENT1(nn.Module):
         send_count_d_logp = sdc.log_prob(send_count_d_idx)
         send_count_d = self.send_count_bins[send_count_d_idx]
 
-        send_decay_time_u_idx = sut.sample()
-        send_decay_time_u_logp = sut.log_prob(send_decay_time_u_idx)
-        send_decay_time_u = self.decay_time_bins[send_decay_time_u_idx]
+        send_time_u_idx = sut.sample()
+        send_time_u_logp = sut.log_prob(send_time_u_idx)
+        send_time_u = self.decay_time_bins[send_time_u_idx]
 
-        send_decay_time_d_idx = sdt.sample()
-        send_decay_time_d_logp = sdt.log_prob(send_decay_time_d_idx)
-        send_decay_time_d = self.decay_time_bins[send_decay_time_d_idx]
+        send_time_d_idx = sdt.sample()
+        send_time_d_logp = sdt.log_prob(send_time_d_idx)
+        send_time_d = self.decay_time_bins[send_time_d_idx]
 
         # Conditional entropy H[A|S]:
         # =============================
@@ -638,8 +648,8 @@ class AGENT1(nn.Module):
             Actions.WAIT: torch.zeros_like(selections),
             Actions.SEND_COUNT_DOWN: send_count_d.detach().clone(),
             Actions.SEND_COUNT_UP: send_count_u.detach().clone(),
-            Actions.SEND_TIME_DOWN: send_decay_time_d.detach().clone(),
-            Actions.SEND_TIME_UP: send_decay_time_u.detach().clone(),
+            Actions.SEND_TIME_DOWN: send_time_d.detach().clone(),
+            Actions.SEND_TIME_UP: send_time_u.detach().clone(),
         }
 
         # WAIT:
@@ -660,7 +670,7 @@ class AGENT1(nn.Module):
 
         # (B, L)
         log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
-            send_count_u_logp[mask] + send_decay_time_u_logp[mask]
+            send_count_u_logp[mask] + send_time_u_logp[mask]
         )
         actions[Actions.SEND_COUNT_DOWN][mask] = 0
         actions[Actions.SEND_TIME_DOWN][mask] = 0
@@ -671,7 +681,7 @@ class AGENT1(nn.Module):
 
         # (B, L)
         log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
-            send_count_d_logp[mask] + send_decay_time_d_logp[mask]
+            send_count_d_logp[mask] + send_time_d_logp[mask]
         )
         actions[Actions.SEND_COUNT_UP][mask] = 0
         actions[Actions.SEND_TIME_UP][mask] = 0
@@ -683,9 +693,9 @@ class AGENT1(nn.Module):
         # (B, L)
         log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
             send_count_u_logp[mask]
-            + send_decay_time_u_logp[mask]
+            + send_time_u_logp[mask]
             + send_count_d_logp[mask]
-            + send_decay_time_d_logp[mask]
+            + send_time_d_logp[mask]
         )
 
         # (B, L)
@@ -693,6 +703,13 @@ class AGENT1(nn.Module):
 
         # The actions take place only after the current window is processed -> + Dt
         times = x[Feats.TIMES] + x[Feats.Dt]
+
+        if self.send_mode == "spread":
+            # Map the action names.
+            actions[Actions.SEND_UP_AFTER_TIME] = actions[Actions.SEND_TIME_UP].pop()
+            actions[Actions.SEND_DOWN_AFTER_TIME] = actions[
+                Actions.SEND_TIME_DOWN
+            ].pop()
 
         return times, actions, log_probs, sel_probs, values, entropies, h
 

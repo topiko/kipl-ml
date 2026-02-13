@@ -8,4 +8,7 @@ class Actions(StrEnum):
     SEND_TIME_UP = "send_time_up"
     SEND_TIME_DOWN = "send_time_down"
 
+    SEND_UP_AFTER_TIME = "send_up_after_time"
+    SEND_DOWN_AFTER_TIME = "send_down_after_time"
+
     SELECTOR = "selector"
