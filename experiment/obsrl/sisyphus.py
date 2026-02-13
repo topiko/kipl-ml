@@ -517,21 +517,10 @@ def main(cfg: DictConfig):
 
         disc_feats = FeatureTrs(
             feature_trs=[
-                get_feature_tr(
-                    fn,
-                    npackets,
-                    tam_kwargs=tam_d,
-                    trim_beginning=cfg.trace.trim_beginning,
-                )
-                for fn in feature_names
+                get_feature_tr(fn, npackets, tam_kwargs=tam_d) for fn in feature_names
             ]
             + [
-                get_feature_tr(
-                    f,
-                    npackets,
-                    tam_kwargs=tam_d,
-                    trim_beginning=cfg.trace.trim_beginning,
-                )
+                get_feature_tr(f, npackets, tam_kwargs=tam_d)
                 for f in (Feats.TAM_DOWN_PAD, Feats.TAM_UP_PAD)
             ],
             n_packets=None,
@@ -541,11 +530,7 @@ def main(cfg: DictConfig):
         npackets = cfg.trace_len
 
         # Discriminator features, w.o. limit on n_packets
-        disc_feats = FeatureTrs(
-            feature_names=feature_names,
-            n_packets=None,
-            trim_beginning=cfg.trace.trim_beginning,
-        )
+        disc_feats = FeatureTrs(feature_names=feature_names, n_packets=None)
     else:
         raise ValueError(
             f"Unknown feat_mode {discriminator_orig.feat_mode} in discriminator_orig!"
@@ -566,10 +551,10 @@ def main(cfg: DictConfig):
         feature_trs=FeatureTrs(
             feature_names=[Feats.DIRS, Feats.TIMES],
             n_packets=cfg.trace_len,
-            trim_beginning=cfg.trace.trim_beginning,
         ),
         defence_aug_valid=0,
         n_min_packets=cfg.min_packets_in_trace,
+        trim_raw=cfg.trace.trim_beginning,
         **defence_builder.get_defence(cfg),
     )
 

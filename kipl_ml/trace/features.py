@@ -37,15 +37,12 @@ def _pad_short_trace(
     n_packets: int,
     asset_key: str,
     cut: bool = True,
-    trim_beginning: int = 0,
 ) -> torch.Tensor:
-    n_packets += trim_beginning
-    if cut and (trace.shape[0] >= n_packets):
-        return trace[trim_beginning:n_packets]
+    if cut:
+        return trace[:n_packets]
 
     if asset_key == Feats.TIMES:
         pad_val = trace[-1].item()
-        trace -= trace[trim_beginning].item()
     elif asset_key in {Feats.DIRS, Feats.SIZES}:
         pad_val = 0.0
     elif asset_key == Feats.PADDING:
@@ -55,7 +52,7 @@ def _pad_short_trace(
 
     return torch.cat(
         [
-            trace[trim_beginning:],
+            trace,
             torch.ones(
                 n_packets - trace.shape[0],
                 *trace.shape[1:],
@@ -70,17 +67,16 @@ def _pad_short_trace(
 class PadOrCutTrace(_TR):
     NAME = "sel_packets"
 
-    def __init__(self, n_packets: int | None, trim_beginning: int = 0):
+    def __init__(self, n_packets: int | None):
         if n_packets is None:
             logger.info("Disabled padding/cutting traces - n_packets is None")
         self.n_packets = n_packets
-        self.trim_beginning = trim_beginning
 
     @property
     def name(self) -> str:
         if self.n_packets is None:
             return "cut/pad DISABLED"
-        return f"slice|{self.trim_beginning}:{self.n_packets}"
+        return f"slice|:{self.n_packets}"
 
     def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> PadOrCutTrace:
         self._output_sizes = {key: self.n_packets for key in trace.keys()}
@@ -92,9 +88,7 @@ class PadOrCutTrace(_TR):
             return trace
 
         trace_ = {
-            key: _pad_short_trace(
-                val, self.n_packets, asset_key=key, trim_beginning=self.trim_beginning
-            )
+            key: _pad_short_trace(val, self.n_packets, asset_key=key)
             for key, val in trace.items()
         }
 
@@ -761,7 +755,6 @@ class FeatureTrs:
         feature_trs: list[_TR] | None = None,
         feature_names: list[Feats] | None = None,
         n_packets: int | None = None,
-        trim_beginning: int = 0,
     ):
         if feature_trs is None and feature_names is None:
             raise ValueError(
@@ -770,9 +763,7 @@ class FeatureTrs:
         if feature_trs is None:
             if n_packets is None:
                 logger.warning("No 'n_packets' provided, padding/cutting disabled.")
-            feature_trs = build_feature_trs(
-                feature_names, n_packets, trim_beginning=trim_beginning
-            )
+            feature_trs = build_feature_trs(feature_names, n_packets)
         elif not all(isinstance(tr, _TR) for tr in feature_trs):
             raise ValueError("All elements in 'feature_trs' must be of type _TR.")
 
@@ -871,86 +862,78 @@ class FeatureTrs:
         return transformed_trace_batch
 
 
-def build_feature_trs(
-    feature_name: list[Feats], n_packets: int, trim_beginning: int
-) -> list[_TR]:
-    return [
-        get_feature_tr(f, n_packets, trim_beginning=trim_beginning)
-        for f in feature_name
-    ]
+def build_feature_trs(feature_name: list[Feats], n_packets: int) -> list[_TR]:
+    return [get_feature_tr(f, n_packets) for f in feature_name]
 
 
 def get_feature_tr(
     feature_name: Feats,
     n_packets: int | None,
-    trim_beginning: int = 0,
     tam_kwargs: dict[str, Any] | None = None,
 ) -> _TR:
     tam_kwargs = tam_kwargs or {}
     match feature_name:
         case Feats.DIRS:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 Select(Feats.DIRS),
             )
         case Feats.DIR_PROBS:
-            return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning), DirProbs()
-            )
+            return Compose(PadOrCutTrace(n_packets), DirProbs())
         case Feats.SIZES:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 Select(Feats.SIZES),
             )
         case Feats.TIMES:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 Select(Feats.TIMES),
             )
         case Feats.PADDING:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 Select(Feats.PADDING),
             )
         case Feats.UP_PACKETS:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 UDPackets("up", Feats.DIRS),
             )
         case Feats.DOWN_PACKETS:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 UDPackets("down", Feats.DIRS),
             )
         case Feats.IATS:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 IAT("any", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
             )
         case Feats.UP_IATS:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 IAT("up", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
             )
         case Feats.DOWN_IATS:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
             )
         case Feats.LOG1P_IATS:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 IAT("any", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 Log1p(Feats.IATS),
             )
         case Feats.TIMES_NORMALIZED:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 Normalize(normalized_asset=Feats.TIMES, input_asset=Feats.TIMES),
             )
         case Feats.TIMES_MAX_NORMALIZED:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 Normalize(
                     normalized_asset=Feats.TIMES,
                     input_asset=Feats.TIMES,
@@ -959,13 +942,13 @@ def get_feature_tr(
             )
         case Feats.IATS_NORMALIZED:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 IAT("any", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 Normalize(normalized_asset=Feats.IATS, input_asset=Feats.IATS),
             )
         case Feats.IATS_MAX_NORMALIZED:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 IAT("any", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 Normalize(
                     normalized_asset=Feats.IATS,
@@ -975,30 +958,30 @@ def get_feature_tr(
             )
         case Feats.TIME_DIRS:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 TimeDirs(time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
             )
         case Feats.IAT_DIRS:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 IAT("any", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 IATDirs(dir_asset=Feats.DIRS, iat_asset=Feats.IATS),
             )
         case Feats.IAT_DIRS_NORMALIZED:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 IAT("any", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 Normalize(normalized_asset=Feats.IATS, input_asset=Feats.IATS),
                 IATDirs(dir_asset=Feats.DIRS, iat_asset=Feats.IATS_NORMALIZED),
             )
         case Feats.CUM_SIZES:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 Cumulative(Feats.SIZES),
             )
         case Feats.CUM_SIZES_MAX_NORMALIZED:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 Cumulative(Feats.SIZES),
                 Normalize(
                     normalized_asset=Feats.CUM_SIZES,
@@ -1007,9 +990,7 @@ def get_feature_tr(
                 ),
             )
         case Feats.BURST_EDGES:
-            return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning), BurstEdges()
-            )
+            return Compose(PadOrCutTrace(n_packets), BurstEdges())
         case Feats.BURST_LENS:
             return Compose(BurstEdges(), BurstLens())
         case Feats.BURST_DURS:
@@ -1020,14 +1001,14 @@ def get_feature_tr(
             return Compose(BurstEdges(), BurstDirs())
         case Feats.FLOW_IATS:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 IAT("up", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 FlowIATS(),
             )
         case Feats.FLOW_IATS_NORMALIZED:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 IAT("up", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 FlowIATS(),
@@ -1038,7 +1019,7 @@ def get_feature_tr(
             )
         case Feats.LOG_INV_FLOW_IATS:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 IAT("up", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 FlowIATS(),
@@ -1046,7 +1027,7 @@ def get_feature_tr(
             )
         case Feats.LOG_INV_FLOW_IATS_NORMALIZED:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 IAT("up", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 FlowIATS(),
@@ -1058,7 +1039,7 @@ def get_feature_tr(
             )
         case Feats.LOG_INV_FLOW_IAT_DIRS:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 IAT("up", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 FlowIATS(),
@@ -1071,7 +1052,7 @@ def get_feature_tr(
             )
         case Feats.LOG_INV_FLOW_IATS_NORMALIZED_DIRS:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 IAT("up", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 IAT("down", time_asset=Feats.TIMES, dir_asset=Feats.DIRS),
                 FlowIATS(),
@@ -1088,12 +1069,12 @@ def get_feature_tr(
             )
         case Feats.RUNNING_RATE_SIZES:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 RunningRate(Feats.SIZES, Feats.TIMES),
             )
         case Feats.RUNNING_RATE_SIZES_MAX_NORMALIZED:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 RunningRate(Feats.SIZES, Feats.TIMES),
                 Normalize(
                     normalized_asset=Feats.RUNNING_RATE_SIZES,
@@ -1103,18 +1084,18 @@ def get_feature_tr(
             )
         case Feats.SIZE_DIRS:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 SizeDirs(dir_asset=Feats.DIRS, size_asset=Feats.SIZES),
             )
         case Feats.CUM_SIZE_DIRS:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 SizeDirs(dir_asset=Feats.DIRS, size_asset=Feats.SIZES),
                 Cumulative(Feats.SIZE_DIRS),
             )
         case Feats.CUM_SIZE_DIRS_MAX_NORMALIZED:
             return Compose(
-                PadOrCutTrace(n_packets, trim_beginning=trim_beginning),
+                PadOrCutTrace(n_packets),
                 SizeDirs(dir_asset=Feats.DIRS, size_asset=Feats.SIZES),
                 Cumulative(Feats.SIZE_DIRS),
                 Normalize(
@@ -1124,46 +1105,31 @@ def get_feature_tr(
                 ),
             )
         case Feats.TAM_UP_COUNTS:
-            return Compose(
-                PadOrCutTrace(None, trim_beginning=trim_beginning), TAM_UP(**tam_kwargs)
-            )
+            return TAM_UP(**tam_kwargs)
         case Feats.TAM_UP_PAD:
-            return Compose(
-                PadOrCutTrace(None, trim_beginning=trim_beginning),
-                TAM_UP_PAD(**tam_kwargs),
-            )
+            return TAM_UP_PAD(**tam_kwargs)
         case Feats.TAM_UP_COUNTS_MAX_NORMALIZED:
             return Compose(
-                PadOrCutTrace(None, trim_beginning=trim_beginning),
                 TAM_UP(**tam_kwargs),
                 Normalize(
-                    normalized_asset=Feats.TAM_UP,
-                    input_asset=Feats.TAM_UP,
+                    normalized_asset=Feats.TAM_UP_COUNTS,
+                    input_asset=Feats.TAM_UP_COUNTS,
                     division="max",
                 ),
             )
         case Feats.TAM_DOWN_COUNTS:
-            return Compose(
-                PadOrCutTrace(None, trim_beginning=trim_beginning),
-                TAM_DOWN(**tam_kwargs),
-            )
+            return TAM_DOWN(**tam_kwargs)
+
         case Feats.TAM_DOWN_PAD:
-            return Compose(
-                PadOrCutTrace(None, trim_beginning=trim_beginning),
-                TAM_DOWN_PAD(**tam_kwargs),
-            )
+            return TAM_DOWN_PAD(**tam_kwargs)
         case Feats.TAM_TIMES:
-            return Compose(
-                PadOrCutTrace(None, trim_beginning=trim_beginning),
-                TAM_TIMES(**tam_kwargs),
-            )
+            return TAM_TIMES(**tam_kwargs)
         case Feats.TAM_DOWN_COUNTS_MAX_NORMALIZED:
             return Compose(
-                PadOrCutTrace(None, trim_beginning=trim_beginning),
                 TAM_DOWN(**tam_kwargs),
                 Normalize(
-                    normalized_asset=Feats.TAM_DOWN,
-                    input_asset=Feats.TAM_DOWN,
+                    normalized_asset=Feats.TAM_DOWN_COUNTS,
+                    input_asset=Feats.TAM_DOWN_COUNTS,
                     division="max",
                 ),
             )

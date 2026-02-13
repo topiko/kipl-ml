@@ -29,6 +29,7 @@ class WFDataset(Dataset):
         defence: _Def | None = None,
         defence_aug: int = 0,
         dataset_key: str | None = None,
+        trim_raw: int = 0,
     ) -> None:
         logger.info("Buidling dataset...")
 
@@ -67,6 +68,8 @@ class WFDataset(Dataset):
         str_ += key_val_fmt("defence augmentation", self.defence_aug)
         str_ += key_val_fmt("n_traces (aug)", len(self))
         str_ += key_val_fmt("n_classes", self.n_classes)
+        if self.trim_raw > 0:
+            str_ += key_val_fmt("trimming from start:", self.trim_raw)
         if self.feature_trs is not None:
             str_ += self.feature_trs.report(to_log=False)
         else:
@@ -196,6 +199,11 @@ class WFDataset(Dataset):
 
     def __getitem__(self, idx: int) -> tuple[dict[Feats, torch.Tensor], torch.Tensor]:
         trace_dict = self._get_trace(idx)
+
+        if self.trim_raw:
+            trace_dict = {k: v[self.trim_raw :] for k, v in trace_dict.items()}
+            # Set time to start from 0.
+            trace_dict[Feats.TIMES] -= trace_dict[Feats.TIMES][0].item()
 
         if self.feature_trs is not None:
             trace_dict = self.feature_trs(trace_dict)
