@@ -606,9 +606,14 @@ def train_disc_one_batch(
                 loss.backward()
 
                 # Gradient clipping
-                nn.utils.clip_grad_norm_(
-                    disc.parameters(), grad_clip, error_if_nonfinite=True
-                )
+                try:
+                    nn.utils.clip_grad_norm_(
+                        disc.parameters(), grad_clip, error_if_nonfinite=True
+                    )
+                except RuntimeError:
+                    print("Nan in grads")
+                    breakpoint()
+                    return loss_mean, None
 
                 disc_opm.step()
 
