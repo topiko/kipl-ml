@@ -45,6 +45,7 @@ def _pad_short_trace(
 
     if asset_key == Feats.TIMES:
         pad_val = trace[-1].item()
+        trace -= trace[trim_beginning].item()
     elif asset_key in {Feats.DIRS, Feats.SIZES}:
         pad_val = 0.0
     elif asset_key == Feats.PADDING:

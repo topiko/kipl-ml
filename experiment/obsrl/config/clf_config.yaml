@@ -17,10 +17,13 @@ tam_features:
   - tam-download
   - tam-times
 
-tam_ww: 0.02
-tam_max_load_time_s: 30
 
-trace_len: 5000
+tam_ww: 0.02
+tam_max_load_time_s: 80
+
+detach_period: 500
+trim_beginning: 10
+trace_len: 10000
 batch_size: 32
 dropout: 0.25
 grad_norm_clip: 5

@@ -72,6 +72,7 @@ class RNNCLF1(nn.Module):
         self,
         n_classes: int,
         features: list[Feats],
+        trim_beginning: int,
         hsize: int = 256,
         nlayer: int = 3,
         dropout: float = 0.2,
@@ -79,6 +80,8 @@ class RNNCLF1(nn.Module):
         tam_dict: dict[str, int] | None = None,
     ):
         super().__init__()
+
+        self.trim_beginning = trim_beginning
 
         if set(features).issubset(
             {Feats.BURST_LENS, Feats.BURST_DURS, Feats.BURST_RELDURS}

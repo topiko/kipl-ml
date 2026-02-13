@@ -582,6 +582,12 @@ def main(cfg: DictConfig):
 
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
+
+    if {discriminator.trim_beginning, discriminator_orig.trim_beginning} != {
+        cfg.trace.trim_beginning
+    }:
+        raise ValueError("Discrim trained on different trimming...")
+
     disc_league = _append_to_league([], discriminator_orig.state_dict())
     if not cfg.obs.init_for_wait:
         disc_league = _append_to_league(disc_league, discriminator.state_dict())

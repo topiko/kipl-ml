@@ -56,8 +56,9 @@ def main(cfg: DictConfig):
         feature_trs = [
             get_feature_tr(
                 fn,
-                100_000,
+                None,
                 tam_kwargs=tam_d,
+                trim_beginning=cfg.trim_beginning,
             )
             for fn in feature_names
         ]
@@ -84,15 +85,16 @@ def main(cfg: DictConfig):
     clf = RNNCLF1(
         ds_train.n_classes,
         feature_names,
+        trim_beginning=cfg.trim_beginning,
         dropout=cfg.dropout,
-        hsize=512,
-        nlayer=2,
+        hsize=128,
+        nlayer=3,
         tam_dict=tam_d,
     )
 
     logger.info(f"Model parameters: {count_parameters(clf)}")
 
-    optimG = torch.optim.Adam(clf.parameters(), lr=0.005)
+    optimG = torch.optim.Adam(clf.parameters(), lr=0.002)
 
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer=optimG, factor=0.5, patience=3
@@ -127,7 +129,7 @@ def main(cfg: DictConfig):
                         feature_trs=None,
                         train=True,
                         grad_clip=cfg.grad_norm_clip,
-                        detach_period=10000,
+                        detach_period=cfg.detach_period,
                         get_accuracy=False,
                     )
 
