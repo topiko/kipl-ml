@@ -357,9 +357,8 @@ class AGENT1(nn.Module):
         self.send_mode = send_mode
         if send_mode == "spread":
             self.ACTIONS += [Actions.SEND_TIME_UP, Actions.SEND_TIME_DOWN]
-        elif send_mode == "fix":
+        elif send_mode == "fixed":
             self.ACTIONS += [Actions.SEND_UP_AFTER_TIME, Actions.SEND_DOWN_AFTER_TIME]
-
         else:
             raise ValueError(
                 f"Invalid send_mode {send_mode}, expected 'spread' or 'fix'."
@@ -394,21 +393,26 @@ class AGENT1(nn.Module):
         self.max_silence_s = max_silence_s
 
         # Exploration prob eps for each action:
+        control_actions = [
+            Actions.SELECTOR,
+            Actions.SEND_COUNT_UP,
+            Actions.SEND_COUNT_DOWN,
+            Actions.SEND_TIME_UP,
+            Actions.SEND_TIME_DOWN,
+        ]
         if prob_eps is not None:
             if isinstance(prob_eps, float):
-                if prob_eps < 0 or prob_eps > 1:
-                    raise ValueError(f"prob_eps must be in [0, 1], got {prob_eps}")
-                self.prob_eps = {a: prob_eps for a in self.ACTIONS}
+                self.prob_eps = {a: prob_eps for a in control_actions}
             else:
-                if not set(prob_eps.keys()).issuperset(set(self.ACTIONS)):
+                if not set(prob_eps.keys()).issuperset(set(control_actions)):
                     raise ValueError("prob_eps keys must cover all actions.")
-                for a in self.ACTIONS:
+                for a in control_actions:
                     eps = float(prob_eps[a])
                     if eps < 0 or eps > 1:
                         raise ValueError(f"prob_eps[{a}] must be in [0, 1], got {eps}")
-                self.prob_eps = {a: float(prob_eps[a]) for a in self.ACTIONS}
+                self.prob_eps = {a: float(prob_eps[a]) for a in control_actions}
         else:
-            self.prob_eps = {a: 0.0 for a in self.ACTIONS}
+            self.prob_eps = {a: 0.0 for a in control_actions}
 
         self.features = [
             Feats.UP_COUNT,
@@ -607,11 +611,11 @@ class AGENT1(nn.Module):
 
         send_time_u_idx = sut.sample()
         send_time_u_logp = sut.log_prob(send_time_u_idx)
-        send_time_u = self.decay_time_bins[send_time_u_idx]
+        send_time_u = self.send_time_bins[send_time_u_idx]
 
         send_time_d_idx = sdt.sample()
         send_time_d_logp = sdt.log_prob(send_time_d_idx)
-        send_time_d = self.decay_time_bins[send_time_d_idx]
+        send_time_d = self.send_time_bins[send_time_d_idx]
 
         # Conditional entropy H[A|S]:
         # =============================
@@ -704,12 +708,17 @@ class AGENT1(nn.Module):
         # The actions take place only after the current window is processed -> + Dt
         times = x[Feats.TIMES] + x[Feats.Dt]
 
+        # Map the action names.
         if self.send_mode == "spread":
-            # Map the action names.
-            actions[Actions.SEND_UP_AFTER_TIME] = actions[Actions.SEND_TIME_UP].pop()
-            actions[Actions.SEND_DOWN_AFTER_TIME] = actions[
-                Actions.SEND_TIME_DOWN
-            ].pop()
+            actions[Actions.SPREAD_TIME_UP] = actions.pop(Actions.SEND_TIME_UP)
+            actions[Actions.SPREAD_TIME_DOWN] = actions.pop(Actions.SEND_TIME_DOWN)
+        elif self.send_mode == "fixed":
+            actions[Actions.SEND_UP_AFTER_TIME] = actions.pop(Actions.SEND_TIME_UP)
+            actions[Actions.SEND_DOWN_AFTER_TIME] = actions.pop(Actions.SEND_TIME_DOWN)
+        else:
+            raise ValueError(
+                f"Invalid send_mode {self.send_mode}, expected 'spread' or 'fix'."
+            )
 
         return times, actions, log_probs, sel_probs, values, entropies, h
 

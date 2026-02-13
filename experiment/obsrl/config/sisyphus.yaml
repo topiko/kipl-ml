@@ -28,6 +28,7 @@ obs:
   critic_detach_period: 500
   lr: 0.001
   critic_lr: 0.0005
+  send_mode: "fixed"
 
   hsize: 256
   nhidden: 2

@@ -487,6 +487,7 @@ def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
             Actions.SEND_TIME_DOWN: f_ * eps,
         },
         prefer_wait_bias=6.0 if cfg.obs.init_for_wait else 0.0,
+        send_mode=cfg.obs.send_mode,
     )
 
     critic = None

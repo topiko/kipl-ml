@@ -356,14 +356,17 @@ def plot_actions(
     max_c = 0
     for ackt in (
         Actions.WAIT,
-        (Actions.SEND_COUNT_UP, Actions.SEND_TIME_UP),
-        (Actions.SEND_COUNT_DOWN, Actions.SEND_TIME_DOWN),
+        (Actions.SEND_COUNT_UP, Actions.SPREAD_TIME_UP),
+        (Actions.SEND_COUNT_UP, Actions.SEND_UP_AFTER_TIME),
+        (Actions.SEND_COUNT_DOWN, Actions.SPREAD_TIME_DOWN),
+        (Actions.SEND_COUNT_DOWN, Actions.SEND_DOWN_AFTER_TIME),
     ):
         if isinstance(ackt, tuple):
+            if ackt[0] not in actions or ackt[1] not in actions:
+                continue
             counts = actions[ackt[0]]
-            counts[counts == 0] = 0.05
-            durs = actions[ackt[1]]
 
+            print(ackt)
             match ackt[0]:
                 case Actions.SEND_COUNT_UP:
                     color = UP_COLOR
@@ -373,11 +376,48 @@ def plot_actions(
                 case _:
                     raise ValueError(f"Unknown action type: {ackt[0]}")
 
+            match ackt[1]:
+                case Actions.SPREAD_TIME_UP | Actions.SPREAD_TIME_DOWN:
+                    durs = actions[ackt[1]]
+                    shifts = np.zeros_like(times)
+                case Actions.SEND_UP_AFTER_TIME | Actions.SEND_DOWN_AFTER_TIME:
+                    durs = np.ones_like(times) * 0.005
+                    shifts = actions[ackt[1]]
+                case _:
+                    raise ValueError(f"Unknown action type: {ackt[1]}")
+
             max_c = max(max_c, np.absolute(counts).max())
 
+            mask = counts != 0
             _plot_boxes(
-                x=times, widths=durs, heights=counts, color=color, alpha=0.2, ax=ax
+                x=times[mask] + shifts[mask],
+                widths=durs[mask],
+                heights=counts[mask],
+                color=color,
+                alpha=0.2,
+                ax=ax,
             )
+
+            if (shifts != 0).any():
+                mask = shifts != 0
+                ax.quiver(
+                    times[mask],
+                    np.zeros_like(times[mask]),
+                    shifts[mask],
+                    counts[mask],
+                    angles="xy",
+                    scale_units="xy",
+                    scale=1,
+                    width=0.001,
+                    headwidth=2.0,
+                    headlength=2.0,
+                    headaxislength=3.6,
+                    linewidth=0.2,
+                    color="k",
+                    alpha=0.5,
+                    rasterized=True,  # nice if you save to PDF with lots of arrows
+                )
+
         elif ackt == Actions.WAIT:
             counts = np.zeros_like(times)
             durs = np.diff(times, append=np.array([times[-1]]), axis=0)
