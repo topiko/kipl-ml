@@ -503,7 +503,8 @@ def main(cfg: DictConfig):
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
 
-    model_id = "m-e30a0dd900c740c8a33db9c0f45d8b37"
+    model_id = "m-ab8613b6d3d64f7ebd3bacbea0ab619c"
+    # m-ab8613b6d3d64f7ebd3bacbea0ab619c
     discriminator_orig = mlflow.pytorch.load_model(
         mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
     )

@@ -88,7 +88,7 @@ def main(cfg: DictConfig):
         trim_beginning=cfg.trim_beginning,
         dropout=cfg.dropout,
         hsize=128,
-        nlayer=3,
+        nlayer=2,
         tam_dict=tam_d,
     )
 
