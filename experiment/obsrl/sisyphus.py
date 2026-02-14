@@ -461,7 +461,7 @@ def train_obs_on_league(
             mlflow.log_metric("padding_scale", reward_scales_["padding_scale"], step=e)
             break
 
-        if eo % cfg.obs.rewards_map_epochs == 0:
+        if eo % cfg.obs.rewards_rescale_epochs == 0:
             reward_scales_["padding_scale"] *= cfg.obs.padding_scale_reduction
             logger.info(f"At obs epoch {eo} re-scaled rewards -> ")
             for k, v in reward_scales_.items():
@@ -469,7 +469,10 @@ def train_obs_on_league(
 
         if eo > cfg.obs.max_epochs_per_push:
             obs, critic = get_agent_and_critic(cfg)
-            logger.warning("No obs found resetting...")
+            obs.to(device)
+            if critic is not None:
+                critic.to(device)
+            logger.warning("No obs found; resetting...")
             return obs_league, obs, critic
 
         eo += 1

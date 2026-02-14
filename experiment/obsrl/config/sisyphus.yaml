@@ -38,12 +38,12 @@ obs:
   #
   # When going up the ret needs to be higher than this
   # against the curent disc league.
-  ret_thres_push: 42
+  ret_thres_push: 40
   init_for_wait: True
   enable_entropy_loss: True
   separate_critic: False
   selection_entropy_scale: 0.005
-  conditional_entropy_scale: 0.0002
+  conditional_entropy_scale: 0.0005
   rnn_lr_reduction: 1.0
 
   # When starting a new push; use the obs and critic from the last push.
@@ -51,7 +51,7 @@ obs:
   reuse_obs_and_critic: True
 
   # How many epochs to iterate before lowering padding scale.
-  rewards_map_epochs: 7
+  rewards_rescale_epochs: 7
 
   # After this you reset the obs and critic and return...
   max_epochs_per_push: 28
@@ -86,6 +86,6 @@ trace_len: 6_000
 batch_size: 64
 label_smoothing: 0.02
 
-max_epochs: 24
+max_epochs: 32
 
 
