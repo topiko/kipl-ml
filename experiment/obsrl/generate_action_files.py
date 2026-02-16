@@ -30,7 +30,10 @@ DATASET = Datasets.BIGENOUGH
 N_REALIZATIONS = 100
 
 DATA_DIR = "action_data/"
-AGENT_IDS = [("m-cdb491af84594bb09c33d6a99f3e9a6d", 2)]
+AGENT_IDS = [
+    ("m-5033ee0387fc43d5be17649ca3c4b766", 30),
+    ("m-5a5ddbc5349d4b308ed67889a8607404", 25),
+]
 
 # ("m-c4716e4974fb464d935073e102c77020", 30),
 # ("m-307d59cc10744c30b9b341586296954f", 20),
@@ -114,7 +117,7 @@ def main():
             defence=None,
             dataset_key="train",
             feature_trs=FeatureTrs(feature_names=feature_names, n_packets=10_000),
-            trim_raw=obs.train_env["trim_beginning"],
+            trim_raw=obs.train_env["trim_raw"],
         )
         for idx in idxs:
             print(idx)

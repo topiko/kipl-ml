@@ -10,8 +10,8 @@ source scripts/defense_lists.sh
 nepochs=30
 dataset="bigenough"
 defaug=1
+trim_beginning=0
 
-test_xvs="[0]"
 
 if [ -n "$1" ]; then
     dataset="$1"
@@ -26,7 +26,7 @@ rlobs_run_name="${2:-${RLOBS_RUN_NAME:-}}"
 netwk_state="infinite"
 
 
-defences=(front-infinite no_defence ephemeral-pad-inf-sc0.75)
+defences=(front-infinite no_defence ephemeral-pad-inf-sc0.75 interspace breakpad)
 
 if [ -n "$rlobs_run_name" ]; then
     rl_dir="$EPHEMERAL_DIR/config/defence/$rlobs_run_name"
@@ -65,23 +65,29 @@ if [ -n "$rlobs_run_name" ]; then
     defences=("${prefixed_defences[@]}" "${defences[@]}")
 fi
 
-for defence in "${defences[@]}"
+
+for test_xv in "[0]" "[1]" "[2]" "[3]" "[4]"
 do
-	echo $defence
-	expr_name="RLobs-$dataset-aug$defaug-$netwk_state"
+	for defence in "${defences[@]}"
+	do
+		echo $defence
+		expr_name="RLobs-$dataset-aug$defaug-$netwk_state"
 
-	common="train.defence_augmentation=$defaug \
-		train=fixed-epochs train.n_epochs=$nepochs \
-		misc.mlflow.experiment_name=$expr_name \
-		network=$netwk_state dataset=$dataset \
-		dataset.test_splits=$test_xvs"
-	common_lb="$common lr_scheduler.epochs=$nepochs"
+		common="train.defence_augmentation=$defaug \
+			train=fixed-epochs train.n_epochs=$nepochs \
+			misc.mlflow.experiment_name=$expr_name \
+			network=$netwk_state dataset=$dataset \
+			dataset.test_splits=$test_xv \
+			dataset.trim_beginning=$trim_beginning"
 
-	#uv run python main.py --config-name=df defence=$defence $common
-	uv run python main.py --config-name=rf defence=$defence $common
-	uv run python main.py --config-name=df-multi defence=$defence $common_lb
-	#uv run python main.py --config-name=laserbeak_wo_attention defence=$defence $common_lb
-	#uv run python main.py --config-name=rf_star defence=$defence $common
-	#uv run python main.py --config-name=laserbeak defence=$defence $common_lb
+		common_lb="$common lr_scheduler.epochs=$nepochs"
 
+		uv run python main.py --config-name=df defence=$defence $common
+		uv run python main.py --config-name=rf defence=$defence $common
+		uv run python main.py --config-name=df-multi defence=$defence $common_lb
+		#uv run python main.py --config-name=laserbeak_wo_attention defence=$defence $common_lb
+		#uv run python main.py --config-name=rf_star defence=$defence $common
+		#uv run python main.py --config-name=laserbeak defence=$defence $common_lb
+
+	done
 done

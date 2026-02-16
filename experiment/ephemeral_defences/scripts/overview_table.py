@@ -131,14 +131,14 @@ def _parse_df(
 
     if metric.startswith("metrics.def."):
         res = (
-            res.loc[:, (slice(None), "df")]
-            .rename(columns={"df": f"{metric.split('.')[-1]}"}, level=1)
+            res.loc[:, (slice(None), "rf")]
+            .rename(columns={"rf": f"{metric.split('.')[-1]}"}, level=1)
             .rename(columns={dataset: f"overhead {unit}"}, level=0)
         )
     elif metric.startswith("metrics.sim."):
         res = (
-            res.loc[:, (slice(None), "df")]
-            .rename(columns={"df": metric.split(".")[-1]}, level=1)
+            res.loc[:, (slice(None), "rf")]
+            .rename(columns={"rf": metric.split(".")[-1]}, level=1)
             .rename(columns={dataset: f"sim {unit}"}, level=0)
         )
     elif metric == "timings":
