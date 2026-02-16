@@ -336,9 +336,14 @@ def get_active_league(
 
     elif len(league) > league_size:
         scores = np.array(league_scores.cpu().numpy())
-        probs = (scores - scores.min()) / (scores.max() - scores.min() + 1e-8)
-        probs /= probs.sum()
+        if len(np.unique(scores)) == 1:
+            logger.warning("All scores equal!?")
+            probs = np.ones_like(scores) / len(scores)
+        else:
+            probs = (scores - scores.min()) / (scores.max() - scores.min() + 1e-8)
+            probs /= probs.sum()
 
+        # probs = np.clip(probs, 1e-6, 1.0)
         active_league_idx = np.random.choice(
             len(league), league_size, p=probs, replace=False
         )

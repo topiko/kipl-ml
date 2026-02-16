@@ -42,7 +42,7 @@ def main() -> None:
     parser.add_argument(
         "--unpair",
         action="store_true",
-        default=True,
+        default=False,
         help="Unpair the train and test defences",
     )
     args = parser.parse_args()

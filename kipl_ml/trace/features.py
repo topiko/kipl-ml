@@ -191,8 +191,8 @@ class Normalize(_TR):
             Feats.CUM_SIZES: Feats.CUM_SIZES_MAX_NORMALIZED,
             Feats.CUM_SIZE_DIRS: Feats.CUM_SIZE_DIRS_MAX_NORMALIZED,
             Feats.RUNNING_RATE_SIZES: Feats.RUNNING_RATE_SIZES_MAX_NORMALIZED,
-            Feats.TAM_UP: Feats.TAM_UP_MAX_NORMALIZED,
-            Feats.TAM_DOWN: Feats.TAM_DOWN_MAX_NORMALIZED,
+            Feats.TAM_UP_COUNTS: Feats.TAM_UP_COUNTS_MAX_NORMALIZED,
+            Feats.TAM_DOWN_COUNTS: Feats.TAM_DOWN_COUNTS_MAX_NORMALIZED,
         }[self.normalized_asset]
 
     def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> Normalize:
@@ -740,6 +740,7 @@ class Compose(_TR):
 
     def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         # Here inplace changes are fine?
+        trace = {k: v.clone() for k, v in trace.items()}
         for tr in self.transforms:
             if tr == self.transforms[-1]:
                 trace = tr(trace)
@@ -797,6 +798,7 @@ class FeatureTrs:
         trace_: dict[Feats, torch.Tensor] = {}
         for tr in self._feature_trs:
             out = tr(trace)
+
             if len(out) != 1:
                 raise ValueError(f"Transform {tr.name} returned more than one tensor.")
 
