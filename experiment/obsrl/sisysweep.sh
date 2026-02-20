@@ -6,7 +6,7 @@ set -e
 
 adv=mc
 
-for sep_critic in True False; do
+for sep_critic in False True; do
 	for reuse in True False; do
 		for i in $(seq 1 100); do
 			parent_name="sep-critic_$sep_critic|reuse_$reuse"
