@@ -1,7 +1,9 @@
 import copy
 
 import dotenv
+import mlflow
 import numpy as np
+import pandas as pd
 import torch
 from omegaconf import DictConfig
 from torch import nn
@@ -9,14 +11,35 @@ from torch.utils.data import SubsetRandomSampler
 from tqdm import tqdm
 
 from experiment.obsrl.sim import rollout
+from experiment.obsrl.utils import (
+    _append_to_league,
+    _get_obs_def_dl,
+    _get_optim,
+    _restore_obs_def_ds,
+    ema_update,
+    get_action_seq_lens,
+    get_active_league,
+    get_advantages,
+    keymap,
+    log_lrs,
+    make_time_mask,
+    masked_mean,
+    train_disc_one_epoch,
+)
 from experiment.trace_gan.data_utils import dl_
+from experiment.utils.list_models import list_logged_models_for_run
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.defences.base import NoDefence
 from kipl_ml.defences.nndefs import RNNDef
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.metrics.clf_metrics import Accuracy
 from kipl_ml.model_eval.evaluate import evaluate_model
+from kipl_ml.models.trgen import AGENT1
 from kipl_ml.rl.advantages import get_gae, get_returns
+from kipl_ml.tools.mlflow_utils import (
+    list_child_runs,
+    parse_child_idx,
+)
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
@@ -631,3 +654,84 @@ def train_disc_one_batch(
         accuracy = (disc.predict(X)[1] == y).float().mean().item()
 
     return loss_mean, accuracy
+
+
+def load_leagues_from_children(
+    experiment_id: str,
+    parent_run_id: str,
+    discriminator_orig: nn.Module,
+    discriminator_seed: nn.Module,
+    obs_seed: AGENT1,
+    cfg: DictConfig,
+) -> tuple[
+    list[tuple[int, dict]],
+    list[tuple[int, dict]],
+    AGENT1,
+    nn.Module,
+    dict | None,
+]:
+    """Load all obs/disc models under a parent run.
+
+    Returns:
+      obs_league, disc_league, current_obs, current_disc, latest_critic_state
+    """
+
+    child_runs = list_child_runs(experiment_id, parent_run_id)
+
+    # Start leagues with the baseline discriminator.
+    disc_league: list[tuple[int, nn.Module.state_dict]] = _append_to_league(
+        [], discriminator_orig.state_dict()
+    )
+    obs_league: list[tuple[int, nn.Module.state_dict]] = []
+
+    current_obs: AGENT1 = obs_seed
+    current_disc: nn.Module = discriminator_seed
+    latest_critic_state: nn.Module.state_dict | None = None
+
+    # Sort children by idx if possible, else by start time.
+    def _child_sort_key(r):
+        if (idx := parse_child_idx(r)) is not None:
+            return (0, idx)
+
+        raise ValueError(f"Child run {r.info.run_id} has no parseable idx!")
+
+    def _load_model_from_df(df: pd.DataFrame, model_type: str) -> nn.Module:
+        mask = df.name.astype(str).str.startswith(model_type)
+
+        if mask.sum() != 1:
+            raise ValueError(
+                f"Expected exactly one obs model in child run {run.info.run_id}, "
+                + f"found {mask.sum()}!"
+            )
+
+        model_id = df[mask].squeeze().get("model_id")
+        if not isinstance(model_id, str) or not model_id:
+            raise ValueError(
+                f"Expected a valid model_id for {model_type} in child run!"
+            )
+        model = mlflow.pytorch.load_model(
+            mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
+        )
+        return model
+
+    for run in sorted(child_runs, key=_child_sort_key):
+        df = list_logged_models_for_run(run.info.run_id)
+        if len(df) == 0:
+            raise ValueError(f"No logged models found for child run {run.info.run_id}!")
+
+        obs_league = _append_to_league(
+            obs_league,
+            _load_model_from_df(df, model_type="obs").state_dict(),
+        )
+
+        disc_league = _append_to_league(
+            disc_league,
+            _load_model_from_df(df, model_type="disc").state_dict(),
+        )
+
+    if cfg.obs.separate_critic:
+        latest_critic_state = _load_model_from_df(df, model_type="critic").state_dict()
+
+    current_obs = obs_seed.load_state_dict(obs_league[-1][1])
+    current_disc = discriminator_seed.load_state_dict(disc_league[-1][1])
+    return obs_league, disc_league, current_obs, current_disc, latest_critic_state

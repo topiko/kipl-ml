@@ -66,7 +66,6 @@ obs:
   lr_scheduler_patience: 7
   lr_scheduler_factor: .8
 
-
 disc:
   detach_period: 500
   # When coming down the disc needs to get below this against the
@@ -75,6 +74,8 @@ disc:
   predict_ks: 21
 
   tam_max_load_time_s: 90
+
+  no_defense_disc_id: "m-3a65302e5214463dbe7cb150ddcacdcb"
 
 league:
   score_type: "acc"

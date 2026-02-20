@@ -21,6 +21,7 @@ from experiment.obsrl.utils import (
     get_active_league,
     get_advantages,
     keymap,
+    load_leagues_from_children,
     log_lrs,
     make_time_mask,
     masked_mean,
@@ -28,7 +29,6 @@ from experiment.obsrl.utils import (
 )
 from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
-from experiment.utils.list_models import list_logged_models_for_run
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
@@ -39,7 +39,6 @@ from kipl_ml.tools.mlflow_utils import (
     get_mlflow_expr,
     list_child_runs,
     next_child_idx,
-    parse_child_idx,
 )
 from kipl_ml.trace.features import Feats, FeatureTrs, get_feature_tr
 
@@ -53,93 +52,6 @@ N_SPLITS = 5
 TEST_XV = 0
 TARGET = assets.PAGE_LABEL
 DATASET = Datasets.BIGENOUGH
-
-
-def _load_leagues_from_children(
-    experiment_id: str,
-    parent_run_id: str,
-    discriminator_orig: nn.Module,
-    discriminator_seed: nn.Module,
-    obs_seed: AGENT1,
-    cfg: DictConfig,
-) -> tuple[
-    list[tuple[int, dict]],
-    list[tuple[int, dict]],
-    AGENT1,
-    nn.Module,
-    dict | None,
-]:
-    """Load all obs/disc models under a parent run.
-
-    Returns:
-      obs_league, disc_league, current_obs, current_disc, latest_critic_state
-    """
-
-    child_runs = list_child_runs(experiment_id, parent_run_id)
-
-    # Start leagues with the baseline discriminator.
-    disc_league: list[tuple[int, dict]] = _append_to_league(
-        [], discriminator_orig.state_dict()
-    )
-    obs_league: list[tuple[int, dict]] = []
-
-    current_obs: AGENT1 = obs_seed
-    current_disc: nn.Module = discriminator_seed
-    latest_critic_state: dict | None = None
-
-    # Sort children by idx if possible, else by start time.
-    def _child_sort_key(r):
-        idx = parse_child_idx(r)
-        if idx is not None:
-            return (0, idx)
-        return (1, getattr(r.info, "start_time", 0) or 0)
-
-    for run in sorted(child_runs, key=_child_sort_key):
-        df = list_logged_models_for_run(run.info.run_id)
-        if len(df) == 0:
-            continue
-
-        def _iter_models(prefix: str):
-            if "name" not in df.columns:
-                return []
-            dff = df[df["name"].astype(str).str.startswith(prefix)].copy()
-            if len(dff) == 0:
-                return []
-            if "step" in dff.columns:
-                dff = dff.sort_values(by=["step", "model_id"], kind="stable")
-            return dff.to_dict(orient="records")
-
-        for row in _iter_models("rlobs"):
-            model_id = row.get("model_id")
-            if not isinstance(model_id, str) or not model_id:
-                continue
-            obs_m = mlflow.pytorch.load_model(
-                mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
-            )
-            obs_league = _append_to_league(obs_league, obs_m.state_dict())
-            current_obs = obs_m
-
-        for row in _iter_models("rldisc"):
-            model_id = row.get("model_id")
-            if not isinstance(model_id, str) or not model_id:
-                continue
-            disc_m = mlflow.pytorch.load_model(
-                mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
-            )
-            disc_league = _append_to_league(disc_league, disc_m.state_dict())
-            current_disc = disc_m
-
-        # We only keep the latest critic state.
-        for row in _iter_models("rlcritic"):
-            model_id = row.get("model_id")
-            if not isinstance(model_id, str) or not model_id:
-                continue
-            critic_m = mlflow.pytorch.load_model(
-                mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
-            )
-            latest_critic_state = critic_m.state_dict()
-
-    return obs_league, disc_league, current_obs, current_disc, latest_critic_state
 
 
 def train_obs_one_epoch(
@@ -605,14 +517,10 @@ def main(cfg: DictConfig):
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
 
-    parent_run_name = OmegaConf.select(cfg, "mlflow.parent_run_name")
-    if not parent_run_name:
+    if not (parent_run_name := cfg.mlflow.parent_run_name):
         raise ValueError("cfg.mlflow.parent_run_name must be set")
-    parent_run_name = str(parent_run_name)
 
-    parent_run_id = find_parent_run_id(experiment_id, parent_run_name)
-
-    if parent_run_id is None:
+    if (parent_run_id := find_parent_run_id(experiment_id, parent_run_name)) is None:
         logger.info("Creating parent MLflow run: %s", parent_run_name)
         with mlflow.start_run(run_name=parent_run_name):
             mlflow.set_tag("project", "obsrl.sisyphus")
@@ -624,10 +532,7 @@ def main(cfg: DictConfig):
     logger.info("Parent run: %s (%s)", parent_run_name, parent_run_id)
     logger.info("Child run: %s", child_run_name)
 
-    model_id = "m-3a65302e5214463dbe7cb150ddcacdcb"
-    # "m-c5e6b5d53abd49f6aa2517703efc4e69"
-    # trim = 10, "m-ab8613b6d3d64f7ebd3bacbea0ab619c"
-    # m-ab8613b6d3d64f7ebd3bacbea0ab619c
+    model_id = cfg.disc.no_defense_disc_id
     discriminator_orig = mlflow.pytorch.load_model(
         mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
     )
@@ -696,7 +601,7 @@ def main(cfg: DictConfig):
         obs,
         discriminator_loaded,
         latest_critic_state,
-    ) = _load_leagues_from_children(
+    ) = load_leagues_from_children(
         experiment_id=experiment_id,
         parent_run_id=parent_run_id,
         discriminator_orig=discriminator_orig,
@@ -831,15 +736,13 @@ def main(cfg: DictConfig):
             )
 
             # Persist the current push endpoints for reconstruction on next invocation.
+            mlflow.pytorch.log_model(obs, name=f"obs-{child_run_name}", step=child_idx)
             mlflow.pytorch.log_model(
-                obs, name=f"rlobs-{child_run_name}", step=child_idx
-            )
-            mlflow.pytorch.log_model(
-                discriminator, name=f"rldisc-{child_run_name}", step=child_idx
+                discriminator, name=f"disc-{child_run_name}", step=child_idx
             )
             if critic is not None:
                 mlflow.pytorch.log_model(
-                    critic, name=f"rlcritic-{child_run_name}", step=child_idx
+                    critic, name=f"critic-{child_run_name}", step=child_idx
                 )
 
 
