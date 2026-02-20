@@ -717,6 +717,20 @@ def load_leagues_from_children(
     if cfg.obs.separate_critic:
         latest_critic_state = _load_model_from_df(df, model_type="critic").state_dict()
 
-    current_obs = obs_seed.load_state_dict(obs_league[-1][1])
-    current_disc = discriminator_seed.load_state_dict(disc_league[-1][1])
+    if not obs_league:
+        logger.warning(
+            "No child runs with obs models found! Starting with empty obs league."
+        )
+        current_obs = obs_seed
+    else:
+        current_obs = obs_seed.load_state_dict(obs_league[-1][1])
+
+    if not disc_league:
+        logger.warning(
+            "No child runs with disc models found! Starting with baseline disc league."
+        )
+        current_disc = discriminator_seed
+    else:
+        current_disc = discriminator_seed.load_state_dict(disc_league[-1][1])
+
     return obs_league, disc_league, current_obs, current_disc, latest_critic_state
