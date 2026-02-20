@@ -633,7 +633,7 @@ def main(cfg: DictConfig):
                         device=device,
                         league_size=cfg.league.size,
                         league_update_frac=1.0,  # unused
-                        prune=len(disc_league) > cfg.league.size * 2,
+                        prune=len(disc_league) > cfg.league.size * 4,
                         score_type=cfg.league.score_type,
                         n_packets=cfg.trace_len,
                     )
