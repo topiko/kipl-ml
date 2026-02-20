@@ -11,21 +11,6 @@ from torch.utils.data import SubsetRandomSampler
 from tqdm import tqdm
 
 from experiment.obsrl.sim import rollout
-from experiment.obsrl.utils import (
-    _append_to_league,
-    _get_obs_def_dl,
-    _get_optim,
-    _restore_obs_def_ds,
-    ema_update,
-    get_action_seq_lens,
-    get_active_league,
-    get_advantages,
-    keymap,
-    log_lrs,
-    make_time_mask,
-    masked_mean,
-    train_disc_one_epoch,
-)
 from experiment.trace_gan.data_utils import dl_
 from experiment.utils.list_models import list_logged_models_for_run
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
