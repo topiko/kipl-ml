@@ -599,7 +599,7 @@ def main(cfg: DictConfig):
         obs_league,
         disc_league,
         obs,
-        discriminator_loaded,
+        discriminator,
         latest_critic_state,
     ) = load_leagues_from_children(
         experiment_id=experiment_id,
@@ -610,9 +610,7 @@ def main(cfg: DictConfig):
         cfg=cfg,
     )
 
-    discriminator = discriminator_loaded
-
-    if critic is not None:
+    if (critic is not None) and obs_league:
         if latest_critic_state is None:
             raise ValueError(
                 "Critic league given but no critic state found in children!"
