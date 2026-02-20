@@ -5,7 +5,12 @@ from pathlib import Path
 from mlflow.tracking import MlflowClient
 
 from experiment.utils.list_models import list_logged_models_for_run
-from kipl_ml.tools.mlflow_utils import set_tracking_uri_from_env
+from kipl_ml.tools.mlflow_utils import (
+    find_parent_run_id,
+    list_child_runs,
+    require_experiment_id,
+    set_tracking_uri_from_env,
+)
 
 
 def _slugify(s: str) -> str:
@@ -35,10 +40,27 @@ def _write_rlobs_defence_yaml(
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Generate tmp_def/<run_name>/<run_name>-<step>.yaml for each logged rlobs model in a run."
+            "Generate tmp_def/<run_name>/<run_name>-<step>.yaml for each logged rlobs model in a run, "
+            "or for all child runs under a parent run."
         )
     )
-    parser.add_argument("run_id", help="MLflow run id")
+    parser.add_argument(
+        "run_id",
+        help=(
+            "MLflow run id (default mode). If --from-parent is set, this is treated as the parent run name."
+        ),
+    )
+    parser.add_argument(
+        "--from-parent",
+        action="store_true",
+        default=False,
+        help="Interpret the positional argument as a parent run name and read all nested child runs.",
+    )
+    parser.add_argument(
+        "--experiment-name",
+        default=None,
+        help="MLflow experiment name (required with --from-parent).",
+    )
     parser.add_argument(
         "--unpair",
         action="store_true",
@@ -50,16 +72,47 @@ def main() -> None:
     set_tracking_uri_from_env()
 
     client = MlflowClient()
-    run = client.get_run(args.run_id)
-    run_name = getattr(run.info, "run_name", None) or getattr(run.info, "run_id")
+
+    if args.from_parent:
+        if not args.experiment_name:
+            raise ValueError("--experiment-name is required with --from-parent")
+        parent_run_name = str(args.run_id)
+
+        experiment_id = require_experiment_id(args.experiment_name)
+        parent_run_id = find_parent_run_id(experiment_id, parent_run_name)
+        if parent_run_id is None:
+            raise ValueError(
+                f"No parent run found for name '{parent_run_name}' in experiment '{args.experiment_name}'"
+            )
+
+        child_runs = list_child_runs(experiment_id, parent_run_id)
+        run_ids = [r.info.run_id for r in child_runs]
+        run_name = parent_run_name
+    else:
+        run = client.get_run(args.run_id)
+        run_name = getattr(run.info, "run_name", None) or getattr(run.info, "run_id")
+        run_ids = [args.run_id]
+
     if args.unpair:
         run_name += "-unpaired"
     run_name = _slugify(str(run_name))
 
-    df = list_logged_models_for_run(args.run_id)
-    if len(df) == 0:
-        print("No logged models found for run.")
+    dfs = []
+    for run_id in run_ids:
+        df = list_logged_models_for_run(run_id)
+        if len(df) != 0:
+            df = df.copy()
+            df["_run_id"] = run_id
+            dfs.append(df)
+
+    if len(dfs) == 0:
+        print("No logged models found.")
         return
+
+    # Concatenate and keep deterministic ordering.
+    import pandas as pd
+
+    df = pd.concat(dfs, ignore_index=True)
 
     if "name" not in df.columns:
         print("Logged model list is missing 'name' column; cannot filter rlobs models.")
@@ -81,6 +134,11 @@ def main() -> None:
         raise ValueError("No step found")
 
     created = 0
+
+    # Deterministic ordering across child runs.
+    sort_cols = [c for c in ["_run_id", "step", "model_id"] if c in df_rlobs.columns]
+    if sort_cols:
+        df_rlobs = df_rlobs.sort_values(by=sort_cols, kind="stable")
 
     df_rlobs.reset_index(inplace=True)
     for idx, row in df_rlobs.iterrows():

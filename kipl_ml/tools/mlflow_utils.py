@@ -1,10 +1,12 @@
 import os
+import re
 
 import dotenv
 import mlflow
 import numpy as np
 import pandas as pd
 from mlflow.entities import ViewType
+from mlflow.tracking import MlflowClient
 from omegaconf import OmegaConf
 
 from kipl_ml.data.wf_dataset import WFDataset
@@ -183,3 +185,109 @@ def get_mlflow_expr(experiment_name: str) -> str:
 
     logger.info("Experiment '%s' does not exist --> create.", experiment_name)
     return mlflow.create_experiment(experiment_name)
+
+
+def require_experiment_id(experiment_name: str) -> str:
+    """Return experiment id for name; raise if missing."""
+
+    experiment = mlflow.get_experiment_by_name(experiment_name)
+    if experiment is None:
+        raise ValueError(f"Unknown MLflow experiment: {experiment_name}")
+    return str(experiment.experiment_id)
+
+
+def _escape_filter_value(s: str) -> str:
+    # MLflow filter strings use single quotes.
+    return s.replace("'", "\\'")
+
+
+def find_parent_run_id(
+    experiment_id: str,
+    parent_run_name: str,
+    client: MlflowClient | None = None,
+) -> str | None:
+    """Find the run_id of a parent run by run_name.
+
+    Parent run is defined as having tag.mlflow.runName == parent_run_name and
+    no tag.mlflow.parentRunId.
+    """
+
+    if client is None:
+        client = MlflowClient()
+
+    runs = client.search_runs(
+        [experiment_id],
+        filter_string=f"tag.mlflow.runName = '{_escape_filter_value(parent_run_name)}'",
+        run_view_type=ViewType.ACTIVE_ONLY,
+        max_results=10_000,
+    )
+    parent_runs = [r for r in runs if r.data.tags.get("mlflow.parentRunId") is None]
+    if len(parent_runs) == 0:
+        return None
+    if len(parent_runs) > 1:
+        ids = [r.info.run_id for r in parent_runs]
+        raise ValueError(
+            f"Several parent runs found for run_name='{parent_run_name}': {ids}"
+        )
+    return parent_runs[0].info.run_id
+
+
+def list_child_runs(
+    experiment_id: str,
+    parent_run_id: str,
+    client: MlflowClient | None = None,
+):
+    """List MLflow runs that have the given parent_run_id."""
+
+    if client is None:
+        client = MlflowClient()
+
+    return client.search_runs(
+        [experiment_id],
+        filter_string=f"tag.mlflow.parentRunId = '{_escape_filter_value(parent_run_id)}'",
+        run_view_type=ViewType.ACTIVE_ONLY,
+        max_results=10_000,
+    )
+
+
+def parse_child_idx(
+    run,
+    *,
+    idx_tag: str = "sisyphus.child_idx",
+    run_name_re: str = r"(\d{3})",
+) -> int | None:
+    """Parse a numeric child index from a run.
+
+    Order of preference:
+      1) tag idx_tag
+      2) run_name matching run_name_re (default: exactly 3 digits)
+    """
+
+    tag_val = run.data.tags.get(idx_tag)
+    if tag_val is not None:
+        try:
+            return int(tag_val)
+        except Exception:
+            pass
+
+    rn = getattr(run.info, "run_name", None)
+    if isinstance(rn, str):
+        m = re.fullmatch(run_name_re, rn.strip())
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def next_child_idx(
+    child_runs,
+    *,
+    idx_tag: str = "sisyphus.child_idx",
+    run_name_re: str = r"(\d{3})",
+) -> int:
+    idxs = [
+        i
+        for r in child_runs
+        if (i := parse_child_idx(r, idx_tag=idx_tag, run_name_re=run_name_re))
+        is not None
+    ]
+    return (max(idxs) + 1) if idxs else 1

@@ -8,6 +8,10 @@ defaults:
 experiment_name: sisypus
 debug: False
 
+mlflow:
+  # Parent MLflow run name. Child runs are auto-numbered (001, 002, ...).
+  parent_run_name: "sisyphus"
+
 
 trace:
   trim_beginning: 10
@@ -86,5 +90,4 @@ batch_size: 64
 label_smoothing: 0.02
 
 max_epochs: 99
-
 

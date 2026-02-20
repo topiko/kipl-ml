@@ -28,12 +28,19 @@ from experiment.obsrl.utils import (
 )
 from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
+from experiment.utils.list_models import list_logged_models_for_run
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.trgen import AGENT1, CRITIC01
 from kipl_ml.rl.enums import Actions
-from kipl_ml.tools.mlflow_utils import get_mlflow_expr
+from kipl_ml.tools.mlflow_utils import (
+    find_parent_run_id,
+    get_mlflow_expr,
+    list_child_runs,
+    next_child_idx,
+    parse_child_idx,
+)
 from kipl_ml.trace.features import Feats, FeatureTrs, get_feature_tr
 
 logger = get_logger(__name__)
@@ -46,6 +53,93 @@ N_SPLITS = 5
 TEST_XV = 0
 TARGET = assets.PAGE_LABEL
 DATASET = Datasets.BIGENOUGH
+
+
+def _load_leagues_from_children(
+    experiment_id: str,
+    parent_run_id: str,
+    discriminator_orig: nn.Module,
+    discriminator_seed: nn.Module,
+    obs_seed: AGENT1,
+    cfg: DictConfig,
+) -> tuple[
+    list[tuple[int, dict]],
+    list[tuple[int, dict]],
+    AGENT1,
+    nn.Module,
+    dict | None,
+]:
+    """Load all obs/disc models under a parent run.
+
+    Returns:
+      obs_league, disc_league, current_obs, current_disc, latest_critic_state
+    """
+
+    child_runs = list_child_runs(experiment_id, parent_run_id)
+
+    # Start leagues with the baseline discriminator.
+    disc_league: list[tuple[int, dict]] = _append_to_league(
+        [], discriminator_orig.state_dict()
+    )
+    obs_league: list[tuple[int, dict]] = []
+
+    current_obs: AGENT1 = obs_seed
+    current_disc: nn.Module = discriminator_seed
+    latest_critic_state: dict | None = None
+
+    # Sort children by idx if possible, else by start time.
+    def _child_sort_key(r):
+        idx = parse_child_idx(r)
+        if idx is not None:
+            return (0, idx)
+        return (1, getattr(r.info, "start_time", 0) or 0)
+
+    for run in sorted(child_runs, key=_child_sort_key):
+        df = list_logged_models_for_run(run.info.run_id)
+        if len(df) == 0:
+            continue
+
+        def _iter_models(prefix: str):
+            if "name" not in df.columns:
+                return []
+            dff = df[df["name"].astype(str).str.startswith(prefix)].copy()
+            if len(dff) == 0:
+                return []
+            if "step" in dff.columns:
+                dff = dff.sort_values(by=["step", "model_id"], kind="stable")
+            return dff.to_dict(orient="records")
+
+        for row in _iter_models("rlobs"):
+            model_id = row.get("model_id")
+            if not isinstance(model_id, str) or not model_id:
+                continue
+            obs_m = mlflow.pytorch.load_model(
+                mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
+            )
+            obs_league = _append_to_league(obs_league, obs_m.state_dict())
+            current_obs = obs_m
+
+        for row in _iter_models("rldisc"):
+            model_id = row.get("model_id")
+            if not isinstance(model_id, str) or not model_id:
+                continue
+            disc_m = mlflow.pytorch.load_model(
+                mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
+            )
+            disc_league = _append_to_league(disc_league, disc_m.state_dict())
+            current_disc = disc_m
+
+        # We only keep the latest critic state.
+        for row in _iter_models("rlcritic"):
+            model_id = row.get("model_id")
+            if not isinstance(model_id, str) or not model_id:
+                continue
+            critic_m = mlflow.pytorch.load_model(
+                mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
+            )
+            latest_critic_state = critic_m.state_dict()
+
+    return obs_league, disc_league, current_obs, current_disc, latest_critic_state
 
 
 def train_obs_one_epoch(
@@ -451,7 +545,6 @@ def train_obs_on_league(
 
             obs_league = _append_to_league(obs_league, obs.state_dict())
             logger.info(f"Obs league len: {len(obs_league)}")
-            mlflow.pytorch.log_model(obs, name=f"rlobs-{e}", step=e)
 
             for k, v in metrics_d.items():
                 k = keymap(k)
@@ -511,6 +604,25 @@ def main(cfg: DictConfig):
     experiment_name = cfg.experiment_name
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)
+
+    parent_run_name = OmegaConf.select(cfg, "mlflow.parent_run_name")
+    if not parent_run_name:
+        raise ValueError("cfg.mlflow.parent_run_name must be set")
+    parent_run_name = str(parent_run_name)
+
+    parent_run_id = find_parent_run_id(experiment_id, parent_run_name)
+
+    if parent_run_id is None:
+        logger.info("Creating parent MLflow run: %s", parent_run_name)
+        with mlflow.start_run(run_name=parent_run_name):
+            mlflow.set_tag("project", "obsrl.sisyphus")
+            parent_run_id = mlflow.active_run().info.run_id
+
+    child_runs = list_child_runs(experiment_id, parent_run_id)
+    child_idx = next_child_idx(child_runs)
+    child_run_name = f"{child_idx:03d}"
+    logger.info("Parent run: %s (%s)", parent_run_name, parent_run_id)
+    logger.info("Child run: %s", child_run_name)
 
     model_id = "m-3a65302e5214463dbe7cb150ddcacdcb"
     # "m-c5e6b5d53abd49f6aa2517703efc4e69"
@@ -574,21 +686,55 @@ def main(cfg: DictConfig):
     # Defense initialization:
     # ============================================
 
-    obs, critic = get_agent_and_critic(cfg)
+    obs_seed, critic = get_agent_and_critic(cfg)
     # ============================================
+
+    # Load leagues + current models from existing children.
+    (
+        obs_league,
+        disc_league,
+        obs,
+        discriminator_loaded,
+        latest_critic_state,
+    ) = _load_leagues_from_children(
+        experiment_id=experiment_id,
+        parent_run_id=parent_run_id,
+        discriminator_orig=discriminator_orig,
+        discriminator_seed=discriminator,
+        obs_seed=obs_seed,
+        cfg=cfg,
+    )
+
+    discriminator = discriminator_loaded
+
+    if critic is not None:
+        if latest_critic_state is None:
+            raise ValueError(
+                "Critic league given but no critic state found in children!"
+            )
+        critic.load_state_dict(latest_critic_state)
 
     discriminator = discriminator.to(device)
     discriminator_orig = discriminator_orig.to(device)
+    obs = obs.to(device)
+    if critic is not None:
+        critic = critic.to(device)
 
-    if {discriminator.trim_beginning, discriminator_orig.trim_beginning} != {
-        cfg.trace.trim_beginning
-    }:
+    if {
+        discriminator.trim_beginning,
+        discriminator_orig.trim_beginning,
+        obs.train_end.get("trim_beginning", None),
+    } != {cfg.trace.trim_beginning}:
         raise ValueError("Discrim trained on different trimming...")
 
-    disc_league = _append_to_league([], discriminator_orig.state_dict())
-    if not cfg.obs.init_for_wait:
-        disc_league = _append_to_league(disc_league, discriminator.state_dict())
-    obs_league = _append_to_league([], obs.state_dict())
+    # If no prior children and init_for_wait is False, seed the disc league with
+    # an additional (trainable) discriminator checkpoint.
+    if len(disc_league) == 0:
+        raise ValueError(
+            "No discriminator in league; expected at least the original one!"
+        )
+    if len(obs_league) == 0:
+        obs_league = _append_to_league([], obs.state_dict())
 
     active_league_idx = None
 
@@ -598,13 +744,23 @@ def main(cfg: DictConfig):
         "padding_scale": cfg.rewards.padding_scale,
     }
 
-    e = 0
-    with mlflow.start_run(log_system_metrics=True):
-        d = OmegaConf.to_container(cfg, resolve=True)
-        mlflow.log_params(d)
+    # One process invocation == one child run (one push).
+    with mlflow.start_run(run_id=parent_run_id):
+        with mlflow.start_run(
+            nested=True,
+            run_name=child_run_name,
+            log_system_metrics=True,
+        ):
+            mlflow.set_tag("project", "obsrl.sisyphus")
+            mlflow.set_tag("sisyphus.parent_run_name", parent_run_name)
+            mlflow.set_tag("sisyphus.child_idx", child_idx)
+            mlflow.set_tag("sisyphus.child_run_name", child_run_name)
 
-        while True:
-            logger.info(f"Epoch {e:02d} - Training discriminator on obs league...")
+            d = OmegaConf.to_container(cfg, resolve=True)
+            mlflow.log_params(d)
+
+            e = child_idx
+            logger.info(f"Push {e:03d} - Training discriminator on obs league...")
             disc_league = train_disc_on_league(
                 discriminator=discriminator,
                 ds_train=ds_train,
@@ -617,7 +773,7 @@ def main(cfg: DictConfig):
                 cfg=cfg,
             )
 
-            logger.info(f"Epoch {e:02d} - Getting active league and weights...")
+            logger.info(f"Push {e:03d} - Getting active league and weights...")
             with torch.no_grad():
                 disc_league, active_league_idx, active_disc_league, weights = (
                     get_active_league(
@@ -641,9 +797,7 @@ def main(cfg: DictConfig):
             logger.info("\tRe-scaling league weights to uniform...")
             weights = torch.ones_like(weights) / len(weights)
 
-            # Pushing:
-            # ============================================
-            logger.info(f"Epoch {e:02d} - Training obs on disc league...")
+            logger.info(f"Push {e:03d} - Training obs on disc league...")
             obs_league, obs, critic = train_obs_on_league(
                 obs_league=obs_league,
                 obs=obs,
@@ -676,11 +830,17 @@ def main(cfg: DictConfig):
                 ntraces=20,
             )
 
-            if e > cfg.max_epochs:
-                logger.info("Max epochs reached.")
-                break
-
-            e += 1
+            # Persist the current push endpoints for reconstruction on next invocation.
+            mlflow.pytorch.log_model(
+                obs, name=f"rlobs-{child_run_name}", step=child_idx
+            )
+            mlflow.pytorch.log_model(
+                discriminator, name=f"rldisc-{child_run_name}", step=child_idx
+            )
+            if critic is not None:
+                mlflow.pytorch.log_model(
+                    critic, name=f"rlcritic-{child_run_name}", step=child_idx
+                )
 
 
 if __name__ == "__main__":
