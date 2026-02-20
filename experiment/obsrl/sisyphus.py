@@ -723,7 +723,7 @@ def main(cfg: DictConfig):
     if {
         discriminator.trim_beginning,
         discriminator_orig.trim_beginning,
-        obs.train_end.get("trim_beginning", None),
+        obs.train_env.get("trim_beginning", None),
     } != {cfg.trace.trim_beginning}:
         raise ValueError("Discrim trained on different trimming...")
 
