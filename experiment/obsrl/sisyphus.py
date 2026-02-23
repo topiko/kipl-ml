@@ -691,8 +691,9 @@ def main(cfg: DictConfig):
                         reward_scales=reward_scales,
                         device=device,
                         league_size=cfg.league.size,
-                        league_update_frac=1.0,  # unused
+                        league_random_frac=cfg.league.random_frac,
                         prune=len(disc_league) > cfg.league.size * 4,
+                        enforce_orig=cfg.league.enforce_orig,
                         score_type=cfg.league.score_type,
                         n_packets=cfg.trace_len,
                     )

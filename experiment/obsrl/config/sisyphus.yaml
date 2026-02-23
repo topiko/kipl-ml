@@ -80,6 +80,8 @@ disc:
 league:
   score_type: "acc"
   size: 24
+  enforce_orig: True
+  random_frac: 0.25
 
 
 ema_decay: 0.95

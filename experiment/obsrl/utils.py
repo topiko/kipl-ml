@@ -294,7 +294,8 @@ def get_active_league(
     reward_scales: dict[str, float],
     device: torch.DeviceObjType,
     league_size: int,
-    league_update_frac: float,
+    league_random_frac: float,
+    enforce_orig: bool = True,
     prune: bool = False,
     score_type: str = "acc",
     n_packets: int | None = None,
@@ -326,6 +327,9 @@ def get_active_league(
         mask = league_scores > val
         # The latest disc shall not be removed..
         mask[-1] = True
+        # The first disc (this is the non-defended disc) shall not be removed..
+        mask[0] = True
+
         league_scores = league_scores[mask]
         league = [l_ for i, l_ in enumerate(league) if mask[i]]
 
@@ -339,9 +343,10 @@ def get_active_league(
         )
         active_league_idx[-1] = cur_disc_pos
 
+    random_part = int(league_random_frac * league_size)
+    random_idx = None
     if league_size == 1:
         active_league_idx = np.array([cur_disc_pos])
-
     elif len(league) > league_size:
         scores = np.array(league_scores.cpu().numpy())
         if len(np.unique(scores)) == 1:
@@ -351,10 +356,30 @@ def get_active_league(
             probs = (scores - scores.min()) / (scores.max() - scores.min() + 1e-8)
             probs /= probs.sum()
 
-        # probs = np.clip(probs, 1e-6, 1.0)
-        active_league_idx = np.random.choice(
-            len(league), league_size, p=probs, replace=False
+        rng = np.random.default_rng()
+
+        # We might request part of the league to be random:
+        random_idx = rng.choice(len(league), random_part, replace=False)
+
+        # We enforce that the original disc (idx 0) is always in the league,
+        # if requested.
+        if enforce_orig and 0 not in random_idx:
+            random_idx[0] = 0
+
+        # The rest are sampled from this array with the probs:
+        sample_arr_ = np.array(
+            [[i, p] for i, p in enumerate(probs) if i not in random_idx]
         )
+        sampled_idx = rng.choice(
+            sample_arr_[:, 0],
+            league_size - random_part,
+            replace=False,
+            p=sample_arr_[:, 1] / sample_arr_[:, 1].sum(),
+        )
+
+        active_league_idx = np.concatenate([random_idx, sampled_idx])
+        # probs = np.clip(probs, 1e-6, 1.0)
+        # active_league_idx = rng.choice(len(league), league_size, p=probs, replace=False)
     else:
         active_league_idx = np.arange(len(league))
 
@@ -399,7 +424,11 @@ def get_active_league(
         str_ = "           "
         if i in active_league_idx:
             w = weights[active_league_idx == i][0].item()
-            str_ = f"* [w={w:.03f}]"
+            r_ = "s"
+            if random_idx is not None and i in random_idx:
+                r_ = "r"
+
+            str_ = f"*{r_}[w={w:.03f}]"
 
         logger.info(f"\t{i:4d} == {league[i][0]:4d}{str_} : {s:.4f}")
 
