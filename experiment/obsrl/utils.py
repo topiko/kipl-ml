@@ -377,7 +377,7 @@ def get_active_league(
             p=sample_arr_[:, 1] / sample_arr_[:, 1].sum(),
         )
 
-        active_league_idx = np.concatenate([random_idx, sampled_idx])
+        active_league_idx = np.concatenate([random_idx, sampled_idx]).astype(int)
         # probs = np.clip(probs, 1e-6, 1.0)
         # active_league_idx = rng.choice(len(league), league_size, p=probs, replace=False)
     else:
