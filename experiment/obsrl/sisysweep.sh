@@ -5,11 +5,12 @@
 set -e
 
 adv=mc
+parent_prefix="advanced-smolin"
 
 for sep_critic in False True; do
 	for reuse in True False; do
 		for i in $(seq 1 100); do
-			parent_name="sep-critic_$sep_critic|reuse_$reuse"
+			parent_name="$parent_prefix|sep-critic_$sep_critic|reuse_$reuse"
 			echo "=== $parent_name ==="
 			echo "=== Push $i/100 ==="
 			uv run python sisyphus.py \
