@@ -2,6 +2,7 @@ import argparse
 import re
 from pathlib import Path
 
+import pandas as pd
 from mlflow.tracking import MlflowClient
 
 from experiment.utils.list_models import list_logged_models_for_run
@@ -61,6 +62,13 @@ def main() -> None:
         default=None,
         help="MLflow experiment name (required with --from-parent).",
     )
+
+    parser.add_argument(
+        "--map-name",
+        default=None,
+        help="If you want to give your own name to the run.",
+    )
+
     parser.add_argument(
         "--unpair",
         action="store_true",
@@ -95,7 +103,8 @@ def main() -> None:
 
     if args.unpair:
         run_name += "-unpaired"
-    run_name = _slugify(str(run_name))
+
+    run_name = args.map_name or _slugify(str(run_name))
 
     dfs = []
     for run_id in run_ids:
@@ -110,7 +119,6 @@ def main() -> None:
         return
 
     # Concatenate and keep deterministic ordering.
-    import pandas as pd
 
     df = pd.concat(dfs, ignore_index=True)
 
@@ -118,9 +126,9 @@ def main() -> None:
         print("Logged model list is missing 'name' column; cannot filter rlobs models.")
         return
 
-    df_rlobs = df[df["name"].astype(str).str.startswith("rlobs-")].copy()
+    df_rlobs = df[df["name"].astype(str).str.startswith("obs-")].copy()
     if len(df_rlobs) == 0:
-        print("No rlobs-* models found for run.")
+        print("No obs-* models found for run.")
         return
 
     out_dir = Path("tmp_def") / run_name
