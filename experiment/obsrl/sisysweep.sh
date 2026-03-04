@@ -5,7 +5,7 @@
 set -e
 
 adv=mc
-parent_prefix="advanced-smolin"
+parent_prefix="advanced-smolin" # audacious-imp
 
 for sep_critic in False True; do
 	for reuse in True False; do
