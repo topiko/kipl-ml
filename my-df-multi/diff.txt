@@ -1,0 +1,63 @@
+Differences vs ../maybenot-gen/scripts/df.py
+
+This file tracks intentional differences in my-df-multi/df-multi.py compared to
+the original df.py script.
+
+Core purpose
+- df.py: classic DF-style model on 1-channel inputs (dirs / dir*size / dir*time)
+- df-multi.py: Laserbeak df-multi: DFNet + multi-channel feature pipeline
+
+Model
+- df.py: DF model embedded in script (4 conv blocks + MLP)
+- df-multi.py: DFNet (Laserbeak) embedded in script (conv-only path), configured
+  like Laserbeak df-multi.json but default input size follows kipl-ml (10_000)
+
+Preprocessing / features
+- df.py: log -> fixed-length (1, S) array for one chosen representation
+- df-multi.py: log -> raw per-packet tensor (N,3) [time_s, size, dir] ->
+  DataProcessor feature stack (S, C) with:
+  time_dirs, times_norm, cumul_norm, iat_dirs, inv_iat_log_dirs, running_rates
+
+Dataset loading
+- df.py: preloads everything into RAM using multiprocessing.Pool.starmap
+- df-multi.py: default is lazy feature computation inside DataLoader
+  (LogFeatureDataset); optional --preload to preload into RAM
+- df-multi.py: optional --cache-dir to persist preprocessed feature tensors
+
+Train/test split
+- Default behavior differs from df.py/rf.py:
+  - df-multi.py: K-bucket split with dedicated valid/test buckets:
+    - sample-style uses s % K
+    - subpage-style uses p % K
+    - test bucket index is `-f % K`, valid is `(test-1) % K`
+  - df.py/rf.py: 80/20 train/test split
+
+Training loop / metrics
+- df.py: early stopping uses training loss; no per-epoch validation metrics; does
+  not restore best model state
+- df-multi.py: evaluates on a dedicated validation split each epoch and prints
+  validation loss + validation accuracy; restores best model by validation loss
+  before saving and before final test metrics
+- df-multi.py: train/valid accuracy are computed sample-weighted over the whole
+  loader (not averaged per batch)
+- df-multi.py: restores the best model by validation loss before saving and
+  before final test metrics
+
+Optimization
+- df.py: Adamax, fixed settings
+- df-multi.py: AdamW by default with cosine+warmup LR schedule; supports Adamax;
+  supports label smoothing (default 0.1, matching kipl-ml configs)
+
+Defaults
+- df.py: defaults are tuned for the original DF baseline (e.g. -c 92, epochs 30,
+  batchsize 256, seed unset)
+- df-multi.py: defaults are tuned to match the ephemeral_defences df-multi 30-epoch
+  runs (e.g. -c 95, epochs 30, batchsize 64, seed 42, cosine warmup 10)
+
+Config handling
+- df.py: no external config support
+- df-multi.py: no external config support; the df-multi model config is embedded
+  in the script (DEFAULT_MODEL_CONFIG)
+
+CUDA
+- Both use CUDA if available; df-multi.py also enables pin_memory for lazy mode
