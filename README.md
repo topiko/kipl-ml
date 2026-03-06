@@ -28,7 +28,21 @@ Download the "bigenough" dataset from [here](https://dart.cse.kau.se/maybenot/bi
 We rather have a single file for a trace to prepare for potential massive datasets.
 In order to make the conversion to this standard use `kipl_ml/data/conversion.py --dataset DATASET`.
 There are implementations for "bigenough" and "gong-surakav" datasets.
-In order to find these you need to set two paths in `.env` file.
+This repo uses a repo-root `.env` file for paths and MLflow settings.
+
+### Environment variables (.env)
+
+Most entrypoints call `dotenv.load_dotenv()` and expect a `.env` file in the repo root.
+
+Required (depending on what you run):
+
+- `WF_DATA_DIR`: path to the directory containing the original dataset folders (used by `kipl_ml/data/conversion.py`).
+- `MLFLOW_TRACKING_URI`: required by most experiment scripts (e.g. `experiment/ephemeral_defences/main.py` asserts it is set).
+- `MACHINATION`: path to the `machination` binary (required for fixed-machine defences: Breakpad/FRONT/Interspace/Regulator/Tamaraw).
+
+Optional:
+
+- `MLFLOW_TRACKING_USERNAME`, `MLFLOW_TRACKING_PASSWORD`: only if your MLflow server requires authentication.
 
 ```
 .env
@@ -47,16 +61,10 @@ Run the mlflow server (note the env var from above) - ONLY if you don't have acc
 
 `mlflow server --host 127.0.0.1 --port 8000 --backend-store-uri 'file:///abs/path/to/projectroot/.mlruns' --artifacts-destination '.mlartifacts'`
 
-##### To train the laserbeak models you'll also need:
+##### To train the laserbeak models you'll also need(?):
 
 `git@github.com:topiko/laserbeak.git`
 but it is listed as an dep. and should work out of the box.
-
-You also need (DEPRECATED??):
-
-`git@github.com:huggingface/pytorch-image-models.git`
-
-however, those come as depencies and do not require manual installation.
 
 ### PyDeps for dep tracking:
 
@@ -73,7 +81,3 @@ From the `bigenough` we currently map the direction flags: "s"(end) and "r"(ecei
 ### For deterministic behavior:
 
 `export CUBLAS_WORKSPACE_CONFIG=:4096:8`
-
-### TODO:
-
-Bring attacks form [wf-lib](https://github.com/Xinhao-Deng/Website-Fingerprinting-Library/).
