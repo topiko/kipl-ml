@@ -149,8 +149,6 @@ def _get_defence(
     def_type = cfg.defence.type
 
     match def_type:
-        case "maybenot":
-            return defence_builder.maybenot(cfg)
         case "no-defence":
             return defence_builder.no_def(cfg)
         case "ephemeral":

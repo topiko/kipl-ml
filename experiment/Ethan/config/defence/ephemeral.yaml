@@ -1,7 +1,7 @@
-type: maybenot
+type: ephemeral
 
-# Set this to a .yaml deck file path; can be relative to your current working dir.
-deck: ""
+# Name of deck under `.maybenot-decks/`.
+deck_name: ""
 
 scale: 0.75
 
