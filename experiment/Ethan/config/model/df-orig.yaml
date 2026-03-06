@@ -1,0 +1,5 @@
+source: local
+name: df
+features:
+  - dirs
+trace_len: 10_000

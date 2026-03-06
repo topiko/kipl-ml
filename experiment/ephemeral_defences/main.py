@@ -149,6 +149,8 @@ def _get_defence(
     def_type = cfg.defence.type
 
     match def_type:
+        case "maybenot":
+            return defence_builder.maybenot(cfg)
         case "no-defence":
             return defence_builder.no_def(cfg)
         case "ephemeral":
@@ -437,8 +439,7 @@ def _run_xvs(experiment_name: str, run_name: str, cfg: OmegaConf):
         cfg.misc.seed = orig_seed
 
 
-@hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
-def main(cfg: DictConfig):
+def run(cfg: DictConfig) -> None:
     experiment_name = _parse_experiment_name(cfg)
 
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
@@ -460,6 +461,11 @@ def main(cfg: DictConfig):
         with mlflow.start_run(run_name=run_name):
             mlflow.set_tag("project", "ephemeral_defences")
             _run_xvs(experiment_name, run_name, cfg)
+
+
+@hydra.main(config_path=CONFIG_DIR_PATH, config_name="config", version_base=None)
+def main(cfg: DictConfig):
+    run(cfg)
 
 
 if __name__ == "__main__":

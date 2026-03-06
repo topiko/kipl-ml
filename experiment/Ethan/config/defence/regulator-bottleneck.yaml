@@ -1,0 +1,9 @@
+type: regulator
+U: 4.5
+C: 0.5
+R: 220
+D: 0.98
+T: 2.5
+padding_budget: 2000
+B: 10
+

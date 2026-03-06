@@ -1,0 +1,3 @@
+source: "lb"
+name: "laserbeak_wo_attention"
+trace_len: 10_000

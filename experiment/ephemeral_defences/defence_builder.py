@@ -224,6 +224,70 @@ def ephemeral(cfg: OmegaConf) -> dict[str, Maybenot]:
     }
 
 
+def maybenot(cfg: OmegaConf) -> dict[str, Maybenot]:
+    mbnt_conf = dict(cfg.defence)
+    mbnt_conf.pop("type")
+
+    deck_path = mbnt_conf.pop("deck_path", None)
+    deck = mbnt_conf.pop("deck", None)
+    deck_name = mbnt_conf.pop("deck_name", None)
+
+    if deck_path is None:
+        if deck is not None:
+            deck_path = deck
+        elif deck_name is not None:
+            deck_path = ".maybenot-decks/" + deck_name
+        else:
+            raise KeyError("defence.deck_path (or defence.deck) must be provided")
+
+    seed = cfg.misc.seed
+    netwk_delay, netwk_pps = _parse_netwk(cfg)
+    mbnt_conf["network_delay_millis"] = netwk_delay
+    mbnt_conf["network_pps"] = netwk_pps
+    mbnt_conf["deck_path"] = deck_path
+
+    keys = (
+        "client_padding_budget",
+        "client_blocking_budget",
+        "client_padding_frac",
+        "client_blocking_frac",
+        "server_padding_budget",
+        "server_blocking_budget",
+        "server_padding_frac",
+        "server_blocking_frac",
+    )
+
+    for key in keys:
+        mbnt_conf[key] = tuple(mbnt_conf[key])
+
+    fixed_per_trace = mbnt_conf.pop("fixed_per_trace", False)
+
+    if "n_machines" in mbnt_conf:
+        n_train_machines = mbnt_conf["n_machines"]
+        n_valid_machines = mbnt_conf["n_machines"]
+        n_test_machines = mbnt_conf["n_machines"]
+        mbnt_conf.pop("n_machines")
+    else:
+        n_train_machines = mbnt_conf.pop("n_train_machines")
+        n_valid_machines = mbnt_conf.pop("n_valid_machines")
+        n_test_machines = mbnt_conf.pop("n_test_machines")
+
+    def _maybenot(n_machines: int, seed: int) -> Maybenot:
+        return Maybenot(
+            **mbnt_conf,
+            n_machines=n_machines,
+            seed=seed,
+            fixed_per_trace=fixed_per_trace,
+            simul_kwargs=_get_simul_kwargs(cfg),
+        )
+
+    return {
+        "defence_train": _maybenot(n_train_machines, seed + 1),
+        "defence_valid": _maybenot(n_valid_machines, seed + 2),
+        "defence_test": _maybenot(n_test_machines, seed + 3),
+    }
+
+
 def rlobs(cfg: OmegaConf) -> dict[str, RNNDef]:
     netwk_delay, netwk_pps = _parse_netwk(cfg)
 

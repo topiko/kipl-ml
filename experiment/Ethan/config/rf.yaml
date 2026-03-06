@@ -1,0 +1,22 @@
+defaults:
+  - model: rf
+  - dataset: bigenough
+  - lr_scheduler : rfscheduler
+  - optimizer: adam
+  - network: bottleneck
+  - defence: no_defence
+  - train: default
+  - loss: crossentropy
+  - misc: default
+  - _self_
+
+optimizer:
+  lr: 0.005
+  weight_decay: 0.001
+
+train:
+  batch_size: 200
+
+
+
+

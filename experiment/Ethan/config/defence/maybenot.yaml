@@ -1,0 +1,22 @@
+type: maybenot
+
+# Set this to a .yaml deck file path; can be relative to your current working dir.
+deck: ""
+
+scale: 0.75
+
+client_padding_budget: [1000, 2000]
+client_blocking_budget: [100_000, 200_000]
+client_padding_frac: [0.95, 0.95]
+client_blocking_frac: [0.5, 0.5]
+
+server_padding_budget: [1000, 3000]
+server_blocking_budget: [100_000, 200_000]
+server_padding_frac: [0.95, 0.95]
+server_blocking_frac: [0.5, 0.5]
+
+n_train_machines: 50_000
+n_valid_machines: 5_000
+n_test_machines: 5_000
+
+fixed_per_trace: false

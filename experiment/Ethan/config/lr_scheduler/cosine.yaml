@@ -1,0 +1,4 @@
+warmup_period: 10
+epochs: 100
+scheduler: cosine
+

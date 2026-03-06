@@ -1,0 +1,20 @@
+defaults:
+  - model: df-orig
+  - dataset: bigenough
+  - lr_scheduler : no-scheduling
+  - optimizer: adamax
+  - network: bottleneck
+  - defence: no_defence
+  - train: default
+  - loss: crossentropy
+  - misc: default
+  - _self_
+
+train:
+  batch_size: 256
+optimizer:
+  lr: 0.002
+
+
+
+

@@ -1,0 +1,4 @@
+defaults:
+  - base
+name: "gong-surakav"
+target: "page_label"

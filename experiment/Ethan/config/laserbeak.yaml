@@ -1,0 +1,16 @@
+defaults:
+  - model: laserbeak
+  - dataset: bigenough
+  - lr_scheduler: cosine
+  - optimizer: adamw
+  - network: bottleneck
+  - defence: no_defence
+  - train: default
+  - loss: crossentropy
+  - misc: default
+  - _self_
+
+loss:
+  label_smoothing: 0.1
+
+

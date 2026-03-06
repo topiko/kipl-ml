@@ -1,0 +1,7 @@
+type: infinite
+delay_millis:
+  min: 25
+  max: 250
+pps:
+  min: 40_000
+  max: 40_000

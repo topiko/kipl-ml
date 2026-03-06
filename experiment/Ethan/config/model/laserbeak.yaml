@@ -1,0 +1,3 @@
+source: "lb"
+name: "laserbeak"
+trace_len: 10_000
