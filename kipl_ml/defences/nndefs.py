@@ -14,8 +14,9 @@ from kipl_ml.data.utils import get_std_trace_dict
 from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
-from kipl_ml.rl.action import send_exec
-from kipl_ml.rl.observation import get_window_feature_dict
+from kipl_ml.rl.action import TraceExecState, send_exec
+from kipl_ml.rl.enums import Actions
+from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
 from kipl_ml.trace.enums import Feats
 
 dotenv.load_dotenv()
@@ -153,6 +154,60 @@ class RNNDef(_NNDef):
             self.defense_model.load_state_dict(st_d)
 
         defense_model = self.defense_model
+
+        # If delay is enabled on the policy, future observation windows depend on
+        # the selected actions. Use a stepwise rollout to ensure windows reflect
+        # delays (single-pass precomputation is invalid).
+        if getattr(defense_model, "enable_delay", False):
+            h = None
+            streamer = WindowFeatureStreamer(
+                trace_d,
+                dt=float(defense_model.time_step),
+                max_silence_s=float(defense_model.max_silence_s),
+                features=list(defense_model.features),
+                extend_end_s=0,
+            )
+
+            X_base = {
+                Feats.TIMES: trace_d[Feats.TIMES].clone(),
+                Feats.DIRS: trace_d[Feats.DIRS].clone(),
+                Feats.PADDING: trace_d.get(Feats.PADDING, torch.zeros_like(trace_d[Feats.TIMES])).clone(),
+            }
+            exec_state = TraceExecState(X_base)
+
+            defense_model.eval()
+            with torch.no_grad():
+                while True:
+                    fd_t = streamer.step()
+                    if not fd_t[Feats.TIMES].isfinite().any():
+                        break
+
+                    if hasattr(defense_model, "act_step"):
+                        act_times, actions, *_rest, h = defense_model.act_step(
+                            fd_t, h, sample=True
+                        )
+                    else:
+                        act_times, actions, *_rest, h = defense_model.act(
+                            fd_t,
+                            h,
+                            h_detach_period=None,
+                            seq_lens=torch.ones((1,), device=fd_t[Feats.TIMES].device).long(),
+                            sample=True,
+                        )
+
+                    exec_state.step(
+                        trace_idx=torch.zeros((1,), device=act_times.device, dtype=torch.long),
+                        times=act_times,
+                        actions=actions,
+                    )
+
+                    if Actions.DELAY in actions and (actions[Actions.DELAY] > 0).any():
+                        streamer.apply_delay(actions[Actions.DELAY])
+
+            trace_d = exec_state.finalize()
+            trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
+            trace_d[Feats.SIZES] = torch.ones_like(trace_d[Feats.TIMES])
+            return trace_d
 
         fd = get_window_feature_dict(
             trace_d,

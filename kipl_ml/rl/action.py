@@ -366,22 +366,25 @@ def send_exec(
 
         delay_mask = delay_s > 0
 
-        # Delay is only supported for stepwise execution (T=1) when it is
-        # actually used. The DELAY tensor may be present (all zeros) in
-        # multi-step runs.
-        if delay_mask.any() and times.shape[1] != 1:
-            raise NotImplementedError("DELAY only supported for stepwise send_exec (T=1)")
-
         if delay_mask.any():
-            # Apply delay: shift all packets at/after the action time.
+            # Apply delay: shift all packets at/after each delay event time.
+            # If multiple delay events exist, earlier delays can shift packets
+            # across later delay thresholds, so we apply sequentially.
             for i in range(times.shape[0]):
-                if not bool(delay_mask[i, 0].item()):
+                m = delay_mask[i] & times[i].isfinite()
+                if not bool(m.any().item()):
                     continue
-                t0 = float(times[i, 0].item())
-                d = float(delay_s[i, 0].item())
-                X[Feats.TIMES][i] = torch.where(
-                    X[Feats.TIMES][i] >= t0, X[Feats.TIMES][i] + d, X[Feats.TIMES][i]
-                )
+
+                t0s = times[i][m]
+                ds = delay_s[i][m]
+                order = torch.argsort(t0s)
+                t0s = t0s[order]
+                ds = ds[order]
+
+                for t0, d in zip(t0s, ds):
+                    X[Feats.TIMES][i] = torch.where(
+                        X[Feats.TIMES][i] >= t0, X[Feats.TIMES][i] + d, X[Feats.TIMES][i]
+                    )
 
             # Delay is exclusive; enforce no padding sends in this step.
             for k in (
