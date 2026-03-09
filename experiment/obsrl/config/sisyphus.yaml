@@ -28,17 +28,17 @@ rewards:
 
 obs:
   # Floor for action prob:
-  prob_eps: 0.02
+  prob_eps: 0.04
   time_step_s: 0.02
-  max_silence_s: 0.2
+  max_silence_s: 0.1
   detach_period: 300
   critic_detach_period: 500
-  lr: 0.001
+  lr: 0.0007
   critic_lr: 0.0005
   send_mode: "fixed"
 
   hsize: 256
-  nhidden: 2
+  nhidden: 3
   #
   # When going up the ret needs to be higher than this
   # against the curent disc league.
@@ -58,7 +58,7 @@ obs:
   rewards_rescale_epochs: 7
 
   # After this you reset the obs and critic and return...
-  max_epochs_per_push: 35
+  max_epochs_per_push: 91
 
   # How much we decrease padding scale when hitting max epochs.
   padding_scale_reduction: 0.7

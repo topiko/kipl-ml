@@ -31,16 +31,13 @@ N_REALIZATIONS = 100
 
 DATA_DIR = "action_data/"
 AGENT_IDS = [
-    ("m-5033ee0387fc43d5be17649ca3c4b766", 30),
-    ("m-5a5ddbc5349d4b308ed67889a8607404", 25),
+    ("m-a9d479ce29e746e696d63724301bec12", 1),
+    ("m-61434c1ee703438e9395ede1d83cc596", 10),
+    ("m-5a17934e27494d0cbc8c6d60b0bf6151", 20),
+    ("m-0805442231744146a8b36250a0dc5067", 30),
+    ("m-afee86846e0b443698e237b54e0a134e", 40),
+    ("m-848ff31e3c414358b53f891e36e06db4", 50),
 ]
-
-# ("m-c4716e4974fb464d935073e102c77020", 30),
-# ("m-307d59cc10744c30b9b341586296954f", 20),
-# ("m-aaa78bb8bef343369498bbf9d8e91c41", 10),
-# ("m-af385f27e4f9411e8d4dd5ba2beb13a9", 15),
-# ("m-4710246c41084634af957af5ccdc58ec", 5),
-# ("m-fdae39e7b9a14b4e95e96097b4d2a4fc", 25),
 
 
 def generate_for(
@@ -117,7 +114,7 @@ def main():
             defence=None,
             dataset_key="train",
             feature_trs=FeatureTrs(feature_names=feature_names, n_packets=10_000),
-            trim_raw=obs.train_env["trim_raw"],
+            trim_raw=obs.train_env["trim_beginning"],
         )
         for idx in idxs:
             print(idx)
