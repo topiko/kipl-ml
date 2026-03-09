@@ -7,7 +7,7 @@ set -e
 adv=mc
 parent_prefix="audacious-imp" #"advanced-smolin" # audacious-imp
 
-for enable_delay in True False; do
+for enable_delay in true false; do
 	for sep_critic in False True; do
 		for reuse in True False; do
 			for i in $(seq 1 100); do

@@ -501,7 +501,7 @@ def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
         },
         prefer_wait_bias=6.0 if cfg.obs.init_for_wait else 0.0,
         send_mode=cfg.obs.send_mode,
-        enable_delay=bool(getattr(cfg.obs, "enable_delay", False)),
+        enable_delay=getattr(cfg.obs, "enable_delay", False),
         train_env={"trim_beginning": cfg.trace.trim_beginning},
     )
 

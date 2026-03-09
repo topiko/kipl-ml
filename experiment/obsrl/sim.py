@@ -266,6 +266,12 @@ def _rollout_single_pass(
     dict[Feats, torch.Tensor],
     dict[Feats, torch.Tensor],
 ]:
+    if getattr(obs, "enable_delay", False):
+        raise RuntimeError(
+            "Delay is enabled on the agent; single-pass rollout cannot execute delay. "
+            "Call experiment.obsrl.sim.rollout(...) to select the streaming rollout."
+        )
+
     hobs = None
     device = y.device
     critic_detach_period = critic_detach_period or detach_period
