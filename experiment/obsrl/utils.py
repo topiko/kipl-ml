@@ -10,7 +10,7 @@ from torch import nn
 from torch.utils.data import SubsetRandomSampler
 from tqdm import tqdm
 
-from experiment.obsrl.sim import rollout
+from experiment.obsrl.sim import rollout_auto
 from experiment.trace_gan.data_utils import dl_
 from experiment.utils.list_models import list_logged_models_for_run
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
@@ -190,7 +190,7 @@ def get_league_scores(
                 for X, y in pbar:
                     X = dict_to_device(X, device)
                     y = y.to(device)
-                    _, league_rewards, _, _, _, _, fd = rollout(
+                    _, league_rewards, _, _, _, _, fd = rollout_auto(
                         obs=obs,
                         critic=critic,
                         disc=disc,

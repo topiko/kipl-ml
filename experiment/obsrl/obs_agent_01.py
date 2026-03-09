@@ -11,7 +11,7 @@ from torch.utils.data import SubsetRandomSampler
 from tqdm import tqdm
 
 from experiment.obsrl.plot_utils import _plot_set
-from experiment.obsrl.sim import rollout
+from experiment.obsrl.sim import rollout_auto
 from experiment.obsrl.utils import (
     _append_to_league,
     _get_optim,
@@ -290,7 +290,7 @@ def main(cfg: DictConfig):
                             _,
                             Xobs,
                             fd,
-                        ) = rollout(
+                        ) = rollout_auto(
                             obs=obs,
                             critic=critic,
                             disc=discriminator,

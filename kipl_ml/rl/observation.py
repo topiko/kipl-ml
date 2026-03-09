@@ -234,19 +234,40 @@ class _TraceWindowCursor:
         self.K = int(K)
 
         self.p = 0
+        self.last_bin: int | None = None
+        self.offset_bins: int = 0
         self.next_pkt_bin: int | None = self._peek_pkt_bin()
         self.silence_next: int | None = None
+
+    def apply_delay_bins(self, shift_bins: int) -> None:
+        if shift_bins <= 0:
+            return
+
+        # Delay shifts all *future* bins; modelled as a bin offset.
+        self.offset_bins += int(shift_bins)
+        self.next_pkt_bin = self._peek_pkt_bin()
+
+        # Recompute silence scheduling relative to the last produced bin.
+        if self.last_bin is None or self.next_pkt_bin is None:
+            self.silence_next = None
+            return
+
+        gap = self.next_pkt_bin - self.last_bin - 1
+        if gap >= 1:
+            self.silence_next = self.last_bin + 1
+        else:
+            self.silence_next = None
 
     def _peek_pkt_bin(self) -> int | None:
         if self.p >= self.seq_len:
             return None
-        return int((self.times[self.p] // self.dt).item())
+        return int((self.times[self.p] // self.dt).item()) + self.offset_bins
 
     def _consume_pkt_bin(self, b: int) -> tuple[float, float]:
         up = 0.0
         down = 0.0
         while self.p < self.seq_len:
-            bb = int((self.times[self.p] // self.dt).item())
+            bb = int((self.times[self.p] // self.dt).item()) + self.offset_bins
             if bb != b:
                 break
 
@@ -293,10 +314,12 @@ class _TraceWindowCursor:
                 self.silence_next = b + self.K
                 if self.silence_next >= self.next_pkt_bin:
                     self.silence_next = None
+                self.last_bin = b
                 return b, 0.0, 0.0, self._peek_next_bin()
 
         # Packet bin.
         up, down = self._consume_pkt_bin(b)
+        self.last_bin = b
         return b, up, down, self._peek_next_bin()
 
 
@@ -413,3 +436,30 @@ class WindowFeatureStreamer:
             raise ValueError("Some requested features are missing!")
 
         return {f: fd[f] for f in self.features}
+
+    def apply_delay(self, delay_s: torch.Tensor) -> None:
+        """Apply a delay (seconds) to future windows for each trace.
+
+        delay_s is (B,) or (B, 1). Values must be non-negative and multiples of dt.
+        """
+        if delay_s.ndim == 2:
+            if delay_s.shape[1] != 1:
+                raise ValueError("delay_s must be (B,) or (B,1)")
+            delay_s = delay_s.squeeze(1)
+
+        if delay_s.shape[0] != self.bs:
+            raise ValueError("delay_s batch mismatch")
+
+        ratio = delay_s / self.dt
+        ratio_r = ratio.round()
+        if (delay_s > 0).any() and ((ratio - ratio_r).abs().max().item() > 1e-6):
+            raise ValueError("delay_s must be multiple of dt")
+
+        shift_bins = ratio_r.to(torch.long)
+        for i in range(self.bs):
+            if self.done[i]:
+                continue
+            sb = int(shift_bins[i].item())
+            if sb <= 0:
+                continue
+            self._cursors[i].apply_delay_bins(sb)

@@ -351,11 +351,13 @@ class AGENT1(nn.Module):
         prob_eps: dict[Actions, float] | float | None = None,
         send_mode: str = "spread",
         prefer_wait_bias: float = 0.0,
+        enable_delay: bool = False,
         train_env: dict[str, Any] | None = None,
     ):
         super().__init__()
 
         self.train_env = train_env or {}
+        self.enable_delay = bool(enable_delay)
         self.ACTIONS: list[Actions] = [
             Actions.SELECTOR,
             Actions.SEND_COUNT_UP,
@@ -410,6 +412,8 @@ class AGENT1(nn.Module):
         # Maximum silence the model tolerates before acting.
         self.max_silence_s = max_silence_s
 
+        # Delay duration is currently fixed to the current window Dt.
+
         # Exploration prob eps for each action:
         control_actions = [
             Actions.SELECTOR,
@@ -418,6 +422,7 @@ class AGENT1(nn.Module):
             Actions.SEND_TIME_UP,
             Actions.SEND_TIME_DOWN,
         ]
+        # No extra control head for delay.
         if prob_eps is not None:
             if isinstance(prob_eps, float):
                 self.prob_eps = {a: prob_eps for a in control_actions}
@@ -453,7 +458,7 @@ class AGENT1(nn.Module):
         self.actor = nn.ModuleDict(
             {
                 "action_selection": nn.Sequential(
-                    nn.Dropout(dropout), nn.Linear(hsize, 4)
+                    nn.Dropout(dropout), nn.Linear(hsize, 5 if self.enable_delay else 4)
                 ),
                 "send_count_u": nn.Sequential(
                     nn.Dropout(dropout), nn.Linear(hsize, n_send_counts)
@@ -479,14 +484,14 @@ class AGENT1(nn.Module):
             self._init_action_selection_prefer_wait(prefer_wait_bias=prefer_wait_bias)
 
     def _init_action_selection_prefer_wait(self, prefer_wait_bias: float) -> None:
-        """Initialize selector logits to heavily prefer WAIT (selector index 0)."""
+        """Initialize selector logits to heavily prefer DO_NOTHING (selector index 0)."""
         if prefer_wait_bias < 0:
             raise ValueError(f"prefer_wait_bias must be >= 0, got {prefer_wait_bias}")
 
         head = self.actor["action_selection"]
         lin = head[-1]
-        if not isinstance(lin, nn.Linear) or lin.out_features != 4:
-            raise TypeError("action_selection head must end with Linear(..., 4)")
+        if not isinstance(lin, nn.Linear) or lin.out_features not in {4, 5}:
+            raise TypeError("action_selection head must end with Linear(..., 4|5)")
 
         with torch.no_grad():
             lin.bias.zero_()
@@ -530,7 +535,7 @@ class AGENT1(nn.Module):
         # (N, L, H)
         output = self.out_norm(output)
 
-        # (N, L, 4) (0=WAIT, 1=SEND_UP, 2=SEND_DOWN, 3=SEND_BOTH)
+        # (N, L, 4|5) (0=DO_NOTHING, 1=SEND_UP, 2=SEND_DOWN, 3=SEND_BOTH, 4=DELAY)
         action_selector = self.actor["action_selection"](output)
 
         # (N, L, SEND_COUNT_BINS)
@@ -631,7 +636,8 @@ class AGENT1(nn.Module):
         # (B, L)
         # up_p * (suc_entropy + sudt_entropy) + down_p * (sdc_entropy + sddt_entropy)
         cond_entropy = self.cond_beta * (
-            up_p * (sudt_entropy + suc_entropy) + down_p * (sddt_entropy + sdc_entropy)
+            up_p * (sudt_entropy + suc_entropy)
+            + down_p * (sddt_entropy + sdc_entropy)
         )
 
         # Entropy (B, 1) H[A] = H[S] + H[A|S]
@@ -647,24 +653,38 @@ class AGENT1(nn.Module):
 
         actions = {
             Actions.SELECTOR: selections.detach().clone(),
-            Actions.WAIT: torch.zeros_like(selections),
+            Actions.DO_NOTHING: torch.zeros_like(selections),
             Actions.SEND_COUNT_DOWN: send_count_d.detach().clone(),
             Actions.SEND_COUNT_UP: send_count_u.detach().clone(),
             Actions.SEND_TIME_DOWN: send_time_d.detach().clone(),
             Actions.SEND_TIME_UP: send_time_u.detach().clone(),
         }
+        if self.enable_delay and sel_probs.shape[-1] >= 5:
+            actions[Actions.DELAY] = torch.zeros_like(x[Feats.Dt]).detach().clone()
 
-        # WAIT:
+        # DO_NOTHING:
         # (B, L)
         mask = selections == 0
 
         # (B, L)
         log_probs[mask] = sel_log_probs[mask]
-        actions[Actions.WAIT][mask] = 1
+        actions[Actions.DO_NOTHING][mask] = 1
         actions[Actions.SEND_COUNT_UP][mask] = 0
         actions[Actions.SEND_COUNT_DOWN][mask] = 0
         actions[Actions.SEND_TIME_UP][mask] = 0
         actions[Actions.SEND_TIME_DOWN][mask] = 0
+
+        # DELAY:
+        if self.enable_delay and sel_probs.shape[-1] >= 5:
+            mask = selections == 4
+            log_probs[mask] = sel_log_probs[mask]
+            # Delay duration is fixed to one model time step.
+            actions[Actions.DELAY][mask] = float(self.time_step)
+            actions[Actions.DO_NOTHING][mask] = 0
+            actions[Actions.SEND_COUNT_UP][mask] = 0
+            actions[Actions.SEND_COUNT_DOWN][mask] = 0
+            actions[Actions.SEND_TIME_UP][mask] = 0
+            actions[Actions.SEND_TIME_DOWN][mask] = 0
 
         # SEND UP:
         # (B, L)

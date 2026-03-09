@@ -355,7 +355,8 @@ def plot_actions(
 
     max_c = 0
     for ackt in (
-        Actions.WAIT,
+        Actions.DO_NOTHING,
+        Actions.DELAY,
         (Actions.SEND_COUNT_UP, Actions.SPREAD_TIME_UP),
         (Actions.SEND_COUNT_UP, Actions.SEND_UP_AFTER_TIME),
         (Actions.SEND_COUNT_DOWN, Actions.SPREAD_TIME_DOWN),
@@ -417,12 +418,32 @@ def plot_actions(
                     rasterized=True,  # nice if you save to PDF with lots of arrows
                 )
 
-        elif ackt == Actions.WAIT:
+        elif ackt == Actions.DO_NOTHING:
             counts = np.zeros_like(times)
             durs = np.diff(times, append=np.array([times[-1]]), axis=0)
             counts[actions[ackt] == 1] = 1
 
             _plot_boxes(times, durs, counts, color="gray", alpha=0.2, ax=ax)
+
+        elif ackt == Actions.DELAY:
+            # Render delay as a background span (duration effect), not as a
+            # "selector" bar, to avoid looking like it co-occurs with DO_NOTHING.
+            if Actions.DELAY not in actions:
+                continue
+            delay_s = actions[Actions.DELAY]
+            if delay_s.ndim != 1:
+                raise ValueError("Expected DELAY to be (T,)")
+            mask = delay_s > 0
+            if mask.any():
+                for t0, d in zip(times[mask], delay_s[mask]):
+                    ax.axvspan(
+                        float(t0),
+                        float(t0 + d),
+                        color="#d97706",
+                        alpha=0.18,
+                        lw=0,
+                        zorder=0,
+                    )
 
         ax.vlines(times, -1, 1, color="black", lw=0.7)
 

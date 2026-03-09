@@ -79,8 +79,43 @@ def send_exec(
     actions: dict[Actions, torch.Tensor],
 ) -> dict[Feats, torch.Tensor]:
     X = {k: v.clone() for k, v in X.items()}
+    actions = {k: v.clone() for k, v in actions.items()}
 
     # TODO: improve this by removing the batch dim loops...
+
+    if Actions.DELAY in actions:
+        # Delay is currently only supported for stepwise execution (T=1).
+        if times.shape[1] != 1:
+            raise NotImplementedError("DELAY only supported for stepwise send_exec (T=1)")
+
+        delay_s = actions[Actions.DELAY]
+        if delay_s.shape != times.shape:
+            raise ValueError("DELAY tensor must match times shape")
+
+        delay_mask = delay_s > 0
+
+        # Apply delay: shift all packets at/after the action time.
+        for i in range(times.shape[0]):
+            if not bool(delay_mask[i, 0].item()):
+                continue
+            t0 = float(times[i, 0].item())
+            d = float(delay_s[i, 0].item())
+            X[Feats.TIMES][i] = torch.where(
+                X[Feats.TIMES][i] >= t0, X[Feats.TIMES][i] + d, X[Feats.TIMES][i]
+            )
+
+        # Delay is exclusive; enforce no padding sends in this step.
+        if delay_mask.any():
+            for k in (
+                Actions.SEND_COUNT_UP,
+                Actions.SEND_COUNT_DOWN,
+                Actions.SPREAD_TIME_UP,
+                Actions.SPREAD_TIME_DOWN,
+                Actions.SEND_UP_AFTER_TIME,
+                Actions.SEND_DOWN_AFTER_TIME,
+            ):
+                if k in actions:
+                    actions[k] = torch.where(delay_mask, 0, actions[k])
     send_up_c = actions[Actions.SEND_COUNT_UP]
     times_up, send_mode_up = _get_times_and_mode(actions, direction="up")
 

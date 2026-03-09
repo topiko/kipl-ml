@@ -8,7 +8,7 @@ from omegaconf import DictConfig
 from torch import nn
 from tqdm import tqdm
 
-from experiment.obsrl.sim import rollout
+from experiment.obsrl.sim import rollout_auto
 from experiment.obsrl.utils import (
     get_action_seq_lens,
     get_advantages,
@@ -90,7 +90,7 @@ def _plot_set(
             actions,
             Xobs,
             fd,
-        ) = rollout(
+        ) = rollout_auto(
             obs,
             critic,
             disc_trained,

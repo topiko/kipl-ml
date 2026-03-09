@@ -10,7 +10,7 @@ from torch import nn
 from tqdm import tqdm
 
 from experiment.obsrl.plot_utils import _plot_set
-from experiment.obsrl.sim import rollout
+from experiment.obsrl.sim import rollout_auto
 from experiment.obsrl.utils import (
     _append_to_league,
     _get_obs_def_dl,
@@ -126,7 +126,7 @@ def train_obs_one_epoch(
                 _,
                 Xobs,
                 fd,
-            ) = rollout(
+            ) = rollout_auto(
                 obs=obs,
                 critic=critic,
                 disc=discriminator,
@@ -501,6 +501,7 @@ def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
         },
         prefer_wait_bias=6.0 if cfg.obs.init_for_wait else 0.0,
         send_mode=cfg.obs.send_mode,
+        enable_delay=bool(getattr(cfg.obs, "enable_delay", False)),
         train_env={"trim_beginning": cfg.trace.trim_beginning},
     )
 

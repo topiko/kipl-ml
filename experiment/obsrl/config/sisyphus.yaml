@@ -36,6 +36,7 @@ obs:
   lr: 0.0007
   critic_lr: 0.0005
   send_mode: "fixed"
+  enable_delay: False
 
   hsize: 256
   nhidden: 3
@@ -93,4 +94,3 @@ batch_size: 64
 label_smoothing: 0.02
 
 max_epochs: 99
-

@@ -1,6 +1,9 @@
 import numpy as np
 import torch
 
+import argparse
+import os
+
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
 from kipl_ml.trace.enums import Feats
@@ -39,6 +42,30 @@ def _make_synth_batch(
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--plot", action="store_true", help="Save comparison plot")
+    parser.add_argument(
+        "--show",
+        action="store_true",
+        help="Display figures with plt.show() (requires GUI backend)",
+    )
+    parser.add_argument(
+        "--outdir",
+        type=str,
+        default="experiment/obsrl/debug_out",
+        help="Output dir for plots",
+    )
+    parser.add_argument("--idx", type=int, default=0, help="Batch index to plot")
+    args = parser.parse_args()
+
+    if args.plot or args.show:
+        import matplotlib
+
+        if not args.show and os.environ.get("DISPLAY", "") == "":
+            matplotlib.use("Agg")
+
+        import matplotlib.pyplot as plt  # noqa: F401
+
     torch.manual_seed(0)
     np.random.seed(0)
 
@@ -124,6 +151,62 @@ def main() -> None:
             raise AssertionError(f"NaN mask mismatch for {f}")
 
     print("OK: WindowFeatureStreamer matches get_window_feature_dict")
+
+    if args.plot or args.show:
+        import matplotlib.pyplot as plt
+
+        os.makedirs(args.outdir, exist_ok=True)
+        i = int(args.idx)
+        mask_i = fd_full[Feats.TIMES][i].isfinite()
+
+        fig, axes = plt.subplots(5, 1, figsize=(18, 12), sharex=True)
+        fig.suptitle(f"WindowFeatureStreamer equiv (batch={i})")
+
+        t = fd_full[Feats.TIMES][i][mask_i].cpu().numpy()
+        up_full = fd_full[Feats.UP_COUNT][i][mask_i].cpu().numpy()
+        up_stream = fd_stream[Feats.UP_COUNT][i][mask_i].cpu().numpy()
+        down_full = fd_full[Feats.DOWN_COUNT][i][mask_i].cpu().numpy()
+        down_stream = fd_stream[Feats.DOWN_COUNT][i][mask_i].cpu().numpy()
+        dt_full = fd_full[Feats.Dt][i][mask_i].cpu().numpy()
+        dt_stream = fd_stream[Feats.Dt][i][mask_i].cpu().numpy()
+        sil_full = fd_full[Feats.SILENCE_FLAG][i][mask_i].cpu().numpy()
+        sil_stream = fd_stream[Feats.SILENCE_FLAG][i][mask_i].cpu().numpy()
+
+        axes[0].plot(t, up_full, label="up_full", lw=1)
+        axes[0].plot(t, up_stream, label="up_stream", lw=1, linestyle="--")
+        axes[0].set_ylabel("UP_COUNT")
+        axes[0].legend()
+
+        axes[1].plot(t, down_full, label="down_full", lw=1)
+        axes[1].plot(t, down_stream, label="down_stream", lw=1, linestyle="--")
+        axes[1].set_ylabel("DOWN_COUNT")
+        axes[1].legend()
+
+        axes[2].plot(t, dt_full, label="Dt_full", lw=1)
+        axes[2].plot(t, dt_stream, label="Dt_stream", lw=1, linestyle="--")
+        axes[2].set_ylabel("Dt")
+        axes[2].legend()
+
+        axes[3].plot(t, sil_full, label="sil_full", lw=1)
+        axes[3].plot(t, sil_stream, label="sil_stream", lw=1, linestyle="--")
+        axes[3].set_ylabel("SILENCE")
+        axes[3].legend()
+
+        axes[4].plot(t, np.abs(up_full - up_stream), label="|up diff|", lw=1)
+        axes[4].plot(t, np.abs(down_full - down_stream), label="|down diff|", lw=1)
+        axes[4].plot(t, np.abs(dt_full - dt_stream), label="|Dt diff|", lw=1)
+        axes[4].set_ylabel("abs diff")
+        axes[4].set_xlabel("time [s]")
+        axes[4].legend()
+
+        out_path = os.path.join(args.outdir, f"window_streamer_equiv_batch{i:03d}.png")
+        fig.tight_layout()
+        if args.plot:
+            fig.savefig(out_path, dpi=160)
+            print("wrote", out_path)
+        if args.show:
+            plt.show()
+        plt.close(fig)
 
 
 if __name__ == "__main__":

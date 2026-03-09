@@ -308,6 +308,51 @@ def rollout(
     )
 
 
+def rollout_auto(
+    obs: nn.Module,
+    critic: nn.Module | None,
+    disc: nn.Module,
+    X: dict[Feats, torch.Tensor],
+    y: torch.Tensor,
+    disc_league: list[tuple[int, nn.Module.state_dict]],
+    disc_features: FeatureTrs | None = None,
+    detach_period: int = 20,
+    critic_detach_period: int | None = None,
+    reward_scales: dict[str, float] | None = None,
+    sample: bool = True,
+):
+    """Select rollout implementation based on obs capabilities."""
+
+    if getattr(obs, "enable_delay", False):
+        return rollout_discrete_streaming(
+            obs=obs,
+            critic=critic,
+            disc=disc,
+            X=X,
+            y=y,
+            disc_league=disc_league,
+            disc_features=disc_features,
+            detach_period=detach_period,
+            critic_detach_period=critic_detach_period,
+            reward_scales=reward_scales,
+            sample=sample,
+        )
+
+    return rollout(
+        obs=obs,
+        critic=critic,
+        disc=disc,
+        X=X,
+        y=y,
+        disc_league=disc_league,
+        disc_features=disc_features,
+        detach_period=detach_period,
+        critic_detach_period=critic_detach_period,
+        reward_scales=reward_scales,
+        sample=sample,
+    )
+
+
 def _update_trace_subset(
     X_state: dict[Feats, torch.Tensor],
     active: torch.Tensor,
@@ -630,7 +675,13 @@ def rollout_discrete_streaming(
 
     fd_steps: dict[Feats, list[torch.Tensor]] = {f: [] for f in obs.features}
 
+    max_steps = int((X_base[Feats.TIMES].max().item() / obs.time_step)) + 10_000
+    step_i = 0
     while True:
+        if step_i > max_steps:
+            raise RuntimeError(
+                "Exceeded max_steps in streaming rollout (possible infinite delay loop)"
+            )
         fd_t_full = streamer.step()  # (B, 1) per feature
         for f in obs.features:
             fd_steps[f].append(fd_t_full[f])
@@ -699,6 +750,15 @@ def rollout_discrete_streaming(
 
         # Apply this step's action to the evolving trace (active subset only).
         X_state = _update_trace_subset(X_state, active, act_times_a, actions_a)
+
+        # If delay is selected, it shifts future observation windows.
+        if Actions.DELAY in actions_a:
+            if (actions_a[Actions.DELAY] > 0).any():
+                delay_full = torch.zeros((bs, 1), device=device)
+                delay_full[active] = actions_a[Actions.DELAY]
+                streamer.apply_delay(delay_full)
+
+        step_i += 1
 
     if actions_l is None:
         raise ValueError("No actions produced")
