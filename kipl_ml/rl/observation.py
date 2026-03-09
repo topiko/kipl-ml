@@ -227,11 +227,30 @@ class _TraceWindowCursor:
         dt: float,
         K: int,
     ):
-        self.times = times
-        self.dirs = dirs
         self.seq_len = int(seq_len)
         self.dt = float(dt)
         self.K = int(K)
+
+        # Precompute per-packet-bin counts (on the original trace time grid).
+        if self.seq_len > 0:
+            bins = (times[: self.seq_len] // self.dt).to(dtype=torch.long)
+            dirs_ = dirs[: self.seq_len].to(dtype=torch.long)
+
+            # Unique consecutive bins and inverse indices for scatter_add.
+            uniq, inv = torch.unique_consecutive(bins, return_inverse=True)
+            nseg = int(uniq.numel())
+            up_counts = torch.zeros((nseg,), device=times.device, dtype=torch.float)
+            down_counts = torch.zeros((nseg,), device=times.device, dtype=torch.float)
+            up_counts.scatter_add_(0, inv, (dirs_ == UPLOAD).float())
+            down_counts.scatter_add_(0, inv, (dirs_ == DOWNLOAD).float())
+
+            self._pkt_bins = uniq
+            self._up_counts = up_counts
+            self._down_counts = down_counts
+        else:
+            self._pkt_bins = torch.zeros((0,), device=times.device, dtype=torch.long)
+            self._up_counts = torch.zeros((0,), device=times.device, dtype=torch.float)
+            self._down_counts = torch.zeros((0,), device=times.device, dtype=torch.float)
 
         self.p = 0
         self.last_bin: int | None = None
@@ -259,26 +278,22 @@ class _TraceWindowCursor:
             self.silence_next = None
 
     def _peek_pkt_bin(self) -> int | None:
-        if self.p >= self.seq_len:
+        if self.p >= int(self._pkt_bins.numel()):
             return None
-        return int((self.times[self.p] // self.dt).item()) + self.offset_bins
+        return int(self._pkt_bins[self.p].item()) + self.offset_bins
 
     def _consume_pkt_bin(self, b: int) -> tuple[float, float]:
-        up = 0.0
-        down = 0.0
-        while self.p < self.seq_len:
-            bb = int((self.times[self.p] // self.dt).item()) + self.offset_bins
-            if bb != b:
-                break
+        # b includes offset_bins.
+        if self.p >= int(self._pkt_bins.numel()):
+            raise StopIteration
 
-            d = int(self.dirs[self.p].item())
-            if d == UPLOAD:
-                up += 1.0
-            elif d == DOWNLOAD:
-                down += 1.0
-            else:
-                raise ValueError("Nonzero dirs expected within seq_len")
-            self.p += 1
+        bb = int(self._pkt_bins[self.p].item()) + self.offset_bins
+        if bb != b:
+            raise ValueError("consume_pkt_bin called for non-current bin")
+
+        up = float(self._up_counts[self.p].item())
+        down = float(self._down_counts[self.p].item())
+        self.p += 1
 
         self.next_pkt_bin = self._peek_pkt_bin()
 

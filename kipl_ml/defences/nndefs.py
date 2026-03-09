@@ -160,6 +160,8 @@ class RNNDef(_NNDef):
         # delays (single-pass precomputation is invalid).
         if getattr(defense_model, "enable_delay", False):
             h = None
+            base_n = int((trace_d[Feats.DIRS] != 0).sum().item())
+            pad_n = 0
             streamer = WindowFeatureStreamer(
                 trace_d,
                 dt=float(defense_model.time_step),
@@ -201,10 +203,20 @@ class RNNDef(_NNDef):
                         actions=actions,
                     )
 
+                    # Stop once we've produced enough packets.
+                    pad_n += int(
+                        actions[Actions.SEND_COUNT_UP].item()
+                        + actions[Actions.SEND_COUNT_DOWN].item()
+                    )
+                    if base_n + pad_n >= self._n_packets:
+                        break
+
                     if Actions.DELAY in actions and (actions[Actions.DELAY] > 0).any():
                         streamer.apply_delay(actions[Actions.DELAY])
 
             trace_d = exec_state.finalize()
+            # Cap output length.
+            trace_d = {k: v[:, : self._n_packets] for k, v in trace_d.items()}
             trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
             trace_d[Feats.SIZES] = torch.ones_like(trace_d[Feats.TIMES])
             return trace_d
