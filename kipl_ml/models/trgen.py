@@ -56,15 +56,16 @@ def tam_seq_len_fun(x: dict[Feats, torch.Tensor]) -> torch.Tensor:
 def _feature_map(
     x: dict[Feats, torch.Tensor], f: Feats | list[Feats]
 ) -> list[torch.Tensor] | torch.Tensor:
+    def _map_one(fi: Feats) -> torch.Tensor:
+        if fi == Feats.SILENCE_FLAG:
+            return x[fi].unsqueeze(-1)  # keep 0/1
+        if fi in (Feats.TIMES, Feats.TAM_TIMES):
+            return (x[fi] / (x[fi] + 10)).unsqueeze(-1)
+        return torch.log1p(x[fi]).unsqueeze(-1)
+
     if isinstance(f, list):
-        return [_feature_map(x, fi) for fi in f]
-
-    if f == Feats.SILENCE_FLAG:
-        return x[f].unsqueeze(-1)  # keep 0/1
-    if f in (Feats.TIMES, Feats.TAM_TIMES):
-        return (x[f] / (x[f] + 10)).unsqueeze(-1)
-
-    return torch.log1p(x[f]).unsqueeze(-1)
+        return [_map_one(fi) for fi in f]
+    return _map_one(f)
 
 
 class RNNCLF1(nn.Module):
@@ -590,8 +591,6 @@ class AGENT1(nn.Module):
                 logp = dist.log_prob(idx)
                 entropy = dist.entropy()
             else:
-                # Use logits for the argmax to reduce sensitivity to tiny
-                # softmax-level numerical differences between batched vs stepwise.
                 idx = logits.argmax(dim=-1)
                 logp = torch.log(
                     probs.gather(-1, idx.unsqueeze(-1)).squeeze(-1).clamp(min=1e-12)
@@ -599,13 +598,10 @@ class AGENT1(nn.Module):
                 entropy = -(probs * torch.log(probs.clamp(min=1e-12))).sum(dim=-1)
             return idx, logp, entropy, probs
 
-        # Select action (selector head):
         selections, sel_log_probs, sel_entropy, sel_probs = _select_from_logits(
             action_outputs[Actions.SELECTOR], self.prob_eps[Actions.SELECTOR]
         )
 
-        # Send u/d, note! These are conditional on the selection.
-        # They will be ignored if the selection is not SEND_UP/DOWN/BOTH.
         send_count_u_idx, send_count_u_logp, suc_entropy, _ = _select_from_logits(
             action_outputs[Actions.SEND_COUNT_UP], self.prob_eps[Actions.SEND_COUNT_UP]
         )
@@ -627,31 +623,22 @@ class AGENT1(nn.Module):
         send_time_u = self.send_time_bins[send_time_u_idx]
         send_time_d = self.send_time_bins[send_time_d_idx]
 
-        # Conditional entropy H[A|S]:
-        # =============================
-        # (B, L)
         up_p = sel_probs[..., 1] + sel_probs[..., 3]
         down_p = sel_probs[..., 2] + sel_probs[..., 3]
 
-        # (B, L)
-        # up_p * (suc_entropy + sudt_entropy) + down_p * (sdc_entropy + sddt_entropy)
         cond_entropy = self.cond_beta * (
             up_p * (sudt_entropy + suc_entropy)
             + down_p * (sddt_entropy + sdc_entropy)
         )
 
-        # Entropy (B, 1) H[A] = H[S] + H[A|S]
-        # Policy, \Pi[A] = \Pi[S] * \Pi[A|S]
         entropies = {
             "selection_entropy": sel_entropy,
             "conditional_entropy": cond_entropy,
         }
 
-        # Use action selector to choose what to do:
-        # (B, L)
         log_probs = torch.zeros_like(sel_log_probs)
 
-        actions = {
+        actions: dict[Actions, torch.Tensor] = {
             Actions.SELECTOR: selections.detach().clone(),
             Actions.DO_NOTHING: torch.zeros_like(selections),
             Actions.SEND_COUNT_DOWN: send_count_d.detach().clone(),
@@ -662,11 +649,7 @@ class AGENT1(nn.Module):
         if self.enable_delay and sel_probs.shape[-1] >= 5:
             actions[Actions.DELAY] = torch.zeros_like(x[Feats.Dt]).detach().clone()
 
-        # DO_NOTHING:
-        # (B, L)
         mask = selections == 0
-
-        # (B, L)
         log_probs[mask] = sel_log_probs[mask]
         actions[Actions.DO_NOTHING][mask] = 1
         actions[Actions.SEND_COUNT_UP][mask] = 0
@@ -674,11 +657,9 @@ class AGENT1(nn.Module):
         actions[Actions.SEND_TIME_UP][mask] = 0
         actions[Actions.SEND_TIME_DOWN][mask] = 0
 
-        # DELAY:
         if self.enable_delay and sel_probs.shape[-1] >= 5:
             mask = selections == 4
             log_probs[mask] = sel_log_probs[mask]
-            # Delay duration is fixed to one model time step.
             actions[Actions.DELAY][mask] = float(self.time_step)
             actions[Actions.DO_NOTHING][mask] = 0
             actions[Actions.SEND_COUNT_UP][mask] = 0
@@ -686,33 +667,21 @@ class AGENT1(nn.Module):
             actions[Actions.SEND_TIME_UP][mask] = 0
             actions[Actions.SEND_TIME_DOWN][mask] = 0
 
-        # SEND UP:
-        # (B, L)
         mask = selections == 1
-
-        # (B, L)
         log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
             send_count_u_logp[mask] + send_time_u_logp[mask]
         )
         actions[Actions.SEND_COUNT_DOWN][mask] = 0
         actions[Actions.SEND_TIME_DOWN][mask] = 0
 
-        # SEND DOWN:
-        # (B, L)
         mask = selections == 2
-
-        # (B, L)
         log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
             send_count_d_logp[mask] + send_time_d_logp[mask]
         )
         actions[Actions.SEND_COUNT_UP][mask] = 0
         actions[Actions.SEND_TIME_UP][mask] = 0
 
-        # SEND BOTH:
-        # (B, L)
         mask = selections == 3
-
-        # (B, L)
         log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
             send_count_u_logp[mask]
             + send_time_u_logp[mask]
@@ -720,13 +689,9 @@ class AGENT1(nn.Module):
             + send_time_d_logp[mask]
         )
 
-        # (B, L)
         values = action_outputs[Feats.STATE_VALUE]
-
-        # The actions take place only after the current window is processed -> + Dt
         times = x[Feats.TIMES] + x[Feats.Dt]
 
-        # Map the action names.
         if self.send_mode == "spread":
             actions[Actions.SPREAD_TIME_UP] = actions.pop(Actions.SEND_TIME_UP)
             actions[Actions.SPREAD_TIME_DOWN] = actions.pop(Actions.SEND_TIME_DOWN)
@@ -739,6 +704,35 @@ class AGENT1(nn.Module):
             )
 
         return times, actions, log_probs, sel_probs, values, entropies, h
+
+    def act_step(
+        self,
+        x: dict[Feats, torch.Tensor],
+        h: torch.Tensor | None = None,
+        sample: bool = True,
+    ) -> tuple[
+        torch.Tensor,
+        dict[Actions, torch.Tensor],
+        torch.Tensor,
+        torch.Tensor,
+        dict[str, torch.Tensor],
+        torch.Tensor,
+        torch.Tensor,
+    ]:
+        """Single-step action API (expects L=1)."""
+
+        for f in self.features:
+            v = x[f]
+            if v.ndim != 2 or v.shape[1] != 1:
+                raise ValueError("act_step expects each feature to be (B,1)")
+
+        return self.act(
+            x,
+            h=h,
+            h_detach_period=None,
+            seq_lens=None,
+            sample=sample,
+        )
 
 
 class CRITIC01(nn.Module):

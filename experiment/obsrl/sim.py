@@ -4,7 +4,7 @@ from torch import nn
 from kipl_ml.data.utils import UPLOAD
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.models.trgen import _hidden_w_mask
-from kipl_ml.rl.action import send_exec
+from kipl_ml.rl.action import TraceExecState, send_exec
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
 from kipl_ml.trace.enums import Feats
@@ -470,15 +470,26 @@ def rollout_discrete_precomputed(
 
         h_active = _hidden_w_mask(hobs, active)
 
-        act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
-            obs.act(
-                fd_t_active,
-                h_active,
-                h_detach_period=None,
-                seq_lens=torch.ones((int(active.sum().item()),), device=device).long(),
-                sample=sample,
+        if hasattr(obs, "act_step"):
+            act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
+                obs.act_step(
+                    fd_t_active,
+                    h_active,
+                    sample=sample,
+                )
             )
-        )
+        else:
+            act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
+                obs.act(
+                    fd_t_active,
+                    h_active,
+                    h_detach_period=None,
+                    seq_lens=torch.ones(
+                        (int(active.sum().item()),), device=device
+                    ).long(),
+                    sample=sample,
+                )
+            )
 
         hobs = _hidden_w_mask(hobs, active, h_active)
 
@@ -651,8 +662,13 @@ def rollout_discrete_streaming(
     X_base[Feats.DIRS][row_idx0, col_idx0] = UPLOAD
     X_base[Feats.TIMES][mask0] += 2
 
-    # Stateful trace as we apply actions.
-    X_state = {k: v.clone() for k, v in X_base.items()}
+    exec_state = TraceExecState(
+        {
+            Feats.TIMES: X_base[Feats.TIMES].clone(),
+            Feats.DIRS: X_base[Feats.DIRS].clone(),
+            Feats.PADDING: X_base.get(Feats.PADDING, torch.zeros_like(X_base[Feats.TIMES])).clone(),
+        }
+    )
     bs = y.shape[0]
 
     streamer = WindowFeatureStreamer(
@@ -674,6 +690,8 @@ def rollout_discrete_streaming(
     actions_l: dict[Actions, list[torch.Tensor]] | None = None
 
     fd_steps: dict[Feats, list[torch.Tensor]] = {f: [] for f in obs.features}
+
+    act_step_fn = getattr(obs, "act_step", None)
 
     max_steps = int((X_base[Feats.TIMES].max().item() / obs.time_step)) + 10_000
     step_i = 0
@@ -701,15 +719,22 @@ def rollout_discrete_streaming(
 
         h_active = _hidden_w_mask(hobs, active)
 
-        act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
-            obs.act(
-                fd_t_active,
-                h_active,
-                h_detach_period=None,
-                seq_lens=torch.ones((int(active.sum().item()),), device=device).long(),
-                sample=sample,
+        if act_step_fn is not None:
+            act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
+                act_step_fn(fd_t_active, h_active, sample=sample)
             )
-        )
+        else:
+            act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
+                obs.act(
+                    fd_t_active,
+                    h_active,
+                    h_detach_period=None,
+                    seq_lens=torch.ones(
+                        (int(active.sum().item()),), device=device
+                    ).long(),
+                    sample=sample,
+                )
+            )
 
         hobs = _hidden_w_mask(hobs, active, h_active)
 
@@ -748,8 +773,12 @@ def rollout_discrete_streaming(
         ent_sel_l.append(ent_sel_t)
         ent_cond_l.append(ent_cond_t)
 
-        # Apply this step's action to the evolving trace (active subset only).
-        X_state = _update_trace_subset(X_state, active, act_times_a, actions_a)
+        # Record this step's action for final trace reconstruction.
+        exec_state.step(
+            trace_idx=torch.where(active)[0],
+            times=act_times_a,
+            actions=actions_a,
+        )
 
         # If delay is selected, it shifts future observation windows.
         if Actions.DELAY in actions_a:
@@ -776,7 +805,7 @@ def rollout_discrete_streaming(
         "conditional_entropy": torch.cat(ent_cond_l, dim=1),
     }
     actions = {k: torch.cat(vs, dim=1) for k, vs in actions_l.items()}
-    Xobs = X_state
+    Xobs = exec_state.finalize()
 
     rewards = None
     values = None
