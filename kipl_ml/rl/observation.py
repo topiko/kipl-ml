@@ -210,3 +210,206 @@ def get_window_feature_dict(
             raise ValueError("Missing packets")
 
     return feature_dict
+
+
+class _TraceWindowCursor:
+    """Per-trace cursor producing the same bin sequence as get_window_feature_dict.
+
+    It iterates over packet bins and inserts silence bins in gaps using the same
+    K-step rule as _add_actions_to_silence_periods().
+    """
+
+    def __init__(
+        self,
+        times: torch.Tensor,
+        dirs: torch.Tensor,
+        seq_len: int,
+        dt: float,
+        K: int,
+    ):
+        self.times = times
+        self.dirs = dirs
+        self.seq_len = int(seq_len)
+        self.dt = float(dt)
+        self.K = int(K)
+
+        self.p = 0
+        self.next_pkt_bin: int | None = self._peek_pkt_bin()
+        self.silence_next: int | None = None
+
+    def _peek_pkt_bin(self) -> int | None:
+        if self.p >= self.seq_len:
+            return None
+        return int((self.times[self.p] // self.dt).item())
+
+    def _consume_pkt_bin(self, b: int) -> tuple[float, float]:
+        up = 0.0
+        down = 0.0
+        while self.p < self.seq_len:
+            bb = int((self.times[self.p] // self.dt).item())
+            if bb != b:
+                break
+
+            d = int(self.dirs[self.p].item())
+            if d == UPLOAD:
+                up += 1.0
+            elif d == DOWNLOAD:
+                down += 1.0
+            else:
+                raise ValueError("Nonzero dirs expected within seq_len")
+            self.p += 1
+
+        self.next_pkt_bin = self._peek_pkt_bin()
+
+        # If there is a gap to the next packet bin, schedule silence windows.
+        if self.next_pkt_bin is None:
+            self.silence_next = None
+        else:
+            gap = self.next_pkt_bin - b - 1
+            if gap >= 1:
+                self.silence_next = b + 1
+            else:
+                self.silence_next = None
+
+        return up, down
+
+    def _peek_next_bin(self) -> int | None:
+        if self.next_pkt_bin is None:
+            return None
+        if self.silence_next is not None and self.silence_next < self.next_pkt_bin:
+            return self.silence_next
+        return self.next_pkt_bin
+
+    def step(self) -> tuple[int, float, float, int | None]:
+        """Return (bin, up_count, down_count, next_bin_or_none) and advance."""
+        b = self._peek_next_bin()
+        if b is None:
+            raise StopIteration
+
+        # Silence window.
+        if self.silence_next is not None and self.next_pkt_bin is not None:
+            if b == self.silence_next and b < self.next_pkt_bin:
+                # Schedule next silence step at +K, but stop before next packet bin.
+                self.silence_next = b + self.K
+                if self.silence_next >= self.next_pkt_bin:
+                    self.silence_next = None
+                return b, 0.0, 0.0, self._peek_next_bin()
+
+        # Packet bin.
+        up, down = self._consume_pkt_bin(b)
+        return b, up, down, self._peek_next_bin()
+
+
+class WindowFeatureStreamer:
+    """Stream action-window features (B, 1) step-by-step.
+
+    This matches get_window_feature_dict() for the feature set used by AGENT1.
+    """
+
+    def __init__(
+        self,
+        X: dict[Feats, torch.Tensor],
+        dt: float,
+        max_silence_s: float,
+        features: list[Feats],
+        extend_end_s: float = 0,
+    ):
+        if dt <= 0:
+            raise ValueError(f"dt must be > 0, got {dt}")
+
+        ratio = max_silence_s / dt
+        if abs(ratio - round(ratio)) > 1e-8:
+            raise ValueError(
+                f"max_silence_s must be divisible by dt (max_silence_s={max_silence_s}, dt={dt})."
+            )
+
+        if set(X.keys()) > {Feats.PADDING, Feats.DIRS, Feats.TIMES}:
+            raise ValueError("Invalid set of feats")
+
+        self.dt = float(dt)
+        self.max_silence_s = float(max_silence_s)
+        self.features = features
+
+        self.X = {k: v.clone() for k, v in X.items()}
+        device = self.X[Feats.TIMES].device
+
+        if extend_end_s > 0:
+            bs, L = self.X[Feats.DIRS].shape
+            mask = self.X[Feats.DIRS] == 0
+            seq_lens = (~mask).sum(dim=1)
+            col_idx = seq_lens[seq_lens != L]
+            row_idx = torch.arange(bs, device=device)[seq_lens != L]
+            self.X[Feats.DIRS][row_idx, col_idx] = UPLOAD
+            self.X[Feats.TIMES][mask] += extend_end_s
+
+        # K in bin index space.
+        K = int(self.max_silence_s / self.dt) if self.dt > 0 else 1
+        self.K = max(K, 1)
+
+        dirs = self.X[Feats.DIRS]
+        self.pkt_seq_lens = (dirs != 0).sum(dim=1).long()
+        self.bs = int(dirs.shape[0])
+        self.dtype = self.X[Feats.TIMES].dtype
+
+        self._cursors: list[_TraceWindowCursor] = []
+        for i in range(self.bs):
+            self._cursors.append(
+                _TraceWindowCursor(
+                    times=self.X[Feats.TIMES][i],
+                    dirs=self.X[Feats.DIRS][i],
+                    seq_len=int(self.pkt_seq_lens[i].item()),
+                    dt=self.dt,
+                    K=self.K,
+                )
+            )
+
+        self.done = torch.zeros((self.bs,), device=device, dtype=torch.bool)
+
+    def active_mask(self) -> torch.Tensor:
+        return ~self.done
+
+    def step(self) -> dict[Feats, torch.Tensor]:
+        device = self.done.device
+        bs = self.bs
+
+        times = torch.full((bs, 1), torch.nan, device=device, dtype=self.dtype)
+        up = torch.full((bs, 1), torch.nan, device=device, dtype=self.dtype)
+        down = torch.full((bs, 1), torch.nan, device=device, dtype=self.dtype)
+        dts = torch.full((bs, 1), torch.nan, device=device, dtype=self.dtype)
+
+        for i in range(bs):
+            if self.done[i]:
+                continue
+
+            try:
+                b, u, d, b_next = self._cursors[i].step()
+            except StopIteration:
+                self.done[i] = True
+                continue
+
+            times[i, 0] = float(b) * self.dt
+            up[i, 0] = u
+            down[i, 0] = d
+
+            if b_next is None:
+                dts[i, 0] = self.dt
+                self.done[i] = True
+            else:
+                dts[i, 0] = float(b_next - b) * self.dt
+
+        fd: dict[Feats, torch.Tensor] = {
+            Feats.UP_COUNT: up,
+            Feats.DOWN_COUNT: down,
+            Feats.Dt: dts,
+            Feats.TIMES: times,
+        }
+
+        if Feats.SILENCE_FLAG in self.features:
+            # Match get_window_feature_dict(): SILENCE_FLAG is computed after the
+            # final flush-left, so NaN UP/DOWN in padded positions become 0.0.
+            fd[Feats.SILENCE_FLAG] = ((up == 0) & (down == 0)).float()
+
+        if not all(f in fd for f in self.features):
+            raise ValueError("Some requested features are missing!")
+
+        return {f: fd[f] for f in self.features}

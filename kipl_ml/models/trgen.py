@@ -564,6 +564,7 @@ class AGENT1(nn.Module):
         h: torch.Tensor | None = None,
         h_detach_period: int | None = None,
         seq_lens: torch.Tensor | None = None,
+        sample: bool = True,
     ) -> tuple[
         torch.Tensor,
         dict[Actions, torch.Tensor],
@@ -574,82 +575,61 @@ class AGENT1(nn.Module):
     ]:
         action_outputs, h = self(x, h, h_detach_period, seq_lens)
 
-        # Select action:
-        sel_probs = nn.functional.softmax(action_outputs[Actions.SELECTOR], dim=-1)
+        def _select_from_logits(
+            logits: torch.Tensor, eps: float
+        ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+            probs = self._get_probs(logits, eps)
+            if sample:
+                dist = Categorical(probs=probs)
+                idx = dist.sample()
+                logp = dist.log_prob(idx)
+                entropy = dist.entropy()
+            else:
+                # Use logits for the argmax to reduce sensitivity to tiny
+                # softmax-level numerical differences between batched vs stepwise.
+                idx = logits.argmax(dim=-1)
+                logp = torch.log(
+                    probs.gather(-1, idx.unsqueeze(-1)).squeeze(-1).clamp(min=1e-12)
+                )
+                entropy = -(probs * torch.log(probs.clamp(min=1e-12))).sum(dim=-1)
+            return idx, logp, entropy, probs
 
-        # For exploration we always add some prob eps to each action:
-        sel_dist = Categorical(
-            probs=self._get_probs(
-                action_outputs[Actions.SELECTOR], self.prob_eps[Actions.SELECTOR]
-            )
+        # Select action (selector head):
+        selections, sel_log_probs, sel_entropy, sel_probs = _select_from_logits(
+            action_outputs[Actions.SELECTOR], self.prob_eps[Actions.SELECTOR]
         )
-
-        # (B, L)
-        selections = sel_dist.sample()
-        sel_log_probs = sel_dist.log_prob(selections)
-        sel_probs = sel_dist.probs
-        sel_entropy = sel_dist.entropy()
 
         # Send u/d, note! These are conditional on the selection.
         # They will be ignored if the selection is not SEND_UP/DOWN/BOTH.
-        suc = Categorical(
-            probs=self._get_probs(
-                action_outputs[Actions.SEND_COUNT_UP],
-                self.prob_eps[Actions.SEND_COUNT_UP],
-            )
+        send_count_u_idx, send_count_u_logp, suc_entropy, _ = _select_from_logits(
+            action_outputs[Actions.SEND_COUNT_UP], self.prob_eps[Actions.SEND_COUNT_UP]
         )
-        sut = Categorical(
-            probs=self._get_probs(
-                action_outputs[Actions.SEND_TIME_UP],
-                self.prob_eps[Actions.SEND_TIME_UP],
-            )
+        send_time_u_idx, send_time_u_logp, sudt_entropy, _ = _select_from_logits(
+            action_outputs[Actions.SEND_TIME_UP], self.prob_eps[Actions.SEND_TIME_UP]
         )
 
-        sdc = Categorical(
-            probs=self._get_probs(
-                action_outputs[Actions.SEND_COUNT_DOWN],
-                self.prob_eps[Actions.SEND_COUNT_DOWN],
-            )
+        send_count_d_idx, send_count_d_logp, sdc_entropy, _ = _select_from_logits(
+            action_outputs[Actions.SEND_COUNT_DOWN],
+            self.prob_eps[Actions.SEND_COUNT_DOWN],
         )
-        sdt = Categorical(
-            probs=self._get_probs(
-                action_outputs[Actions.SEND_TIME_DOWN],
-                self.prob_eps[Actions.SEND_TIME_DOWN],
-            )
+        send_time_d_idx, send_time_d_logp, sddt_entropy, _ = _select_from_logits(
+            action_outputs[Actions.SEND_TIME_DOWN],
+            self.prob_eps[Actions.SEND_TIME_DOWN],
         )
 
-        # (B, L)
-        send_count_u_idx = suc.sample()
-        send_count_u_logp = suc.log_prob(send_count_u_idx)
         send_count_u = self.send_count_bins[send_count_u_idx]
-
-        send_count_d_idx = sdc.sample()
-        send_count_d_logp = sdc.log_prob(send_count_d_idx)
         send_count_d = self.send_count_bins[send_count_d_idx]
-
-        send_time_u_idx = sut.sample()
-        send_time_u_logp = sut.log_prob(send_time_u_idx)
         send_time_u = self.send_time_bins[send_time_u_idx]
-
-        send_time_d_idx = sdt.sample()
-        send_time_d_logp = sdt.log_prob(send_time_d_idx)
         send_time_d = self.send_time_bins[send_time_d_idx]
 
         # Conditional entropy H[A|S]:
         # =============================
-        # (B, 4)
-        sel_probs = sel_dist.probs
-
         # (B, L)
         up_p = sel_probs[..., 1] + sel_probs[..., 3]
         down_p = sel_probs[..., 2] + sel_probs[..., 3]
 
         # (B, L)
-        # up_p * (suc_entropy + stu_entropy) + down_p * (sdc_entropy + sdt_entropy)
-        suc_entropy = suc.entropy()
-        sdc_entropy = sdc.entropy()
-        sudt_entropy = sut.entropy()
-        sddt_entropy = sdt.entropy()
+        # up_p * (suc_entropy + sudt_entropy) + down_p * (sdc_entropy + sddt_entropy)
         cond_entropy = self.cond_beta * (
             up_p * (sudt_entropy + suc_entropy) + down_p * (sddt_entropy + sdc_entropy)
         )
