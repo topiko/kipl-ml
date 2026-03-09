@@ -360,28 +360,30 @@ def send_exec(
     # TODO: improve this by removing the batch dim loops...
 
     if Actions.DELAY in actions:
-        # Delay is currently only supported for stepwise execution (T=1).
-        if times.shape[1] != 1:
-            raise NotImplementedError("DELAY only supported for stepwise send_exec (T=1)")
-
         delay_s = actions[Actions.DELAY]
         if delay_s.shape != times.shape:
             raise ValueError("DELAY tensor must match times shape")
 
         delay_mask = delay_s > 0
 
-        # Apply delay: shift all packets at/after the action time.
-        for i in range(times.shape[0]):
-            if not bool(delay_mask[i, 0].item()):
-                continue
-            t0 = float(times[i, 0].item())
-            d = float(delay_s[i, 0].item())
-            X[Feats.TIMES][i] = torch.where(
-                X[Feats.TIMES][i] >= t0, X[Feats.TIMES][i] + d, X[Feats.TIMES][i]
-            )
+        # Delay is only supported for stepwise execution (T=1) when it is
+        # actually used. The DELAY tensor may be present (all zeros) in
+        # multi-step runs.
+        if delay_mask.any() and times.shape[1] != 1:
+            raise NotImplementedError("DELAY only supported for stepwise send_exec (T=1)")
 
-        # Delay is exclusive; enforce no padding sends in this step.
         if delay_mask.any():
+            # Apply delay: shift all packets at/after the action time.
+            for i in range(times.shape[0]):
+                if not bool(delay_mask[i, 0].item()):
+                    continue
+                t0 = float(times[i, 0].item())
+                d = float(delay_s[i, 0].item())
+                X[Feats.TIMES][i] = torch.where(
+                    X[Feats.TIMES][i] >= t0, X[Feats.TIMES][i] + d, X[Feats.TIMES][i]
+                )
+
+            # Delay is exclusive; enforce no padding sends in this step.
             for k in (
                 Actions.SEND_COUNT_UP,
                 Actions.SEND_COUNT_DOWN,
