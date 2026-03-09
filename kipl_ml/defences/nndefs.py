@@ -238,6 +238,9 @@ class RNNDef(_NNDef):
 
         trace_d = send_exec(trace_d, act_times, actions)
 
+        # Cap output length (disc features often use n_packets=None).
+        trace_d = {k: v[:, : self._n_packets] for k, v in trace_d.items()}
+
         trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
 
         trace_d[Feats.SIZES] = torch.ones_like(trace_d[Feats.TIMES])
