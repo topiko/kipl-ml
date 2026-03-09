@@ -10,7 +10,7 @@ from torch import nn
 from tqdm import tqdm
 
 from experiment.obsrl.plot_utils import _plot_set
-from experiment.obsrl.sim import rollout_auto
+from experiment.obsrl.sim import rollout
 from experiment.obsrl.utils import (
     _append_to_league,
     _get_obs_def_dl,
@@ -126,7 +126,7 @@ def train_obs_one_epoch(
                 _,
                 Xobs,
                 fd,
-            ) = rollout_auto(
+            ) = rollout(
                 obs=obs,
                 critic=critic,
                 disc=discriminator,

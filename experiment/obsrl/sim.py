@@ -167,7 +167,83 @@ def get_rewards(
     return rewards
 
 
-def rollout(
+def compute_values(
+    *,
+    critic: nn.Module,
+    critic_detach_period: int | None,
+    fd: dict[Feats, torch.Tensor],
+    action_seq_lens: torch.Tensor,
+    y: torch.Tensor,
+) -> torch.Tensor:
+    fd_critic = fd
+    if hasattr(critic, "features") and Feats.LABEL in critic.features:
+        fd_critic = dict(fd)
+        fd_critic[Feats.LABEL] = y.unsqueeze(1).repeat(1, int(fd[Feats.TIMES].shape[1]))
+
+    return critic(
+        fd_critic,
+        None,
+        h_detach_period=critic_detach_period,
+        seq_lens=action_seq_lens,
+    )[0][Feats.STATE_VALUE]
+
+
+def compute_rewards_league(
+    *,
+    disc: nn.Module,
+    disc_league: list[tuple[int, nn.Module.state_dict]],
+    disc_features: FeatureTrs | None,
+    reward_scales: dict[str, float],
+    Xobs: dict[Feats, torch.Tensor],
+    y: torch.Tensor,
+    act_times: torch.Tensor,
+    actions: dict[Actions, torch.Tensor],
+) -> dict[str, torch.Tensor]:
+    device = y.device
+    current_disc_state = {k: v.detach().clone() for k, v in disc.state_dict().items()}
+
+    packet_seq_lens_gpu = (Xobs[Feats.DIRS] != 0).sum(dim=1).long()
+
+    if disc_features is not None:
+        X_ = disc_features.transform_batch(Xobs)
+    else:
+        X_ = Xobs
+
+    disc_seq_lens = disc.seq_len_fun(X_).to("cpu")
+    X_ = {k: v[:, : disc_seq_lens.max()] for k, v in X_.items()}
+
+    rewards_l = []
+    for _, state_d in disc_league:
+        if state_d is None:
+            disc.load_state_dict(current_disc_state)
+        else:
+            disc.load_state_dict({k: v.to(device) for k, v in state_d.items()})
+
+        hdisc = None
+        disc.eval()
+        with torch.no_grad():
+            logits, hdisc = disc.pack_and_forward(X_, hdisc, disc_seq_lens)
+
+        rewards_ = get_rewards(
+            act_times,
+            actions,
+            Xobs,
+            X_,
+            y,
+            logits,
+            packet_seq_lens_gpu,
+            disc_seq_lens,
+            feat_mode=disc.feat_mode,
+            reward_scales=reward_scales,
+        )
+        rewards_l.append(rewards_)
+
+    rewards = {k: torch.stack([r[k] for r in rewards_l], dim=0) for k in rewards_l[0].keys()}
+    disc.load_state_dict(current_disc_state)
+    return rewards
+
+
+def _rollout_single_pass(
     obs: nn.Module,
     critic: nn.Module | None,
     disc: nn.Module,
@@ -191,8 +267,6 @@ def rollout(
     dict[Feats, torch.Tensor],
 ]:
     hobs = None
-    rewards = None
-    values = None
     device = y.device
     critic_detach_period = critic_detach_period or detach_period
 
@@ -232,68 +306,28 @@ def rollout(
 
     Xobs = send_exec(X, act_times, actions)
 
+    values = values_actor
+    if critic is not None:
+        values = compute_values(
+            critic=critic,
+            critic_detach_period=critic_detach_period,
+            fd=fd,
+            action_seq_lens=action_seq_lens,
+            y=y,
+        )
+
+    rewards = None
     if reward_scales is not None:
-        current_disc_state = {
-            k: v.detach().clone() for k, v in disc.state_dict().items()
-        }
-        rewards_l = []
-        packet_seq_lens_gpu = (Xobs[Feats.DIRS] != 0).sum(dim=1).long()
-
-        if disc_features is not None:
-            X_ = disc_features.transform_batch(Xobs)
-        else:
-            X_ = Xobs
-
-        disc_seq_lens = disc.seq_len_fun(X_).to("cpu")
-
-        X_ = {k: v[:, : disc_seq_lens.max()] for k, v in X_.items()}
-
-        # Critic feat building:
-        if critic is not None and Feats.LABEL in critic.features:
-            fd[Feats.LABEL] = y.unsqueeze(1).repeat(1, L)
-
-        for _, state_d in disc_league:
-            if state_d is None:
-                disc.load_state_dict(current_disc_state)
-            else:
-                disc.load_state_dict({k: v.to(device) for k, v in state_d.items()})
-
-            hdisc = None
-            disc.eval()
-            with torch.no_grad():
-                logits, hdisc = disc.pack_and_forward(X_, hdisc, disc_seq_lens)
-
-            rewards_ = get_rewards(
-                act_times,
-                actions,
-                Xobs,
-                X_,
-                y,
-                logits,
-                packet_seq_lens_gpu,
-                disc_seq_lens,
-                feat_mode=disc.feat_mode,
-                reward_scales=reward_scales,
-            )
-
-            rewards_l.append(rewards_)
-
-        # Rewards from different disc. checkpoints.
-        rewards = {
-            k: torch.stack([r[k] for r in rewards_l], dim=0)
-            for k in rewards_l[0].keys()
-        }
-
-        # Make the values tensor
-        if critic is not None:
-            values = critic(
-                fd, None, h_detach_period=critic_detach_period, seq_lens=action_seq_lens
-            )[0][Feats.STATE_VALUE]
-        else:
-            values = values_actor
-
-        # Make sure correct state is restored.
-        disc.load_state_dict(current_disc_state)
+        rewards = compute_rewards_league(
+            disc=disc,
+            disc_league=disc_league,
+            disc_features=disc_features,
+            reward_scales=reward_scales,
+            Xobs=Xobs,
+            y=y,
+            act_times=act_times,
+            actions=actions,
+        )
 
     return (
         log_ps,
@@ -308,7 +342,7 @@ def rollout(
     )
 
 
-def rollout_auto(
+def rollout(
     obs: nn.Module,
     critic: nn.Module | None,
     disc: nn.Module,
@@ -321,10 +355,13 @@ def rollout_auto(
     reward_scales: dict[str, float] | None = None,
     sample: bool = True,
 ):
-    """Select rollout implementation based on obs capabilities."""
+    """Rollout entrypoint.
+
+    Uses streaming rollout when delay is enabled on the agent.
+    """
 
     if getattr(obs, "enable_delay", False):
-        return rollout_discrete_streaming(
+        return _rollout_streaming(
             obs=obs,
             critic=critic,
             disc=disc,
@@ -338,7 +375,7 @@ def rollout_auto(
             sample=sample,
         )
 
-    return rollout(
+    return _rollout_single_pass(
         obs=obs,
         critic=critic,
         disc=disc,
@@ -353,275 +390,9 @@ def rollout_auto(
     )
 
 
-def _update_trace_subset(
-    X_state: dict[Feats, torch.Tensor],
-    active: torch.Tensor,
-    act_times_active: torch.Tensor,
-    actions_active: dict[Actions, torch.Tensor],
-) -> dict[Feats, torch.Tensor]:
-    """Apply send_exec only to active rows and merge back.
-
-    send_exec currently does not support rows with no finite action times.
-    """
-    if active.all():
-        return send_exec(X_state, act_times_active, actions_active)
-
-    X_active = {k: v[active] for k, v in X_state.items()}
-    X_active_new = send_exec(X_active, act_times_active, actions_active)
-
-    new_len = max(
-        X_state[Feats.TIMES].shape[1],
-        X_active_new[Feats.TIMES].shape[1],
-    )
-    X_new: dict[Feats, torch.Tensor] = {}
-    for k in (Feats.TIMES, Feats.DIRS, Feats.PADDING):
-        base = X_state.get(k)
-        if base is None:
-            base = torch.zeros_like(X_state[Feats.TIMES])
-        if base.shape[1] < new_len:
-            expanded = torch.zeros(
-                (base.shape[0], new_len), device=base.device, dtype=base.dtype
-            )
-            expanded[:, : base.shape[1]] = base
-            base = expanded
-        out = base
-        v_act = X_active_new[k]
-        out[active, : v_act.shape[1]] = v_act
-        X_new[k] = out
-
-    return X_new
 
 
-def rollout_discrete_precomputed(
-    obs: nn.Module,
-    critic: nn.Module | None,
-    disc: nn.Module,
-    X: dict[Feats, torch.Tensor],
-    y: torch.Tensor,
-    disc_league: list[tuple[int, nn.Module.state_dict]],
-    disc_features: FeatureTrs | None = None,
-    detach_period: int = 20,
-    critic_detach_period: int | None = None,
-    reward_scales: dict[str, float] | None = None,
-    sample: bool = True,
-) -> tuple[
-    torch.Tensor,
-    torch.Tensor,
-    torch.Tensor,
-    dict[str, torch.Tensor] | None,
-    dict[str, torch.Tensor],
-    torch.Tensor,
-    dict[Actions, torch.Tensor],
-    dict[Feats, torch.Tensor],
-    dict[Feats, torch.Tensor],
-]:
-    """Discrete-time rollout using the existing precomputed window features.
-
-    This is a stepping-stone towards interactive simulation where actions may
-    affect future observation windows (e.g. via delay). For now, windows are
-    still generated once (same as rollout()), but trace execution happens stepwise.
-    """
-
-    device = y.device
-    critic_detach_period = critic_detach_period or detach_period
-
-    if X[Feats.TIMES].isnan().any():
-        raise ValueError("NaN in times feature")
-
-    # Precompute windows exactly like the single-pass rollout.
-    fd = get_window_feature_dict(
-        X, obs.time_step, obs.max_silence_s, features=obs.features, extend_end_s=2
-    )
-
-    action_seq_lens = fd.pop(Feats.SEQ_LENS)
-    L = int(action_seq_lens.max().item())
-    bs = y.shape[0]
-
-    # Stateful trace as we apply actions.
-    X_state = {k: v.clone() for k, v in X.items()}
-
-    hobs = None
-
-    log_ps_l: list[torch.Tensor] = []
-    sel_probs_l: list[torch.Tensor] = []
-    values_actor_l: list[torch.Tensor] = []
-    ent_sel_l: list[torch.Tensor] = []
-    ent_cond_l: list[torch.Tensor] = []
-    act_times_l: list[torch.Tensor] = []
-    actions_l: dict[Actions, list[torch.Tensor]] | None = None
-
-    # Step through window index space.
-    feature_keys = [k for k in fd.keys()]
-
-    for t in range(L):
-        active = action_seq_lens > t
-        if active.sum() == 0:
-            break
-
-        # Build active slice and sanitize non-finite (should not happen for active).
-        fd_t_active = {
-            k: torch.where(
-                fd[k][active, t : t + 1].isfinite(),
-                fd[k][active, t : t + 1],
-                torch.zeros((int(active.sum().item()), 1), device=device),
-            )
-            for k in feature_keys
-        }
-
-        h_active = _hidden_w_mask(hobs, active)
-
-        if hasattr(obs, "act_step"):
-            act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
-                obs.act_step(
-                    fd_t_active,
-                    h_active,
-                    sample=sample,
-                )
-            )
-        else:
-            act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
-                obs.act(
-                    fd_t_active,
-                    h_active,
-                    h_detach_period=None,
-                    seq_lens=torch.ones(
-                        (int(active.sum().item()),), device=device
-                    ).long(),
-                    sample=sample,
-                )
-            )
-
-        hobs = _hidden_w_mask(hobs, active, h_active)
-
-        # Scatter active outputs back to full batch size.
-        act_times_t = torch.full((bs, 1), torch.nan, device=device)
-        act_times_t[active] = act_times_a
-
-        log_ps_t = torch.zeros((bs, 1), device=device)
-        log_ps_t[active] = log_ps_a
-
-        values_t = torch.zeros((bs, 1), device=device)
-        values_t[active] = values_a
-
-        sel_probs_t = torch.zeros((bs, 1, sel_probs_a.shape[-1]), device=device)
-        sel_probs_t[active] = sel_probs_a
-
-        ent_sel_t = torch.zeros((bs, 1), device=device)
-        ent_sel_t[active] = ent_a["selection_entropy"]
-
-        ent_cond_t = torch.zeros((bs, 1), device=device)
-        ent_cond_t[active] = ent_a["conditional_entropy"]
-
-        if actions_l is None:
-            actions_l = {k: [] for k in actions_a.keys()}
-
-        actions_t: dict[Actions, torch.Tensor] = {}
-        for k in actions_l.keys():
-            a_full = torch.zeros(
-                (bs, 1), device=device, dtype=actions_a[k].dtype
-            )
-            a_full[active] = actions_a[k]
-            actions_t[k] = a_full
-            actions_l[k].append(a_full)
-
-        act_times_l.append(act_times_t)
-        log_ps_l.append(log_ps_t)
-        sel_probs_l.append(sel_probs_t)
-        values_actor_l.append(values_t)
-        ent_sel_l.append(ent_sel_t)
-        ent_cond_l.append(ent_cond_t)
-
-        # Apply this step's action to the evolving trace.
-        X_state = _update_trace_subset(X_state, active, act_times_a, actions_a)
-
-    if actions_l is None:
-        raise ValueError("No actions produced")
-
-    act_times = torch.cat(act_times_l, dim=1)
-    log_ps = torch.cat(log_ps_l, dim=1)
-    sel_probs = torch.cat(sel_probs_l, dim=1)
-    values_actor = torch.cat(values_actor_l, dim=1)
-    entropies = {
-        "selection_entropy": torch.cat(ent_sel_l, dim=1),
-        "conditional_entropy": torch.cat(ent_cond_l, dim=1),
-    }
-
-    actions = {k: torch.cat(vs, dim=1) for k, vs in actions_l.items()}
-    Xobs = X_state
-
-    rewards = None
-    values = None
-
-    if reward_scales is not None:
-        current_disc_state = {k: v.detach().clone() for k, v in disc.state_dict().items()}
-        rewards_l = []
-        packet_seq_lens_gpu = (Xobs[Feats.DIRS] != 0).sum(dim=1).long()
-
-        if disc_features is not None:
-            X_ = disc_features.transform_batch(Xobs)
-        else:
-            X_ = Xobs
-
-        disc_seq_lens = disc.seq_len_fun(X_).to("cpu")
-        X_ = {k: v[:, : disc_seq_lens.max()] for k, v in X_.items()}
-
-        # Critic feat building:
-        if critic is not None and Feats.LABEL in critic.features:
-            fd[Feats.LABEL] = y.unsqueeze(1).repeat(1, act_times.shape[1])
-
-        for _, state_d in disc_league:
-            if state_d is None:
-                disc.load_state_dict(current_disc_state)
-            else:
-                disc.load_state_dict({k: v.to(device) for k, v in state_d.items()})
-
-            hdisc = None
-            disc.eval()
-            with torch.no_grad():
-                logits, hdisc = disc.pack_and_forward(X_, hdisc, disc_seq_lens)
-
-            rewards_ = get_rewards(
-                act_times,
-                actions,
-                Xobs,
-                X_,
-                y,
-                logits,
-                packet_seq_lens_gpu,
-                disc_seq_lens,
-                feat_mode=disc.feat_mode,
-                reward_scales=reward_scales,
-            )
-            rewards_l.append(rewards_)
-
-        rewards = {k: torch.stack([r[k] for r in rewards_l], dim=0) for k in rewards_l[0].keys()}
-
-        if critic is not None:
-            values = critic(
-                fd,
-                None,
-                h_detach_period=critic_detach_period,
-                seq_lens=action_seq_lens,
-            )[0][Feats.STATE_VALUE]
-        else:
-            values = values_actor
-
-        disc.load_state_dict(current_disc_state)
-
-    return (
-        log_ps,
-        sel_probs,
-        values,
-        rewards,
-        entropies,
-        act_times,
-        actions,
-        Xobs,
-        fd,
-    )
-
-
-def rollout_discrete_streaming(
+def _rollout_streaming(
     obs: nn.Module,
     critic: nn.Module | None,
     disc: nn.Module,
@@ -808,62 +579,28 @@ def rollout_discrete_streaming(
     Xobs = exec_state.finalize()
 
     rewards = None
-    values = None
+    values = values_actor
+
+    if critic is not None:
+        values = compute_values(
+            critic=critic,
+            critic_detach_period=critic_detach_period,
+            fd=fd,
+            action_seq_lens=action_seq_lens,
+            y=y,
+        )
 
     if reward_scales is not None:
-        current_disc_state = {k: v.detach().clone() for k, v in disc.state_dict().items()}
-        rewards_l = []
-        packet_seq_lens_gpu = (Xobs[Feats.DIRS] != 0).sum(dim=1).long()
-
-        if disc_features is not None:
-            X_ = disc_features.transform_batch(Xobs)
-        else:
-            X_ = Xobs
-
-        disc_seq_lens = disc.seq_len_fun(X_).to("cpu")
-        X_ = {k: v[:, : disc_seq_lens.max()] for k, v in X_.items()}
-
-        if critic is not None and Feats.LABEL in critic.features:
-            fd[Feats.LABEL] = y.unsqueeze(1).repeat(1, int(act_times.shape[1]))
-
-        for _, state_d in disc_league:
-            if state_d is None:
-                disc.load_state_dict(current_disc_state)
-            else:
-                disc.load_state_dict({k: v.to(device) for k, v in state_d.items()})
-
-            hdisc = None
-            disc.eval()
-            with torch.no_grad():
-                logits, hdisc = disc.pack_and_forward(X_, hdisc, disc_seq_lens)
-
-            rewards_ = get_rewards(
-                act_times,
-                actions,
-                Xobs,
-                X_,
-                y,
-                logits,
-                packet_seq_lens_gpu,
-                disc_seq_lens,
-                feat_mode=disc.feat_mode,
-                reward_scales=reward_scales,
-            )
-            rewards_l.append(rewards_)
-
-        rewards = {k: torch.stack([r[k] for r in rewards_l], dim=0) for k in rewards_l[0].keys()}
-
-        if critic is not None:
-            values = critic(
-                fd,
-                None,
-                h_detach_period=critic_detach_period,
-                seq_lens=action_seq_lens,
-            )[0][Feats.STATE_VALUE]
-        else:
-            values = values_actor
-
-        disc.load_state_dict(current_disc_state)
+        rewards = compute_rewards_league(
+            disc=disc,
+            disc_league=disc_league,
+            disc_features=disc_features,
+            reward_scales=reward_scales,
+            Xobs=Xobs,
+            y=y,
+            act_times=act_times,
+            actions=actions,
+        )
 
     return (
         log_ps,

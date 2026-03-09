@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from experiment.obsrl.sim import rollout, rollout_discrete_streaming
+from experiment.obsrl.sim import _rollout_single_pass, _rollout_streaming
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.models.trgen import AGENT1
 from kipl_ml.rl.enums import Actions
@@ -304,7 +304,7 @@ def main() -> None:
 
     if skip_equiv:
         # Delay is only supported for stepwise execution.
-        out_a = rollout_discrete_streaming(
+        out_a = _rollout_streaming(
             obs=obs,
             critic=None,
             disc=disc,
@@ -319,7 +319,7 @@ def main() -> None:
         )
         out_b = out_a
     else:
-        out_a = rollout(
+        out_a = _rollout_single_pass(
             obs=obs,
             critic=None,
             disc=disc,
@@ -336,7 +336,7 @@ def main() -> None:
         if args.selector_pattern != "do_nothing":
             selector_override.reset()  # type: ignore[name-defined]
 
-        out_b = rollout_discrete_streaming(
+        out_b = _rollout_streaming(
             obs=obs,
             critic=None,
             disc=disc,
@@ -519,12 +519,12 @@ def main() -> None:
             plt.close(fig)
 
     # Timing
-    # Note: rollout() currently mutates X in get_window_feature_dict(extend_end_s=2),
+    # Note: _rollout_single_pass currently mutates X in get_window_feature_dict(extend_end_s=2),
     # so we must clone inputs for each timed call.
     def _call_single_pass(rewards: bool) -> None:
         if args.selector_pattern != "do_nothing":
             selector_override.reset()  # type: ignore[name-defined]
-        rollout(
+        _rollout_single_pass(
             obs=obs,
             critic=None,
             disc=disc,
@@ -541,7 +541,7 @@ def main() -> None:
     def _call_discrete(rewards: bool) -> None:
         if args.selector_pattern != "do_nothing":
             selector_override.reset()  # type: ignore[name-defined]
-        rollout_discrete_streaming(
+        _rollout_streaming(
             obs=obs,
             critic=None,
             disc=disc,
