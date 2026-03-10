@@ -9,8 +9,9 @@ The goal is correctness first (equivalence with the old single-pass pipeline whe
 - `DELAY` is a new selector option.
 - `DELAY` is exclusive: it cannot co-occur with any send action in the same step.
 - Delay duration is fixed to one model time-step (`obs.time_step_s`, e.g. 0.02s). No separate delay-time head.
-- Delay semantics: applying delay at time `t0` blocks the window `[t0, t0+dt)`.
-  - Packets that would occur inside that interval are clamped to `t0+dt`.
+- Right-edge semantics: actions chosen from window `[t0, t0+dt)` take effect starting at `t1 = t0+dt`.
+- Delay semantics: applying delay at action time `t1` blocks the window `[t1, t1+dt)`.
+  - Packets (including padding packets) that would occur inside that interval are clamped to `t1+dt`.
   - Packets outside the interval are unchanged (no global shift of the whole future trace).
 - Stable packet ordering: if multiple packets end up with the same timestamp (e.g. after clamping), their relative order must follow original packet order.
 - When delay is disabled, the stepwise/streaming rollout must match the old precomputed-window single-pass rollout (up to expected numerical ties).
@@ -28,6 +29,11 @@ The goal is correctness first (equivalence with the old single-pass pipeline whe
 - New `DELAY` action:
   - Added `Actions.DELAY` and expanded `AGENT1(enable_delay=True)` selector head.
   - Delay duration is fixed to `obs.time_step`.
+  - Streaming delay application uses action times (right edge) to align with `send_exec`.
+
+- Delay penalty:
+  - Optional reward component controlled by `rewards.delay_scale`.
+  - Penalizes the number of original packets falling in the delayed window bin (computed from `X_raw` + `action_times`).
 
 - Reward mapping fixes for TAM:
   - Action-intervals may legitimately contain zero TAM bins (no longer an error).
@@ -63,16 +69,19 @@ The goal is correctness first (equivalence with the old single-pass pipeline whe
 - `kipl_ml/rl/action.py`
   - Implements delay clamping semantics and stable ordering for equal timestamps.
   - Adds `TraceExecState` to accumulate stepwise actions and finalize once.
+  - `send_exec` clamps padding packets too when a delay window covers them.
 
 - `kipl_ml/rl/observation.py`
   - Adds `WindowFeatureStreamer`.
   - Delay-aware cursor logic so future windows reflect applied delays.
+  - Adds optional `Feats.WINDOW_BINS` output for dt-aligned logic.
 
 - `kipl_ml/rl/simulate.py` (new)
   - Shared rollout utilities used by training and defences:
     - `policy_rollout_single_pass(...)`
     - `policy_rollout_streaming(...)` (delay-aware)
     - Lightweight trace-only helpers for inference/defences.
+  - Runs the window streamer on CPU when `X` is on CUDA to avoid per-step GPU sync.
 
 - `experiment/obsrl/sim.py`
   - Training rollout selects single-pass vs streaming based on `obs.enable_delay`.
@@ -82,6 +91,7 @@ The goal is correctness first (equivalence with the old single-pass pipeline whe
     - reduce warning spam for ~0 overhang
   - Uses integer TAM bins for reward mapping (`Feats.TAM_BINS`) to avoid float
     boundary/spacing issues.
+  - Standardizes executed trace naming as `X_obs`.
 
 - `experiment/obsrl/sisyphus.py`, `experiment/obsrl/obs_agent_01.py`
   - Assert TAM discriminator bin width matches `obs.time_step_s`.
@@ -100,6 +110,7 @@ The goal is correctness first (equivalence with the old single-pass pipeline whe
 - Debug / verification scripts:
   - `experiment/obsrl/debug_window_streamer_equiv.py`: streamer vs precomputed windows.
   - `experiment/obsrl/debug_rollout_equiv.py`: single-pass vs streaming equivalence, timing, plotting, forced selector patterns.
+  - `experiment/obsrl/debug_delay_exec_semantics.py`: minimal delay execution regression checks.
 
 - Plotting:
   - `kipl_ml/tools/plottr.py` updated to plot `DO_NOTHING` and `DELAY` as spans.
