@@ -155,12 +155,13 @@ class RNNDef(_NNDef):
 
         defense_model = self.defense_model
 
-        # If delay is enabled on the policy, we default to the fast single-pass
-        # simulation here. Full stepwise feedback (delay affecting future
-        # observation windows) can be enabled via simul_kwargs.
-        accurate_delay = bool(self.simul_kwargs.get("accurate_delay", False))
-        if getattr(defense_model, "enable_delay", False) and accurate_delay:
+        # If delay is enabled on the policy, future observation windows depend on
+        # the selected actions. Use a stepwise simulation so window generation is
+        # delay-aware.
+        if getattr(defense_model, "enable_delay", False):
             h = None
+            base_n = int((trace_d[Feats.DIRS] != 0).sum().item())
+            pad_n = 0
             streamer = WindowFeatureStreamer(
                 trace_d,
                 dt=float(defense_model.time_step),
@@ -207,6 +208,14 @@ class RNNDef(_NNDef):
                         times=act_times,
                         actions=actions,
                     )
+
+                    # Stop once we've produced enough packets.
+                    pad_n += int(
+                        actions[Actions.SEND_COUNT_UP].item()
+                        + actions[Actions.SEND_COUNT_DOWN].item()
+                    )
+                    if base_n + pad_n >= self._n_packets:
+                        break
 
                     if Actions.DELAY in actions and (actions[Actions.DELAY] > 0).any():
                         streamer.apply_delay(actions[Actions.DELAY])
