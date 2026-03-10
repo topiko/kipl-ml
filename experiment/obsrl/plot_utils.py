@@ -208,6 +208,68 @@ def _plot_single(
     plot_obs_features(fd, idx=batch_i, ax=ax_fd)
     ax_fd.set_title("Obs. features")
 
+    # Quick invariants for debugging.
+    try:
+        fd_up = float(fd[Feats.UP_COUNT][batch_i].nan_to_num(nan=0.0).sum().item())
+        fd_down = float(fd[Feats.DOWN_COUNT][batch_i].nan_to_num(nan=0.0).sum().item())
+        x_dirs = X_obs[Feats.DIRS][batch_i]
+        x_pad = X_obs[Feats.PADDING][batch_i] != 0
+        x_up = float(((x_dirs == UPLOAD) & (~x_pad)).sum().item())
+        x_down = float(((x_dirs == DOWNLOAD) & (~x_pad)).sum().item())
+
+        if abs(fd_up - x_up) > 1e-3 or abs(fd_down - x_down) > 1e-3:
+            logger.warning(
+                "Obs feature totals mismatch X_obs non-padding totals (idx=%s): "
+                "fd(up,down)=(%.1f,%.1f) X_obs(up,down)=(%.1f,%.1f)",
+                ds_idx,
+                fd_up,
+                fd_down,
+                x_up,
+                x_down,
+            )
+            ax_fd.text(
+                0.01,
+                0.95,
+                f"MISMATCH totals fd(up,down)=({fd_up:.0f},{fd_down:.0f}) X_obs=({x_up:.0f},{x_down:.0f})",
+                transform=ax_fd.transAxes,
+                ha="left",
+                va="top",
+                fontsize=9,
+                color="#b91c1c",
+            )
+
+        # No-packets-during-delay invariant (open interval).
+        if Actions.DELAY in actions:
+            t_act = times[batch_i].squeeze(1)
+            d_act = actions[Actions.DELAY][batch_i].squeeze(1)
+            m = torch.isfinite(t_act) & (d_act > 0)
+            if bool(m.any().item()):
+                pkt_t = X_obs[Feats.TIMES][batch_i]
+                pkt_m = (X_obs[Feats.DIRS][batch_i] != 0) & (~x_pad) & torch.isfinite(pkt_t)
+                pkt_t = pkt_t[pkt_m]
+                bad = 0
+                for t0, dd in zip(t_act[m], d_act[m]):
+                    t1 = t0 + dd
+                    bad += int(((pkt_t > t0) & (pkt_t < t1)).sum().item())
+                if bad > 0:
+                    logger.warning(
+                        "Found %d non-padding packets strictly inside delay windows (idx=%s)",
+                        bad,
+                        ds_idx,
+                    )
+                    ax_o.text(
+                        0.01,
+                        0.95,
+                        f"WARNING: {bad} packets inside delay windows",
+                        transform=ax_o.transAxes,
+                        ha="left",
+                        va="top",
+                        fontsize=9,
+                        color="#b91c1c",
+                    )
+    except Exception as e:
+        logger.warning("Invariant check failed for idx=%s: %s", ds_idx, e)
+
     # Plot actions
     plot_actions(times, actions, idx=batch_i, ax=ax_a)
 
