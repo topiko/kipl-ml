@@ -543,16 +543,11 @@ def main(cfg: DictConfig):
         tam_d = discriminator_orig.tam_dict
         tam_d["max_load_time_s"] = cfg.disc.tam_max_load_time_s
 
-        # TAM bin width must match obs time_step for reward mapping.
-        max_matrix_len = tam_d.get("max_matrix_len", None)
-        if max_matrix_len is None:
-            raise ValueError("tam_dict missing max_matrix_len")
-        tam_ww = float(tam_d.get("window_width_s", tam_d["max_load_time_s"] / max_matrix_len))
+        tam_ww = tam_d["window_width_s"]
         if abs(tam_ww - float(cfg.obs.time_step_s)) > 1e-6:
             raise ValueError(
                 "TAM window_width_s must match obs.time_step_s for TAM reward mapping. "
-                + f"Got tam_ww={tam_ww:.6f}s and obs.time_step_s={float(cfg.obs.time_step_s):.6f}s. "
-                + f"(max_load_time_s={float(tam_d['max_load_time_s'])}, max_matrix_len={int(max_matrix_len)})"
+                + f"Got tam_ww={tam_ww:.6f}s and obs.time_step_s={float(cfg.obs.time_step_s):.6f}s."
             )
         npackets = None
 
