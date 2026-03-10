@@ -339,8 +339,15 @@ def _policy_rollout_streaming_impl(
             shift_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
             delay_mask_a = (actions_a[Actions.DELAY] > 0).squeeze(1).detach().to("cpu")
             shift_full[active_idx_cpu] = delay_mask_a.to(torch.long)
-            start_bins = fd_t_full[Feats.WINDOW_BINS].squeeze(1).to(stream_device)
-            streamer.apply_delay_bins(start_bins, shift_full)
+            # Use the policy's action times (right edge: TIMES + Dt) to determine
+            # delay start. This matches TraceExecState/send_exec semantics.
+            dt_s = float(obs_.time_step)
+            start_bins_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
+            start_bins_a = torch.round(act_times_a.squeeze(1).detach().to("cpu") / dt_s).to(
+                torch.long
+            )
+            start_bins_full[active_idx_cpu] = start_bins_a
+            streamer.apply_delay_bins(start_bins_full, shift_full)
 
         if max_packets is not None:
             active_n = int(active_cpu.sum().item())
