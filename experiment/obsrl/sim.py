@@ -101,7 +101,26 @@ def get_rewards(
         disc_times = X[Feats.TAM_TIMES][:, 1:].contiguous()
         m = m[:, 1:]
 
-        idxs = torch.searchsorted(boundaries, disc_times, right=True) - 1
+        # Map discriminator TAM bins -> action intervals using integer time bins.
+        # This avoids float boundary issues at the end of the timeline.
+        if disc_times.shape[1] >= 2:
+            dt_s = float((disc_times[:, 1] - disc_times[:, 0]).abs().median().item())
+        else:
+            dt_s = 0.0
+
+        if dt_s <= 0:
+            raise ValueError("Invalid TAM timeline: cannot infer dt")
+
+        # (bs, T) int64, NaNs -> large bin so they sort last.
+        boundaries_bins = torch.round(boundaries / dt_s)
+        boundaries_bins = boundaries_bins.nan_to_num(
+            nan=1e18, posinf=1e18, neginf=-1e18
+        ).to(torch.long)
+
+        # (bs, N-1) int64
+        disc_bins = torch.round(disc_times / dt_s).to(torch.long)
+
+        idxs = torch.searchsorted(boundaries_bins, disc_bins, right=True) - 1
         idxs = idxs.clamp(0, T - 1)
 
         # padding
@@ -133,46 +152,8 @@ def get_rewards(
             1, idxs, r_pkt * disc_seq_len_mask
         )
 
-        # Only error if the action timeline extends beyond what the disc sees.
-        # It is normal for some action intervals to have no TAM bins.
-        max_act_t = action_times.nan_to_num(nan=float("-inf")).max(dim=1).values
-        if disc_times.shape[1] >= 2:
-            window_w = (disc_times[:, 1] - disc_times[:, 0]).abs()
-        else:
-            window_w = torch.zeros((bs,), device=disc_times.device, dtype=disc_times.dtype)
-
-        last_disc_idx = (disc_seq_lens.to(disc_times.device) - 2).clamp(min=0)
-        last_disc_t = disc_times.gather(1, last_disc_idx[:, None]).squeeze(1)
-        max_cover_t = last_disc_t + window_w
-
-        # NOTE: The disc timeline is typically half-open [0, max_cover_t). If the
-        # policy produces an action exactly at the right edge (or slightly beyond due
-        # to float rounding), this should not crash training; it just means late
-        # action intervals may contain no TAM bins.
-        over = (max_act_t - max_cover_t).nan_to_num(nan=float("-inf"))
-        max_over = float(over.max().item())
-        # Allow up to one bin width of slack (boundary / rounding).
-        slack = float(window_w.max().item() if window_w.numel() else 0.0) + 1e-6
-        # Avoid log spam for pure floating noise.
-        warn_eps = 1e-6
-        if max_over > warn_eps and max_over <= slack:
-            logger.warning(
-                "Action times slightly exceed discriminator TAM coverage (max_over=%.6fs, slack=%.6fs). "
-                "Consider increasing disc.tam_max_load_time_s to avoid losing reward signal at the end.",
-                max_over,
-                slack,
-            )
-        elif max_over > slack:
-            # Some traces can have shorter disc_seq_lens (e.g. if the disc feature
-            # extractor trims trailing empty bins). This is not fatal: bins beyond
-            # the disc coverage simply contribute zero TAM reward.
-            logger.warning(
-                "Action times exceed discriminator TAM coverage (max_over=%.6fs, slack=%.6fs). "
-                "This can happen when disc_seq_lens is shorter than the policy horizon; "
-                "consider increasing disc.tam_max_load_time_s if you want reward signal at the end.",
-                max_over,
-                slack,
-            )
+        # Note: disc_seq_lens can truncate trailing empty TAM bins; any actions past
+        # the disc coverage simply get zero TAM reward. No float horizon checks.
 
         mean_p = torch.where(sum_ > 0, mp / sum_, 0.0)
         rewards["clf"] += mean_p * reward_scales["clf_scale"]
