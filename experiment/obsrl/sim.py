@@ -4,6 +4,7 @@ from torch import nn
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.simulate import policy_rollout_single_pass, policy_rollout_streaming
+from kipl_ml.rl.utils import fill_after_seq_end
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import FeatureTrs
 
@@ -13,8 +14,10 @@ logger = get_logger(__name__)
 def get_rewards(
     action_times: torch.Tensor,
     actions: dict[Actions, torch.Tensor],
-    Xobs: dict[Feats, torch.Tensor],
-    X: dict[Feats, torch.Tensor],
+    X_obs: dict[Feats, torch.Tensor],
+    X_raw: dict[Feats, torch.Tensor] | None,
+    obs_dt_s: float | None,
+    X_disc: dict[Feats, torch.Tensor],
     y: torch.Tensor,
     disc_logits: torch.Tensor,
     packet_seq_lens: torch.Tensor,
@@ -35,8 +38,8 @@ def get_rewards(
     }
 
     # (B, N)
-    times = Xobs[Feats.TIMES][:, :N]
-    padding = Xobs[Feats.PADDING][:, :N].bool()
+    times = X_obs[Feats.TIMES][:, :N]
+    padding = X_obs[Feats.PADDING][:, :N].bool()
 
     # (B, N, C)
     # probs = nn.functional.softmax(disc_logits, dim=-1)
@@ -102,10 +105,12 @@ def get_rewards(
             raise ValueError("tam_dt_s must be provided for TAM reward mapping")
 
         # (bs, N-1)
-        disc_bins_full = X.get(Feats.TAM_BINS, None)
+        disc_bins_full = X_disc.get(Feats.TAM_BINS, None)
         if disc_bins_full is None:
             # Backward-compat fallback: derive bins from times.
-            disc_bins_full = torch.round(X[Feats.TAM_TIMES] / float(tam_dt_s)).to(torch.long)
+            disc_bins_full = torch.round(
+                X_disc[Feats.TAM_TIMES] / float(tam_dt_s)
+            ).to(torch.long)
 
         disc_bins = disc_bins_full[:, 1:].contiguous().to(torch.long)
         m = m[:, 1:]
@@ -154,6 +159,41 @@ def get_rewards(
         rewards["clf"] += mean_p * reward_scales["clf_scale"]
         # =============================================
 
+    # Delay penalty: charge only for packets that actually get delayed.
+    # With right-edge semantics, DELAY at step t affects the window that starts at
+    # action_times[t]. We approximate the number delayed as the number of original
+    # packets whose bin matches start_bin = round(action_times[t] / dt).
+    if (
+        X_raw is not None
+        and obs_dt_s is not None
+        and obs_dt_s > 0
+        and "delay_scale" in reward_scales
+        and Actions.DELAY in actions
+    ):
+        delay = actions[Actions.DELAY]
+        if delay.ndim == 3 and delay.shape[-1] == 1:
+            delay = delay.squeeze(-1)
+        delay_mask = (delay > 0) & action_times.isfinite()
+
+        # (B, L) original packet bins; fill padding with +inf bin to preserve sort.
+        dirs0 = X_raw[Feats.DIRS]
+        m0 = dirs0 != 0
+        t0 = X_raw[Feats.TIMES]
+        t0_f = fill_after_seq_end(t0, m0, fill_val="max")
+        pkt_bins = torch.floor(t0_f.double() / float(obs_dt_s)).to(torch.long)
+
+        # (B, T) start bins for delay windows.
+        start_bins = torch.round(action_times.double() / float(obs_dt_s)).to(torch.long)
+
+        # Count occurrences per step via searchsorted on sorted pkt_bins.
+        lo = torch.searchsorted(pkt_bins, start_bins, right=False)
+        hi = torch.searchsorted(pkt_bins, start_bins, right=True)
+        delayed_cnt = (hi - lo).to(action_times.dtype)
+
+        rewards["delay"] -= (
+            delayed_cnt * delay_mask.to(action_times.dtype) * reward_scales["delay_scale"]
+        )
+
     # change in prob reward
     mask = mean_p != 0
     rewards["d_clf"] += torch.where(
@@ -198,7 +238,9 @@ def compute_rewards_league(
     disc_league: list[tuple[int, nn.Module.state_dict]],
     disc_features: FeatureTrs | None,
     reward_scales: dict[str, float],
-    Xobs: dict[Feats, torch.Tensor],
+    X_obs: dict[Feats, torch.Tensor],
+    X_raw: dict[Feats, torch.Tensor] | None,
+    obs_dt_s: float | None,
     y: torch.Tensor,
     act_times: torch.Tensor,
     actions: dict[Actions, torch.Tensor],
@@ -206,15 +248,15 @@ def compute_rewards_league(
     device = y.device
     current_disc_state = {k: v.detach().clone() for k, v in disc.state_dict().items()}
 
-    packet_seq_lens_gpu = (Xobs[Feats.DIRS] != 0).sum(dim=1).long()
+    packet_seq_lens_gpu = (X_obs[Feats.DIRS] != 0).sum(dim=1).long()
 
     if disc_features is not None:
-        X_ = disc_features.transform_batch(Xobs)
+        X_disc = disc_features.transform_batch(X_obs)
     else:
-        X_ = Xobs
+        X_disc = X_obs
 
-    disc_seq_lens = disc.seq_len_fun(X_).to("cpu")
-    X_ = {k: v[:, : disc_seq_lens.max()] for k, v in X_.items()}
+    disc_seq_lens = disc.seq_len_fun(X_disc).to("cpu")
+    X_disc = {k: v[:, : disc_seq_lens.max()] for k, v in X_disc.items()}
 
     rewards_l = []
     for _, state_d in disc_league:
@@ -226,13 +268,15 @@ def compute_rewards_league(
         hdisc = None
         disc.eval()
         with torch.no_grad():
-            logits, hdisc = disc.pack_and_forward(X_, hdisc, disc_seq_lens)
+            logits, hdisc = disc.pack_and_forward(X_disc, hdisc, disc_seq_lens)
 
         rewards_ = get_rewards(
             act_times,
             actions,
-            Xobs,
-            X_,
+            X_obs,
+            X_raw,
+            obs_dt_s,
+            X_disc,
             y,
             logits,
             packet_seq_lens_gpu,
@@ -275,7 +319,7 @@ def _rollout_single_pass(
 ]:
     critic_detach_period = critic_detach_period or detach_period
 
-    fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, Xobs = (
+    fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, X_obs = (
         policy_rollout_single_pass(
             obs,
             X,
@@ -304,7 +348,9 @@ def _rollout_single_pass(
             disc_league=disc_league,
             disc_features=disc_features,
             reward_scales=reward_scales,
-            Xobs=Xobs,
+            X_obs=X_obs,
+            X_raw=X,
+            obs_dt_s=float(obs.time_step),
             y=y,
             act_times=act_times,
             actions=actions,
@@ -318,7 +364,7 @@ def _rollout_single_pass(
         entropies,
         act_times,
         actions,
-        Xobs,
+        X_obs,
         fd,
     )
 
@@ -397,7 +443,7 @@ def _rollout_streaming(
     """Discrete-time rollout where observation windows are generated on the fly."""
 
     critic_detach_period = critic_detach_period or detach_period
-    fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, Xobs = (
+    fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, X_obs = (
         policy_rollout_streaming(
             obs,
             X,
@@ -427,7 +473,9 @@ def _rollout_streaming(
             disc_league=disc_league,
             disc_features=disc_features,
             reward_scales=reward_scales,
-            Xobs=Xobs,
+            X_obs=X_obs,
+            X_raw=X,
+            obs_dt_s=float(obs.time_step),
             y=y,
             act_times=act_times,
             actions=actions,
@@ -441,6 +489,6 @@ def _rollout_streaming(
         entropies,
         act_times,
         actions,
-        Xobs,
+        X_obs,
         fd,
     )

@@ -203,6 +203,7 @@ def main(cfg: DictConfig):
                 "clf_scale": 0.1,
                 "d_clf_scale": cfg.rewards.d_clf,
                 "padding_scale": padding_scale,
+                "delay_scale": float(getattr(cfg.rewards, "delay_scale", 0.0)),
             }
             losses_metrics_d: dict[str, list[float] | float] = {
                 "loss": [],

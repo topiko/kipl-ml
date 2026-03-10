@@ -303,6 +303,7 @@ def main() -> None:
         "clf_scale": 1.0,
         "d_clf_scale": 1.0,
         "padding_scale": 1.0,
+        "delay_scale": 0.0,
     }
     if args.selector_pattern != "do_nothing":
         # For forced action patterns we focus on qualitative behavior/plots.
@@ -427,7 +428,7 @@ def main() -> None:
 
     if not skip_equiv:
         torch.testing.assert_close(
-            pkt_len_a, pkt_len_b, atol=0, rtol=0, msg="Xobs.pkt_len"
+            pkt_len_a, pkt_len_b, atol=0, rtol=0, msg="X_obs.pkt_len"
         )
 
     def _sorted_rows(Xt: dict[Feats, torch.Tensor], i: int, n: int) -> np.ndarray:
@@ -451,21 +452,21 @@ def main() -> None:
                     Xobs_b[Feats.TIMES][i, :n],
                     atol=1e-6,
                     rtol=0.0,
-                    msg=f"Xobs.times[{i}]",
+                    msg=f"X_obs.times[{i}]",
                 )
                 torch.testing.assert_close(
                     Xobs_a[Feats.DIRS][i, :n],
                     Xobs_b[Feats.DIRS][i, :n],
                     atol=0,
                     rtol=0,
-                    msg=f"Xobs.dirs[{i}]",
+                    msg=f"X_obs.dirs[{i}]",
                 )
                 torch.testing.assert_close(
                     Xobs_a[Feats.PADDING][i, :n],
                     Xobs_b[Feats.PADDING][i, :n],
                     atol=0,
                     rtol=0,
-                    msg=f"Xobs.padding[{i}]",
+                    msg=f"X_obs.padding[{i}]",
                 )
             else:
                 # When there are many packets with identical timestamps (e.g. fixed-mode
@@ -474,7 +475,7 @@ def main() -> None:
                 ra = _sorted_rows(Xobs_a, i, n)
                 rb = _sorted_rows(Xobs_b, i, n)
                 if ra.shape != rb.shape or not np.array_equal(ra, rb):
-                    raise AssertionError(f"Xobs multiset mismatch for batch {i}")
+                    raise AssertionError(f"X_obs multiset mismatch for batch {i}")
 
     if not skip_equiv and (rewards_a is not None or rewards_b is not None):
         if rewards_a is None or rewards_b is None:
@@ -507,11 +508,11 @@ def main() -> None:
 
             plot_trace(Xobs_a, idx=i, ax=axes[1])
             axes[1].set_title(
-                "Xobs (single-pass)" if not skip_equiv else "Xobs (discrete+streaming)"
+                "X_obs (single-pass)" if not skip_equiv else "X_obs (discrete+streaming)"
             )
 
             plot_trace(Xobs_b, idx=i, ax=axes[2])
-            axes[2].set_title("Xobs (discrete+streaming)")
+            axes[2].set_title("X_obs (discrete+streaming)")
 
             plot_obs_features(fd_a, idx=i, ax=axes[3])
             axes[3].set_title("Obs window features")

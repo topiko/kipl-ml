@@ -111,10 +111,10 @@ def policy_rollout_single_pass(
         seq_lens=action_seq_lens,
         sample=sample,
     )
-    Xobs = send_exec(Xb, act_times, actions)
+    X_obs = send_exec(Xb, act_times, actions)
 
     fd[Feats.SEQ_LENS] = action_seq_lens
-    return fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, Xobs
+    return fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, X_obs
 
 
 def policy_rollout_streaming(
@@ -162,14 +162,14 @@ def policy_obfuscate_trace_single_pass(
 ) -> dict[Feats, torch.Tensor]:
     """Obfuscate a trace in one pass; return only the executed trace."""
 
-    _, _, _, _, _, _, _, Xobs = policy_rollout_single_pass(
+    _, _, _, _, _, _, _, X_obs = policy_rollout_single_pass(
         obs,
         X,
         detach_period=100,
         sample=sample,
         extend_end_s=extend_end_s,
     )
-    return Xobs
+    return X_obs
 
 
 def policy_obfuscate_trace_streaming(
@@ -188,7 +188,7 @@ def policy_obfuscate_trace_streaming(
     If max_packets is set, stops once base_packets + requested_padding >= max_packets.
     """
 
-    Xobs = cast(
+    X_obs = cast(
         dict[Feats, torch.Tensor],
         _policy_rollout_streaming_impl(
             obs,
@@ -199,7 +199,7 @@ def policy_obfuscate_trace_streaming(
             record_policy=False,
         ),
     )
-    return Xobs
+    return X_obs
 
 
 @overload
@@ -246,8 +246,8 @@ def _policy_rollout_streaming_impl(
 ) -> dict[Feats, torch.Tensor] | _StreamingRollout:
     """Internal streaming rollout implementation.
 
-    When record_policy=False, returns only Xobs. Otherwise returns the full
-    (fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, Xobs)
+    When record_policy=False, returns only X_obs. Otherwise returns the full
+    (fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, X_obs)
     tuple.
     """
 
@@ -395,12 +395,12 @@ def _policy_rollout_streaming_impl(
             ent_sel_l.append(ent_sel_t)
             ent_cond_l.append(ent_cond_t)
 
-    Xobs = exec_state.finalize()
+    X_obs = exec_state.finalize()
     if max_packets is not None:
-        Xobs = {k: v[:, : int(max_packets)] for k, v in Xobs.items()}
+        X_obs = {k: v[:, : int(max_packets)] for k, v in X_obs.items()}
 
     if record_policy is False:
-        return Xobs
+        return X_obs
 
     if actions_l is None:
         raise ValueError("No actions produced")
@@ -420,4 +420,4 @@ def _policy_rollout_streaming_impl(
     fd = {f: torch.cat(vs, dim=1) for f, vs in fd_steps.items()}
     fd[Feats.SEQ_LENS] = act_times.isfinite().sum(dim=1).long()
 
-    return fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, Xobs
+    return fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, X_obs

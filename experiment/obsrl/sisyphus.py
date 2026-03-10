@@ -124,7 +124,7 @@ def train_obs_one_epoch(
                 entropies,
                 _,
                 _,
-                Xobs,
+                X_obs,
                 fd,
             ) = rollout(
                 obs=obs,
@@ -267,15 +267,15 @@ def train_obs_one_epoch(
                 )
 
             # (B, )
-            normal_packets = ((Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 0)).sum(
+            normal_packets = ((X_obs[Feats.DIRS] != 0) & (X_obs[Feats.PADDING] == 0)).sum(
                 dim=1
             )
             # (B, )
             padding_packets_up = (
-                (Xobs[Feats.DIRS] == UPLOAD) & (Xobs[Feats.PADDING] == 1)
+                (X_obs[Feats.DIRS] == UPLOAD) & (X_obs[Feats.PADDING] == 1)
             ).sum(dim=1)
             padding_packets_down = (
-                (Xobs[Feats.DIRS] == DOWNLOAD) & (Xobs[Feats.PADDING] == 1)
+                (X_obs[Feats.DIRS] == DOWNLOAD) & (X_obs[Feats.PADDING] == 1)
             ).sum(dim=1)
             padding_packets = padding_packets_down + padding_packets_up
 
@@ -652,6 +652,7 @@ def main(cfg: DictConfig):
         "clf_scale": 0.1,
         "d_clf_scale": cfg.rewards.d_clf,
         "padding_scale": cfg.rewards.padding_scale,
+        "delay_scale": float(getattr(cfg.rewards, "delay_scale", 0.0)),
     }
 
     # One process invocation == one child run (one push).

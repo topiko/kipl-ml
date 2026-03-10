@@ -88,7 +88,7 @@ def _plot_set(
             entropies,
             times,
             actions,
-            Xobs,
+            X_obs,
             fd,
         ) = rollout(
             obs,
@@ -112,7 +112,7 @@ def _plot_set(
     probs_d = nn.functional.softmax(logits_d, dim=-1)
 
     # Obs traces
-    Xobs_d = disc_features.transform_batch(Xobs)
+    Xobs_d = disc_features.transform_batch(X_obs)
     Xobs_d = dict_to_device(Xobs_d, device)
     logits_o, _ = disc_trained(Xobs_d)
     probs_o = nn.functional.softmax(logits_o, dim=-1)
@@ -139,7 +139,7 @@ def _plot_set(
                 entropies=entropies,
                 times=times,
                 actions=actions,
-                Xobs=Xobs,
+                X_obs=X_obs,
                 fd=fd,
                 G=G,
                 advantages=advantages,
@@ -166,7 +166,7 @@ def _plot_single(
     entropies: dict[str, torch.Tensor],
     times: torch.Tensor,
     actions: dict[Actions, torch.Tensor],
-    Xobs: dict[Feats, torch.Tensor],
+    X_obs: dict[Feats, torch.Tensor],
     fd: dict[Feats, torch.Tensor],
     G: torch.Tensor,
     advantages: torch.Tensor,
@@ -243,7 +243,7 @@ def _plot_single(
     # Trained disc on obsfuscated trace (from batched rollout):
     # ========================================
     # Plot obsfuscated
-    Xobs_i = disc_features.transform_batch(Xobs)
+    Xobs_i = disc_features.transform_batch(X_obs)
     plot_fn_(
         Xobs_i,
         ax=ax_o,
