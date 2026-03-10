@@ -218,7 +218,7 @@ def main() -> None:
         "--selector_pattern",
         type=str,
         default="do_nothing",
-        choices=["do_nothing", "send_cycle", "send_and_delay_cycle"],
+        choices=["do_nothing", "send_cycle", "delay_cycle", "send_and_delay_cycle"],
         help="Override action selector to force varied actions",
     )
     args = parser.parse_args()
@@ -251,7 +251,7 @@ def main() -> None:
         nlayers=2,
         send_mode="fixed",
         prefer_wait_bias=0.0,
-        enable_delay=(args.selector_pattern == "send_and_delay_cycle"),
+        enable_delay=(args.selector_pattern in {"delay_cycle", "send_and_delay_cycle"}),
         prob_eps={
             Actions.SELECTOR: 0.0,
             Actions.SEND_COUNT_UP: 0.0,
@@ -267,6 +267,10 @@ def main() -> None:
             # 0=DO_NOTHING, 1=SEND_UP, 2=SEND_DOWN, 3=SEND_BOTH
             n_actions = 4
             pattern = [0, 1, 2, 3]
+        elif args.selector_pattern == "delay_cycle":
+            # 0=DO_NOTHING, 4=DELAY
+            n_actions = 5
+            pattern = [0, 4]
         elif args.selector_pattern == "send_and_delay_cycle":
             # + 4=DELAY
             n_actions = 5
@@ -278,6 +282,15 @@ def main() -> None:
             pattern=pattern, n_actions=n_actions, high=10.0
         )
         obs.actor["action_selection"] = selector_override
+
+        # For delay-only visualizations, keep conditional heads deterministic.
+        if args.selector_pattern == "delay_cycle":
+            for k in ("send_count_u", "send_count_d", "send_time_u", "send_time_d"):
+                lin = obs.actor[k][-1]
+                if hasattr(lin, "bias"):
+                    with torch.no_grad():
+                        lin.bias.zero_()
+                        lin.bias[0] = 10.0
 
     # In deterministic mode, argmax selector + argmax conditionals.
     # For do_nothing pattern, bias the selector strongly towards index 0.
@@ -300,7 +313,7 @@ def main() -> None:
     if args.selector_pattern != "do_nothing":
         selector_override.reset()  # type: ignore[name-defined]
 
-    skip_equiv = args.selector_pattern == "send_and_delay_cycle"
+    skip_equiv = args.selector_pattern in {"delay_cycle", "send_and_delay_cycle"}
 
     if skip_equiv:
         # Delay is only supported for stepwise execution.

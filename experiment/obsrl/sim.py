@@ -1,12 +1,9 @@
 import torch
 from torch import nn
 
-from kipl_ml.data.utils import UPLOAD
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.models.trgen import _hidden_w_mask
-from kipl_ml.rl.action import TraceExecState, send_exec
+from kipl_ml.rl.simulate import policy_rollout_single_pass, policy_rollout_streaming
 from kipl_ml.rl.enums import Actions
-from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import FeatureTrs
 
@@ -266,51 +263,19 @@ def _rollout_single_pass(
     dict[Feats, torch.Tensor],
     dict[Feats, torch.Tensor],
 ]:
-    if getattr(obs, "enable_delay", False):
-        raise RuntimeError(
-            "Delay is enabled on the agent; single-pass rollout cannot execute delay. "
-            "Call experiment.obsrl.sim.rollout(...) to select the streaming rollout."
-        )
-
-    hobs = None
-    device = y.device
     critic_detach_period = critic_detach_period or detach_period
 
-    if X[Feats.TIMES].isnan().any():
-        raise ValueError("NaN in times feature")
-
-    fd = get_window_feature_dict(
-        X, obs.time_step, obs.max_silence_s, features=obs.features, extend_end_s=2
-    )
-    if X[Feats.TIMES].isnan().any():
-        raise ValueError("NaN in times feature")
-
-    # We need the seq. lens in forward.
-    action_seq_lens = fd.pop(Feats.SEQ_LENS)
-    L = action_seq_lens.max().item()
-
-    act_times, actions, log_ps, sel_probs, values_actor, entropies, h = obs.act(
-        fd,
-        hobs,
-        h_detach_period=detach_period,
-        seq_lens=action_seq_lens,
-        sample=sample,
+    fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, Xobs = (
+        policy_rollout_single_pass(
+            obs,
+            X,
+            detach_period=detach_period,
+            sample=sample,
+            extend_end_s=2.0,
+        )
     )
 
-    if h is not None:
-        h_norm = h[0].norm(2, dim=-1).max().item()
-        c_norm = h[1].norm(2, dim=-1).max().item()
-        if (c_norm > 10_000) or (h_norm > 14):
-            logger.warning("Ill agent h state")
-        if h_norm > 100 or c_norm > 400:
-            h_var = h[0].var().item()
-            c_var = h[1].var().item()
-            if (c_var * 1e2 < c_norm) or (h_var * 1e2 < h_norm):
-                logger.warning("Ill agent h state:")
-                logger.warning("Huge hidden/cell: %.05f, %.05f", h_norm, c_norm)
-                logger.warning("Vars hidden/cell: %.05f, %.05f", h_var, c_var)
-
-    Xobs = send_exec(X, act_times, actions)
+    action_seq_lens = fd[Feats.SEQ_LENS]
 
     values = values_actor
     if critic is not None:
@@ -423,168 +388,18 @@ def _rollout_streaming(
 ]:
     """Discrete-time rollout where observation windows are generated on the fly."""
 
-    device = y.device
     critic_detach_period = critic_detach_period or detach_period
-
-    if X[Feats.TIMES].isnan().any():
-        raise ValueError("NaN in times feature")
-
-    # Apply the same end-extension as get_window_feature_dict(extend_end_s=2).
-    X_base = {k: v.clone() for k, v in X.items()}
-    bs0, L0 = X_base[Feats.DIRS].shape
-    mask0 = X_base[Feats.DIRS] == 0
-    seq_lens0 = (~mask0).sum(dim=1)
-    col_idx0 = seq_lens0[seq_lens0 != L0]
-    row_idx0 = torch.arange(bs0, device=seq_lens0.device)[seq_lens0 != L0]
-    X_base[Feats.DIRS][row_idx0, col_idx0] = UPLOAD
-    X_base[Feats.TIMES][mask0] += 2
-
-    exec_state = TraceExecState(
-        {
-            Feats.TIMES: X_base[Feats.TIMES].clone(),
-            Feats.DIRS: X_base[Feats.DIRS].clone(),
-            Feats.PADDING: X_base.get(Feats.PADDING, torch.zeros_like(X_base[Feats.TIMES])).clone(),
-        }
-    )
-    bs = y.shape[0]
-
-    streamer = WindowFeatureStreamer(
-        X_base,
-        dt=obs.time_step,
-        max_silence_s=obs.max_silence_s,
-        features=obs.features,
-        extend_end_s=0,
-    )
-
-    hobs = None
-
-    log_ps_l: list[torch.Tensor] = []
-    sel_probs_l: list[torch.Tensor] = []
-    values_actor_l: list[torch.Tensor] = []
-    ent_sel_l: list[torch.Tensor] = []
-    ent_cond_l: list[torch.Tensor] = []
-    act_times_l: list[torch.Tensor] = []
-    actions_l: dict[Actions, list[torch.Tensor]] | None = None
-
-    fd_steps: dict[Feats, list[torch.Tensor]] = {f: [] for f in obs.features}
-
-    act_step_fn = getattr(obs, "act_step", None)
-
-    max_steps = int((X_base[Feats.TIMES].max().item() / obs.time_step)) + 10_000
-    step_i = 0
-    while True:
-        if step_i > max_steps:
-            raise RuntimeError(
-                "Exceeded max_steps in streaming rollout (possible infinite delay loop)"
-            )
-        fd_t_full = streamer.step()  # (B, 1) per feature
-        for f in obs.features:
-            fd_steps[f].append(fd_t_full[f])
-
-        active = fd_t_full[Feats.TIMES].isfinite().squeeze(1)
-        if active.sum() == 0:
-            break
-
-        fd_t_active = {
-            k: torch.where(
-                fd_t_full[k][active].isfinite(),
-                fd_t_full[k][active],
-                torch.zeros((int(active.sum().item()), 1), device=device),
-            )
-            for k in obs.features
-        }
-
-        h_active = _hidden_w_mask(hobs, active)
-
-        if act_step_fn is not None:
-            act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
-                act_step_fn(fd_t_active, h_active, sample=sample)
-            )
-        else:
-            act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
-                obs.act(
-                    fd_t_active,
-                    h_active,
-                    h_detach_period=None,
-                    seq_lens=torch.ones(
-                        (int(active.sum().item()),), device=device
-                    ).long(),
-                    sample=sample,
-                )
-            )
-
-        hobs = _hidden_w_mask(hobs, active, h_active)
-
-        act_times_t = torch.full((bs, 1), torch.nan, device=device)
-        act_times_t[active] = act_times_a
-
-        log_ps_t = torch.zeros((bs, 1), device=device)
-        log_ps_t[active] = log_ps_a
-
-        values_t = torch.zeros((bs, 1), device=device)
-        values_t[active] = values_a
-
-        sel_probs_t = torch.zeros((bs, 1, sel_probs_a.shape[-1]), device=device)
-        sel_probs_t[active] = sel_probs_a
-
-        ent_sel_t = torch.zeros((bs, 1), device=device)
-        ent_sel_t[active] = ent_a["selection_entropy"]
-
-        ent_cond_t = torch.zeros((bs, 1), device=device)
-        ent_cond_t[active] = ent_a["conditional_entropy"]
-
-        if actions_l is None:
-            actions_l = {k: [] for k in actions_a.keys()}
-
-        actions_t: dict[Actions, torch.Tensor] = {}
-        for k in actions_l.keys():
-            a_full = torch.zeros((bs, 1), device=device, dtype=actions_a[k].dtype)
-            a_full[active] = actions_a[k]
-            actions_t[k] = a_full
-            actions_l[k].append(a_full)
-
-        act_times_l.append(act_times_t)
-        log_ps_l.append(log_ps_t)
-        sel_probs_l.append(sel_probs_t)
-        values_actor_l.append(values_t)
-        ent_sel_l.append(ent_sel_t)
-        ent_cond_l.append(ent_cond_t)
-
-        # Record this step's action for final trace reconstruction.
-        exec_state.step(
-            trace_idx=torch.where(active)[0],
-            times=act_times_a,
-            actions=actions_a,
+    fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, Xobs = (
+        policy_rollout_streaming(
+            obs,
+            X,
+            sample=sample,
+            extend_end_s=2.0,
+            max_packets=None,
         )
+    )
 
-        # If delay is selected, it blocks packets in [act_time, act_time+delay).
-        if Actions.DELAY in actions_a:
-            if (actions_a[Actions.DELAY] > 0).any():
-                delay_full = torch.zeros((bs, 1), device=device)
-                delay_full[active] = actions_a[Actions.DELAY]
-                start_full = torch.full((bs, 1), torch.nan, device=device)
-                start_full[active] = act_times_a
-                streamer.apply_delay(start_full, delay_full)
-
-        step_i += 1
-
-    if actions_l is None:
-        raise ValueError("No actions produced")
-
-    fd = {f: torch.cat(vs, dim=1) for f, vs in fd_steps.items()}
-    action_seq_lens = fd[Feats.TIMES].isnan().logical_not().sum(dim=1)
-    fd[Feats.SEQ_LENS] = action_seq_lens
-
-    act_times = torch.cat(act_times_l, dim=1)
-    log_ps = torch.cat(log_ps_l, dim=1)
-    sel_probs = torch.cat(sel_probs_l, dim=1)
-    values_actor = torch.cat(values_actor_l, dim=1)
-    entropies = {
-        "selection_entropy": torch.cat(ent_sel_l, dim=1),
-        "conditional_entropy": torch.cat(ent_cond_l, dim=1),
-    }
-    actions = {k: torch.cat(vs, dim=1) for k, vs in actions_l.items()}
-    Xobs = exec_state.finalize()
+    action_seq_lens = fd[Feats.SEQ_LENS]
 
     rewards = None
     values = values_actor
