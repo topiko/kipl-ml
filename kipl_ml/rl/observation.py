@@ -4,7 +4,7 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.rl.utils import _fill_after_seq_end, _flush_left, fill_after_seq_end
+from kipl_ml.rl.utils import _flush_left, fill_after_seq_end
 from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
@@ -334,8 +334,7 @@ class _TraceWindowCursor:
 
     def step(self) -> tuple[int, float, float, int | None]:
         """Return (bin, up_count, down_count, next_bin_or_none) and advance."""
-        b = self._peek_next_bin()
-        if b is None:
+        if (b := self._peek_next_bin()) is None:
             raise StopIteration
 
         # Silence window.
@@ -511,7 +510,9 @@ class WindowFeatureStreamer:
                 continue
             self._cursors[i].apply_delay_bins(sb, sh)
 
-    def apply_delay_bins(self, start_bins: torch.Tensor, shift_bins: torch.Tensor) -> None:
+    def apply_delay_bins(
+        self, start_bins: torch.Tensor, shift_bins: torch.Tensor
+    ) -> None:
         """Apply a delay window [start_bin, start_bin+shift_bins) per trace."""
         if start_bins.ndim == 2:
             if start_bins.shape[1] != 1:

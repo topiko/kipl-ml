@@ -309,17 +309,19 @@ def _policy_rollout_streaming_impl(
     while True:
         fd_t_full = streamer.step()
 
-        active = fd_t_full[Feats.TIMES].isfinite().squeeze(1)
-        if active.sum() == 0:
+        active_cpu = fd_t_full[Feats.TIMES].isfinite().squeeze(1)
+        if int(active_cpu.sum().item()) == 0:
             break
+
+        active = active_cpu.to(device=device)
 
         if record_policy:
             assert fd_steps is not None
             for f in obs_.features:
-                fd_steps[f].append(fd_t_full[f])
+                fd_steps[f].append(fd_t_full[f].to(device))
 
         fd_t_active = {
-            k: fd_t_full[k][active].nan_to_num(nan=0.0).to(device)
+            k: fd_t_full[k][active_cpu].nan_to_num(nan=0.0).to(device)
             for k in obs_.features
         }
 
@@ -342,7 +344,8 @@ def _policy_rollout_streaming_impl(
             )
 
         hobs = _hidden_w_mask(hobs, active, h_active)
-        active_idx = torch.where(active)[0]
+        active_idx_cpu = torch.where(active_cpu)[0]
+        active_idx = active_idx_cpu.to(device)
 
         exec_state.step(trace_idx=active_idx, times=act_times_a, actions=actions_a)
 
@@ -350,15 +353,13 @@ def _policy_rollout_streaming_impl(
             # Apply delay in window-bin space to avoid float transfers.
             shift_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
             delay_mask_a = (actions_a[Actions.DELAY] > 0).squeeze(1).detach().to("cpu")
-            active_idx_cpu = active_idx.detach().to("cpu")
             shift_full[active_idx_cpu] = delay_mask_a.to(torch.long)
             start_bins = fd_t_full[Feats.WINDOW_BINS].squeeze(1).to(stream_device)
             streamer.apply_delay_bins(start_bins, shift_full)
 
         if max_packets is not None:
-            inc = torch.zeros(
-                (int(active.sum().item()),), device=device, dtype=torch.long
-            )
+            active_n = int(active_cpu.sum().item())
+            inc = torch.zeros((active_n,), device=device, dtype=torch.long)
             if Actions.SEND_COUNT_UP in actions_a:
                 inc = inc + actions_a[Actions.SEND_COUNT_UP].squeeze(1).to(torch.long)
             if Actions.SEND_COUNT_DOWN in actions_a:
