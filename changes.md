@@ -33,6 +33,14 @@ The goal is correctness first (equivalence with the old single-pass pipeline whe
   - Action-intervals may legitimately contain zero TAM bins (no longer an error).
   - Only fail fast when action times truly exceed disc coverage; tolerate boundary/float noise.
 
+- TAM time refactor (root fix):
+  - Added integer TAM bins (`Feats.TAM_BINS`) so reward mapping and timeline logic
+    can operate in bin-space rather than float seconds.
+  - `TAM_TIMES` is now derived from integer bin indices * `window_width_s` to avoid
+    float32 spacing jitter.
+  - TAM reward mapping uses `TAM_BINS` + `window_width_s` (with a backward-compat
+    fallback to derive bins from `TAM_TIMES` if needed).
+
 - TIMES padding correctness:
   - Stopped using `0` as a TIMES padding sentinel.
   - Use mask-based filling for TIMES and keep strict sentinel checks only where it is actually a sentinel.
@@ -72,9 +80,18 @@ The goal is correctness first (equivalence with the old single-pass pipeline whe
     - fail-fast if truly beyond coverage
     - tolerate boundary/rounding overhang
     - reduce warning spam for ~0 overhang
+  - Uses integer TAM bins for reward mapping (`Feats.TAM_BINS`) to avoid float
+    boundary/spacing issues.
 
 - `experiment/obsrl/sisyphus.py`, `experiment/obsrl/obs_agent_01.py`
   - Assert TAM discriminator bin width matches `obs.time_step_s`.
+  - Add `Feats.TAM_BINS` to disc feature transforms so reward mapping can use it.
+
+- `kipl_ml/trace/enums.py`
+  - Adds `Feats.TAM_BINS`.
+
+- `kipl_ml/trace/features.py`
+  - TAM transforms use an integer bin grid; adds `TAM_BINS` transform.
 
 - `kipl_ml/defences/nndefs.py`
   - `RNNDef` uses streaming rollout for delay-enabled models.
