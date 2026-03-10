@@ -204,7 +204,10 @@ class WFDataset(Dataset):
         if self.trim_raw:
             trace_dict = {k: v[self.trim_raw :] for k, v in trace_dict.items()}
             # Set time to start from 0.
-            trace_dict[Feats.TIMES] -= trace_dict[Feats.TIMES][0].item()
+            if trace_dict[Feats.TIMES].numel():
+                t0 = float(trace_dict[Feats.TIMES][0].item())
+                # Avoid in-place ops: cached traces may contain inference tensors.
+                trace_dict[Feats.TIMES] = trace_dict[Feats.TIMES] - t0
 
         if self.feature_trs is not None:
             trace_dict = self.feature_trs(trace_dict)
