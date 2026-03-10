@@ -14,21 +14,11 @@ def _fill_after_seq_end(
 
     rows, cols = torch.where(mask.diff(dim=1) < 0)
 
-    # If padding values appear in multiple segments within a row, fall back to
-    # using the first detected seq-end boundary.
-    if rows.numel() > 0:
-        # Compute the first boundary column per row.
-        first_col = torch.full(
-            (values.shape[0],),
-            values.shape[1],
-            device=values.device,
-            dtype=cols.dtype,
-        )
-        first_col.scatter_reduce_(0, rows, cols, reduce="amin", include_self=True)
-
-        rows_u = rows.unique()
-        rows = rows_u
-        cols = first_col[rows_u]
+    # A strict assertion: there must be exactly one transition from non-pad
+    # to pad per row. If you need to fill using an explicit mask, use
+    # fill_after_seq_end(...).
+    if rows.unique().numel() != len(rows):
+        raise ValueError("More than one val -> pad_val detected!")
 
     for idx_r, idx_c in zip(rows, cols):
         if fill_val == "nan":
