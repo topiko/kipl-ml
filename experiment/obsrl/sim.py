@@ -163,12 +163,15 @@ def get_rewards(
                 slack,
             )
         elif max_over > slack:
-            raise ValueError(
-                "Action times extend beyond discriminator TAM timeline. "
-                + f"Max. obs time: {action_times.nan_to_num(nan=0).max():.06f}. "
-                + f"Disc max time: {max_cover_t.max().item():.06f}. "
-                + f"(max_over={max_over:.06f}) "
-                + "Increase disc.tam_max_load_time_s or reduce trace_len/time horizon."
+            # Some traces can have shorter disc_seq_lens (e.g. if the disc feature
+            # extractor trims trailing empty bins). This is not fatal: bins beyond
+            # the disc coverage simply contribute zero TAM reward.
+            logger.warning(
+                "Action times exceed discriminator TAM coverage (max_over=%.6fs, slack=%.6fs). "
+                "This can happen when disc_seq_lens is shorter than the policy horizon; "
+                "consider increasing disc.tam_max_load_time_s if you want reward signal at the end.",
+                max_over,
+                slack,
             )
 
         mean_p = torch.where(sum_ > 0, mp / sum_, 0.0)
