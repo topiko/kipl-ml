@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any, Literal, cast, overload
 
 import torch
@@ -293,7 +292,6 @@ def _policy_rollout_streaming_impl(
     pad_n = torch.zeros((bs,), device=device, dtype=torch.long)
 
     hobs = None
-    act_step_fn: Callable | None = getattr(obs_, "act_step", None)
 
     log_ps_l: list[torch.Tensor] = []
     sel_probs_l: list[torch.Tensor] = []
@@ -326,22 +324,9 @@ def _policy_rollout_streaming_impl(
         }
 
         h_active = _hidden_w_mask(hobs, active)
-        if act_step_fn is not None:
-            act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
-                act_step_fn(fd_t_active, h_active, sample=sample)
-            )
-        else:
-            act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
-                obs_.act(
-                    fd_t_active,
-                    h_active,
-                    h_detach_period=None,
-                    seq_lens=torch.ones(
-                        (int(active.sum().item()),), device=device
-                    ).long(),
-                    sample=sample,
-                )
-            )
+        act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
+            obs_.act_step(fd_t_active, h_active, sample=sample)
+        )
 
         hobs = _hidden_w_mask(hobs, active, h_active)
         active_idx_cpu = torch.where(active_cpu)[0]

@@ -53,8 +53,7 @@ def _add_actions_to_silence_periods(
     # Insert: start + j*K for j=0..count-1 while < nxt.
     count = ((gap_i - 1) // K) + 1
 
-    total = int(count.sum().item())
-    if total == 0:
+    if (total := int(count.sum().item())) == 0:
         return feature_dict
 
     starts_rep = start.repeat_interleave(count)
