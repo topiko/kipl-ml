@@ -123,7 +123,7 @@ def train_obs_one_epoch(
                 league_rewards,
                 entropies,
                 _,
-                _,
+                actions,
                 X_obs,
                 fd,
             ) = rollout(
@@ -225,9 +225,11 @@ def train_obs_one_epoch(
             # )
 
             # Track the effect of selection vs conditional
-            sel_log_ps = torch.log(sel_probs)
-            sel_term = (advantages[..., None] * sel_log_ps).std()
-            cond_term = (advantages[..., None] * (log_ps[..., None] - sel_log_ps)).std()
+            sel_idx = actions[Actions.SELECTOR].to(torch.long)
+            sel_p = sel_probs.gather(-1, sel_idx.unsqueeze(-1)).squeeze(-1).clamp(min=1e-12)
+            sel_log_p = torch.log(sel_p)
+            sel_term = (advantages * sel_log_p).std()
+            cond_term = (advantages * (log_ps - sel_log_p)).std()
             ratio = cond_term / (sel_term + 1e-8)
 
             cur_ret = (

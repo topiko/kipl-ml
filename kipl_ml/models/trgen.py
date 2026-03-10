@@ -393,10 +393,11 @@ class AGENT1(nn.Module):
                 f"Invalid send_mode {send_mode}, expected 'spread' or 'fix'."
             )
 
-        if np.isclose(max_silence_s % time_step, 0.0):
+        ratio = float(max_silence_s) / float(time_step)
+        if abs(ratio - round(ratio)) > 1e-8:
             raise ValueError(
                 "max_silence_s should be a multiple of time_step."
-                + f"Got max_silence_s={max_silence_s}, time_step={time_step}."
+                + f" Got max_silence_s={max_silence_s}, time_step={time_step}."
             )
 
         n_send_counts = len(send_count_bins)
