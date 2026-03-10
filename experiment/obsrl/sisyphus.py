@@ -441,6 +441,11 @@ def train_obs_on_league(
         )
         logger.info("Current ret: %.02f", metrics_d["avg_return"])
 
+        # Log per-epoch metrics within this push run.
+        for k, v in metrics_d.items():
+            mlflow.log_metric(keymap(k), float(v), step=eo)
+        mlflow.log_metric("padding_scale", float(reward_scales_["padding_scale"]), step=eo)
+
         if obs_lr_scheduler is not None:
             obs_lr_scheduler.step(-metrics_d["avg_return"])
             logger.info("Obs lrs:")
@@ -463,9 +468,6 @@ def train_obs_on_league(
             for k, v in metrics_d.items():
                 k = keymap(k)
                 logger.info(f"\t{k:<40} : {v:.03f}")
-                mlflow.log_metric(k, v, step=e)
-
-            mlflow.log_metric("padding_scale", reward_scales_["padding_scale"], step=e)
             break
 
         if eo % cfg.obs.rewards_rescale_epochs == 0:
