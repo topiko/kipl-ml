@@ -430,6 +430,7 @@ class WindowFeatureStreamer:
         device = self.done.device
         bs = self.bs
 
+        bins = torch.zeros((bs, 1), device=device, dtype=torch.long)
         times = torch.full((bs, 1), torch.nan, device=device, dtype=self.dtype)
         up = torch.full((bs, 1), torch.nan, device=device, dtype=self.dtype)
         down = torch.full((bs, 1), torch.nan, device=device, dtype=self.dtype)
@@ -445,6 +446,7 @@ class WindowFeatureStreamer:
                 self.done[i] = True
                 continue
 
+            bins[i, 0] = int(b)
             times[i, 0] = float(b) * self.dt
             up[i, 0] = u
             down[i, 0] = d
@@ -461,6 +463,9 @@ class WindowFeatureStreamer:
             Feats.Dt: dts,
             Feats.TIMES: times,
         }
+
+        if Feats.WINDOW_BINS in self.features:
+            fd[Feats.WINDOW_BINS] = bins
 
         if Feats.SILENCE_FLAG in self.features:
             # Match get_window_feature_dict(): SILENCE_FLAG is computed after the

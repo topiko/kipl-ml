@@ -64,6 +64,7 @@ class Feats(StrEnum):
     STATE_VALUE = "state_value"
     SEQ_LENS = "seq_lens"
     Dt = "Delta time"
+    WINDOW_BINS = "window-bins"
     SILENCE_FLAG = "silence_flag"
     DISC_ID = "disc_id"
 
