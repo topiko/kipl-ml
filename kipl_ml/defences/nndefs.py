@@ -155,13 +155,12 @@ class RNNDef(_NNDef):
 
         defense_model = self.defense_model
 
-        # If delay is enabled on the policy, future observation windows depend on
-        # the selected actions. Use a stepwise rollout to ensure windows reflect
-        # delays (single-pass precomputation is invalid).
-        if getattr(defense_model, "enable_delay", False):
+        # If delay is enabled on the policy, we default to the fast single-pass
+        # simulation here. Full stepwise feedback (delay affecting future
+        # observation windows) can be enabled via simul_kwargs.
+        accurate_delay = bool(self.simul_kwargs.get("accurate_delay", False))
+        if getattr(defense_model, "enable_delay", False) and accurate_delay:
             h = None
-            base_n = int((trace_d[Feats.DIRS] != 0).sum().item())
-            pad_n = 0
             streamer = WindowFeatureStreamer(
                 trace_d,
                 dt=float(defense_model.time_step),
@@ -173,7 +172,9 @@ class RNNDef(_NNDef):
             X_base = {
                 Feats.TIMES: trace_d[Feats.TIMES].clone(),
                 Feats.DIRS: trace_d[Feats.DIRS].clone(),
-                Feats.PADDING: trace_d.get(Feats.PADDING, torch.zeros_like(trace_d[Feats.TIMES])).clone(),
+                Feats.PADDING: trace_d.get(
+                    Feats.PADDING, torch.zeros_like(trace_d[Feats.TIMES])
+                ).clone(),
             }
             exec_state = TraceExecState(X_base)
 
@@ -193,23 +194,19 @@ class RNNDef(_NNDef):
                             fd_t,
                             h,
                             h_detach_period=None,
-                            seq_lens=torch.ones((1,), device=fd_t[Feats.TIMES].device).long(),
+                            seq_lens=torch.ones(
+                                (1,), device=fd_t[Feats.TIMES].device
+                            ).long(),
                             sample=True,
                         )
 
                     exec_state.step(
-                        trace_idx=torch.zeros((1,), device=act_times.device, dtype=torch.long),
+                        trace_idx=torch.zeros(
+                            (1,), device=act_times.device, dtype=torch.long
+                        ),
                         times=act_times,
                         actions=actions,
                     )
-
-                    # Stop once we've produced enough packets.
-                    pad_n += int(
-                        actions[Actions.SEND_COUNT_UP].item()
-                        + actions[Actions.SEND_COUNT_DOWN].item()
-                    )
-                    if base_n + pad_n >= self._n_packets:
-                        break
 
                     if Actions.DELAY in actions and (actions[Actions.DELAY] > 0).any():
                         streamer.apply_delay(actions[Actions.DELAY])
@@ -236,7 +233,7 @@ class RNNDef(_NNDef):
                 fd, h, h_detach_period=100, seq_lens=seq_lens
             )[:2]
 
-        trace_d = send_exec(trace_d, act_times, actions, max_packets=self._n_packets)
+        trace_d = send_exec(trace_d, act_times, actions)
 
         # Cap output length (disc features often use n_packets=None).
         trace_d = {k: v[:, : self._n_packets] for k, v in trace_d.items()}

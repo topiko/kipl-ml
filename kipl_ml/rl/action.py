@@ -353,7 +353,6 @@ def send_exec(
     X: dict[Feats, torch.Tensor],
     times: torch.Tensor,
     actions: dict[Actions, torch.Tensor],
-    max_packets: int | None = None,
 ) -> dict[Feats, torch.Tensor]:
     X = {k: v.clone() for k, v in X.items()}
     actions = {k: v.clone() for k, v in actions.items()}
@@ -407,7 +406,6 @@ def send_exec(
     if Feats.PADDING not in X:
         X[Feats.PADDING] = torch.zeros_like(X[Feats.TIMES])
 
-    base_lens = (X[Feats.DIRS] != 0).sum(dim=1).long()
 
     def _sample_send_times(
         send_counts: torch.Tensor,
@@ -469,35 +467,8 @@ def send_exec(
         times_[times_ == 0] += 1e-9
 
         # Send counts
-        sup_c = send_up_c[i][mask].clone()
-        sdown_c = send_down_c[i][mask].clone()
-
-        # Optional cap: do not generate more than max_packets total.
-        if max_packets is not None:
-            remaining = int(max_packets) - int(base_lens[i].item())
-            if remaining <= 0:
-                sup_c.zero_()
-                sdown_c.zero_()
-            else:
-                # Walk steps in order and clamp counts.
-                for j in range(int(sup_c.numel())):
-                    if remaining <= 0:
-                        sup_c[j:] = 0
-                        sdown_c[j:] = 0
-                        break
-                    up = int(sup_c[j].item())
-                    down = int(sdown_c[j].item())
-                    tot = up + down
-                    if tot <= remaining:
-                        remaining -= tot
-                        continue
-                    # Prefer UP then DOWN when clamping.
-                    up2 = min(up, remaining)
-                    remaining -= up2
-                    down2 = min(down, remaining)
-                    remaining -= down2
-                    sup_c[j] = up2
-                    sdown_c[j] = down2
+        sup_c = send_up_c[i][mask]
+        sdown_c = send_down_c[i][mask]
 
         # Decay times
         dec_t_up = times_up[i][mask]
