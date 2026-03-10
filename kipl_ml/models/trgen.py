@@ -392,7 +392,7 @@ class AGENT1(nn.Module):
                 f"Invalid send_mode {send_mode}, expected 'spread' or 'fix'."
             )
 
-        if abs(max_silence_s % time_step) > 1e-12:
+        if abs(max_silence_s % time_step) > 1e-8:
             raise ValueError(
                 "max_silence_s should be a multiple of time_step."
                 + f"Got max_silence_s={max_silence_s}, time_step={time_step}."
