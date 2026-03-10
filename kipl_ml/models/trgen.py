@@ -1,5 +1,6 @@
 from typing import Any
 
+import numpy as np
 import torch
 from torch import nn
 from torch.distributions import Categorical
@@ -392,7 +393,7 @@ class AGENT1(nn.Module):
                 f"Invalid send_mode {send_mode}, expected 'spread' or 'fix'."
             )
 
-        if abs(max_silence_s % time_step) > 1e-8:
+        if np.isclose(max_silence_s % time_step, 0.0):
             raise ValueError(
                 "max_silence_s should be a multiple of time_step."
                 + f"Got max_silence_s={max_silence_s}, time_step={time_step}."
@@ -627,8 +628,7 @@ class AGENT1(nn.Module):
         down_p = sel_probs[..., 2] + sel_probs[..., 3]
 
         cond_entropy = self.cond_beta * (
-            up_p * (sudt_entropy + suc_entropy)
-            + down_p * (sddt_entropy + sdc_entropy)
+            up_p * (sudt_entropy + suc_entropy) + down_p * (sddt_entropy + sdc_entropy)
         )
 
         entropies = {
