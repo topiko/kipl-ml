@@ -260,11 +260,24 @@ def _policy_rollout_streaming_impl(
     device = Xb[Feats.TIMES].device
     bs = int(Xb[Feats.TIMES].shape[0])
 
+    # The streamer does per-trace stepping with Python control flow. If X lives on
+    # CUDA, keep the streamer on CPU to avoid per-step GPU syncs.
+    stream_device = torch.device("cpu") if device.type == "cuda" else device
+    Xs = {
+        Feats.TIMES: Xb[Feats.TIMES].detach().to(stream_device),
+        Feats.DIRS: Xb[Feats.DIRS].detach().to(stream_device),
+        Feats.PADDING: Xb[Feats.PADDING].detach().to(stream_device),
+    }
+
+    streamer_features = list(obs_.features)
+    if Feats.WINDOW_BINS not in streamer_features:
+        streamer_features.append(Feats.WINDOW_BINS)
+
     streamer = WindowFeatureStreamer(
-        Xb,
-        dt=obs_.time_step,
-        max_silence_s=obs_.max_silence_s,
-        features=obs_.features,
+        Xs,
+        dt=float(obs_.time_step),
+        max_silence_s=float(obs_.max_silence_s),
+        features=streamer_features,
         extend_end_s=0,
     )
 
@@ -306,7 +319,8 @@ def _policy_rollout_streaming_impl(
                 fd_steps[f].append(fd_t_full[f])
 
         fd_t_active = {
-            k: fd_t_full[k][active].nan_to_num(nan=0.0) for k in obs_.features
+            k: fd_t_full[k][active].nan_to_num(nan=0.0).to(device)
+            for k in obs_.features
         }
 
         h_active = _hidden_w_mask(hobs, active)
@@ -333,11 +347,13 @@ def _policy_rollout_streaming_impl(
         exec_state.step(trace_idx=active_idx, times=act_times_a, actions=actions_a)
 
         if Actions.DELAY in actions_a and (actions_a[Actions.DELAY] > 0).any():
-            delay_full = torch.zeros((bs, 1), device=device)
-            delay_full[active] = actions_a[Actions.DELAY]
-            start_full = torch.zeros((bs, 1), device=device)
-            start_full[active] = act_times_a
-            streamer.apply_delay(start_full, delay_full)
+            # Apply delay in window-bin space to avoid float transfers.
+            shift_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
+            delay_mask_a = (actions_a[Actions.DELAY] > 0).squeeze(1).detach().to("cpu")
+            active_idx_cpu = active_idx.detach().to("cpu")
+            shift_full[active_idx_cpu] = delay_mask_a.to(torch.long)
+            start_bins = fd_t_full[Feats.WINDOW_BINS].squeeze(1).to(stream_device)
+            streamer.apply_delay_bins(start_bins, shift_full)
 
         if max_packets is not None:
             inc = torch.zeros(

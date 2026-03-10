@@ -510,3 +510,29 @@ class WindowFeatureStreamer:
             if sh <= 0:
                 continue
             self._cursors[i].apply_delay_bins(sb, sh)
+
+    def apply_delay_bins(self, start_bins: torch.Tensor, shift_bins: torch.Tensor) -> None:
+        """Apply a delay window [start_bin, start_bin+shift_bins) per trace."""
+        if start_bins.ndim == 2:
+            if start_bins.shape[1] != 1:
+                raise ValueError("start_bins must be (B,) or (B,1)")
+            start_bins = start_bins.squeeze(1)
+        if shift_bins.ndim == 2:
+            if shift_bins.shape[1] != 1:
+                raise ValueError("shift_bins must be (B,) or (B,1)")
+            shift_bins = shift_bins.squeeze(1)
+
+        if start_bins.shape[0] != self.bs or shift_bins.shape[0] != self.bs:
+            raise ValueError("start_bins/shift_bins batch mismatch")
+
+        start_bins = start_bins.to(torch.long)
+        shift_bins = shift_bins.to(torch.long)
+
+        for i in range(self.bs):
+            if self.done[i]:
+                continue
+            sb = int(start_bins[i].item())
+            sh = int(shift_bins[i].item())
+            if sh <= 0:
+                continue
+            self._cursors[i].apply_delay_bins(sb, sh)
