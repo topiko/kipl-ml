@@ -591,13 +591,19 @@ class _TAM(_TR):
                 f"window_width_s overrides max_matrix_len {max_matrix_len}"
                 + f"-> {max_load_time_s / window_width_s}"
             )
-            self.max_matrix_len = self.max_load_time_s // window_width_s + 1
+            self.max_matrix_len = int(self.max_load_time_s // window_width_s + 1)
             self.window_width_s = window_width_s
-            self.bins = torch.arange(0, self.max_matrix_len + 1) * window_width_s
         else:
             self.max_matrix_len = max_matrix_len
-            self.bins = torch.linspace(0, self.max_load_time_s, self.max_matrix_len + 1)
-            self.window_width_s = self.bins[1] - self.bins[0]
+
+            # Keep TAM on an integer grid; derive bin times from bin indices.
+            # This avoids float32 spacing jitter and keeps binning stable.
+            self.window_width_s = float(self.max_load_time_s) / float(self.max_matrix_len)
+
+        # Integer bin indices [0..max_matrix_len].
+        self.bin_idx = torch.arange(0, int(self.max_matrix_len) + 1, dtype=torch.long)
+        # Bin start times in seconds (float).
+        self.bins = self.bin_idx.to(dtype=torch.float32) * float(self.window_width_s)
 
         self.padding_warned = False
         # To ensure the capture of "outside bins values"
@@ -707,6 +713,34 @@ class TAM_TIMES(_TAM):
     DIR = "up/download"
     TIMES = True
     PADDING = False
+
+
+class TAM_BINS(_TAM):
+    DIR = "up/download"
+    TIMES = True
+    PADDING = False
+
+    @property
+    def name(self) -> Feats:
+        return Feats.TAM_BINS
+
+    def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
+        # Same masking and pruning behavior as TAM_TIMES, but return integer bins.
+        times = trace[assets.TIMES]
+        dirs = trace[assets.DIRS]
+
+        mask = dirs != 0
+
+        counts = torch.histc(
+            times[mask], bins=len(self.bins) - 1, min=0.0, max=self.bins[-1]
+        )
+
+        keep = torch.ones_like(counts, dtype=torch.bool)
+        if self.prune_empty:
+            keep = counts > 0
+
+        bin_idx = self.bin_idx[:-1].to(device=times.device)
+        return {self.name: bin_idx[keep]}
 
 
 class Compose(_TR):
@@ -1123,6 +1157,8 @@ def get_feature_tr(
             return TAM_DOWN(**tam_kwargs)
         case Feats.TAM_DOWN_PAD:
             return TAM_DOWN_PAD(**tam_kwargs)
+        case Feats.TAM_BINS:
+            return TAM_BINS(**tam_kwargs)
         case Feats.TAM_TIMES:
             return TAM_TIMES(**tam_kwargs)
         case Feats.TAM_DOWN_COUNTS_MAX_NORMALIZED:

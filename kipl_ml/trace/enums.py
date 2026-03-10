@@ -51,6 +51,7 @@ class Feats(StrEnum):
     TAM_DOWN_COUNTS = "tam-download"
     TAM_DOWN_PAD = "tam-download-pad"
     TAM_TIMES = "tam-times"
+    TAM_BINS = "tam-bins"
     TAM_DOWN_COUNTS_MAX_NORMALIZED = f"{TAM_DOWN_COUNTS}_max_normalized"
 
     # Helpers:

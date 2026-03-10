@@ -21,6 +21,7 @@ def get_rewards(
     disc_seq_lens: torch.Tensor,
     feat_mode: str,
     reward_scales: dict[str, float],
+    tam_dt_s: float | None = None,
 ) -> dict[str, torch.Tensor]:
     # Shapes:
     # - action_times: (B, T)
@@ -97,49 +98,22 @@ def get_rewards(
         rewards["clf"] += mean_p * reward_scales["clf_scale"]
 
     elif feat_mode == "tam":
-        # (bs, T)
-        disc_times = X[Feats.TAM_TIMES][:, 1:].contiguous()
+        if tam_dt_s is None or tam_dt_s <= 0:
+            raise ValueError("tam_dt_s must be provided for TAM reward mapping")
+
+        # (bs, N-1)
+        disc_bins_full = X.get(Feats.TAM_BINS, None)
+        if disc_bins_full is None:
+            # Backward-compat fallback: derive bins from times.
+            disc_bins_full = torch.round(X[Feats.TAM_TIMES] / float(tam_dt_s)).to(torch.long)
+
+        disc_bins = disc_bins_full[:, 1:].contiguous().to(torch.long)
         m = m[:, 1:]
 
-        # Map discriminator TAM bins -> action intervals using integer time bins.
-        # This avoids float boundary issues at the end of the timeline.
-        # Infer dt_s from the timeline and require it to be constant.
-        if disc_times.shape[1] < 2:
-            raise ValueError("Invalid TAM timeline: cannot infer dt")
-
-        diffs = disc_times.diff(dim=1).abs()
-        # diffs has length (N-2); only use valid diffs per trace.
-        # disc_seq_lens is on the original TAM_TIMES length N, disc_times is N-1.
-        # Valid diffs count is max(disc_seq_lens - 3, 0).
-        valid_n_diffs = (disc_seq_lens.to(diffs.device) - 3).clamp(min=0)
-        if (valid_n_diffs == 0).any():
-            raise ValueError("Invalid TAM timeline: too few bins to infer dt")
-
-        diff_mask = (
-            torch.arange(diffs.shape[1], device=diffs.device)[None, :]
-            < valid_n_diffs[:, None]
-        )
-
-        # Quantize diffs before uniqueness: float32 TAM times can have tiny
-        # representation noise even for perfectly regular grids.
-        dt_quant = 1e-6
-        diffs_q = torch.round(diffs / dt_quant).to(torch.long)
-        uniq = torch.unique(diffs_q[diff_mask])
-        if uniq.numel() != 1:
-            raise ValueError(
-                f"No valid dt_s found: TAM timeline spacing not constant (n_unique={int(uniq.numel())})."
-            )
-        if (dt_s := float(int(uniq.item())) * dt_quant) <= 0:
-            raise ValueError("Invalid TAM timeline: dt_s must be > 0")
-
         # (bs, T) int64, NaNs -> large bin so they sort last.
-        boundaries_bins = torch.round(boundaries / dt_s)
-        boundaries_bins = boundaries_bins.nan_to_num(
-            nan=1e18, posinf=1e18, neginf=-1e18
-        ).to(torch.long)
-
-        # (bs, N-1) int64
-        disc_bins = torch.round(disc_times / dt_s).to(torch.long)
+        boundaries_bins = torch.round(boundaries.double() / float(tam_dt_s))
+        boundaries_bins = boundaries_bins.nan_to_num(nan=1e18, posinf=1e18, neginf=-1e18)
+        boundaries_bins = boundaries_bins.to(torch.long)
 
         idxs = torch.searchsorted(boundaries_bins, disc_bins, right=True) - 1
         idxs = idxs.clamp(0, T - 1)
@@ -265,6 +239,7 @@ def compute_rewards_league(
             disc_seq_lens,
             feat_mode=disc.feat_mode,
             reward_scales=reward_scales,
+            tam_dt_s=(float(disc.tam_dict.get("window_width_s", 0.0)) if getattr(disc, "feat_mode", None) == "tam" else None),
         )
         rewards_l.append(rewards_)
 

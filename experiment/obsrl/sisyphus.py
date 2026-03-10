@@ -551,16 +551,15 @@ def main(cfg: DictConfig):
             )
         npackets = None
 
-        disc_feats = FeatureTrs(
-            feature_trs=[
-                get_feature_tr(fn, npackets, tam_kwargs=tam_d) for fn in feature_names
-            ]
-            + [
-                get_feature_tr(f, npackets, tam_kwargs=tam_d)
-                for f in (Feats.TAM_DOWN_PAD, Feats.TAM_UP_PAD)
-            ],
-            n_packets=None,
-        )
+        disc_trs = [get_feature_tr(fn, npackets, tam_kwargs=tam_d) for fn in feature_names]
+        disc_trs += [
+            get_feature_tr(f, npackets, tam_kwargs=tam_d)
+            for f in (Feats.TAM_DOWN_PAD, Feats.TAM_UP_PAD)
+        ]
+        # Expose integer TAM bins for reward mapping (disc ignores extra keys).
+        disc_trs.append(get_feature_tr(Feats.TAM_BINS, npackets, tam_kwargs=tam_d))
+
+        disc_feats = FeatureTrs(feature_trs=disc_trs, n_packets=None)
     elif discriminator_orig.feat_mode == "dir":
         feature_names = discriminator_orig.features
         npackets = cfg.trace_len
