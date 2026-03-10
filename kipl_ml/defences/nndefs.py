@@ -236,7 +236,7 @@ class RNNDef(_NNDef):
                 fd, h, h_detach_period=100, seq_lens=seq_lens
             )[:2]
 
-        trace_d = send_exec(trace_d, act_times, actions)
+        trace_d = send_exec(trace_d, act_times, actions, max_packets=self._n_packets)
 
         # Cap output length (disc features often use n_packets=None).
         trace_d = {k: v[:, : self._n_packets] for k, v in trace_d.items()}
