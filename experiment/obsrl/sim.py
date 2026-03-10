@@ -133,14 +133,24 @@ def get_rewards(
             1, idxs, r_pkt * disc_seq_len_mask
         )
 
-        max_t_idxs = action_times.nan_to_num(nan=float("-inf")).max(dim=1).indices
-        if (sum_.gather(1, max_t_idxs[:, None] - 1) < 1).any():
+        # Only error if the action timeline extends beyond what the disc sees.
+        # It is normal for some action intervals to have no TAM bins.
+        max_act_t = action_times.nan_to_num(nan=float("-inf")).max(dim=1).values
+        if disc_times.shape[1] >= 2:
+            window_w = (disc_times[:, 1] - disc_times[:, 0]).abs()
+        else:
+            window_w = torch.zeros((bs,), device=disc_times.device, dtype=disc_times.dtype)
+
+        last_disc_idx = (disc_seq_lens.to(disc_times.device) - 2).clamp(min=0)
+        last_disc_t = disc_times.gather(1, last_disc_idx[:, None]).squeeze(1)
+        max_cover_t = last_disc_t + window_w
+
+        if (max_act_t > (max_cover_t + 1e-6)).any():
             raise ValueError(
-                "There are action intervals w. no disc. clf score. "
+                "Action times extend beyond discriminator TAM timeline. "
                 + f"Max. obs time: {action_times.nan_to_num(nan=0).max():.02f}. "
-                + "Increase the TAM max_load_time_s (to increase the seq. "
-                + "lens the disc sees) or dcrease the trace_len (to limit "
-                + "the max len of action seq. lens)"
+                + f"Disc max time: {max_cover_t.max().item():.02f}. "
+                + "Increase disc.tam_max_load_time_s or reduce trace_len/time horizon."
             )
 
         mean_p = torch.where(sum_ > 0, mp / sum_, 0.0)
