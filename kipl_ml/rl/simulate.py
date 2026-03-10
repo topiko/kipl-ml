@@ -1,16 +1,27 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, Literal, cast, overload
 
 import torch
-from torch import nn
 
 from kipl_ml.data.utils import UPLOAD
 from kipl_ml.rl.action import TraceExecState, send_exec
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
 from kipl_ml.trace.enums import Feats
+
+
+_StreamingRollout = tuple[
+    dict[Feats, torch.Tensor],
+    torch.Tensor,
+    dict[Actions, torch.Tensor],
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    dict[str, torch.Tensor],
+    dict[Feats, torch.Tensor],
+]
 
 
 def _ensure_trace_dict(
@@ -128,160 +139,18 @@ def policy_rollout_streaming(
     If max_packets is set, stops once base_packets + requested_padding >= max_packets.
     """
 
-    Xb = _ensure_trace_dict(X)
-    _apply_extend_end_inplace(Xb, extend_end_s)
-
-    obs_ = cast(Any, obs)
-
-    device = Xb[Feats.TIMES].device
-    bs = int(Xb[Feats.TIMES].shape[0])
-
-    streamer = WindowFeatureStreamer(
-        Xb,
-        dt=float(cast(Any, obs_.time_step)),
-        max_silence_s=float(cast(Any, obs_.max_silence_s)),
-        features=list(cast(Any, obs_.features)),
-        extend_end_s=0,
+    res = cast(
+        _StreamingRollout,
+        _policy_rollout_streaming_impl(
+            obs,
+            X,
+            sample=sample,
+            extend_end_s=extend_end_s,
+            max_packets=max_packets,
+            record_policy=True,
+        ),
     )
-
-    exec_state = TraceExecState(
-        {
-            Feats.TIMES: Xb[Feats.TIMES].clone(),
-            Feats.DIRS: Xb[Feats.DIRS].clone(),
-            Feats.PADDING: Xb[Feats.PADDING].clone(),
-        }
-    )
-
-    base_n = (Xb[Feats.DIRS] != 0).sum(dim=1).long()
-    pad_n = torch.zeros((bs,), device=device, dtype=torch.long)
-
-    hobs = None
-    act_step_fn: Callable | None = getattr(obs_, "act_step", None)
-
-    log_ps_l: list[torch.Tensor] = []
-    sel_probs_l: list[torch.Tensor] = []
-    values_actor_l: list[torch.Tensor] = []
-    ent_sel_l: list[torch.Tensor] = []
-    ent_cond_l: list[torch.Tensor] = []
-    act_times_l: list[torch.Tensor] = []
-    actions_l: dict[Actions, list[torch.Tensor]] | None = None
-    fd_steps: dict[Feats, list[torch.Tensor]] = {f: [] for f in obs_.features}
-
-    while True:
-        fd_t_full = streamer.step()
-
-        active = fd_t_full[Feats.TIMES].isfinite().squeeze(1)
-        if active.sum() == 0:
-            break
-
-        for f in obs_.features:
-            fd_steps[f].append(fd_t_full[f])
-
-        fd_t_active = {
-            k: torch.where(
-                fd_t_full[k][active].isfinite(),
-                fd_t_full[k][active],
-                torch.zeros((int(active.sum().item()), 1), device=device),
-            )
-            for k in obs.features
-        }
-
-        h_active = _hidden_w_mask(hobs, active)
-        if act_step_fn is not None:
-            act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
-                act_step_fn(fd_t_active, h_active, sample=sample)
-            )
-        else:
-            act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
-                 obs_.act(
-                     fd_t_active,
-                     h_active,
-                     h_detach_period=None,
-                     seq_lens=torch.ones((int(active.sum().item()),), device=device).long(),
-                     sample=sample,
-                 )
-            )
-
-        hobs = _hidden_w_mask(hobs, active, h_active)
-
-        # Scatter back to full batch.
-        act_times_t = torch.full((bs, 1), torch.nan, device=device)
-        act_times_t[active] = act_times_a
-
-        log_ps_t = torch.zeros((bs, 1), device=device)
-        log_ps_t[active] = log_ps_a
-
-        values_t = torch.zeros((bs, 1), device=device)
-        values_t[active] = values_a
-
-        sel_probs_t = torch.zeros((bs, 1, sel_probs_a.shape[-1]), device=device)
-        sel_probs_t[active] = sel_probs_a
-
-        ent_sel_t = torch.zeros((bs, 1), device=device)
-        ent_sel_t[active] = ent_a["selection_entropy"]
-
-        ent_cond_t = torch.zeros((bs, 1), device=device)
-        ent_cond_t[active] = ent_a["conditional_entropy"]
-
-        if actions_l is None:
-            actions_l = {k: [] for k in actions_a.keys()}
-
-        actions_t: dict[Actions, torch.Tensor] = {}
-        for k in actions_l.keys():
-            a_full = torch.zeros((bs, 1), device=device, dtype=actions_a[k].dtype)
-            a_full[active] = actions_a[k]
-            actions_t[k] = a_full
-            actions_l[k].append(a_full)
-
-        act_times_l.append(act_times_t)
-        log_ps_l.append(log_ps_t)
-        sel_probs_l.append(sel_probs_t)
-        values_actor_l.append(values_t)
-        ent_sel_l.append(ent_sel_t)
-        ent_cond_l.append(ent_cond_t)
-
-        # Record action execution.
-        exec_state.step(trace_idx=torch.where(active)[0], times=act_times_a, actions=actions_a)
-
-        # Apply delay to future windows.
-        if Actions.DELAY in actions_a and (actions_a[Actions.DELAY] > 0).any():
-            delay_full = torch.zeros((bs, 1), device=device)
-            delay_full[active] = actions_a[Actions.DELAY]
-            start_full = torch.full((bs, 1), torch.nan, device=device)
-            start_full[active] = act_times_a
-            streamer.apply_delay(start_full, delay_full)
-
-        # Optional early stop.
-        if max_packets is not None:
-            pad_n = pad_n + (
-                actions_t.get(Actions.SEND_COUNT_UP, torch.zeros_like(act_times_t)).squeeze(1).to(torch.long)
-                + actions_t.get(Actions.SEND_COUNT_DOWN, torch.zeros_like(act_times_t)).squeeze(1).to(torch.long)
-            )
-            if ((base_n + pad_n) >= int(max_packets)).all():
-                break
-
-    if actions_l is None:
-        raise ValueError("No actions produced")
-
-    act_times = torch.cat(act_times_l, dim=1)
-    log_ps = torch.cat(log_ps_l, dim=1)
-    sel_probs = torch.cat(sel_probs_l, dim=1)
-    values_actor = torch.cat(values_actor_l, dim=1)
-    entropies = {
-        "selection_entropy": torch.cat(ent_sel_l, dim=1),
-        "conditional_entropy": torch.cat(ent_cond_l, dim=1),
-    }
-    actions = {k: torch.cat(vs, dim=1) for k, vs in actions_l.items()}
-
-    fd = {f: torch.cat(vs, dim=1) for f, vs in fd_steps.items()}
-    action_seq_lens = act_times.isfinite().sum(dim=1).long()
-    fd[Feats.SEQ_LENS] = action_seq_lens
-
-    Xobs = exec_state.finalize()
-    if max_packets is not None:
-        Xobs = {k: v[:, : int(max_packets)] for k, v in Xobs.items()}
-
-    return fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, Xobs
+    return res
 
 
 def policy_obfuscate_trace_single_pass(
@@ -319,6 +188,69 @@ def policy_obfuscate_trace_streaming(
     If max_packets is set, stops once base_packets + requested_padding >= max_packets.
     """
 
+    Xobs = cast(
+        dict[Feats, torch.Tensor],
+        _policy_rollout_streaming_impl(
+        obs,
+        X,
+        sample=sample,
+        extend_end_s=extend_end_s,
+        max_packets=max_packets,
+        record_policy=False,
+        ),
+    )
+    return Xobs
+
+
+@overload
+def _policy_rollout_streaming_impl(
+    obs: Any,
+    X: dict[Feats, torch.Tensor],
+    *,
+    sample: bool,
+    extend_end_s: float,
+    max_packets: int | None,
+    record_policy: Literal[True],
+) -> tuple[
+    dict[Feats, torch.Tensor],
+    torch.Tensor,
+    dict[Actions, torch.Tensor],
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    dict[str, torch.Tensor],
+    dict[Feats, torch.Tensor],
+]: ...
+
+
+@overload
+def _policy_rollout_streaming_impl(
+    obs: Any,
+    X: dict[Feats, torch.Tensor],
+    *,
+    sample: bool,
+    extend_end_s: float,
+    max_packets: int | None,
+    record_policy: Literal[False],
+) -> dict[Feats, torch.Tensor]: ...
+
+
+def _policy_rollout_streaming_impl(
+    obs: Any,
+    X: dict[Feats, torch.Tensor],
+    *,
+    sample: bool,
+    extend_end_s: float,
+    max_packets: int | None,
+    record_policy: bool,
+)-> dict[Feats, torch.Tensor] | _StreamingRollout:
+    """Internal streaming rollout implementation.
+
+    When record_policy=False, returns only Xobs. Otherwise returns the full
+    (fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, Xobs)
+    tuple.
+    """
+
     Xb = _ensure_trace_dict(X)
     _apply_extend_end_inplace(Xb, extend_end_s)
 
@@ -349,6 +281,17 @@ def policy_obfuscate_trace_streaming(
     hobs = None
     act_step_fn: Callable | None = getattr(obs_, "act_step", None)
 
+    log_ps_l: list[torch.Tensor] = []
+    sel_probs_l: list[torch.Tensor] = []
+    values_actor_l: list[torch.Tensor] = []
+    ent_sel_l: list[torch.Tensor] = []
+    ent_cond_l: list[torch.Tensor] = []
+    act_times_l: list[torch.Tensor] = []
+    actions_l: dict[Actions, list[torch.Tensor]] | None = None
+    fd_steps: dict[Feats, list[torch.Tensor]] | None = (
+        {f: [] for f in obs_.features} if record_policy else None
+    )
+
     while True:
         fd_t_full = streamer.step()
 
@@ -356,26 +299,32 @@ def policy_obfuscate_trace_streaming(
         if active.sum() == 0:
             break
 
+        if record_policy:
+            assert fd_steps is not None
+            for f in obs_.features:
+                fd_steps[f].append(fd_t_full[f])
+
         fd_t_active = {
             k: fd_t_full[k][active].nan_to_num(nan=0.0) for k in obs_.features
         }
 
         h_active = _hidden_w_mask(hobs, active)
         if act_step_fn is not None:
-            act_times_a, actions_a, _, _, _, _, h_active = act_step_fn(
-                fd_t_active, h_active, sample=sample
+            act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
+                act_step_fn(fd_t_active, h_active, sample=sample)
             )
         else:
-            act_times_a, actions_a, _, _, _, _, h_active = obs_.act(
-                fd_t_active,
-                h_active,
-                h_detach_period=None,
-                seq_lens=torch.ones((int(active.sum().item()),), device=device).long(),
-                sample=sample,
+            act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
+                obs_.act(
+                    fd_t_active,
+                    h_active,
+                    h_detach_period=None,
+                    seq_lens=torch.ones((int(active.sum().item()),), device=device).long(),
+                    sample=sample,
+                )
             )
 
         hobs = _hidden_w_mask(hobs, active, h_active)
-
         active_idx = torch.where(active)[0]
 
         exec_state.step(trace_idx=active_idx, times=act_times_a, actions=actions_a)
@@ -397,7 +346,64 @@ def policy_obfuscate_trace_streaming(
             if ((base_n + pad_n) >= int(max_packets)).all():
                 break
 
+        if record_policy:
+            # Scatter back to full batch.
+            act_times_t = torch.full((bs, 1), torch.nan, device=device)
+            act_times_t[active] = act_times_a
+
+            log_ps_t = torch.zeros((bs, 1), device=device)
+            log_ps_t[active] = log_ps_a
+
+            values_t = torch.zeros((bs, 1), device=device)
+            values_t[active] = values_a
+
+            sel_probs_t = torch.zeros((bs, 1, sel_probs_a.shape[-1]), device=device)
+            sel_probs_t[active] = sel_probs_a
+
+            ent_sel_t = torch.zeros((bs, 1), device=device)
+            ent_sel_t[active] = ent_a["selection_entropy"]
+
+            ent_cond_t = torch.zeros((bs, 1), device=device)
+            ent_cond_t[active] = ent_a["conditional_entropy"]
+
+            if actions_l is None:
+                actions_l = {k: [] for k in actions_a.keys()}
+
+            for k in actions_l.keys():
+                a_full = torch.zeros((bs, 1), device=device, dtype=actions_a[k].dtype)
+                a_full[active] = actions_a[k]
+                actions_l[k].append(a_full)
+
+            act_times_l.append(act_times_t)
+            log_ps_l.append(log_ps_t)
+            sel_probs_l.append(sel_probs_t)
+            values_actor_l.append(values_t)
+            ent_sel_l.append(ent_sel_t)
+            ent_cond_l.append(ent_cond_t)
+
     Xobs = exec_state.finalize()
     if max_packets is not None:
         Xobs = {k: v[:, : int(max_packets)] for k, v in Xobs.items()}
-    return Xobs
+
+    if record_policy is False:
+        return Xobs
+
+    if actions_l is None:
+        raise ValueError("No actions produced")
+
+    assert fd_steps is not None
+
+    act_times = torch.cat(act_times_l, dim=1)
+    log_ps = torch.cat(log_ps_l, dim=1)
+    sel_probs = torch.cat(sel_probs_l, dim=1)
+    values_actor = torch.cat(values_actor_l, dim=1)
+    entropies = {
+        "selection_entropy": torch.cat(ent_sel_l, dim=1),
+        "conditional_entropy": torch.cat(ent_cond_l, dim=1),
+    }
+    actions = {k: torch.cat(vs, dim=1) for k, vs in actions_l.items()}
+
+    fd = {f: torch.cat(vs, dim=1) for f, vs in fd_steps.items()}
+    fd[Feats.SEQ_LENS] = act_times.isfinite().sum(dim=1).long()
+
+    return fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, Xobs
