@@ -145,11 +145,27 @@ def get_rewards(
         last_disc_t = disc_times.gather(1, last_disc_idx[:, None]).squeeze(1)
         max_cover_t = last_disc_t + window_w
 
-        if (max_act_t > (max_cover_t + 1e-6)).any():
+        # NOTE: The disc timeline is typically half-open [0, max_cover_t). If the
+        # policy produces an action exactly at the right edge (or slightly beyond due
+        # to float rounding), this should not crash training; it just means late
+        # action intervals may contain no TAM bins.
+        over = (max_act_t - max_cover_t).nan_to_num(nan=float("-inf"))
+        max_over = float(over.max().item())
+        # Allow up to one bin width of slack (boundary / rounding).
+        slack = float(window_w.max().item() if window_w.numel() else 0.0) + 1e-6
+        if max_over > 0 and max_over <= slack:
+            logger.warning(
+                "Action times slightly exceed discriminator TAM coverage (max_over=%.6fs, slack=%.6fs). "
+                "Consider increasing disc.tam_max_load_time_s to avoid losing reward signal at the end.",
+                max_over,
+                slack,
+            )
+        elif max_over > slack:
             raise ValueError(
                 "Action times extend beyond discriminator TAM timeline. "
-                + f"Max. obs time: {action_times.nan_to_num(nan=0).max():.02f}. "
-                + f"Disc max time: {max_cover_t.max().item():.02f}. "
+                + f"Max. obs time: {action_times.nan_to_num(nan=0).max():.06f}. "
+                + f"Disc max time: {max_cover_t.max().item():.06f}. "
+                + f"(max_over={max_over:.06f}) "
                 + "Increase disc.tam_max_load_time_s or reduce trace_len/time horizon."
             )
 
