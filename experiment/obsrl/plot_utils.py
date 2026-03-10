@@ -245,22 +245,31 @@ def _plot_single(
             m = torch.isfinite(t_act) & (d_act > 0)
             if bool(m.any().item()):
                 pkt_t = X_obs[Feats.TIMES][batch_i]
-                pkt_m = (X_obs[Feats.DIRS][batch_i] != 0) & (~x_pad) & torch.isfinite(pkt_t)
-                pkt_t = pkt_t[pkt_m]
-                bad = 0
+                pkt_dirs = X_obs[Feats.DIRS][batch_i]
+                pkt_finite = (pkt_dirs != 0) & torch.isfinite(pkt_t)
+
+                pkt_t_all = pkt_t[pkt_finite]
+                pkt_t_nopad = pkt_t[pkt_finite & (~x_pad)]
+
+                bad_all = 0
+                bad_nopad = 0
                 for t0, dd in zip(t_act[m], d_act[m]):
                     t1 = t0 + dd
-                    bad += int(((pkt_t > t0) & (pkt_t < t1)).sum().item())
-                if bad > 0:
+                    bad_all += int(((pkt_t_all > t0) & (pkt_t_all < t1)).sum().item())
+                    bad_nopad += int(
+                        ((pkt_t_nopad > t0) & (pkt_t_nopad < t1)).sum().item()
+                    )
+                if bad_all > 0:
                     logger.warning(
-                        "Found %d non-padding packets strictly inside delay windows (idx=%s)",
-                        bad,
+                        "Found packets strictly inside delay windows (idx=%s): all=%d nonpad=%d",
                         ds_idx,
+                        bad_all,
+                        bad_nopad,
                     )
                     ax_o.text(
                         0.01,
                         0.95,
-                        f"WARNING: {bad} packets inside delay windows",
+                        f"WARNING: packets inside delay windows all={bad_all} nonpad={bad_nopad}",
                         transform=ax_o.transAxes,
                         ha="left",
                         va="top",
