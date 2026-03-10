@@ -153,7 +153,9 @@ def get_rewards(
         max_over = float(over.max().item())
         # Allow up to one bin width of slack (boundary / rounding).
         slack = float(window_w.max().item() if window_w.numel() else 0.0) + 1e-6
-        if max_over > 0 and max_over <= slack:
+        # Avoid log spam for pure floating noise.
+        warn_eps = 1e-6
+        if max_over > warn_eps and max_over <= slack:
             logger.warning(
                 "Action times slightly exceed discriminator TAM coverage (max_over=%.6fs, slack=%.6fs). "
                 "Consider increasing disc.tam_max_load_time_s to avoid losing reward signal at the end.",
