@@ -231,7 +231,7 @@ class TraceExecState:
                 d = torch.cat([d, app_dirs[m_app]], dim=0)
                 p = torch.cat([p, app_pad[m_app]], dim=0)
 
-            # Apply delay as cumulative shifts based on event time.
+            # Apply delay by clamping within each delay window.
             m_del = delay_idx == i
             if m_del.any():
                 t0 = delay_t0[m_del].to(dtype=self.dtype_t)
@@ -243,17 +243,6 @@ class TraceExecState:
                 for t00, d0 in zip(t0, dd):
                     t1 = t00 + d0
                     t = torch.where((t >= t00) & (t < t1), t1, t)
-
-            # Sort by time; tie-break by (dir, padding) for stability.
-            if t.numel() > 0:
-                # Round for stable tie-breaking when many identical timestamps.
-                tr = torch.round(t * 1e6) / 1e6
-                # lexsort equivalent: sort by (tr, d, p)
-                key = tr * 10 + d * 1 + p * 0.1
-                order = torch.argsort(key)
-                t = t[order]
-                d = d[order]
-                p = p[order]
 
             max_len = max(max_len, int(t.numel()))
             out_times_l.append(t)
@@ -289,7 +278,19 @@ class TraceExecState:
 def _sort_feature_dict(
     feature_dict: dict[Feats, torch.Tensor],
 ) -> dict[Feats, torch.Tensor]:
-    sorted_times, indices = torch.sort(feature_dict[Feats.TIMES], dim=1)
+    times = feature_dict[Feats.TIMES]
+    try:
+        # Stable sort preserves relative order for equal timestamps.
+        indices = torch.argsort(times, dim=1, stable=True)
+    except TypeError:
+        # Fallback for older torch: stable tie-break via column index.
+        B, L = times.shape
+        tie = torch.arange(L, device=times.device, dtype=torch.long).unsqueeze(0).expand(B, -1)
+        time_key = torch.round(times.to(torch.float64) * 1e6).to(torch.long)
+        key = time_key * (L + 1) + tie
+        indices = torch.argsort(key, dim=1)
+
+    sorted_times = times.gather(1, indices)
 
     dirs = feature_dict[Feats.DIRS].gather(1, indices)
     sorted_times = _flush_left(sorted_times, dirs != 0)
