@@ -2,8 +2,8 @@ import torch
 from torch import nn
 
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.rl.simulate import policy_rollout_single_pass, policy_rollout_streaming
 from kipl_ml.rl.enums import Actions
+from kipl_ml.rl.simulate import policy_rollout_single_pass, policy_rollout_streaming
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import FeatureTrs
 
@@ -103,13 +103,34 @@ def get_rewards(
 
         # Map discriminator TAM bins -> action intervals using integer time bins.
         # This avoids float boundary issues at the end of the timeline.
-        if disc_times.shape[1] >= 2:
-            dt_s = float((disc_times[:, 1] - disc_times[:, 0]).abs().median().item())
-        else:
-            dt_s = 0.0
-
-        if dt_s <= 0:
+        # Infer dt_s from the timeline and require it to be constant.
+        if disc_times.shape[1] < 2:
             raise ValueError("Invalid TAM timeline: cannot infer dt")
+
+        diffs = disc_times.diff(dim=1).abs()
+        # diffs has length (N-2); only use valid diffs per trace.
+        # disc_seq_lens is on the original TAM_TIMES length N, disc_times is N-1.
+        # Valid diffs count is max(disc_seq_lens - 3, 0).
+        valid_n_diffs = (disc_seq_lens.to(diffs.device) - 3).clamp(min=0)
+        if (valid_n_diffs == 0).any():
+            raise ValueError("Invalid TAM timeline: too few bins to infer dt")
+
+        diff_mask = (
+            torch.arange(diffs.shape[1], device=diffs.device)[None, :]
+            < valid_n_diffs[:, None]
+        )
+
+        # Quantize diffs before uniqueness: float32 TAM times can have tiny
+        # representation noise even for perfectly regular grids.
+        dt_quant = 1e-6
+        diffs_q = torch.round(diffs / dt_quant).to(torch.long)
+        uniq = torch.unique(diffs_q[diff_mask])
+        if uniq.numel() != 1:
+            raise ValueError(
+                f"No valid dt_s found: TAM timeline spacing not constant (n_unique={int(uniq.numel())})."
+            )
+        if (dt_s := float(int(uniq.item())) * dt_quant) <= 0:
+            raise ValueError("Invalid TAM timeline: dt_s must be > 0")
 
         # (bs, T) int64, NaNs -> large bin so they sort last.
         boundaries_bins = torch.round(boundaries / dt_s)
@@ -247,7 +268,9 @@ def compute_rewards_league(
         )
         rewards_l.append(rewards_)
 
-    rewards = {k: torch.stack([r[k] for r in rewards_l], dim=0) for k in rewards_l[0].keys()}
+    rewards = {
+        k: torch.stack([r[k] for r in rewards_l], dim=0) for k in rewards_l[0].keys()
+    }
     disc.load_state_dict(current_disc_state)
     return rewards
 
@@ -371,8 +394,6 @@ def rollout(
         reward_scales=reward_scales,
         sample=sample,
     )
-
-
 
 
 def _rollout_streaming(
