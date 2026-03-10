@@ -230,29 +230,25 @@ class _TraceWindowCursor:
         K: int,
     ):
         self.seq_len = int(seq_len)
+        if self.seq_len <= 0:
+            raise ValueError(f"seq_len must be > 0, got {self.seq_len}")
         self.dt = float(dt)
         self.K = int(K)
 
-        # Precompute per-packet-bin counts (on the original trace time grid).
-        if self.seq_len > 0:
-            bins = (times[: self.seq_len] // self.dt).to(dtype=torch.long)
-            dirs_ = dirs[: self.seq_len].to(dtype=torch.long)
+        bins = (times[: self.seq_len] // self.dt).to(dtype=torch.long)
+        dirs_ = dirs[: self.seq_len].to(dtype=torch.long)
 
-            # Unique consecutive bins and inverse indices for scatter_add.
-            uniq, inv = torch.unique_consecutive(bins, return_inverse=True)
-            nseg = int(uniq.numel())
-            up_counts = torch.zeros((nseg,), device=times.device, dtype=torch.float)
-            down_counts = torch.zeros((nseg,), device=times.device, dtype=torch.float)
-            up_counts.scatter_add_(0, inv, (dirs_ == UPLOAD).float())
-            down_counts.scatter_add_(0, inv, (dirs_ == DOWNLOAD).float())
+        # Unique consecutive bins and inverse indices for scatter_add.
+        uniq, inv = torch.unique_consecutive(bins, return_inverse=True)
+        nseg = int(uniq.numel())
+        up_counts = torch.zeros((nseg,), device=times.device, dtype=torch.float)
+        down_counts = torch.zeros((nseg,), device=times.device, dtype=torch.float)
+        up_counts.scatter_add_(0, inv, (dirs_ == UPLOAD).float())
+        down_counts.scatter_add_(0, inv, (dirs_ == DOWNLOAD).float())
 
-            self._pkt_bins = uniq
-            self._up_counts = up_counts
-            self._down_counts = down_counts
-        else:
-            self._pkt_bins = torch.zeros((0,), device=times.device, dtype=torch.long)
-            self._up_counts = torch.zeros((0,), device=times.device, dtype=torch.float)
-            self._down_counts = torch.zeros((0,), device=times.device, dtype=torch.float)
+        self._pkt_bins = uniq
+        self._up_counts = up_counts
+        self._down_counts = down_counts
 
         self.p = 0
         self.last_bin: int | None = None
@@ -406,6 +402,11 @@ class WindowFeatureStreamer:
 
         dirs = self.X[Feats.DIRS]
         self.pkt_seq_lens = (dirs != 0).sum(dim=1).long()
+        if (self.pkt_seq_lens <= 0).any():
+            bad = torch.where(self.pkt_seq_lens <= 0)[0]
+            raise ValueError(
+                f"Found empty traces (seq_len=0) in WindowFeatureStreamer: n={int(bad.numel())}."
+            )
         self.bs = int(dirs.shape[0])
         self.dtype = self.X[Feats.TIMES].dtype
 

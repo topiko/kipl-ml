@@ -11,7 +11,6 @@ from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
 from kipl_ml.trace.enums import Feats
 
-
 _StreamingRollout = tuple[
     dict[Feats, torch.Tensor],
     torch.Tensor,
@@ -36,7 +35,9 @@ def _ensure_trace_dict(
     return X2
 
 
-def _apply_extend_end_inplace(X: dict[Feats, torch.Tensor], extend_end_s: float) -> None:
+def _apply_extend_end_inplace(
+    X: dict[Feats, torch.Tensor], extend_end_s: float
+) -> None:
     if extend_end_s <= 0:
         return
 
@@ -191,12 +192,12 @@ def policy_obfuscate_trace_streaming(
     Xobs = cast(
         dict[Feats, torch.Tensor],
         _policy_rollout_streaming_impl(
-        obs,
-        X,
-        sample=sample,
-        extend_end_s=extend_end_s,
-        max_packets=max_packets,
-        record_policy=False,
+            obs,
+            X,
+            sample=sample,
+            extend_end_s=extend_end_s,
+            max_packets=max_packets,
+            record_policy=False,
         ),
     )
     return Xobs
@@ -243,7 +244,7 @@ def _policy_rollout_streaming_impl(
     extend_end_s: float,
     max_packets: int | None,
     record_policy: bool,
-)-> dict[Feats, torch.Tensor] | _StreamingRollout:
+) -> dict[Feats, torch.Tensor] | _StreamingRollout:
     """Internal streaming rollout implementation.
 
     When record_policy=False, returns only Xobs. Otherwise returns the full
@@ -261,9 +262,9 @@ def _policy_rollout_streaming_impl(
 
     streamer = WindowFeatureStreamer(
         Xb,
-        dt=float(cast(Any, obs_.time_step)),
-        max_silence_s=float(cast(Any, obs_.max_silence_s)),
-        features=list(cast(Any, obs_.features)),
+        dt=obs_.time_step,
+        max_silence_s=obs_.max_silence_s,
+        features=obs_.features,
         extend_end_s=0,
     )
 
@@ -319,7 +320,9 @@ def _policy_rollout_streaming_impl(
                     fd_t_active,
                     h_active,
                     h_detach_period=None,
-                    seq_lens=torch.ones((int(active.sum().item()),), device=device).long(),
+                    seq_lens=torch.ones(
+                        (int(active.sum().item()),), device=device
+                    ).long(),
                     sample=sample,
                 )
             )
@@ -337,7 +340,9 @@ def _policy_rollout_streaming_impl(
             streamer.apply_delay(start_full, delay_full)
 
         if max_packets is not None:
-            inc = torch.zeros((int(active.sum().item()),), device=device, dtype=torch.long)
+            inc = torch.zeros(
+                (int(active.sum().item()),), device=device, dtype=torch.long
+            )
             if Actions.SEND_COUNT_UP in actions_a:
                 inc = inc + actions_a[Actions.SEND_COUNT_UP].squeeze(1).to(torch.long)
             if Actions.SEND_COUNT_DOWN in actions_a:
