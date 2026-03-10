@@ -176,6 +176,10 @@ def _plot_single(
         7, 1, figsize=(20, 15.0), sharex=True
     )
 
+    # Make rows 1, 2, and 4 easier to visually compare.
+    ax_fd.get_shared_y_axes().join(ax_fd, ax)
+    ax_o.get_shared_y_axes().join(ax_o, ax)
+
     if disc_orig.feat_mode == "dir":
         plot_fn_ = plot_trace
     elif disc_orig.feat_mode == "tam":
