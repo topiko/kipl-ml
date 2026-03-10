@@ -359,6 +359,8 @@ def send_exec(
 
     # TODO: improve this by removing the batch dim loops...
 
+    delay_s = None
+    delay_mask = None
     if Actions.DELAY in actions:
         delay_s = actions[Actions.DELAY]
         if delay_s.shape != times.shape:
@@ -366,28 +368,8 @@ def send_exec(
 
         delay_mask = delay_s > 0
 
+        # Delay is exclusive; enforce no padding sends in this step.
         if delay_mask.any():
-            # Apply delay: packets in [t0, t0+d) are clamped to (t0+d).
-            for i in range(times.shape[0]):
-                m = delay_mask[i] & times[i].isfinite()
-                if not bool(m.any().item()):
-                    continue
-
-                t0s = times[i][m]
-                ds = delay_s[i][m]
-                order = torch.argsort(t0s)
-                t0s = t0s[order]
-                ds = ds[order]
-
-                for t0, d in zip(t0s, ds):
-                    t1 = t0 + d
-                    X[Feats.TIMES][i] = torch.where(
-                        (X[Feats.TIMES][i] >= t0) & (X[Feats.TIMES][i] < t1),
-                        t1,
-                        X[Feats.TIMES][i],
-                    )
-
-            # Delay is exclusive; enforce no padding sends in this step.
             for k in (
                 Actions.SEND_COUNT_UP,
                 Actions.SEND_COUNT_DOWN,
@@ -518,6 +500,28 @@ def send_exec(
     X[Feats.TIMES] = fill_after_seq_end(
         X[Feats.TIMES], X[Feats.DIRS] != 0, fill_val="max"
     )
+
+    # Apply delay after padding is appended so it also clamps padding packets that
+    # fall within the delayed window.
+    if delay_s is not None and delay_mask is not None and delay_mask.any():
+        for i in range(times.shape[0]):
+            m = delay_mask[i] & times[i].isfinite()
+            if not bool(m.any().item()):
+                continue
+
+            t0s = times[i][m]
+            ds = delay_s[i][m]
+            order = torch.argsort(t0s)
+            t0s = t0s[order]
+            ds = ds[order]
+
+            for t0, d in zip(t0s, ds):
+                t1 = t0 + d
+                X[Feats.TIMES][i] = torch.where(
+                    (X[Feats.TIMES][i] >= t0) & (X[Feats.TIMES][i] < t1),
+                    t1,
+                    X[Feats.TIMES][i],
+                )
 
     X = _sort_feature_dict(X)
 
