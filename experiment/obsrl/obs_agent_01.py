@@ -628,8 +628,7 @@ def main(cfg: DictConfig):
 
             # =============================================
             if e % 5 == 0:
-                model_step = 1_000_000_000 + int(e)
-                mlflow.pytorch.log_model(obs, name=f"rlobs-{e}", step=model_step)
+                mlflow.pytorch.log_model(obs, name=f"rlobs-{e}", step=e)
 
             if cfg.max_epochs > 0 and e >= cfg.max_epochs:
                 logger.info("Max epochs %s reached!" % e)
