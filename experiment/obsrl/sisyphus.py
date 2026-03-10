@@ -745,13 +745,19 @@ def main(cfg: DictConfig):
             )
 
             # Persist the current push endpoints for reconstruction on next invocation.
-            mlflow.pytorch.log_model(obs, name=f"obs-{child_run_name}", step=child_idx)
+            # Work around older tracking DB schemas that don't support model_id on
+            # metrics: MLflow 3 logs run metrics again during log_model, which can
+            # trip unique constraints if we use a step that already has metrics.
+            model_step = 1_000_000_000 + int(child_idx)
             mlflow.pytorch.log_model(
-                discriminator, name=f"disc-{child_run_name}", step=child_idx
+                obs, name=f"obs-{child_run_name}", step=model_step
+            )
+            mlflow.pytorch.log_model(
+                discriminator, name=f"disc-{child_run_name}", step=model_step
             )
             if critic is not None:
                 mlflow.pytorch.log_model(
-                    critic, name=f"critic-{child_run_name}", step=child_idx
+                    critic, name=f"critic-{child_run_name}", step=model_step
                 )
 
 
