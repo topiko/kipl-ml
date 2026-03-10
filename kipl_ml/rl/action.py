@@ -239,11 +239,10 @@ class TraceExecState:
                 order = torch.argsort(t0)
                 t0 = t0[order]
                 dd = dd[order]
-                cum = torch.cumsum(dd, dim=0)
-                # idx in [0..len(t0)] where to insert; shift uses right=True.
-                ins = torch.searchsorted(t0, t, right=True) - 1
-                shift = torch.where(ins >= 0, cum[ins.clamp(min=0)], torch.zeros_like(t))
-                t = t + shift
+
+                for t00, d0 in zip(t0, dd):
+                    t1 = t00 + d0
+                    t = torch.where((t >= t00) & (t < t1), t1, t)
 
             # Sort by time; tie-break by (dir, padding) for stability.
             if t.numel() > 0:
@@ -367,9 +366,7 @@ def send_exec(
         delay_mask = delay_s > 0
 
         if delay_mask.any():
-            # Apply delay: shift all packets at/after each delay event time.
-            # If multiple delay events exist, earlier delays can shift packets
-            # across later delay thresholds, so we apply sequentially.
+            # Apply delay: packets in [t0, t0+d) are clamped to (t0+d).
             for i in range(times.shape[0]):
                 m = delay_mask[i] & times[i].isfinite()
                 if not bool(m.any().item()):
@@ -382,8 +379,11 @@ def send_exec(
                 ds = ds[order]
 
                 for t0, d in zip(t0s, ds):
+                    t1 = t0 + d
                     X[Feats.TIMES][i] = torch.where(
-                        X[Feats.TIMES][i] >= t0, X[Feats.TIMES][i] + d, X[Feats.TIMES][i]
+                        (X[Feats.TIMES][i] >= t0) & (X[Feats.TIMES][i] < t1),
+                        t1,
+                        X[Feats.TIMES][i],
                     )
 
             # Delay is exclusive; enforce no padding sends in this step.

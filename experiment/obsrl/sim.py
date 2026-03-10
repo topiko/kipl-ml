@@ -557,12 +557,14 @@ def _rollout_streaming(
             actions=actions_a,
         )
 
-        # If delay is selected, it shifts future observation windows.
+        # If delay is selected, it blocks packets in [act_time, act_time+delay).
         if Actions.DELAY in actions_a:
             if (actions_a[Actions.DELAY] > 0).any():
                 delay_full = torch.zeros((bs, 1), device=device)
                 delay_full[active] = actions_a[Actions.DELAY]
-                streamer.apply_delay(delay_full)
+                start_full = torch.full((bs, 1), torch.nan, device=device)
+                start_full[active] = act_times_a
+                streamer.apply_delay(start_full, delay_full)
 
         step_i += 1
 

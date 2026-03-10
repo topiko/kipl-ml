@@ -218,7 +218,7 @@ class RNNDef(_NNDef):
                         break
 
                     if Actions.DELAY in actions and (actions[Actions.DELAY] > 0).any():
-                        streamer.apply_delay(actions[Actions.DELAY])
+                        streamer.apply_delay(act_times, actions[Actions.DELAY])
 
             trace_d = exec_state.finalize()
             # Cap output length.
