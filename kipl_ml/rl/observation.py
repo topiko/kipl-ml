@@ -429,7 +429,10 @@ class WindowFeatureStreamer:
         device = self.done.device
         bs = self.bs
 
-        bins = torch.zeros((bs, 1), device=device, dtype=torch.long)
+        emit_bins = Feats.WINDOW_BINS in self.features
+        bins = None
+        if emit_bins:
+            bins = torch.zeros((bs, 1), device=device, dtype=torch.long)
         times = torch.full((bs, 1), torch.nan, device=device, dtype=self.dtype)
         up = torch.full((bs, 1), torch.nan, device=device, dtype=self.dtype)
         down = torch.full((bs, 1), torch.nan, device=device, dtype=self.dtype)
@@ -445,7 +448,9 @@ class WindowFeatureStreamer:
                 self.done[i] = True
                 continue
 
-            bins[i, 0] = int(b)
+            if emit_bins:
+                assert bins is not None
+                bins[i, 0] = int(b)
             times[i, 0] = float(b) * self.dt
             up[i, 0] = u
             down[i, 0] = d
@@ -463,7 +468,8 @@ class WindowFeatureStreamer:
             Feats.TIMES: times,
         }
 
-        if Feats.WINDOW_BINS in self.features:
+        if emit_bins:
+            assert bins is not None
             fd[Feats.WINDOW_BINS] = bins
 
         if Feats.SILENCE_FLAG in self.features:
@@ -500,14 +506,7 @@ class WindowFeatureStreamer:
         start_bins = (start_s / self.dt).round().to(torch.long)
         shift_bins = (delay_s / self.dt).round().to(torch.long)
 
-        for i in range(self.bs):
-            if self.done[i]:
-                continue
-            sb = int(start_bins[i].item())
-            sh = int(shift_bins[i].item())
-            if sh <= 0:
-                continue
-            self._cursors[i].apply_delay_bins(sb, sh)
+        self.apply_delay_bins(start_bins, shift_bins)
 
     def apply_delay_bins(
         self, start_bins: torch.Tensor, shift_bins: torch.Tensor
