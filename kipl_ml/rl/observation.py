@@ -4,7 +4,7 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.rl.utils import _fill_after_seq_end, _flush_left
+from kipl_ml.rl.utils import _fill_after_seq_end, _flush_left, fill_after_seq_end
 from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
@@ -158,9 +158,11 @@ def get_window_feature_dict(
     feature_dict[Feats.DOWN_COUNT] = _flush_left(down_counts, mask)[:, :max_l]
 
     times_idx = _flush_left(times_idx, mask)[:, :max_l]
+    mask_fl = _flush_left(mask.float(), mask, pad_val=0).bool()[:, :max_l]
 
     # Keep TIMES as bin indices (float) with NaNs after seq end.
-    times_bins = _fill_after_seq_end(times_idx, pad_val=0)
+    # TIMES can legitimately contain zeros, so do not use a sentinel pad value.
+    times_bins = fill_after_seq_end(times_idx, mask_fl, fill_val="nan")
     feature_dict[Feats.TIMES] = times_bins
 
     # Insert extra windows into silent gaps using bin indices, then convert to seconds.

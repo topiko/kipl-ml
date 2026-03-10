@@ -43,6 +43,49 @@ def _fill_after_seq_end(
     return values
 
 
+def fill_after_seq_end(
+    values: torch.Tensor,
+    keep_mask: torch.Tensor,
+    *,
+    fill_val: str = "nan",
+) -> torch.Tensor:
+    """Fill values after seq end using an explicit mask.
+
+    This avoids relying on a sentinel pad value (e.g. 0), which is ambiguous for
+    legitimate features like TIMES where 0 can be a real value.
+    """
+
+    if values.shape != keep_mask.shape:
+        raise ValueError(
+            f"values and keep_mask must match, got {values.shape} and {keep_mask.shape}"
+        )
+
+    out = values.clone()
+    B, L = out.shape
+    seq_lens = keep_mask.sum(dim=1).long()
+
+    if fill_val == "nan":
+        fill = torch.full((B,), torch.nan, device=out.device, dtype=out.dtype)
+    elif fill_val == "last":
+        idx = (seq_lens - 1).clamp(min=0)
+        fill = out.gather(1, idx.view(B, 1)).squeeze(1)
+    elif fill_val == "max":
+        masked = torch.where(
+            keep_mask,
+            out,
+            torch.full((), -torch.inf, device=out.device, dtype=out.dtype),
+        )
+        fill = masked.max(dim=1).values
+        fill = torch.where(seq_lens > 0, fill, torch.zeros_like(fill))
+    else:
+        raise ValueError(f"Unknown fill_val option: {fill_val}")
+
+    col = torch.arange(L, device=out.device).unsqueeze(0).expand(B, -1)
+    tail = col >= seq_lens.unsqueeze(1)
+    out[tail] = fill.unsqueeze(1).expand_as(out)[tail]
+    return out
+
+
 def _flush_left(
     values: torch.Tensor, keep_mask: torch.Tensor, pad_val: float = 0
 ) -> torch.Tensor:

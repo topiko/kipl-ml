@@ -7,7 +7,7 @@ import torch
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.enums import Actions
-from kipl_ml.rl.utils import _fill_after_seq_end, _flush_left
+from kipl_ml.rl.utils import _fill_after_seq_end, _flush_left, fill_after_seq_end
 from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
@@ -277,7 +277,7 @@ class TraceExecState:
             pad_out[i, :n] = out_pad_l[i]
 
         mask = dirs_out != 0
-        times_out = _fill_after_seq_end(times_out, pad_val=0, fill_val="max")
+        times_out = fill_after_seq_end(times_out, mask, fill_val="max")
         X = {Feats.TIMES: times_out, Feats.DIRS: dirs_out, Feats.PADDING: pad_out}
         X = {k: _flush_left(v, mask, pad_val=0) for k, v in X.items()}
         X = _sort_feature_dict(X)
@@ -543,7 +543,9 @@ def send_exec(
     X = {k: v[:, :max_l] for k, v in X.items()}
 
     # The times are not sorted as of now, we pad w. max val.
-    X[Feats.TIMES] = _fill_after_seq_end(X[Feats.TIMES], pad_val=0, fill_val="max")
+    X[Feats.TIMES] = fill_after_seq_end(
+        X[Feats.TIMES], X[Feats.DIRS] != 0, fill_val="max"
+    )
 
     X = _sort_feature_dict(X)
 
