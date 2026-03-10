@@ -25,7 +25,7 @@ advantages:
 rewards:
   d_clf: 0.001
   padding_scale: 0.01
-  delay_scale: 0.0
+  delay_scale: 0.0001
 
 obs:
   # Floor for action prob:

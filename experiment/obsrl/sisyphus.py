@@ -267,9 +267,9 @@ def train_obs_one_epoch(
                 )
 
             # (B, )
-            normal_packets = ((X_obs[Feats.DIRS] != 0) & (X_obs[Feats.PADDING] == 0)).sum(
-                dim=1
-            )
+            normal_packets = (
+                (X_obs[Feats.DIRS] != 0) & (X_obs[Feats.PADDING] == 0)
+            ).sum(dim=1)
             # (B, )
             padding_packets_up = (
                 (X_obs[Feats.DIRS] == UPLOAD) & (X_obs[Feats.PADDING] == 1)
@@ -551,7 +551,9 @@ def main(cfg: DictConfig):
             )
         npackets = None
 
-        disc_trs = [get_feature_tr(fn, npackets, tam_kwargs=tam_d) for fn in feature_names]
+        disc_trs = [
+            get_feature_tr(fn, npackets, tam_kwargs=tam_d) for fn in feature_names
+        ]
         disc_trs += [
             get_feature_tr(f, npackets, tam_kwargs=tam_d)
             for f in (Feats.TAM_DOWN_PAD, Feats.TAM_UP_PAD)
@@ -652,7 +654,7 @@ def main(cfg: DictConfig):
         "clf_scale": 0.1,
         "d_clf_scale": cfg.rewards.d_clf,
         "padding_scale": cfg.rewards.padding_scale,
-        "delay_scale": float(getattr(cfg.rewards, "delay_scale", 0.0)),
+        "delay_scale": cfg.rewards.delay_scale,
     }
 
     # One process invocation == one child run (one push).
