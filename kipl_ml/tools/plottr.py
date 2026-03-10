@@ -419,11 +419,19 @@ def plot_actions(
                 )
 
         elif ackt == Actions.DO_NOTHING:
-            counts = np.zeros_like(times)
-            durs = np.diff(times, append=np.array([times[-1]]), axis=0)
-            counts[actions[ackt] == 1] = 1
-
-            _plot_boxes(times, durs, counts, color="gray", alpha=0.2, ax=ax)
+            # Render as a background span (duration effect) rather than a bar.
+            mask = actions[ackt] == 1
+            if mask.any():
+                durs = np.diff(times, append=np.array([times[-1]]), axis=0)
+                for t0, d in zip(times[mask], durs[mask]):
+                    ax.axvspan(
+                        float(t0),
+                        float(t0 + d),
+                        color="gray",
+                        alpha=0.12,
+                        lw=0,
+                        zorder=0,
+                    )
 
         elif ackt == Actions.DELAY:
             # Render delay as a background span (duration effect), not as a
@@ -447,6 +455,7 @@ def plot_actions(
 
         ax.vlines(times, -1, 1, color="black", lw=0.7)
 
+    max_c = max(max_c, 1)
     ax.set_ylim(-max_c * 1.1, max_c * 1.1)
     return ax
 
