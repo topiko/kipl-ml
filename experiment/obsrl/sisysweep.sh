@@ -6,7 +6,7 @@ set -e
 
 adv=mc
 parent_prefix="audacious-imp" #"advanced-smolin" # audacious-imp
-npackets=1000
+npackets=5000
 
 
 for enable_delay in true false; do

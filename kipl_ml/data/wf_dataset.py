@@ -223,6 +223,63 @@ def dict_to_device(
     return {k: v.to(device, **kwargs) for k, v in X.items()}
 
 
+def _exclude_long_traces(
+    meta_df: pd.DataFrame,
+    *,
+    dataset: str,
+    n_ref: int,
+    t_max: float,
+) -> pd.DataFrame:
+    if (col := f"time_to_{n_ref}_packets") not in meta_df.columns:
+        raise KeyError(
+            f"Column '{col}' not found in meta_df. "
+            + "Re-run conversion, e.g. 'python kipl_ml/data/conversion.py --dataset "
+            + f"{dataset}'."
+        )
+
+    t_col = pd.Series(
+        pd.to_numeric(meta_df.loc[:, col], errors="raise"),
+        index=meta_df.index,
+        dtype=float,
+    )
+
+    n_all = int(len(meta_df))
+    m_ref = meta_df.loc[:, "n_packets"] >= n_ref
+    n_ref_total = int(m_ref.sum())
+
+    # Only exclude traces that can actually reach the requested packet count.
+    # For shorter traces, time_to_<n_ref>_packets stores total duration by design,
+    # which is useful for analysis but should not drive this filter.
+    m_excl = m_ref & (t_col > t_max)
+    n_excl = int(m_excl.sum())
+    n_over_short = int(((~m_ref) & (t_col > t_max)).sum())
+
+    logger.warning(
+        "Filtering long traces by %s > %.3fs: excluded=%d/%d (%.2f%% all), "
+        + "excluded among n_packets>=%d: %d/%d (%.2f%%)",
+        col,
+        t_max,
+        n_excl,
+        n_all,
+        (100.0 * n_excl / max(1, n_all)),
+        n_ref,
+        n_excl,
+        n_ref_total,
+        (100.0 * n_excl / max(1, n_ref_total)),
+    )
+
+    if n_over_short > 0:
+        logger.info(
+            "Not excluding %d short traces (n_packets < %d) even though %s > %.3fs",
+            n_over_short,
+            n_ref,
+            col,
+            t_max,
+        )
+
+    return meta_df.loc[~m_excl]
+
+
 def get_train_valid_test(
     dataset: str,
     label: str,
@@ -234,6 +291,8 @@ def get_train_valid_test(
     defence_test: _Def | None = None,
     defence_aug_valid: int = 1,
     n_min_packets: int | None = None,
+    exclude_time_to_packets_n: int | None = None,
+    exclude_time_to_packets_s: float | None = None,
     **kwargs,
 ) -> tuple[WFDataset, WFDataset, WFDataset]:
     meta_df = load_dataset_meta_df(dataset)
@@ -241,6 +300,17 @@ def get_train_valid_test(
     if (n_min_packets := n_min_packets or 0) > 0:
         meta_df = meta_df[meta_df.loc[:, "n_packets"] >= n_min_packets]
         logger.warning("Short (<%d packets) flows removed!", n_min_packets)
+
+    if exclude_time_to_packets_s is not None:
+        meta_df = _exclude_long_traces(
+            meta_df,
+            dataset=dataset,
+            n_ref=exclude_time_to_packets_n or 0,
+            t_max=float(exclude_time_to_packets_s),
+        )
+
+    if len(meta_df) == 0:
+        raise ValueError("No traces left after metadata filtering")
 
     if (col := assets.XV_SPLIT(n_splits, label)) not in meta_df.columns:
         raise KeyError(

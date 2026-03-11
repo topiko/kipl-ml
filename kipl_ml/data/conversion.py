@@ -74,6 +74,7 @@ def _data_to_meta_row(
 
     def _time_to_packet_stats() -> dict[str, float]:
         stats: dict[str, float] = {}
+        ns_to_s = 1e9
         if len(data) == 0:
             for n in TIME_TO_PACKET_LIMITS:
                 stats[_time_to_packet_col_name(n)] = 0.0
@@ -81,17 +82,17 @@ def _data_to_meta_row(
 
         t0 = float(data[0, 0])
         t_last = float(data[-1, 0])
-        total = t_last - t0
+        total_s = (t_last - t0) / ns_to_s
         n_packets = int(len(data))
 
         for n in TIME_TO_PACKET_LIMITS:
             col = _time_to_packet_col_name(n)
             if n_packets >= n:
-                stats[col] = float(data[n - 1, 0] - t0)
+                stats[col] = float((data[n - 1, 0] - t0) / ns_to_s)
             else:
                 # Requested by caller: if the trace has fewer than n packets,
                 # use the total duration of the trace.
-                stats[col] = float(total)
+                stats[col] = float(total_s)
 
         return stats
 

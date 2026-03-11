@@ -107,6 +107,8 @@ def main(cfg: DictConfig):
         feature_trs=FeatureTrs(feature_names=feature_names, n_packets=cfg.trace_len),
         defence_aug_valid=0,
         n_min_packets=cfg.min_packets_in_trace,
+        exclude_time_to_packets_n=cfg.trace_len,
+        exclude_time_to_packets_s=cfg.exclude_longer_than_s,
         **defence_builder.get_defence(cfg),
     )
     # ds_train.meta_df = ds_train.meta_df.sample(frac=0.5)
