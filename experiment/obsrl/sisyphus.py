@@ -546,7 +546,9 @@ def main(cfg: DictConfig):
         mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
     )
 
-    time_clamp = (0.0, cfg.trace.dur_max, True) if cfg.trace.dur_max is not None else None
+    time_clamp = (
+        (0.0, cfg.trace.dur_max, True) if cfg.trace.dur_max is not None else None
+    )
     if discriminator_orig.feat_mode == "tam":
         feature_names = discriminator_orig.features
         tam_d = discriminator_orig.tam_dict
@@ -573,7 +575,7 @@ def main(cfg: DictConfig):
             get_feature_tr(Feats.TAM_BINS, npackets, time_clamp, tam_kwargs=tam_d)
         )
 
-        disc_feats = FeatureTrs(feature_trs=disc_trs, n_packets=None)
+        disc_feats = FeatureTrs(feature_trs=disc_trs)
     elif discriminator_orig.feat_mode == "dir":
         feature_names = discriminator_orig.features
         npackets = cfg.trace.len
@@ -585,7 +587,7 @@ def main(cfg: DictConfig):
             f"Unknown feat_mode {discriminator_orig.feat_mode} in discriminator_orig!"
         )
 
-    logging.info("Discriminator features_trs:")
+    logger.info("Discriminator features_trs:")
     disc_feats.report()
 
     # This one already somewhat trained for obsfuscation.

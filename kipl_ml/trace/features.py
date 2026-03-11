@@ -130,12 +130,14 @@ class PadOrCutTrace(_TR):
             raise ValueError("time_clamp provided but trace is empty")
 
         start_idx = 0 if tmin is None else int(torch.searchsorted(times, tmin).item())
-        end_idx = n if tmax is None else int(torch.searchsorted(times, tmax, right=True).item())
+        end_idx = (
+            n
+            if tmax is None
+            else int(torch.searchsorted(times, tmax, right=True).item())
+        )
 
         if start_idx >= end_idx:
-            raise ValueError(
-                f"time_clamp ({tmin}, {tmax}) resulted in empty trace"
-            )
+            raise ValueError(f"time_clamp ({tmin}, {tmax}) resulted in empty trace")
 
         indices = torch.arange(start_idx, end_idx, device=times.device)
 
@@ -661,7 +663,9 @@ class _TAM(_TR):
 
             # Keep TAM on an integer grid; derive bin times from bin indices.
             # This avoids float32 spacing jitter and keeps binning stable.
-            self.window_width_s = float(self.max_load_time_s) / float(self.max_matrix_len)
+            self.window_width_s = float(self.max_load_time_s) / float(
+                self.max_matrix_len
+            )
 
         # Integer bin indices [0..max_matrix_len].
         self.bin_idx = torch.arange(0, int(self.max_matrix_len) + 1, dtype=torch.long)
@@ -1214,11 +1218,12 @@ def get_feature_tr(
                 ),
             )
         case Feats.TAM_UP_COUNTS:
-            return TAM_UP(**tam_kwargs)
+            return Compose(_pad(None), TAM_UP(**tam_kwargs))
         case Feats.TAM_UP_PAD:
-            return TAM_UP_PAD(**tam_kwargs)
+            return Compose(_pad(None), TAM_UP_PAD(**tam_kwargs))
         case Feats.TAM_UP_COUNTS_MAX_NORMALIZED:
             return Compose(
+                _pad(None),
                 TAM_UP(**tam_kwargs),
                 Normalize(
                     normalized_asset=Feats.TAM_UP_COUNTS,
@@ -1227,15 +1232,16 @@ def get_feature_tr(
                 ),
             )
         case Feats.TAM_DOWN_COUNTS:
-            return TAM_DOWN(**tam_kwargs)
+            return Compose(_pad(None), TAM_DOWN(**tam_kwargs))
         case Feats.TAM_DOWN_PAD:
-            return TAM_DOWN_PAD(**tam_kwargs)
+            return Compose(_pad(None), TAM_DOWN_PAD(**tam_kwargs))
         case Feats.TAM_BINS:
             return TAM_BINS(**tam_kwargs)
         case Feats.TAM_TIMES:
             return TAM_TIMES(**tam_kwargs)
         case Feats.TAM_DOWN_COUNTS_MAX_NORMALIZED:
             return Compose(
+                _pad(None),
                 TAM_DOWN(**tam_kwargs),
                 Normalize(
                     normalized_asset=Feats.TAM_DOWN_COUNTS,
