@@ -82,6 +82,7 @@ disc:
 
   tam_max_load_time_s: 90
   batch_size: 64
+  train_defence_aug: 3  # Cache defended traces during disc training (1=enabled, 0=disabled)
 
   no_defense_disc_id: "m-3a65302e5214463dbe7cb150ddcacdcb"
 

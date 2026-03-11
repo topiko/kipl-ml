@@ -341,6 +341,7 @@ def train_disc_on_league(
         n_packets=cfg.trace.len,
         bs=cfg.disc.batch_size,
         obs_league=[d for _, d in obs_league[-cfg.league.size :]],
+        train_defence_aug=cfg.disc.train_defence_aug,
     )
 
     disc_optim = _get_optim(discriminator, lr=cfg.disc.lr)

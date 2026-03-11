@@ -16,6 +16,9 @@ rewards:
   d_clf: 0.001
   delay_scale: 0.0
 
+disc:
+  train_defence_aug: 3  # Cache defended traces during disc training (1=enabled, 0=disabled)
+
 experiment_name: obsrl
 debug: False
 enable_entropy_loss: True

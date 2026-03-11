@@ -109,6 +109,14 @@ class WFDataset(Dataset):
 
         self._defence_aug = aug_factor
 
+    def wipe_cache(self) -> None:
+        """Wipe the cached defended traces."""
+        if self.tmp_dir is not None:
+            import shutil
+            shutil.rmtree(self.tmp_dir.name)
+            self.tmp_dir = None
+        self._defence_aug = 0
+
     @property
     def n_classes(self) -> int:
         return self.meta_df[self.label].nunique()

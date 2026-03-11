@@ -63,6 +63,7 @@ def _get_obs_def_dl(
     bs: int = 64,
     obs_league: list[nn.Module.state_dict] | None = None,
     sampler: SubsetRandomSampler | None = None,
+    train_defence_aug: int = 1,
 ) -> WFDataset:
     # Set features the fetures:
     ds.feature_trs = disc_feats
@@ -76,8 +77,8 @@ def _get_obs_def_dl(
         state_dicts=obs_league,
     )
 
-    if ds.defence_aug != 0:
-        raise ValueError("If def aug != 0 - you are reusing traces from previous runs")
+    # Enable caching of defended traces for faster subsequent epochs
+    ds.defence_aug = train_defence_aug
 
     return dl_(
         ds, bs=bs, collate_fn=None, shuffle=False, nworkers=None, sampler=sampler
@@ -92,6 +93,8 @@ def _restore_obs_def_ds(
 ):
     # Restore no defence
     ds.defence = NoDefence(network_delay_millis=(25, 250), network_pps=(40_000, 40_000))
+    # Clear cached defended traces (defense changed, cache is stale)
+    ds.wipe_cache()
     # Restore no features.
     ds.feature_trs = feature_trs
 
