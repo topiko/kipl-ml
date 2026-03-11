@@ -492,6 +492,33 @@ def plot_obs_features(
         ax=ax,
     )
 
+    if times.size > 0:
+        nup = int(round(float(np.nansum(up_count))))
+        ndown = int(round(float(np.nansum(down_count))))
+        n_windows = int(times.size)
+        maxt = float(np.nanmax(times))
+    else:
+        nup = 0
+        ndown = 0
+        n_windows = 0
+        maxt = 0.0
+
+    info_d = {
+        "nup": nup,
+        "ndown": ndown,
+        "nwindows": n_windows,
+        "maxt": maxt,
+    }
+
+    ax.text(
+        0.98,
+        0.99,
+        "\n".join([f"{k} : {_format_val(v)}" for k, v in info_d.items()]),
+        transform=ax.transAxes,
+        va="top",
+        ha="right",
+    )
+
     if times.size == 0:
         ax.set_ylim(-1.0, 1.0)
     else:
