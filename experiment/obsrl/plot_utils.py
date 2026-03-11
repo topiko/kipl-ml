@@ -277,8 +277,8 @@ def _plot_single(
                         fontsize=9,
                         color="#b91c1c",
                     )
-    except Exception as e:
-        logger.warning("Invariant check failed for idx=%s: %s", ds_idx, e)
+    except Exception as err:
+        logger.warning("Invariant check failed for idx=%s: %s", ds_idx, err)
 
     # Plot actions
     plot_actions(times, actions, idx=batch_i, ax=ax_a)
