@@ -11,6 +11,15 @@ from kipl_ml.trace.features import FeatureTrs
 logger = get_logger(__name__)
 
 
+def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
+    if dt <= 0:
+        raise ValueError(f"dt must be > 0, got {dt}")
+
+    dt_us = max(1, int(round(float(dt) * 1e6)))
+    t_us = torch.round(times * 1e6).to(torch.long)
+    return torch.div(t_us, dt_us, rounding_mode="floor")
+
+
 def get_rewards(
     action_times: torch.Tensor,
     actions: dict[Actions, torch.Tensor],
@@ -108,17 +117,23 @@ def get_rewards(
         disc_bins_full = X_disc.get(Feats.TAM_BINS, None)
         if disc_bins_full is None:
             # Backward-compat fallback: derive bins from times.
-            disc_bins_full = torch.round(
-                X_disc[Feats.TAM_TIMES] / float(tam_dt_s)
-            ).to(torch.long)
+            disc_bins_full = _time_to_bin_idx(X_disc[Feats.TAM_TIMES], float(tam_dt_s))
 
         disc_bins = disc_bins_full[:, 1:].contiguous().to(torch.long)
         m = m[:, 1:]
 
         # (bs, T) int64, NaNs -> large bin so they sort last.
-        boundaries_bins = torch.round(boundaries.double() / float(tam_dt_s))
-        boundaries_bins = boundaries_bins.nan_to_num(nan=1e18, posinf=1e18, neginf=-1e18)
-        boundaries_bins = boundaries_bins.to(torch.long)
+        boundaries_bins = torch.full(
+            boundaries.shape,
+            int(1e18),
+            device=boundaries.device,
+            dtype=torch.long,
+        )
+        m_fin = boundaries.isfinite()
+        if bool(m_fin.any().item()):
+            boundaries_bins[m_fin] = _time_to_bin_idx(
+                boundaries[m_fin], float(tam_dt_s)
+            )
 
         idxs = torch.searchsorted(boundaries_bins, disc_bins, right=True) - 1
         idxs = idxs.clamp(0, T - 1)
@@ -180,10 +195,10 @@ def get_rewards(
         m0 = dirs0 != 0
         t0 = X_raw[Feats.TIMES]
         t0_f = fill_after_seq_end(t0, m0, fill_val="max")
-        pkt_bins = torch.floor(t0_f.double() / float(obs_dt_s)).to(torch.long)
+        pkt_bins = _time_to_bin_idx(t0_f, float(obs_dt_s))
 
         # (B, T) start bins for delay windows.
-        start_bins = torch.round(action_times.double() / float(obs_dt_s)).to(torch.long)
+        start_bins = _time_to_bin_idx(action_times, float(obs_dt_s))
 
         # Count occurrences per step via searchsorted on sorted pkt_bins.
         lo = torch.searchsorted(pkt_bins, start_bins, right=False)

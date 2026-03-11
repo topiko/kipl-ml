@@ -31,6 +31,21 @@ def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
     return torch.div(t_us, dt_us, rounding_mode="floor")
 
 
+def _boundary_time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
+    if dt <= 0:
+        raise ValueError(f"dt must be > 0, got {dt}")
+    return torch.round(times.to(torch.float64) / float(dt)).to(torch.long)
+
+
+def _duration_to_bin_offsets(durations: torch.Tensor, dt: float) -> torch.Tensor:
+    if dt <= 0:
+        raise ValueError(f"dt must be > 0, got {dt}")
+
+    dt_us = max(1, int(round(float(dt) * 1e6)))
+    d_us = torch.round(durations * 1e6).to(torch.long)
+    return torch.div(d_us + (dt_us // 2), dt_us, rounding_mode="floor")
+
+
 def _add_actions_to_silence_periods(
     feature_dict: dict[Feats, torch.Tensor], time_step: float, max_silence_s: float
 ) -> dict[Feats, torch.Tensor]:
@@ -521,8 +536,8 @@ class WindowFeatureStreamer:
         if ((delay_s > 0) & ~start_s.isfinite()).any():
             raise ValueError("start_s must be finite when delay_s > 0")
 
-        start_bins = (start_s / self.dt).round().to(torch.long)
-        shift_bins = (delay_s / self.dt).round().to(torch.long)
+        start_bins = _boundary_time_to_bin_idx(start_s, self.dt)
+        shift_bins = _duration_to_bin_offsets(delay_s, self.dt)
 
         self.apply_delay_bins(start_bins, shift_bins)
 

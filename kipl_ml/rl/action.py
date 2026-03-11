@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import gcd
 
 import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.enums import Actions
-from kipl_ml.rl.utils import _fill_after_seq_end, _flush_left, fill_after_seq_end
+from kipl_ml.rl.utils import _flush_left, fill_after_seq_end
 from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
@@ -20,6 +21,48 @@ def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
     dt_us = max(1, int(round(float(dt) * 1e6)))
     t_us = torch.round(times * 1e6).to(torch.long)
     return torch.div(t_us, dt_us, rounding_mode="floor")
+
+
+def _boundary_time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
+    if dt <= 0:
+        raise ValueError(f"dt must be > 0, got {dt}")
+    return torch.round(times.to(torch.float64) / float(dt)).to(torch.long)
+
+
+def _duration_to_bin_offsets(durations: torch.Tensor, dt: float) -> torch.Tensor:
+    if dt <= 0:
+        raise ValueError(f"dt must be > 0, got {dt}")
+
+    dt_us = max(1, int(round(float(dt) * 1e6)))
+    d_us = torch.round(durations * 1e6).to(torch.long)
+    return torch.div(d_us + (dt_us // 2), dt_us, rounding_mode="floor")
+
+
+def _apply_delay_clamp_bins_inplace(
+    t: torch.Tensor,
+    start_bins: torch.Tensor,
+    shift_bins: torch.Tensor,
+    dt_s: float,
+) -> torch.Tensor:
+    if start_bins.numel() == 0:
+        return t
+
+    order = torch.argsort(start_bins)
+    starts = start_bins[order].to(torch.long)
+    shifts = shift_bins[order].to(torch.long)
+
+    bins = _time_to_bin_idx(t, dt_s)
+    for s, sh in zip(starts, shifts):
+        sh_i = int(sh.item())
+        if sh_i <= 0:
+            continue
+        s_i = int(s.item())
+        e_i = s_i + sh_i
+        m = (bins >= s_i) & (bins < e_i)
+        if bool(m.any().item()):
+            bins = torch.where(m, torch.full_like(bins, e_i), bins)
+            t = torch.where(m, torch.full_like(t, float(e_i) * dt_s), t)
+    return t
 
 
 def _apply_delay_clamp_inplace(
@@ -35,33 +78,22 @@ def _apply_delay_clamp_inplace(
     t0s = delay_starts[order]
     ds = delay_durations[order]
 
-    # Prefer bin-space clamping when delay duration is constant (the standard
-    # DELAY setup). This aligns execution with WindowFeatureStreamer semantics and
-    # avoids float-boundary drift.
+    # Prefer bin-space clamping when delay duration is constant.
     pos = ds[ds > 0]
-    use_bin_mode = False
-    dt_s = None
     if pos.numel() > 0:
         d0 = float(pos[0].item())
         if torch.allclose(pos, torch.full_like(pos, d0), atol=1e-6, rtol=0.0):
-            # Quantize to microseconds to avoid tiny float drift in bin recovery.
             dt_q = round(d0 * 1e6)
             dt_s = dt_q / 1e6
-            use_bin_mode = dt_s > 0
-
-    if use_bin_mode and dt_s is not None:
-        bins = _time_to_bin_idx(t, dt_s)
-        for t0, d in zip(t0s, ds):
-            s = int(_time_to_bin_idx(t0.unsqueeze(0), dt_s).item())
-            sh = int(torch.round(d / dt_s).item())
-            if sh <= 0:
-                continue
-            e = s + sh
-            m = (bins >= s) & (bins < e)
-            if bool(m.any().item()):
-                bins = torch.where(m, torch.full_like(bins, e), bins)
-                t = torch.where(m, torch.full_like(t, float(e) * dt_s), t)
-        return t
+            if dt_s > 0:
+                start_bins = _boundary_time_to_bin_idx(t0s, dt_s)
+                shift_bins = _duration_to_bin_offsets(ds, dt_s)
+                return _apply_delay_clamp_bins_inplace(
+                    t,
+                    start_bins=start_bins,
+                    shift_bins=shift_bins,
+                    dt_s=dt_s,
+                )
 
     # Fallback: float interval clamping.
     for t0, d in zip(t0s, ds):
@@ -78,10 +110,13 @@ class TraceExecState:
     """
 
     X_base: dict[Feats, torch.Tensor]
+    time_step_s: float
 
     def __post_init__(self) -> None:
         if set(self.X_base.keys()) != {Feats.TIMES, Feats.DIRS, Feats.PADDING}:
             raise ValueError("X_base must contain TIMES/DIRS/PADDING")
+        if self.time_step_s <= 0:
+            raise ValueError(f"time_step_s must be > 0, got {self.time_step_s}")
         self.device = self.X_base[Feats.TIMES].device
         self.dtype_t = self.X_base[Feats.TIMES].dtype
         self.dtype_d = self.X_base[Feats.DIRS].dtype
@@ -91,12 +126,12 @@ class TraceExecState:
         self._app_pad: list[torch.Tensor] = []
         self._app_trace_idx: list[torch.Tensor] = []
 
-        self._delay_t0: list[torch.Tensor] = []
-        self._delay_d: list[torch.Tensor] = []
+        self._delay_start_bin: list[torch.Tensor] = []
+        self._delay_shift_bin: list[torch.Tensor] = []
         self._delay_trace_idx: list[torch.Tensor] = []
 
         # Fixed-mode send schedules (expanded only at finalize).
-        self._fixed_send_time: list[torch.Tensor] = []
+        self._fixed_send_bin: list[torch.Tensor] = []
         self._fixed_send_count: list[torch.Tensor] = []
         self._fixed_send_dir: list[torch.Tensor] = []
         self._fixed_send_trace_idx: list[torch.Tensor] = []
@@ -126,15 +161,18 @@ class TraceExecState:
             return
 
         # Delay events (exclusive).
+        act_bins = _boundary_time_to_bin_idx(times.squeeze(1), self.time_step_s)
+
         if Actions.DELAY in actions:
             delay_s = actions[Actions.DELAY]
             if delay_s.shape != times.shape:
                 raise ValueError("DELAY must match times shape")
-            mask = (delay_s > 0).squeeze(1)
+            delay_bins = _duration_to_bin_offsets(delay_s.squeeze(1), self.time_step_s)
+            mask = delay_bins > 0
             if mask.any():
                 self._delay_trace_idx.append(trace_idx[mask].detach().clone())
-                self._delay_t0.append(times[mask].detach().clone().squeeze(1))
-                self._delay_d.append(delay_s[mask].detach().clone().squeeze(1))
+                self._delay_start_bin.append(act_bins[mask].detach().clone())
+                self._delay_shift_bin.append(delay_bins[mask].detach().clone())
 
         # Enforce delay exclusivity for step execution.
         delay_mask = None
@@ -144,9 +182,6 @@ class TraceExecState:
         # Padding sends.
         if Actions.SEND_COUNT_UP not in actions or Actions.SEND_COUNT_DOWN not in actions:
             raise ValueError("Missing SEND_COUNT actions")
-
-        start_times = times.squeeze(1)
-        start_times = torch.where(start_times == 0, start_times + 1e-9, start_times)
 
         def _record_dir(direction: str, dir_val: int) -> None:
             send_counts = (
@@ -164,60 +199,29 @@ class TraceExecState:
                 return
 
             decay_times, send_mode = _get_times_and_mode(actions, direction=direction)
-            decay_times = decay_times.squeeze(1)
+            if send_mode != "fixed":
+                raise NotImplementedError("send_mode='spread' is deprecated; use fixed")
 
-            if send_mode == "fixed":
-                m = send_counts > 0
-                if not m.any():
-                    return
-                t_send = (start_times + decay_times).to(dtype=self.dtype_t)
-                self._fixed_send_trace_idx.append(trace_idx[m].detach().clone())
-                self._fixed_send_time.append(t_send[m].detach().clone())
-                self._fixed_send_count.append(send_counts[m].detach().clone())
-                self._fixed_send_dir.append(
-                    torch.full(
-                        (int(m.sum().item()),),
-                        float(dir_val),
-                        device=self.device,
-                        dtype=self.dtype_d,
-                    )
-                )
+            decay_bins = _duration_to_bin_offsets(
+                decay_times.squeeze(1), self.time_step_s
+            )
+
+            m = send_counts > 0
+            if not m.any():
                 return
 
-            # Flatten into per-packet times + owning trace idx.
-            out_times_l: list[torch.Tensor] = []
-            out_idx_l: list[torch.Tensor] = []
-
-            max_c = int(send_counts.max().item())
-            for c in range(1, max_c + 1):
-                m = send_counts == c
-                if not m.any():
-                    continue
-                st = start_times[m]
-                dt = decay_times[m]
-
-                if send_mode != "spread":
-                    raise ValueError(f"Invalid send mode: {send_mode}")
-                send_times = (
-                    torch.rand((st.shape[0], c), device=self.device) * dt.unsqueeze(1)
-                    + st.unsqueeze(1)
+            send_bins = act_bins + decay_bins
+            self._fixed_send_trace_idx.append(trace_idx[m].detach().clone())
+            self._fixed_send_bin.append(send_bins[m].detach().clone())
+            self._fixed_send_count.append(send_counts[m].detach().clone())
+            self._fixed_send_dir.append(
+                torch.full(
+                    (int(m.sum().item()),),
+                    float(dir_val),
+                    device=self.device,
+                    dtype=self.dtype_d,
                 )
-
-                out_times_l.append(send_times.flatten().to(dtype=self.dtype_t))
-                out_idx_l.append(trace_idx[m].repeat_interleave(c))
-
-            if not out_times_l:
-                return
-
-            out_times = torch.cat(out_times_l, dim=0)
-            out_idx = torch.cat(out_idx_l, dim=0)
-            out_dirs = torch.full_like(out_times, float(dir_val), dtype=self.dtype_d)
-            out_pad = torch.ones_like(out_times, dtype=self.dtype_t)
-
-            self._app_times.append(out_times)
-            self._app_dirs.append(out_dirs)
-            self._app_pad.append(out_pad)
-            self._app_trace_idx.append(out_idx)
+            )
 
         _record_dir("up", UPLOAD)
         _record_dir("down", DOWNLOAD)
@@ -228,8 +232,8 @@ class TraceExecState:
         B = int(self.X_base[Feats.TIMES].shape[0])
 
         # Expand fixed-mode schedules.
-        if self._fixed_send_time:
-            st = torch.cat(self._fixed_send_time, dim=0)
+        if self._fixed_send_bin:
+            st = torch.cat(self._fixed_send_bin, dim=0)
             sc = torch.cat(self._fixed_send_count, dim=0)
             sd = torch.cat(self._fixed_send_dir, dim=0)
             si = torch.cat(self._fixed_send_trace_idx, dim=0)
@@ -237,7 +241,8 @@ class TraceExecState:
             # (n_events,) -> (n_packets,)
             rep = sc.to(dtype=torch.long)
             fixed_idx = si.repeat_interleave(rep)
-            fixed_times = st.repeat_interleave(rep)
+            fixed_bins = st.repeat_interleave(rep)
+            fixed_times = fixed_bins.to(self.dtype_t) * float(self.time_step_s)
             fixed_dirs = sd.repeat_interleave(rep)
             fixed_pad = torch.ones_like(fixed_times, dtype=self.dtype_t)
 
@@ -258,13 +263,13 @@ class TraceExecState:
             app_idx = torch.zeros((0,), device=self.device, dtype=torch.long)
 
         # Delay events
-        if self._delay_t0:
-            delay_t0 = torch.cat(self._delay_t0, dim=0)
-            delay_d = torch.cat(self._delay_d, dim=0)
+        if self._delay_start_bin:
+            delay_start_bin = torch.cat(self._delay_start_bin, dim=0).to(torch.long)
+            delay_shift_bin = torch.cat(self._delay_shift_bin, dim=0).to(torch.long)
             delay_idx = torch.cat(self._delay_trace_idx, dim=0)
         else:
-            delay_t0 = torch.zeros((0,), device=self.device, dtype=self.dtype_t)
-            delay_d = torch.zeros((0,), device=self.device, dtype=self.dtype_t)
+            delay_start_bin = torch.zeros((0,), device=self.device, dtype=torch.long)
+            delay_shift_bin = torch.zeros((0,), device=self.device, dtype=torch.long)
             delay_idx = torch.zeros((0,), device=self.device, dtype=torch.long)
 
         out_times_l: list[torch.Tensor] = []
@@ -291,10 +296,13 @@ class TraceExecState:
             # Apply delay by clamping within each delay window.
             m_del = delay_idx == i
             if m_del.any():
-                t = _apply_delay_clamp_inplace(
+                start_bins = delay_start_bin[m_del]
+                shift_bins = delay_shift_bin[m_del]
+                t = _apply_delay_clamp_bins_inplace(
                     t,
-                    delay_t0[m_del].to(dtype=self.dtype_t),
-                    delay_d[m_del].to(dtype=self.dtype_t),
+                    start_bins=start_bins,
+                    shift_bins=shift_bins,
+                    dt_s=self.time_step_s,
                 )
 
             max_len = max(max_len, int(t.numel()))
@@ -391,9 +399,8 @@ def _get_times_and_mode(
     )
 
     if spread_time_key in actions:
-        times = actions[spread_time_key]
-        mode = "spread"
-    elif send_after_time_key in actions:
+        raise NotImplementedError("send_mode='spread' is deprecated; use fixed")
+    if send_after_time_key in actions:
         times = actions[send_after_time_key]
         mode = "fixed"
     else:
@@ -402,175 +409,106 @@ def _get_times_and_mode(
     return times, mode
 
 
+def _infer_time_step_s(
+    times: torch.Tensor,
+    actions: dict[Actions, torch.Tensor],
+) -> float:
+    cand_us: list[int] = []
+
+    if Actions.DELAY in actions:
+        d = actions[Actions.DELAY]
+        pos = d[torch.isfinite(d) & (d > 0)]
+        if pos.numel() > 0:
+            cand_us.extend(
+                [int(v) for v in torch.round(pos * 1e6).to(torch.long).detach().cpu().tolist()]
+            )
+
+    for k in (Actions.SEND_UP_AFTER_TIME, Actions.SEND_DOWN_AFTER_TIME):
+        if k in actions:
+            a = actions[k]
+            pos = a[torch.isfinite(a) & (a > 0)]
+            if pos.numel() > 0:
+                cand_us.extend(
+                    [
+                        int(v)
+                        for v in torch.round(pos * 1e6).to(torch.long).detach().cpu().tolist()
+                    ]
+                )
+
+    if times.ndim != 2:
+        raise ValueError("times must be (B,T) to infer time_step_s")
+    dt = times[:, 1:] - times[:, :-1]
+    m = torch.isfinite(times[:, 1:]) & torch.isfinite(times[:, :-1]) & (dt > 0)
+    pos = dt[m]
+    if pos.numel() > 0:
+        cand_us.extend(
+            [int(v) for v in torch.round(pos * 1e6).to(torch.long).detach().cpu().tolist()]
+        )
+
+    cand_us = [v for v in cand_us if v > 0]
+    if not cand_us:
+        return 1e-6
+
+    dt_us = cand_us[0]
+    for v in cand_us[1:]:
+        dt_us = gcd(dt_us, v)
+        if dt_us == 1:
+            break
+
+    dt_q = max(1, dt_us) / 1e6
+    if dt_q <= 0:
+        raise ValueError(f"Inferred non-positive time_step_s: {dt_q}")
+    return dt_q
+
+
 def send_exec(
     X: dict[Feats, torch.Tensor],
     times: torch.Tensor,
     actions: dict[Actions, torch.Tensor],
+    *,
+    time_step_s: float | None = None,
 ) -> dict[Feats, torch.Tensor]:
+    if set(X.keys()) - {Feats.TIMES, Feats.DIRS, Feats.PADDING}:
+        raise ValueError("Invalid set of features detected")
+
     X = {k: v.clone() for k, v in X.items()}
     actions = {k: v.clone() for k, v in actions.items()}
-
-    # TODO: improve this by removing the batch dim loops...
-
-    delay_s = None
-    delay_mask = None
-    if Actions.DELAY in actions:
-        delay_s = actions[Actions.DELAY]
-        if delay_s.shape != times.shape:
-            raise ValueError("DELAY tensor must match times shape")
-
-        delay_mask = delay_s > 0
-
-        # Delay is exclusive; enforce no padding sends in this step.
-        if delay_mask.any():
-            for k in (
-                Actions.SEND_COUNT_UP,
-                Actions.SEND_COUNT_DOWN,
-                Actions.SPREAD_TIME_UP,
-                Actions.SPREAD_TIME_DOWN,
-                Actions.SEND_UP_AFTER_TIME,
-                Actions.SEND_DOWN_AFTER_TIME,
-            ):
-                if k in actions:
-                    actions[k] = torch.where(delay_mask, 0, actions[k])
-    send_up_c = actions[Actions.SEND_COUNT_UP]
-    times_up, send_mode_up = _get_times_and_mode(actions, direction="up")
-
-    send_down_c = actions[Actions.SEND_COUNT_DOWN]
-    times_down, send_mode_down = _get_times_and_mode(actions, direction="down")
 
     if Feats.PADDING not in X:
         X[Feats.PADDING] = torch.zeros_like(X[Feats.TIMES])
 
+    if times.ndim != 2:
+        raise ValueError("times must be (B,T)")
 
-    def _sample_send_times(
-        send_counts: torch.Tensor,
-        times: torch.Tensor,
-        decay_times: torch.Tensor,
-        send_mode: str,
-    ):
-        send_times_l = []
-        for c in range(1, send_counts.max().int() + 1):
-            mask = send_counts == c
+    for k, v in actions.items():
+        if v.shape != times.shape:
+            raise ValueError(f"Action tensor {k} must match times shape")
 
-            start_times = times[mask]
+    if time_step_s is None:
+        time_step_s = _infer_time_step_s(times, actions)
 
-            # (L, c)
-            if send_mode == "spread":
-                send_times = torch.rand(
-                    (start_times.shape[0], c), device=times.device
-                ) * decay_times[mask].unsqueeze(1) + start_times.unsqueeze(1)
-            elif send_mode == "fixed":
-                send_times = torch.ones(
-                    (start_times.shape[0], c), device=times.device
-                ) * decay_times[mask].unsqueeze(1) + start_times.unsqueeze(1)
-            else:
-                raise ValueError(f"Invalid send mode: {send_mode}")
-
-            send_times_l.append(send_times.flatten())
-
-        if send_times_l:
-            send_times = torch.cat(send_times_l, dim=0)
-        else:
-            send_times = torch.zeros(0, device=send_counts.device)
-
-        return send_times
-
-    def _build_tensors(send_times_list: list[torch.Tensor], dir_: int):
-        max_len = max(len(t_) for t_ in send_times_list)
-        times_tensor = torch.zeros((len(send_times_list), max_len), device=times.device)
-        dirs_tensor = torch.zeros((len(send_times_list), max_len), device=times.device)
-        padding_tensor = torch.zeros(
-            (len(send_times_list), max_len), device=times.device
-        )
-
-        for i, v in enumerate(send_times_list):
-            send_times_ = v
-            times_tensor[i, : len(send_times_)] = send_times_
-            dirs_tensor[i, : len(send_times_)] = dir_
-            padding_tensor[i, : len(send_times_)] = 1.0
-
-        return times_tensor, dirs_tensor, padding_tensor
-
-    send_times_up_l = []
-    send_times_down_l = []
-
-    for i in range(times.shape[0]):
-        # NAN time signals seq has ended.
-        mask = times[i].isfinite()
-        times_ = times[i][mask]
-        # Protection against sending at zero time.
-        times_[times_ == 0] += 1e-9
-
-        # Send counts
-        sup_c = send_up_c[i][mask]
-        sdown_c = send_down_c[i][mask]
-
-        # Decay times
-        dec_t_up = times_up[i][mask]
-        dec_t_down = times_down[i][mask]
-
-        send_times_up = _sample_send_times(
-            send_counts=sup_c,
-            times=times_,
-            decay_times=dec_t_up,
-            send_mode=send_mode_up,
-        )
-
-        send_times_down = _sample_send_times(
-            send_counts=sdown_c,
-            times=times_,
-            decay_times=dec_t_down,
-            send_mode=send_mode_down,
-        )
-
-        send_times_up_l.append(send_times_up)
-        send_times_down_l.append(send_times_down)
-
-    for send_times, dir_ in zip(
-        [send_times_up_l, send_times_down_l], [UPLOAD, DOWNLOAD]
-    ):
-        times_, dirs_, padding_ = _build_tensors(send_times, dir_)
-        X[Feats.TIMES] = torch.cat([X[Feats.TIMES], times_], dim=1)
-        X[Feats.DIRS] = torch.cat([X[Feats.DIRS], dirs_], dim=1)
-        X[Feats.PADDING] = torch.cat([X[Feats.PADDING], padding_], dim=1)
-
-    if set(X.keys()) != {Feats.TIMES, Feats.DIRS, Feats.PADDING}:
-        raise ValueError("Invalid set of features detected")
-
-    # In the above cat, the max in up/down padding does not
-    # coinside on the same row -> the tensor becomes zero padded.
-    mask = X[Feats.DIRS] != 0
-    X = {k: _flush_left(v, mask, pad_val=0) for k, v in X.items()}
-
-    if ((X[Feats.DIRS] != 0).diff(dim=1).sum(dim=1) > 1).any():
-        raise ValueError("Non contiguous send actions detected")
-
-    max_l = (X[Feats.DIRS] != 0).sum(dim=1).max()
-    X = {k: v[:, :max_l] for k, v in X.items()}
-
-    # The times are not sorted as of now, we pad w. max val.
-    X[Feats.TIMES] = fill_after_seq_end(
-        X[Feats.TIMES], X[Feats.DIRS] != 0, fill_val="max"
+    exec_state = TraceExecState(
+        {
+            Feats.TIMES: X[Feats.TIMES],
+            Feats.DIRS: X[Feats.DIRS],
+            Feats.PADDING: X[Feats.PADDING],
+        },
+        time_step_s=float(time_step_s),
     )
 
-    # Apply delay after padding is appended so it also clamps padding packets that
-    # fall within the delayed window.
-    if delay_s is not None and delay_mask is not None and delay_mask.any():
-        for i in range(times.shape[0]):
-            m = delay_mask[i] & times[i].isfinite()
-            if not bool(m.any().item()):
-                continue
+    _, T = times.shape
+    for t_i in range(T):
+        active = times[:, t_i].isfinite()
+        if not bool(active.any().item()):
+            continue
 
-            X[Feats.TIMES][i] = _apply_delay_clamp_inplace(
-                X[Feats.TIMES][i],
-                times[i][m],
-                delay_s[i][m],
-            )
+        trace_idx = torch.where(active)[0]
+        step_times = times[active, t_i : t_i + 1]
+        step_actions = {k: v[active, t_i : t_i + 1] for k, v in actions.items()}
+        exec_state.step(
+            trace_idx=trace_idx,
+            times=step_times,
+            actions=step_actions,
+        )
 
-    X = _sort_feature_dict(X)
-
-    if (X[Feats.TIMES].diff(dim=1) < 0).any():
-        raise ValueError("Unsorted times detected after send_exec")
-
-    return X
+    return exec_state.finalize()

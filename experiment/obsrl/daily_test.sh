@@ -12,6 +12,9 @@ set -euo pipefail
 #   IDX=0
 #   SKIP_REAL_DATA=0|1
 #   SKIP_REAL_PLOT=0|1
+#   SKIP_ROW24=0|1
+#   ROW24_N=25
+#   ROW24_PATTERN=all
 
 DEVICE="${DEVICE:-cpu}"
 RUNS="${RUNS:-1}"
@@ -21,6 +24,9 @@ N_DELAYS="${N_DELAYS:-50}"
 IDX="${IDX:-0}"
 SKIP_REAL_DATA="${SKIP_REAL_DATA:-0}"
 SKIP_REAL_PLOT="${SKIP_REAL_PLOT:-1}"
+SKIP_ROW24="${SKIP_ROW24:-0}"
+ROW24_N="${ROW24_N:-25}"
+ROW24_PATTERN="${ROW24_PATTERN:-all}"
 
 run() {
   local title="$1"
@@ -50,10 +56,24 @@ run "Rollout sanity (send_and_delay_cycle)" \
     --selector_pattern send_and_delay_cycle
 
 if [[ "${SKIP_REAL_DATA}" != "1" ]]; then
+  if [[ "${SKIP_ROW24}" != "1" ]]; then
+    run "Comprehensive row2=row4-padding checks" \
+      python -u experiment/obsrl/debug_row2_row4_checks.py \
+        --device "${DEVICE}" --start_idx "${IDX}" --n "${ROW24_N}" \
+        --selector_pattern "${ROW24_PATTERN}"
+  else
+    echo
+    echo "=== Comprehensive row2=row4-padding checks (skipped) ==="
+    echo "Set SKIP_ROW24=0 to enable."
+  fi
+
   run "Real-data forced-delay invariant" \
     python -u experiment/obsrl/debug_delay_no_packets_real.py \
       --device "${DEVICE}" --n_delays "${N_DELAYS}" --idx "${IDX}"
 else
+  echo
+  echo "=== Comprehensive row2=row4-padding checks (skipped) ==="
+  echo "Set SKIP_REAL_DATA=0 to enable."
   echo
   echo "=== Real-data forced-delay invariant (skipped) ==="
   echo "Set SKIP_REAL_DATA=0 to enable."

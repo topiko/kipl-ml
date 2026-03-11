@@ -351,7 +351,7 @@ class AGENT1(nn.Module):
         send_time_bins: list[float] | None = None,
         dropout: float = 0.0,
         prob_eps: dict[Actions, float] | float | None = None,
-        send_mode: str = "spread",
+        send_mode: str = "fixed",
         prefer_wait_bias: float = 0.0,
         enable_delay: bool = False,
         train_env: dict[str, Any] | None = None,
@@ -368,30 +368,16 @@ class AGENT1(nn.Module):
         send_count_bins = send_count_bins or [5, 20, 50, 100, 200]
 
         self.send_mode = send_mode
-        if send_mode == "spread":
-            self.ACTIONS += [Actions.SEND_TIME_UP, Actions.SEND_TIME_DOWN]
-            send_time_bins = send_time_bins or [
-                0.02,
-                0.04,
-                0.08,
-                0.16,
-            ]
-
-        elif send_mode == "fixed":
-            self.ACTIONS += [Actions.SEND_UP_AFTER_TIME, Actions.SEND_DOWN_AFTER_TIME]
-            send_time_bins = send_time_bins or [
-                0.00,
-                0.02,
-                0.06,
-                0.10,
-                0.14,
-                0.18,
-            ]
-
-        else:
-            raise ValueError(
-                f"Invalid send_mode {send_mode}, expected 'spread' or 'fix'."
+        if send_mode != "fixed":
+            raise NotImplementedError(
+                "send_mode='spread' is deprecated; use send_mode='fixed'"
             )
+
+        self.ACTIONS += [Actions.SEND_UP_AFTER_TIME, Actions.SEND_DOWN_AFTER_TIME]
+        if send_time_bins is None:
+            send_time_bins = [
+                float(k) * float(time_step) for k in (0, 1, 3, 5, 7, 9)
+            ]
 
         ratio = float(max_silence_s) / float(time_step)
         if abs(ratio - round(ratio)) > 1e-8:
@@ -400,14 +386,24 @@ class AGENT1(nn.Module):
                 + f" Got max_silence_s={max_silence_s}, time_step={time_step}."
             )
 
+        send_time_bins_t = torch.tensor(send_time_bins, dtype=torch.float)
+        send_after_bins = torch.round(send_time_bins_t / float(time_step)).to(torch.long)
+        send_time_bins_q = send_after_bins.to(torch.float) * float(time_step)
+        if not torch.allclose(send_time_bins_t, send_time_bins_q, atol=1e-6, rtol=0.0):
+            raise ValueError(
+                "send_time_bins must be multiples of time_step. "
+                + f"Got send_time_bins={send_time_bins} and time_step={time_step}."
+            )
+
         n_send_counts = len(send_count_bins)
-        n_decay_times = len(send_time_bins)
+        n_decay_times = int(send_after_bins.numel())
 
         self.register_buffer(
             "send_count_bins", torch.tensor(send_count_bins, dtype=torch.long)
         )
+        self.register_buffer("send_after_bins", send_after_bins)
         self.register_buffer(
-            "send_time_bins", torch.tensor(send_time_bins, dtype=torch.float)
+            "send_time_bins", send_time_bins_q
         )
 
         # Time step between feature extractions.
@@ -692,17 +688,18 @@ class AGENT1(nn.Module):
 
         values = action_outputs[Feats.STATE_VALUE]
         times = x[Feats.TIMES] + x[Feats.Dt]
+        m_fin = torch.isfinite(times)
+        if bool(m_fin.any().item()):
+            tb = torch.round(times[m_fin].to(torch.float64) / float(self.time_step))
+            times[m_fin] = tb.to(times.dtype) * float(self.time_step)
 
-        if self.send_mode == "spread":
-            actions[Actions.SPREAD_TIME_UP] = actions.pop(Actions.SEND_TIME_UP)
-            actions[Actions.SPREAD_TIME_DOWN] = actions.pop(Actions.SEND_TIME_DOWN)
-        elif self.send_mode == "fixed":
-            actions[Actions.SEND_UP_AFTER_TIME] = actions.pop(Actions.SEND_TIME_UP)
-            actions[Actions.SEND_DOWN_AFTER_TIME] = actions.pop(Actions.SEND_TIME_DOWN)
-        else:
-            raise ValueError(
-                f"Invalid send_mode {self.send_mode}, expected 'spread' or 'fix'."
+        if self.send_mode != "fixed":
+            raise NotImplementedError(
+                "send_mode='spread' is deprecated; use send_mode='fixed'"
             )
+
+        actions[Actions.SEND_UP_AFTER_TIME] = actions.pop(Actions.SEND_TIME_UP)
+        actions[Actions.SEND_DOWN_AFTER_TIME] = actions.pop(Actions.SEND_TIME_DOWN)
 
         return times, actions, log_probs, sel_probs, values, entropies, h
 

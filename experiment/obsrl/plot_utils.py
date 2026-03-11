@@ -8,12 +8,17 @@ from omegaconf import DictConfig
 from torch import nn
 from tqdm import tqdm
 
+from experiment.obsrl.invariants import (
+    check_row2_equals_row4_minus_padding,
+    count_packets_inside_delay_windows,
+    format_delay_leak_report,
+    format_row24_report,
+)
 from experiment.obsrl.sim import rollout
 from experiment.obsrl.utils import (
     get_action_seq_lens,
     get_advantages,
 )
-from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.rl.enums import Actions
@@ -27,14 +32,6 @@ from kipl_ml.tools.plottr import (
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
-
-
-def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
-    if dt <= 0:
-        raise ValueError(f"dt must be > 0, got {dt}")
-    dt_us = max(1, int(round(float(dt) * 1e6)))
-    t_us = torch.round(times * 1e6).to(torch.long)
-    return torch.div(t_us, dt_us, rounding_mode="floor")
 
 
 def _plot_set(
@@ -220,100 +217,69 @@ def _plot_single(
 
     # Quick invariants for debugging.
     try:
-        fd_up = float(fd[Feats.UP_COUNT][batch_i].nan_to_num(nan=0.0).sum().item())
-        fd_down = float(fd[Feats.DOWN_COUNT][batch_i].nan_to_num(nan=0.0).sum().item())
-        x_dirs = X_obs[Feats.DIRS][batch_i]
-        x_pad = X_obs[Feats.PADDING][batch_i] != 0
-        x_up = float(((x_dirs == UPLOAD) & (~x_pad)).sum().item())
-        x_down = float(((x_dirs == DOWNLOAD) & (~x_pad)).sum().item())
+        dt_vals = fd[Feats.Dt][batch_i]
+        dt_pos = dt_vals[torch.isfinite(dt_vals) & (dt_vals > 0)]
+        dt_s = float(dt_pos.min().item()) if dt_pos.numel() > 0 else 0.0
 
-        if abs(fd_up - x_up) > 1e-3 or abs(fd_down - x_down) > 1e-3:
-            logger.warning(
-                "Obs feature totals mismatch X_obs non-padding totals (idx=%s): "
-                "fd(up,down)=(%.1f,%.1f) X_obs(up,down)=(%.1f,%.1f)",
-                ds_idx,
-                fd_up,
-                fd_down,
-                x_up,
-                x_down,
+        if dt_s > 0:
+            row24 = check_row2_equals_row4_minus_padding(
+                fd,
+                X_obs,
+                dt_s=dt_s,
+                idx=batch_i,
+                max_report=8,
             )
-            ax_fd.text(
-                0.01,
-                0.95,
-                f"MISMATCH totals fd(up,down)=({fd_up:.0f},{fd_down:.0f}) X_obs=({x_up:.0f},{x_down:.0f})",
-                transform=ax_fd.transAxes,
-                ha="left",
-                va="top",
-                fontsize=9,
-                color="#b91c1c",
+            if not row24.ok:
+                logger.warning(
+                    "row2(fd) != row4(X_obs)-padding (idx=%s): %s",
+                    ds_idx,
+                    format_row24_report(row24).replace("\n", " | "),
+                )
+                ax_fd.text(
+                    0.01,
+                    0.95,
+                    (
+                        "WARNING: row2!=row4-padding "
+                        + f"(w={row24.n_windows}, p={row24.n_nonpadding_packets}, "
+                        + "issues="
+                        + f"{row24.per_window_mismatches_total}/"
+                        + f"{row24.per_bin_mismatches_total}/"
+                        + f"{row24.missing_packet_bins_total})"
+                    ),
+                    transform=ax_fd.transAxes,
+                    ha="left",
+                    va="top",
+                    fontsize=9,
+                    color="#b91c1c",
+                )
+
+            delay_rep = count_packets_inside_delay_windows(
+                times,
+                actions,
+                X_obs,
+                dt_s=dt_s,
+                idx=batch_i,
+                max_report=8,
             )
-
-        # No-packets-during-delay invariant (open interval).
-        if Actions.DELAY in actions:
-            t_act = times[batch_i]
-            if t_act.ndim == 2 and t_act.shape[1] == 1:
-                t_act = t_act.squeeze(1)
-            elif t_act.ndim != 1:
-                t_act = t_act.reshape(-1)
-
-            d_act = actions[Actions.DELAY][batch_i]
-            if d_act.ndim == 2 and d_act.shape[1] == 1:
-                d_act = d_act.squeeze(1)
-            elif d_act.ndim != 1:
-                d_act = d_act.reshape(-1)
-            m = torch.isfinite(t_act) & (d_act > 0)
-            if bool(m.any().item()):
-                pkt_t = X_obs[Feats.TIMES][batch_i]
-                pkt_dirs = X_obs[Feats.DIRS][batch_i]
-                pkt_finite = (pkt_dirs != 0) & torch.isfinite(pkt_t)
-
-                pkt_t_all = pkt_t[pkt_finite]
-                pkt_t_nopad = pkt_t[pkt_finite & (~x_pad)]
-
-                bad_all = 0
-                bad_nopad = 0
-                d_pos = d_act[m]
-                # Prefer bin-space checks (aligns with execution semantics).
-                dt_s = float(torch.median(d_pos).item()) if d_pos.numel() > 0 else 0.0
-                if dt_s > 0:
-                    bins_all = _time_to_bin_idx(pkt_t_all, dt_s)
-                    bins_nopad = _time_to_bin_idx(pkt_t_nopad, dt_s)
-                    for t0, dd in zip(t_act[m], d_pos):
-                        s = int(_time_to_bin_idx(t0.unsqueeze(0), dt_s).item())
-                        sh = int(torch.round(dd / dt_s).item())
-                        if sh <= 0:
-                            continue
-                        e = s + sh
-                        bad_all += int(((bins_all >= s) & (bins_all < e)).sum().item())
-                        bad_nopad += int(
-                            ((bins_nopad >= s) & (bins_nopad < e)).sum().item()
-                        )
-                else:
-                    for t0, dd in zip(t_act[m], d_pos):
-                        t1 = t0 + dd
-                        bad_all += int(
-                            ((pkt_t_all > t0) & (pkt_t_all < t1)).sum().item()
-                        )
-                        bad_nopad += int(
-                            ((pkt_t_nopad > t0) & (pkt_t_nopad < t1)).sum().item()
-                        )
-                if bad_all > 0:
-                    logger.warning(
-                        "Found packets strictly inside delay windows (idx=%s): all=%d nonpad=%d",
-                        ds_idx,
-                        bad_all,
-                        bad_nopad,
-                    )
-                    ax_o.text(
-                        0.01,
-                        0.95,
-                        f"WARNING: packets inside delay windows all={bad_all} nonpad={bad_nopad}",
-                        transform=ax_o.transAxes,
-                        ha="left",
-                        va="top",
-                        fontsize=9,
-                        color="#b91c1c",
-                    )
+            if delay_rep.bad_all > 0:
+                logger.warning(
+                    "Found packets inside delay windows (idx=%s): %s",
+                    ds_idx,
+                    format_delay_leak_report(delay_rep).replace("\n", " | "),
+                )
+                ax_o.text(
+                    0.01,
+                    0.95,
+                    "WARNING: packets inside delay windows "
+                    + f"all={delay_rep.bad_all} nonpad={delay_rep.bad_nonpadding}",
+                    transform=ax_o.transAxes,
+                    ha="left",
+                    va="top",
+                    fontsize=9,
+                    color="#b91c1c",
+                )
+        else:
+            logger.warning("Could not infer positive dt for invariant checks (idx=%s)", ds_idx)
     except Exception as err:
         logger.warning("Invariant check failed for idx=%s: %s", ds_idx, err)
 

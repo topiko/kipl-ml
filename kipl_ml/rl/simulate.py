@@ -22,6 +22,14 @@ _StreamingRollout = tuple[
 ]
 
 
+def _duration_to_bin_offsets(durations: torch.Tensor, dt: float) -> torch.Tensor:
+    if dt <= 0:
+        raise ValueError(f"dt must be > 0, got {dt}")
+    dt_us = max(1, int(round(float(dt) * 1e6)))
+    d_us = torch.round(durations * 1e6).to(torch.long)
+    return torch.div(d_us + (dt_us // 2), dt_us, rounding_mode="floor")
+
+
 def _ensure_trace_dict(
     X: dict[Feats, torch.Tensor],
 ) -> dict[Feats, torch.Tensor]:
@@ -111,7 +119,7 @@ def policy_rollout_single_pass(
         seq_lens=action_seq_lens,
         sample=sample,
     )
-    X_obs = send_exec(Xb, act_times, actions)
+    X_obs = send_exec(Xb, act_times, actions, time_step_s=float(obs_.time_step))
 
     fd[Feats.SEQ_LENS] = action_seq_lens
     return fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, X_obs
@@ -285,7 +293,8 @@ def _policy_rollout_streaming_impl(
             Feats.TIMES: Xb[Feats.TIMES].clone(),
             Feats.DIRS: Xb[Feats.DIRS].clone(),
             Feats.PADDING: Xb[Feats.PADDING].clone(),
-        }
+        },
+        time_step_s=float(obs_.time_step),
     )
 
     base_n = (Xb[Feats.DIRS] != 0).sum(dim=1).long()
@@ -337,14 +346,21 @@ def _policy_rollout_streaming_impl(
         if Actions.DELAY in actions_a and (actions_a[Actions.DELAY] > 0).any():
             # Apply delay in window-bin space to avoid float transfers.
             shift_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
-            delay_mask_a = (actions_a[Actions.DELAY] > 0).squeeze(1).detach().to("cpu")
-            shift_full[active_idx_cpu] = delay_mask_a.to(torch.long)
-            # Use the policy's action times (right edge: TIMES + Dt) to determine
-            # delay start. This matches TraceExecState/send_exec semantics.
-            dt_s = float(obs_.time_step)
+            shift_bins_a = _duration_to_bin_offsets(
+                actions_a[Actions.DELAY].squeeze(1).detach().to("cpu"),
+                float(obs_.time_step),
+            )
+            shift_full[active_idx_cpu] = shift_bins_a
+
+            dt_bins_a = _duration_to_bin_offsets(
+                fd_t_full[Feats.Dt][active_cpu].squeeze(1),
+                float(obs_.time_step),
+            )
+
             start_bins_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
-            start_bins_a = torch.round(act_times_a.squeeze(1).detach().to("cpu") / dt_s).to(
-                torch.long
+            start_bins_a = (
+                fd_t_full[Feats.WINDOW_BINS][active_cpu].squeeze(1).to(torch.long)
+                + dt_bins_a
             )
             start_bins_full[active_idx_cpu] = start_bins_a
             streamer.apply_delay_bins(start_bins_full, shift_full)
