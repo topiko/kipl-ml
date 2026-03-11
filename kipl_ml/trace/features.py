@@ -88,7 +88,8 @@ class PadOrCutTrace(_TR):
     def name(self) -> str:
         if self.time_clamp is not None:
             tmin, tmax, rel = self.time_clamp
-            clamp_str = f"clamp({tmin},{tmax},rel={rel})"
+            abs_str = "abs" if rel else "rel"
+            clamp_str = f"clamp_time({tmin}, {tmax}, {abs_str})"
         else:
             clamp_str = ""
 
