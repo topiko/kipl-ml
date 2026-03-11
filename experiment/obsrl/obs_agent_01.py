@@ -98,13 +98,18 @@ def main(cfg: DictConfig):
 
     feature_names = [Feats.DIRS, Feats.TIMES]
 
+    time_clamp = (0.0, cfg.trace_dur_max, True) if cfg.trace_dur_max is not None else None
     ds_train, ds_valid, _ = get_train_valid_test(
         dataset=DATASET,
         label=assets.PAGE_LABEL,
         n_splits=N_SPLITS,
         test_xv=TEST_XV,
         random_state=42,
-        feature_trs=FeatureTrs(feature_names=feature_names, n_packets=cfg.trace_len),
+        feature_trs=FeatureTrs(
+            feature_names=feature_names,
+            n_packets=cfg.trace_len,
+            time_clamp=time_clamp,
+        ),
         defence_aug_valid=0,
         n_min_packets=cfg.min_packets_in_trace,
         exclude_time_to_packets_n=cfg.trace_len,

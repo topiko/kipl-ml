@@ -226,7 +226,9 @@ def train_obs_one_epoch(
 
             # Track the effect of selection vs conditional
             sel_idx = actions[Actions.SELECTOR].to(torch.long)
-            sel_p = sel_probs.gather(-1, sel_idx.unsqueeze(-1)).squeeze(-1).clamp(min=1e-12)
+            sel_p = (
+                sel_probs.gather(-1, sel_idx.unsqueeze(-1)).squeeze(-1).clamp(min=1e-12)
+            )
             sel_log_p = torch.log(sel_p)
             sel_term = (advantages * sel_log_p).std()
             cond_term = (advantages * (log_ps - sel_log_p)).std()
@@ -444,7 +446,9 @@ def train_obs_on_league(
         # Log per-epoch metrics within this push run.
         for k, v in metrics_d.items():
             mlflow.log_metric(keymap(k), float(v), step=eo)
-        mlflow.log_metric("padding_scale", float(reward_scales_["padding_scale"]), step=eo)
+        mlflow.log_metric(
+            "padding_scale", float(reward_scales_["padding_scale"]), step=eo
+        )
 
         if obs_lr_scheduler is not None:
             obs_lr_scheduler.step(-metrics_d["avg_return"])
@@ -542,6 +546,7 @@ def main(cfg: DictConfig):
         mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
     )
 
+    time_clamp = (0.0, cfg.trace_dur_max, True)
     if discriminator_orig.feat_mode == "tam":
         feature_names = discriminator_orig.features
         tam_d = discriminator_orig.tam_dict
@@ -556,14 +561,17 @@ def main(cfg: DictConfig):
         npackets = None
 
         disc_trs = [
-            get_feature_tr(fn, npackets, tam_kwargs=tam_d) for fn in feature_names
+            get_feature_tr(fn, npackets, time_clamp, tam_kwargs=tam_d)
+            for fn in feature_names
         ]
         disc_trs += [
-            get_feature_tr(f, npackets, tam_kwargs=tam_d)
+            get_feature_tr(f, npackets, time_clamp, tam_kwargs=tam_d)
             for f in (Feats.TAM_DOWN_PAD, Feats.TAM_UP_PAD)
         ]
         # Expose integer TAM bins for reward mapping (disc ignores extra keys).
-        disc_trs.append(get_feature_tr(Feats.TAM_BINS, npackets, tam_kwargs=tam_d))
+        disc_trs.append(
+            get_feature_tr(Feats.TAM_BINS, npackets, time_clamp, tam_kwargs=tam_d)
+        )
 
         disc_feats = FeatureTrs(feature_trs=disc_trs, n_packets=None)
     elif discriminator_orig.feat_mode == "dir":
@@ -592,6 +600,7 @@ def main(cfg: DictConfig):
         feature_trs=FeatureTrs(
             feature_names=[Feats.DIRS, Feats.TIMES],
             n_packets=cfg.trace_len,
+            time_clamp=time_clamp,
         ),
         defence_aug_valid=0,
         n_min_packets=cfg.min_packets_in_trace,

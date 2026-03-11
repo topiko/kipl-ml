@@ -94,6 +94,7 @@ min_packets_in_trace: 0
 exclude_longer_than_s: 60.0
 discounting: 0.99
 trace_len: 3_000
+trace_dur_max: null  # max trace duration in seconds; clamps to (0, this, True); null=disabled
 batch_size: 64
 label_smoothing: 0.02
 
