@@ -85,7 +85,7 @@ def main(cfg: DictConfig):
         disc_feats = FeatureTrs(feature_trs=disc_trs, n_packets=None)
     elif discriminator_orig.feat_mode == "dir":
         feature_names = discriminator_orig.features
-        npackets = cfg.trace_len
+        npackets = cfg.trace.len
 
         # Discriminator features, w.o. limit on n_packets
         disc_feats = FeatureTrs(feature_names=feature_names, n_packets=None)
@@ -98,7 +98,7 @@ def main(cfg: DictConfig):
 
     feature_names = [Feats.DIRS, Feats.TIMES]
 
-    time_clamp = (0.0, cfg.trace_dur_max, True) if cfg.trace_dur_max is not None else None
+    time_clamp = (0.0, cfg.trace.dur_max, True) if cfg.trace.dur_max is not None else None
     ds_train, ds_valid, _ = get_train_valid_test(
         dataset=DATASET,
         label=assets.PAGE_LABEL,
@@ -107,12 +107,12 @@ def main(cfg: DictConfig):
         random_state=42,
         feature_trs=FeatureTrs(
             feature_names=feature_names,
-            n_packets=cfg.trace_len,
+            n_packets=cfg.trace.len,
             time_clamp=time_clamp,
         ),
         defence_aug_valid=0,
         n_min_packets=cfg.min_packets_in_trace,
-        exclude_time_to_packets_n=cfg.trace_len,
+        exclude_time_to_packets_n=cfg.trace.len,
         exclude_time_to_packets_s=cfg.exclude_longer_than_s,
         **defence_builder.get_defence(cfg),
     )
@@ -250,7 +250,7 @@ def main(cfg: DictConfig):
                         league_update_frac=league_update_frac,
                         prune=len(disc_league) > cfg.league_size * 2,
                         score_type=cfg.league_score_type,
-                        n_packets=cfg.trace_len,
+                        n_packets=cfg.trace.len,
                     )
                 )
 
@@ -621,7 +621,7 @@ def main(cfg: DictConfig):
                     disc_feats=disc_feats,
                     obs=obs,
                     ds_valid=ds_valid,
-                    n_packets=cfg.trace_len,
+                    n_packets=cfg.trace.len,
                     device=device,
                     key=key,
                 )

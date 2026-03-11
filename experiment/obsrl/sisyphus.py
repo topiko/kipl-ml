@@ -338,7 +338,7 @@ def train_disc_on_league(
         disc_feats=disc_feats,
         obs=obs,
         ds=ds_train,
-        n_packets=cfg.trace_len,
+        n_packets=cfg.trace.len,
         bs=cfg.batch_size,
         obs_league=[d for _, d in obs_league[-cfg.league.size :]],
     )
@@ -546,7 +546,7 @@ def main(cfg: DictConfig):
         mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
     )
 
-    time_clamp = (0.0, cfg.trace_dur_max, True)
+    time_clamp = (0.0, cfg.trace.dur_max, True) if cfg.trace.dur_max is not None else None
     if discriminator_orig.feat_mode == "tam":
         feature_names = discriminator_orig.features
         tam_d = discriminator_orig.tam_dict
@@ -576,7 +576,7 @@ def main(cfg: DictConfig):
         disc_feats = FeatureTrs(feature_trs=disc_trs, n_packets=None)
     elif discriminator_orig.feat_mode == "dir":
         feature_names = discriminator_orig.features
-        npackets = cfg.trace_len
+        npackets = cfg.trace.len
 
         # Discriminator features, w.o. limit on n_packets
         disc_feats = FeatureTrs(feature_names=feature_names, n_packets=None)
@@ -584,6 +584,9 @@ def main(cfg: DictConfig):
         raise ValueError(
             f"Unknown feat_mode {discriminator_orig.feat_mode} in discriminator_orig!"
         )
+
+    logging.info("Discriminator features_trs:")
+    disc_feats.report()
 
     # This one already somewhat trained for obsfuscation.
     discriminator = mlflow.pytorch.load_model(
@@ -599,12 +602,12 @@ def main(cfg: DictConfig):
         random_state=42,
         feature_trs=FeatureTrs(
             feature_names=[Feats.DIRS, Feats.TIMES],
-            n_packets=cfg.trace_len,
+            n_packets=cfg.trace.len,
             time_clamp=time_clamp,
         ),
         defence_aug_valid=0,
         n_min_packets=cfg.min_packets_in_trace,
-        exclude_time_to_packets_n=cfg.trace_len,
+        exclude_time_to_packets_n=cfg.trace.len,
         exclude_time_to_packets_s=cfg.exclude_longer_than_s,
         trim_raw=cfg.trace.trim_beginning,
         **defence_builder.get_defence(cfg),
@@ -720,7 +723,7 @@ def main(cfg: DictConfig):
                         prune=len(disc_league) > cfg.league.size * 4,
                         enforce_orig=cfg.league.enforce_orig,
                         score_type=cfg.league.score_type,
-                        n_packets=cfg.trace_len,
+                        n_packets=cfg.trace.len,
                     )
                 )
             logger.info("\tRe-scaling league weights to uniform...")

@@ -41,8 +41,10 @@ obs_time_step_s: 0.02
 obs_max_silence_s: 0.2
 h_detach_period: 100
 discounting: 0.99
-trace_len: 5_000
-trace_dur_max: null  # max trace duration in seconds; clamps to (0, this, True); null=disabled
+trace:
+  len: 5_000
+  dur_max: null  # max trace duration in seconds; clamps to (0, this, True); null=disabled
+
 batch_size: 32
 dropout: 0.25
 grad_norm_clip: 1
