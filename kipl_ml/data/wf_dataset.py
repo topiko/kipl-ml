@@ -3,6 +3,7 @@ from __future__ import annotations
 import fcntl
 import os
 import random
+import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -112,7 +113,6 @@ class WFDataset(Dataset):
     def wipe_cache(self) -> None:
         """Wipe the cached defended traces."""
         if self.tmp_dir is not None:
-            import shutil
             shutil.rmtree(self.tmp_dir.name)
             self.tmp_dir = None
         self._defence_aug = 0
