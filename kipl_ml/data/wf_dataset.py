@@ -248,7 +248,7 @@ def _exclude_long_traces(
     n_ref_total = int(m_ref.sum())
 
     m_excl = t_col > t_max
-    n_excl = int(m_excl.sum())
+    n_excl = (m_excl & m_ref).sum()
 
     logger.warning(
         "Filtering long traces by %s > %.3fs: excluded=%d/%d (%.2f%% all), "

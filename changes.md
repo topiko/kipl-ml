@@ -18,6 +18,10 @@ The goal is correctness first (equivalence with the old single-pass pipeline whe
 - Stable packet ordering: if multiple packets end up with the same timestamp (e.g. after clamping), their relative order must follow original packet order.
 - When delay is disabled, the stepwise/streaming rollout must match the old precomputed-window single-pass rollout (up to expected numerical ties).
 - TAM reward mapping assumptions are enforced: discriminator TAM bin width must match `obs.time_step_s`.
+- Optional long-trace blacklist for obsrl dataset loading:
+  - exclude by `time_to_<trace_len>_packets > threshold_s`
+  - exclusion applies only to traces with `n_packets >= trace_len`
+  - report both `% of all traces` and `% of trace_len-capable traces`
 
 ## What Changed (High-Level)
 
@@ -75,6 +79,11 @@ The goal is correctness first (equivalence with the old single-pass pipeline whe
   - All obsrl debug scripts moved under `experiment/obsrl/codex_debug/`.
   - Added dedicated NNDef action-application check script.
 
+- Meta-data and filtering for runtime control:
+  - `conversion.py` now writes `time_to_<X>_packets` columns in seconds.
+  - Obsrl loaders can blacklist long traces at load time via `metadf` mask.
+  - Sisyphus defaults were switched to use this filter (`trace_len=5000`, `exclude_longer_than_s=30.0`, no min-packet prefilter).
+
 ## Files Touched / Added
 
 - `kipl_ml/models/trgen.py`
@@ -119,6 +128,30 @@ The goal is correctness first (equivalence with the old single-pass pipeline whe
 - `experiment/obsrl/sisyphus.py`, `experiment/obsrl/obs_agent_01.py`
   - Assert TAM discriminator bin width matches `obs.time_step_s`.
   - Add `Feats.TAM_BINS` to disc feature transforms so reward mapping can use it.
+  - Pass long-trace exclusion args into dataset loading (`exclude_time_to_packets_n/s`).
+
+- `experiment/obsrl/config/sisyphus.yaml`
+  - Defaults updated for runtime filtering experiments:
+    - `trace_len: 5000`
+    - `min_packets_in_trace: 0`
+    - `exclude_longer_than_s: 30.0`
+
+- `experiment/obsrl/config/config.yaml`
+  - Adds `exclude_longer_than_s` parameter (default `null`).
+  - Sets `min_packets_in_trace: 0`.
+
+- `experiment/obsrl/sisysweep.sh`
+  - Sweep packet budget updated to `npackets=5000`.
+
+- `kipl_ml/data/conversion.py`
+  - Adds/updates `time_to_<X>_packets` metadata columns (`X = 100, 500, 1000..20000`) in **seconds**.
+  - For traces with fewer than `X` packets, stores total trace duration (seconds).
+
+- `kipl_ml/data/wf_dataset.py`
+  - Adds optional metadata-driven long-trace filter to `get_train_valid_test(...)`.
+  - Filtering is implemented as simple pandas masking and reports:
+    - excluded `% of all`,
+    - excluded `% among traces with n_packets >= trace_len`.
 
 - `kipl_ml/trace/enums.py`
   - Adds `Feats.TAM_BINS`.
@@ -159,6 +192,11 @@ The goal is correctness first (equivalence with the old single-pass pipeline whe
 - Performance:
   - Streaming (stepwise) rollout is substantially slower than single-pass because it evaluates the policy one window at a time.
   - The branch mitigates this in defences with early stopping and inference-only rollouts, but the core stepwise policy eval remains the main cost.
+  - Runtime experiments are ongoing with metadata-driven trace blacklisting (`time_to_5000_packets > 30s`) to reduce pathological long-silence traces.
+
+- Data conversion dependency:
+  - The long-trace blacklist relies on `time_to_<X>_packets` columns in `metadf.h5`.
+  - After pulling conversion changes, re-run `python kipl_ml/data/conversion.py --dataset <dataset>` before enabling the filter.
 
 - TAM timeline:
   - With half-open coverage and float rounding, it is common to produce an action exactly at the last covered time; this is now treated as benign.
