@@ -177,8 +177,9 @@ def _plot_single(
     )
 
     # Make rows 1, 2, and 4 easier to visually compare.
-    ax_fd.get_shared_y_axes().join(ax_fd, ax)
-    ax_o.get_shared_y_axes().join(ax_o, ax)
+    # Use sharey() for compatibility across matplotlib versions.
+    ax_fd.sharey(ax)
+    ax_o.sharey(ax)
 
     if disc_orig.feat_mode == "dir":
         plot_fn_ = plot_trace
