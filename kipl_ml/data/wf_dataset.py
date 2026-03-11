@@ -247,12 +247,8 @@ def _exclude_long_traces(
     m_ref = meta_df.loc[:, "n_packets"] >= n_ref
     n_ref_total = int(m_ref.sum())
 
-    # Only exclude traces that can actually reach the requested packet count.
-    # For shorter traces, time_to_<n_ref>_packets stores total duration by design,
-    # which is useful for analysis but should not drive this filter.
-    m_excl = m_ref & (t_col > t_max)
+    m_excl = t_col > t_max
     n_excl = int(m_excl.sum())
-    n_over_short = int(((~m_ref) & (t_col > t_max)).sum())
 
     logger.warning(
         "Filtering long traces by %s > %.3fs: excluded=%d/%d (%.2f%% all), "
@@ -267,15 +263,6 @@ def _exclude_long_traces(
         n_ref_total,
         (100.0 * n_excl / max(1, n_ref_total)),
     )
-
-    if n_over_short > 0:
-        logger.info(
-            "Not excluding %d short traces (n_packets < %d) even though %s > %.3fs",
-            n_over_short,
-            n_ref,
-            col,
-            t_max,
-        )
 
     return meta_df.loc[~m_excl]
 
