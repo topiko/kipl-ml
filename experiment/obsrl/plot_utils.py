@@ -29,6 +29,14 @@ from kipl_ml.trace.features import Feats, FeatureTrs
 logger = get_logger(__name__)
 
 
+def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
+    if dt <= 0:
+        raise ValueError(f"dt must be > 0, got {dt}")
+    dt_us = max(1, int(round(float(dt) * 1e6)))
+    t_us = torch.round(times * 1e6).to(torch.long)
+    return torch.div(t_us, dt_us, rounding_mode="floor")
+
+
 def _plot_set(
     cfg: DictConfig,
     ds: WFDataset,
@@ -264,12 +272,31 @@ def _plot_single(
 
                 bad_all = 0
                 bad_nopad = 0
-                for t0, dd in zip(t_act[m], d_act[m]):
-                    t1 = t0 + dd
-                    bad_all += int(((pkt_t_all > t0) & (pkt_t_all < t1)).sum().item())
-                    bad_nopad += int(
-                        ((pkt_t_nopad > t0) & (pkt_t_nopad < t1)).sum().item()
-                    )
+                d_pos = d_act[m]
+                # Prefer bin-space checks (aligns with execution semantics).
+                dt_s = float(torch.median(d_pos).item()) if d_pos.numel() > 0 else 0.0
+                if dt_s > 0:
+                    bins_all = _time_to_bin_idx(pkt_t_all, dt_s)
+                    bins_nopad = _time_to_bin_idx(pkt_t_nopad, dt_s)
+                    for t0, dd in zip(t_act[m], d_pos):
+                        s = int(_time_to_bin_idx(t0.unsqueeze(0), dt_s).item())
+                        sh = int(torch.round(dd / dt_s).item())
+                        if sh <= 0:
+                            continue
+                        e = s + sh
+                        bad_all += int(((bins_all >= s) & (bins_all < e)).sum().item())
+                        bad_nopad += int(
+                            ((bins_nopad >= s) & (bins_nopad < e)).sum().item()
+                        )
+                else:
+                    for t0, dd in zip(t_act[m], d_pos):
+                        t1 = t0 + dd
+                        bad_all += int(
+                            ((pkt_t_all > t0) & (pkt_t_all < t1)).sum().item()
+                        )
+                        bad_nopad += int(
+                            ((pkt_t_nopad > t0) & (pkt_t_nopad < t1)).sum().item()
+                        )
                 if bad_all > 0:
                     logger.warning(
                         "Found packets strictly inside delay windows (idx=%s): all=%d nonpad=%d",

@@ -36,6 +36,14 @@ class _AlwaysDelay(torch.nn.Module):
         return logits
 
 
+def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
+    if dt <= 0:
+        raise ValueError(f"dt must be > 0, got {dt}")
+    dt_us = max(1, int(round(float(dt) * 1e6)))
+    t_us = torch.round(times * 1e6).to(torch.long)
+    return torch.div(t_us, dt_us, rounding_mode="floor")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", default=str(Datasets.BIGENOUGH))
@@ -90,33 +98,55 @@ def main() -> None:
     dt = float(args.dt)
     n = int(args.n_delays)
 
-    # Start of first blocked window is the first action time.
-    t_start = float(act_times[0, 0].item())
-    t_end = t_start + n * dt
+    delay = actions[Actions.DELAY][0]
+    t_all = act_times[0]
+    m_delay = torch.isfinite(t_all) & (delay > 0)
+    if int(m_delay.sum().item()) < n:
+        raise AssertionError(f"Only produced {int(m_delay.sum().item())} delay steps, need >= {n}")
+
+    t0s = t_all[m_delay][:n]
+    ds = delay[m_delay][:n]
 
     # 1) Verify no packets in executed trace during blocked interval.
     pkt_t = X_obs[Feats.TIMES][0]
     pkt_m = (X_obs[Feats.DIRS][0] != 0) & torch.isfinite(pkt_t)
     pkt_t = pkt_t[pkt_m]
-    in_block = (pkt_t >= t_start) & (pkt_t < t_end)
-    if bool(in_block.any().item()):
-        bad = pkt_t[in_block][:20].detach().cpu().tolist()
-        raise AssertionError(
-            f"Found packets during delay block [{t_start:.6f}, {t_end:.6f}): {bad}"
-        )
+    pkt_bins = _time_to_bin_idx(pkt_t, dt)
+    for t0, dd in zip(t0s, ds):
+        s = int(_time_to_bin_idx(t0.unsqueeze(0), dt).item())
+        sh = int(torch.round(dd / dt).item())
+        if sh <= 0:
+            continue
+        e = s + sh
+        in_block = (pkt_bins >= s) & (pkt_bins < e)
+        if bool(in_block.any().item()):
+            bad = pkt_t[in_block][:20].detach().cpu().tolist()
+            raise AssertionError(
+                f"Found packets during delay block bins [{s}, {e}): {bad}"
+            )
 
     # 2) Verify obs features observe no packets during same interval.
     w_t = fd[Feats.TIMES][0]
-    w_m = torch.isfinite(w_t) & (w_t >= t_start) & (w_t < t_end)
-    up = fd[Feats.UP_COUNT][0][w_m]
-    down = fd[Feats.DOWN_COUNT][0][w_m]
-    if up.numel() == 0:
-        raise AssertionError("No windows fell inside the blocked interval; increase extend_end_s")
-    if not bool((up == 0).all().item()) or not bool((down == 0).all().item()):
-        raise AssertionError(
-            "Observed packets during delay block in obs features: "
-            + f"up_max={float(up.max().item()):.3f}, down_max={float(down.max().item()):.3f}"
-        )
+    w_m_finite = torch.isfinite(w_t)
+    w_bins = _time_to_bin_idx(w_t[w_m_finite], dt)
+    up_w = fd[Feats.UP_COUNT][0][w_m_finite]
+    down_w = fd[Feats.DOWN_COUNT][0][w_m_finite]
+
+    for t0, dd in zip(t0s, ds):
+        s = int(_time_to_bin_idx(t0.unsqueeze(0), dt).item())
+        sh = int(torch.round(dd / dt).item())
+        if sh <= 0:
+            continue
+        e = s + sh
+        m_block = (w_bins >= s) & (w_bins < e)
+        if bool(m_block.any().item()):
+            up = up_w[m_block]
+            down = down_w[m_block]
+            if not bool((up == 0).all().item()) or not bool((down == 0).all().item()):
+                raise AssertionError(
+                    "Observed packets during delay block in obs features: "
+                    + f"up_max={float(up.max().item()):.3f}, down_max={float(down.max().item()):.3f}"
+                )
 
     # 2b) Sanity: totals in features match executed trace totals.
     up_total_fd = float(fd[Feats.UP_COUNT][0].nan_to_num(nan=0.0).sum().item())
@@ -130,12 +160,11 @@ def main() -> None:
             + f"down(fd)={down_total_fd}, down(X_obs)={down_total_x}"
         )
 
-    # 3) Verify policy actually emitted delay for at least n steps.
-    delay = actions[Actions.DELAY][0]
-    delay = delay[torch.isfinite(act_times[0])]
-    if delay.numel() < n:
-        raise AssertionError(f"Only produced {int(delay.numel())} steps, need >= {n}")
-    if not bool((delay[:n] > 0).all().item()):
+    # 3) Verify first N emitted actions were DELAY.
+    delay_steps = delay[torch.isfinite(act_times[0])]
+    if delay_steps.numel() < n:
+        raise AssertionError(f"Only produced {int(delay_steps.numel())} steps, need >= {n}")
+    if not bool((delay_steps[:n] > 0).all().item()):
         raise AssertionError("Not all first N actions were DELAY")
 
     print("OK: no packets observed during forced delay block")

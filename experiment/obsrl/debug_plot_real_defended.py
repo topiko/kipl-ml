@@ -21,6 +21,7 @@ from kipl_ml.data.wf_dataset import get_train_valid_test
 from kipl_ml.models.trgen import AGENT1
 from kipl_ml.rl.action import send_exec
 from kipl_ml.rl.enums import Actions
+from kipl_ml.rl.observation import get_window_feature_dict
 from kipl_ml.rl.simulate import policy_rollout_streaming
 from kipl_ml.tools.plottr import plot_actions, plot_obs_features, plot_trace
 from kipl_ml.trace.enums import Feats
@@ -58,6 +59,14 @@ def _pattern(name: str) -> list[int]:
     if name == "do_nothing":
         return [0]
     raise ValueError(f"Unknown pattern: {name}")
+
+
+def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
+    if dt <= 0:
+        raise ValueError(f"dt must be > 0, got {dt}")
+    dt_us = max(1, int(round(float(dt) * 1e6)))
+    t_us = torch.round(times * 1e6).to(torch.long)
+    return torch.div(t_us, dt_us, rounding_mode="floor")
 
 
 def _sorted_rows(X: dict[Feats, torch.Tensor], n: int) -> np.ndarray:
@@ -101,10 +110,11 @@ def _check_fd_counts_match_X_obs_nonpadding(
     fd: dict[Feats, torch.Tensor], X_obs: dict[Feats, torch.Tensor], dt: float
 ) -> list[tuple[int, float, float, int, int, int, int]]:
     w_t = fd[Feats.TIMES][0]
-    w_dt = fd[Feats.Dt][0]
     up_fd = fd[Feats.UP_COUNT][0]
     down_fd = fd[Feats.DOWN_COUNT][0]
     m_w = torch.isfinite(w_t)
+
+    w_bins = _time_to_bin_idx(w_t, dt)
 
     pkt_t = X_obs[Feats.TIMES][0]
     pkt_d = X_obs[Feats.DIRS][0]
@@ -112,14 +122,14 @@ def _check_fd_counts_match_X_obs_nonpadding(
     m_pkt = (pkt_d != 0) & (~pkt_p) & torch.isfinite(pkt_t)
     pkt_t = pkt_t[m_pkt]
     pkt_d = pkt_d[m_pkt]
+    pkt_bins = _time_to_bin_idx(pkt_t, dt)
 
     bad: list[tuple[int, float, float, int, int, int, int]] = []
     for k in torch.where(m_w)[0].tolist():
         t0 = float(w_t[k].item())
-        # UP/DOWN counts are per base time bin [t, t+dt), not over Dt.
-        # Dt is the gap to the next emitted action window.
         t1 = t0 + float(dt)
-        m = (pkt_t >= t0) & (pkt_t < t1)
+        b = w_bins[k]
+        m = pkt_bins == b
         up = int((pkt_d[m] == UPLOAD).sum().item())
         down = int((pkt_d[m] == DOWNLOAD).sum().item())
         up0 = int(round(float(up_fd[k].item())))
@@ -129,9 +139,6 @@ def _check_fd_counts_match_X_obs_nonpadding(
             if len(bad) >= 10:
                 break
 
-    # Note: per-window mismatches against final X_obs can happen when packets are
-    # delayed multiple times before they are eventually emitted. These are useful
-    # diagnostics, but not necessarily a correctness violation.
     return bad
 
 
@@ -139,6 +146,7 @@ def _check_no_packets_inside_delay(
     act_times: torch.Tensor,
     actions: dict[Actions, torch.Tensor],
     X_obs: dict[Feats, torch.Tensor],
+    dt: float,
 ) -> tuple[int, int]:
     if Actions.DELAY not in actions:
         return 0, 0
@@ -159,11 +167,71 @@ def _check_no_packets_inside_delay(
 
     bad_all = 0
     bad_nopad = 0
+    bins_all = _time_to_bin_idx(t_all, dt)
+    bins_nopad = _time_to_bin_idx(t_nopad, dt)
+
     for t0, dd in zip(t_act[m], d_act[m]):
-        t1 = t0 + dd
-        bad_all += int(((t_all >= t0) & (t_all < t1)).sum().item())
-        bad_nopad += int(((t_nopad >= t0) & (t_nopad < t1)).sum().item())
+        s = int(_time_to_bin_idx(t0.unsqueeze(0), dt).item())
+        sh = int(torch.round(dd / float(dt)).item())
+        if sh <= 0:
+            continue
+        e = s + sh
+        bad_all += int(((bins_all >= s) & (bins_all < e)).sum().item())
+        bad_nopad += int(((bins_nopad >= s) & (bins_nopad < e)).sum().item())
     return bad_all, bad_nopad
+
+
+def _compare_fd_with_recomputed_nonpadding(
+    fd: dict[Feats, torch.Tensor],
+    X_obs: dict[Feats, torch.Tensor],
+    dt: float,
+    max_silence_s: float,
+) -> tuple[bool, str]:
+    X_np = {
+        Feats.TIMES: X_obs[Feats.TIMES].clone(),
+        Feats.DIRS: X_obs[Feats.DIRS].clone(),
+        Feats.PADDING: torch.zeros_like(X_obs[Feats.PADDING]),
+    }
+    # Drop padding packets for this recompute.
+    X_np[Feats.DIRS][X_obs[Feats.PADDING] != 0] = 0
+
+    fd_ref = get_window_feature_dict(
+        X_np,
+        dt,
+        max_silence_s,
+        features=[Feats.TIMES, Feats.UP_COUNT, Feats.DOWN_COUNT, Feats.Dt],
+    )
+
+    m1 = torch.isfinite(fd[Feats.TIMES][0])
+    m2 = torch.isfinite(fd_ref[Feats.TIMES][0])
+    n1 = int(m1.sum().item())
+    n2 = int(m2.sum().item())
+    n = min(n1, n2)
+
+    same = (
+        n1 == n2
+        and torch.allclose(fd[Feats.TIMES][0, :n], fd_ref[Feats.TIMES][0, :n], atol=1e-6, rtol=0)
+        and torch.allclose(fd[Feats.UP_COUNT][0, :n], fd_ref[Feats.UP_COUNT][0, :n], atol=0, rtol=0)
+        and torch.allclose(fd[Feats.DOWN_COUNT][0, :n], fd_ref[Feats.DOWN_COUNT][0, :n], atol=0, rtol=0)
+    )
+    if same:
+        return True, f"fd == recomputed non-padding windows (n={n1})"
+
+    msg = f"fd != recomputed non-padding windows (n_fd={n1}, n_ref={n2})"
+    for i in range(n):
+        if (
+            abs(float(fd[Feats.TIMES][0, i] - fd_ref[Feats.TIMES][0, i])) > 1e-6
+            or int(fd[Feats.UP_COUNT][0, i]) != int(fd_ref[Feats.UP_COUNT][0, i])
+            or int(fd[Feats.DOWN_COUNT][0, i]) != int(fd_ref[Feats.DOWN_COUNT][0, i])
+        ):
+            msg += (
+                " | first mismatch "
+                + f"i={i} t=({float(fd[Feats.TIMES][0, i]):.4f},{float(fd_ref[Feats.TIMES][0, i]):.4f}) "
+                + f"up=({int(fd[Feats.UP_COUNT][0, i])},{int(fd_ref[Feats.UP_COUNT][0, i])}) "
+                + f"down=({int(fd[Feats.DOWN_COUNT][0, i])},{int(fd_ref[Feats.DOWN_COUNT][0, i])})"
+            )
+            break
+    return False, msg
 
 
 def main() -> None:
@@ -182,6 +250,7 @@ def main() -> None:
         default="send_and_delay_cycle",
     )
     ap.add_argument("--out", default="experiment/obsrl/plot_real_defended_debug.png")
+    ap.add_argument("--show", action="store_true")
     args = ap.parse_args()
 
     device = torch.device(args.device)
@@ -225,6 +294,13 @@ def main() -> None:
     # Invariants / diagnostics.
     _check_finalize_matches_send_exec(Xb, act_times, actions, X_obs)
     bad_windows = _check_fd_counts_match_X_obs_nonpadding(fd, X_obs, dt=float(args.dt))
+    if bad_windows:
+        msg = "Per-window fd vs final X_obs mismatch for non-padding packets"
+        details = "\n".join(
+            f"  k={k} [{t0:.4f},{t1:.4f}) fd=({u0},{d0}) X_obs=({u1},{d1})"
+            for k, t0, t1, u0, d0, u1, d1 in bad_windows[:10]
+        )
+        raise AssertionError(msg + ("\n" + details if details else ""))
 
     # Strong global check: totals should still match.
     up_total_fd = float(fd[Feats.UP_COUNT][0].nan_to_num(nan=0.0).sum().item())
@@ -238,7 +314,15 @@ def main() -> None:
             "Global UP/DOWN totals mismatch: "
             + f"fd=({up_total_fd},{down_total_fd}) X_obs=({up_total_x},{down_total_x})"
         )
-    bad_all, bad_nopad = _check_no_packets_inside_delay(act_times, actions, X_obs)
+    bad_all, bad_nopad = _check_no_packets_inside_delay(
+        act_times, actions, X_obs, dt=float(args.dt)
+    )
+    same_fd, fd_msg = _compare_fd_with_recomputed_nonpadding(
+        fd,
+        X_obs,
+        dt=float(args.dt),
+        max_silence_s=float(args.max_silence_s),
+    )
 
     # Plot with real data.
     fig, axes = plt.subplots(4, 1, figsize=(18, 11), sharex=True)
@@ -260,21 +344,16 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
     fig.savefig(out, dpi=150)
+    if args.show:
+        plt.show()
     plt.close(fig)
 
     print(f"OK: plotted defended real trace -> {out}")
     print("OK: finalize matches send_exec")
-    if bad_windows:
-        print(
-            "NOTE: per-window fd vs final X_obs mismatches found "
-            + f"(expected with repeated delays), n={len(bad_windows)}"
-        )
-        for k, t0, t1, u0, d0, u1, d1 in bad_windows[:10]:
-            print(
-                f"  k={k} [{t0:.4f},{t1:.4f}) fd=({u0},{d0}) X_obs=({u1},{d1})"
-            )
+    print("OK: per-window fd matches final X_obs (non-padding)")
     print("OK: global fd totals match X_obs (non-padding)")
     print(f"OK: packets inside delay windows all={bad_all}, nonpad={bad_nopad}")
+    print(("OK: " if same_fd else "NOTE: ") + fd_msg)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,15 @@ from kipl_ml.trace.enums import Feats
 logger = get_logger(__name__)
 
 
+def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
+    if dt <= 0:
+        raise ValueError(f"dt must be > 0, got {dt}")
+
+    dt_us = max(1, int(round(float(dt) * 1e6)))
+    t_us = torch.round(times * 1e6).to(torch.long)
+    return torch.div(t_us, dt_us, rounding_mode="floor")
+
+
 def _apply_delay_clamp_inplace(
     t: torch.Tensor,
     delay_starts: torch.Tensor,
@@ -25,6 +34,36 @@ def _apply_delay_clamp_inplace(
     order = torch.argsort(delay_starts)
     t0s = delay_starts[order]
     ds = delay_durations[order]
+
+    # Prefer bin-space clamping when delay duration is constant (the standard
+    # DELAY setup). This aligns execution with WindowFeatureStreamer semantics and
+    # avoids float-boundary drift.
+    pos = ds[ds > 0]
+    use_bin_mode = False
+    dt_s = None
+    if pos.numel() > 0:
+        d0 = float(pos[0].item())
+        if torch.allclose(pos, torch.full_like(pos, d0), atol=1e-6, rtol=0.0):
+            # Quantize to microseconds to avoid tiny float drift in bin recovery.
+            dt_q = round(d0 * 1e6)
+            dt_s = dt_q / 1e6
+            use_bin_mode = dt_s > 0
+
+    if use_bin_mode and dt_s is not None:
+        bins = _time_to_bin_idx(t, dt_s)
+        for t0, d in zip(t0s, ds):
+            s = int(_time_to_bin_idx(t0.unsqueeze(0), dt_s).item())
+            sh = int(torch.round(d / dt_s).item())
+            if sh <= 0:
+                continue
+            e = s + sh
+            m = (bins >= s) & (bins < e)
+            if bool(m.any().item()):
+                bins = torch.where(m, torch.full_like(bins, e), bins)
+                t = torch.where(m, torch.full_like(t, float(e) * dt_s), t)
+        return t
+
+    # Fallback: float interval clamping.
     for t0, d in zip(t0s, ds):
         t1 = t0 + d
         t = torch.where((t >= t0) & (t < t1), t1, t)

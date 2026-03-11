@@ -21,6 +21,16 @@ def _as_batch_vec(x: torch.Tensor, name: str) -> torch.Tensor:
     return x
 
 
+def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
+    """Map seconds to integer bins with microsecond quantization."""
+    if dt <= 0:
+        raise ValueError(f"dt must be > 0, got {dt}")
+
+    dt_us = max(1, int(round(float(dt) * 1e6)))
+    t_us = torch.round(times * 1e6).to(torch.long)
+    return torch.div(t_us, dt_us, rounding_mode="floor")
+
+
 def _add_actions_to_silence_periods(
     feature_dict: dict[Feats, torch.Tensor], time_step: float, max_silence_s: float
 ) -> dict[Feats, torch.Tensor]:
@@ -144,15 +154,16 @@ def get_window_feature_dict(
 
     # (B, L)
     times = X[Feats.TIMES]
-    bin_idx = (times // dt).long()
+    bin_idx = _time_to_bin_idx(times, dt)
 
     if bin_idx.min() < 0:
         raise ValueError("Negative bin indices found!")
 
     feature_dict: dict[Feats, torch.Tensor] = {}
     device = times.device
-    shape = (times.shape[0], bin_idx.max() + 1)
-    bs = shape[0]
+    bs = int(times.shape[0])
+    n_bins = int(bin_idx.max().item()) + 1
+    shape = (bs, n_bins)
 
     up_counts = torch.zeros(shape, device=device).scatter_add_(
         1, bin_idx, (X[Feats.DIRS] == UPLOAD).float()
@@ -246,7 +257,7 @@ class _TraceWindowCursor:
         self.dt = float(dt)
         self.K = int(K)
 
-        bins = (times[: self.seq_len] // self.dt).to(dtype=torch.long)
+        bins = _time_to_bin_idx(times[: self.seq_len], self.dt)
         dirs_ = dirs[: self.seq_len].to(dtype=torch.long)
 
         # Unique consecutive bins and inverse indices for scatter_add.
@@ -263,6 +274,7 @@ class _TraceWindowCursor:
 
         self.p = 0
         self.last_bin: int | None = None
+        self.last_was_silence = False
         # Maps start_bin -> end_bin (end_bin > start_bin). Used to clamp packets
         # that would occur during a delay window to the window's right edge.
         self._block_map: dict[int, int] = {}
@@ -289,11 +301,9 @@ class _TraceWindowCursor:
             self.silence_next = None
             return
 
-        gap = self.next_pkt_bin - self.last_bin - 1
-        if gap >= 1:
-            self.silence_next = self.last_bin + 1
-        else:
-            self.silence_next = None
+        # Preserve silence cadence after delay updates.
+        cand = self.last_bin + (self.K if self.last_was_silence else 1)
+        self.silence_next = cand if cand < self.next_pkt_bin else None
 
     def _map_bin(self, b: int) -> int:
         # Follow block map chains (e.g. consecutive delays).
@@ -356,11 +366,13 @@ class _TraceWindowCursor:
                 if self.silence_next >= self.next_pkt_bin:
                     self.silence_next = None
                 self.last_bin = b
+                self.last_was_silence = True
                 return b, 0.0, 0.0, self._peek_next_bin()
 
         # Packet bin.
         up, down = self._consume_pkt_bin(b)
         self.last_bin = b
+        self.last_was_silence = False
         return b, up, down, self._peek_next_bin()
 
 
