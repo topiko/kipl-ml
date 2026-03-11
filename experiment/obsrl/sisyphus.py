@@ -609,7 +609,7 @@ def main(cfg: DictConfig):
             time_clamp=time_clamp,
         ),
         defence_aug_valid=0,
-        n_min_packets=cfg.min_packets_in_trace,
+        n_min_packets=cfg.trace.min_packets,
         exclude_time_to_packets_n=cfg.trace.len,
         exclude_time_to_packets_s=cfg.trace.exclude_longer_than_s,
         trim_raw=cfg.trace.trim_beginning,
