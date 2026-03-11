@@ -339,7 +339,7 @@ def train_disc_on_league(
         obs=obs,
         ds=ds_train,
         n_packets=cfg.trace.len,
-        bs=cfg.batch_size,
+        bs=cfg.disc.batch_size,
         obs_league=[d for _, d in obs_league[-cfg.league.size :]],
     )
 
