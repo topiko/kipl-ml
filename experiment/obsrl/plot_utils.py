@@ -242,8 +242,17 @@ def _plot_single(
 
         # No-packets-during-delay invariant (open interval).
         if Actions.DELAY in actions:
-            t_act = times[batch_i].squeeze(1)
-            d_act = actions[Actions.DELAY][batch_i].squeeze(1)
+            t_act = times[batch_i]
+            if t_act.ndim == 2 and t_act.shape[1] == 1:
+                t_act = t_act.squeeze(1)
+            elif t_act.ndim != 1:
+                t_act = t_act.reshape(-1)
+
+            d_act = actions[Actions.DELAY][batch_i]
+            if d_act.ndim == 2 and d_act.shape[1] == 1:
+                d_act = d_act.squeeze(1)
+            elif d_act.ndim != 1:
+                d_act = d_act.reshape(-1)
             m = torch.isfinite(t_act) & (d_act > 0)
             if bool(m.any().item()):
                 pkt_t = X_obs[Feats.TIMES][batch_i]
