@@ -6,7 +6,6 @@ set -e
 
 adv=mc
 parent_prefix="audacious-imp" #"advanced-smolin" # audacious-imp
-npackets=5000
 
 
 for enable_delay in true false; do
@@ -22,7 +21,6 @@ for enable_delay in true false; do
 					obs.enable_delay=$enable_delay \
 					obs.separate_critic=$sep_critic \
 					obs.reuse_obs_and_critic=$reuse \
-					trace_len=$npackets \
 					experiment_name=sisy_sweep
 			done
 		done
