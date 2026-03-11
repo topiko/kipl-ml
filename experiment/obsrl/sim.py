@@ -20,6 +20,12 @@ def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
     return torch.div(t_us, dt_us, rounding_mode="floor")
 
 
+def _boundary_time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
+    if dt <= 0:
+        raise ValueError(f"dt must be > 0, got {dt}")
+    return torch.round(times.to(torch.float64) / float(dt)).to(torch.long)
+
+
 def get_rewards(
     action_times: torch.Tensor,
     actions: dict[Actions, torch.Tensor],
@@ -131,7 +137,7 @@ def get_rewards(
         )
         m_fin = boundaries.isfinite()
         if bool(m_fin.any().item()):
-            boundaries_bins[m_fin] = _time_to_bin_idx(
+            boundaries_bins[m_fin] = _boundary_time_to_bin_idx(
                 boundaries[m_fin], float(tam_dt_s)
             )
 
@@ -198,7 +204,7 @@ def get_rewards(
         pkt_bins = _time_to_bin_idx(t0_f, float(obs_dt_s))
 
         # (B, T) start bins for delay windows.
-        start_bins = _time_to_bin_idx(action_times, float(obs_dt_s))
+        start_bins = _boundary_time_to_bin_idx(action_times, float(obs_dt_s))
 
         # Count occurrences per step via searchsorted on sorted pkt_bins.
         lo = torch.searchsorted(pkt_bins, start_bins, right=False)

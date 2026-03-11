@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import random
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import dotenv
@@ -40,7 +40,7 @@ class _NNDef(_Def):
         seed: int | None = 42,
         fixed_per_trace: bool = False,
         simul_kwargs: dict | None = None,
-        state_dicts: Sequence[nn.Module.state_dict] | None = None,
+        state_dicts: Sequence[Mapping[str, torch.Tensor]] | None = None,
         mlflow_keys: dict[str, Any] | None = None,
     ):
         if not network_delay_millis != (0, 0) or not network_pps != (0, 0):
@@ -60,8 +60,8 @@ class _NNDef(_Def):
         )
 
         self.mlflow_keys = mlflow_keys
-        self._model_ids: list[str | None] = [None]
-        self.defence_model_state_dicts = None
+        self._model_ids: Sequence[str | None] = [None]
+        self.defence_model_state_dicts: list[Mapping[str, torch.Tensor]] | None = None
 
         if isinstance(obs_model, str):
             self._model_ids = [obs_model]
@@ -69,13 +69,13 @@ class _NNDef(_Def):
         elif isinstance(obs_model, nn.Module):
             self.defense_model = obs_model
             if state_dicts is not None:
-                self.defence_model_state_dicts = state_dicts
+                self.defence_model_state_dicts = list(state_dicts)
         elif isinstance(obs_model, list):
             self.defense_model = _load_model(obs_model[0])
             self.defence_model_state_dicts = [
-                _load_model(obs).state_dict for obs in obs_model
+                _load_model(obs).state_dict() for obs in obs_model
             ]
-            self._model_ids = obs_model
+            self._model_ids = [obs if isinstance(obs, str) else None for obs in obs_model]
 
         self.defense_model.eval()
 
@@ -146,6 +146,12 @@ class RNNDef(_NNDef):
         # Implement RNN specific logic
         h = None
 
+        sample = bool(self.simul_kwargs.get("sample", True))
+        extend_end_s = float(self.simul_kwargs.get("extend_end_s", 0.0))
+        max_packets = self.simul_kwargs.get("max_packets", self._n_packets)
+        if max_packets is not None:
+            max_packets = int(max_packets)
+
         trace_d = {
             k: v[: self._n_packets].unsqueeze(0).float() for k, v in trace_d.items()
         }
@@ -161,9 +167,9 @@ class RNNDef(_NNDef):
                 trace_d = policy_obfuscate_trace_streaming(
                     defense_model,
                     trace_d,
-                    sample=True,
-                    extend_end_s=0,
-                    max_packets=self._n_packets,
+                    sample=sample,
+                    extend_end_s=extend_end_s,
+                    max_packets=max_packets,
                 )
 
             trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
@@ -175,10 +181,11 @@ class RNNDef(_NNDef):
             trace_d = policy_obfuscate_trace_single_pass(
                 defense_model,
                 trace_d,
-                sample=True,
-                extend_end_s=0,
+                sample=sample,
+                extend_end_s=extend_end_s,
             )
-        trace_d = {k: v[:, : self._n_packets] for k, v in trace_d.items()}
+        if max_packets is not None:
+            trace_d = {k: v[:, :max_packets] for k, v in trace_d.items()}
 
         trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
 

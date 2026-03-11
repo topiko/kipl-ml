@@ -108,9 +108,9 @@ The goal is correctness first (equivalence with the old single-pass pipeline whe
   - Uses inference-mode rollout helpers.
 
 - Debug / verification scripts:
-  - `experiment/obsrl/debug_window_streamer_equiv.py`: streamer vs precomputed windows.
-  - `experiment/obsrl/debug_rollout_equiv.py`: single-pass vs streaming equivalence, timing, plotting, forced selector patterns.
-  - `experiment/obsrl/debug_delay_exec_semantics.py`: minimal delay execution regression checks.
+  - `experiment/obsrl/codex_debug/debug_window_streamer_equiv.py`: streamer vs precomputed windows.
+  - `experiment/obsrl/codex_debug/debug_rollout_equiv.py`: single-pass vs streaming equivalence, timing, plotting, forced selector patterns.
+  - `experiment/obsrl/codex_debug/debug_delay_exec_semantics.py`: minimal delay execution regression checks.
 
 - Plotting:
   - `kipl_ml/tools/plottr.py` updated to plot `DO_NOTHING` and `DELAY` as spans.

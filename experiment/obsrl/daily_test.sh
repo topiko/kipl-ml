@@ -37,28 +37,32 @@ run() {
 }
 
 run "Window streamer equivalence" \
-  python -u experiment/obsrl/debug_window_streamer_equiv.py
+  python -u experiment/obsrl/codex_debug/debug_window_streamer_equiv.py
 
 run "Delay execution semantics" \
-  python -u experiment/obsrl/debug_delay_exec_semantics.py
+  python -u experiment/obsrl/codex_debug/debug_delay_exec_semantics.py
 
 run "Plot smoke" \
-  python -u experiment/obsrl/debug_plot_smoke.py
+  python -u experiment/obsrl/codex_debug/debug_plot_smoke.py
 
 run "Rollout sanity (do_nothing)" \
-  python -u experiment/obsrl/debug_rollout_equiv.py \
+  python -u experiment/obsrl/codex_debug/debug_rollout_equiv.py \
     --runs "${RUNS}" --warmup "${WARMUP}" --runs_rewards "${RUNS_REWARDS}" \
     --selector_pattern do_nothing
 
 run "Rollout sanity (send_and_delay_cycle)" \
-  python -u experiment/obsrl/debug_rollout_equiv.py \
+  python -u experiment/obsrl/codex_debug/debug_rollout_equiv.py \
     --runs "${RUNS}" --warmup "${WARMUP}" --runs_rewards "${RUNS_REWARDS}" \
     --selector_pattern send_and_delay_cycle
+
+run "NNDef applies policy actions" \
+  python -u experiment/obsrl/codex_debug/debug_nndef_applies_actions.py \
+    --device "${DEVICE}" --idx "${IDX}"
 
 if [[ "${SKIP_REAL_DATA}" != "1" ]]; then
   if [[ "${SKIP_ROW24}" != "1" ]]; then
     run "Comprehensive row2=row4-padding checks" \
-      python -u experiment/obsrl/debug_row2_row4_checks.py \
+      python -u experiment/obsrl/codex_debug/debug_row2_row4_checks.py \
         --device "${DEVICE}" --start_idx "${IDX}" --n "${ROW24_N}" \
         --selector_pattern "${ROW24_PATTERN}"
   else
@@ -68,7 +72,7 @@ if [[ "${SKIP_REAL_DATA}" != "1" ]]; then
   fi
 
   run "Real-data forced-delay invariant" \
-    python -u experiment/obsrl/debug_delay_no_packets_real.py \
+    python -u experiment/obsrl/codex_debug/debug_delay_no_packets_real.py \
       --device "${DEVICE}" --n_delays "${N_DELAYS}" --idx "${IDX}"
 else
   echo
@@ -81,7 +85,7 @@ fi
 
 if [[ "${SKIP_REAL_PLOT}" != "1" ]]; then
   run "Real-data plotting + exec consistency" \
-    python -u experiment/obsrl/debug_plot_real_defended.py \
+    python -u experiment/obsrl/codex_debug/debug_plot_real_defended.py \
       --device "${DEVICE}" --idx "${IDX}" --selector_pattern send_and_delay_cycle
 else
   echo

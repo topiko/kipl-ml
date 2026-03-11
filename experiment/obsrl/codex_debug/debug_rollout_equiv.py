@@ -205,7 +205,7 @@ def main() -> None:
     parser.add_argument(
         "--outdir",
         type=str,
-        default="experiment/obsrl/debug_out",
+        default="experiment/obsrl/codex_debug/debug_out",
         help="Output dir for plots",
     )
     parser.add_argument(
