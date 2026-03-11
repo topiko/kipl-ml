@@ -15,6 +15,7 @@ from omegaconf import OmegaConf
 
 from experiment.obsrl import plot_utils
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
+from kipl_ml.rl.observation import get_window_feature_dict
 from kipl_ml.rl.enums import Actions
 from kipl_ml.trace.enums import Feats
 
@@ -46,8 +47,9 @@ def main() -> None:
     device = torch.device("cpu")
     B = 1
     L = 10
-    T = 5
     C = 30
+    dt = 0.02
+    max_silence_s = 0.1
 
     # Trace dicts.
     times_trace = torch.linspace(0.0, 0.18, L).unsqueeze(0)
@@ -57,18 +59,19 @@ def main() -> None:
     X_orig = {Feats.TIMES: times_trace, Feats.DIRS: dirs_trace, Feats.PADDING: pad_trace}
     X_obs = {Feats.TIMES: times_trace.clone(), Feats.DIRS: dirs_trace.clone(), Feats.PADDING: pad_trace.clone()}
 
-    # Obs features.
-    fd = {
-        Feats.TIMES: torch.linspace(0.0, 0.08, T).unsqueeze(0),
-        Feats.Dt: torch.full((B, T), 0.02),
-        Feats.UP_COUNT: torch.zeros((B, T)),
-        Feats.DOWN_COUNT: torch.zeros((B, T)),
-    }
+    # Obs features consistent with X_obs.
+    fd = get_window_feature_dict(
+        X_obs,
+        dt=dt,
+        max_silence_s=max_silence_s,
+        features=[Feats.TIMES, Feats.Dt, Feats.UP_COUNT, Feats.DOWN_COUNT],
+    )
+    T = int(fd[Feats.TIMES].shape[1])
 
     # Actions/times.
     act_times = fd[Feats.TIMES] + fd[Feats.Dt]  # (B,T)
     actions = {
-        Actions.DELAY: torch.tensor([[0.0, 0.02, 0.02, 0.0, 0.0]]),
+        Actions.DELAY: torch.zeros((B, T)),
         Actions.DO_NOTHING: torch.zeros((B, T)),
         Actions.SELECTOR: torch.zeros((B, T)),
         Actions.SEND_COUNT_UP: torch.zeros((B, T)),
