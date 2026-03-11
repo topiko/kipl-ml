@@ -75,7 +75,9 @@ class _NNDef(_Def):
             self.defence_model_state_dicts = [
                 _load_model(obs).state_dict() for obs in obs_model
             ]
-            self._model_ids = [obs if isinstance(obs, str) else None for obs in obs_model]
+            self._model_ids = [
+                obs if isinstance(obs, str) else None for obs in obs_model
+            ]
 
         self.defense_model.eval()
 
@@ -136,7 +138,7 @@ class _NNDef(_Def):
 
 
 class RNNDef(_NNDef):
-    def __init__(self, *args, n_packets: int = 5000, **kwargs):
+    def __init__(self, *args, n_packets: int | None = 5000, **kwargs):
         super().__init__(*args, **kwargs)
         self._n_packets = n_packets
 
@@ -144,13 +146,10 @@ class RNNDef(_NNDef):
         self, trace_d: dict[Feats, torch.Tensor]
     ) -> dict[Feats, torch.Tensor]:
         # Implement RNN specific logic
-        h = None
 
         sample = bool(self.simul_kwargs.get("sample", True))
         extend_end_s = float(self.simul_kwargs.get("extend_end_s", 0.0))
-        max_packets = self.simul_kwargs.get("max_packets", self._n_packets)
-        if max_packets is not None:
-            max_packets = int(max_packets)
+        max_packets = self._n_packets
 
         trace_d = {
             k: v[: self._n_packets].unsqueeze(0).float() for k, v in trace_d.items()
