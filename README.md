@@ -25,9 +25,27 @@ E.g. here:
 
 Download the "bigenough" dataset from [here](https://dart.cse.kau.se/maybenot/bigenough-95x10x20-standard-rngsubpages.tar.gz).
 
-We rather have a single file for a trace to prepare for potential massive datasets.
-In order to make the conversion to this standard use `kipl_ml/data/conversion.py --dataset DATASET`.
-There are implementations for "bigenough" and "gong-surakav" datasets.
+We store metadata and split info in a standardized `metadf.h5` per dataset.
+
+You **must run conversion before training/evaluation scripts** (and re-run it when conversion schema changes).
+
+Use:
+
+```bash
+python kipl_ml/data/conversion.py --dataset bigenough
+python kipl_ml/data/conversion.py --dataset gong-surakav
+```
+
+This command:
+
+- parses raw `.log` traces under `WF_DATA_DIR/<dataset>/...`
+- writes standardized metadata to `.data/<dataset>/metadf.h5`
+- regenerates XV split columns in that metadata file
+
+There are implementations for `bigenough` and `gong-surakav`.
+
+Important: if you pull new changes to `kipl_ml/data/conversion.py` (for example new metadata columns like `time_to_<X>_packets`), re-run conversion so your local `metadf.h5` is up to date.
+
 This repo uses a repo-root `.env` file for paths and MLflow settings.
 
 ### Environment variables (.env)

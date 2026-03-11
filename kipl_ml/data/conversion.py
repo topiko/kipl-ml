@@ -24,6 +24,17 @@ DATA_DIR = os.getenv("WF_DATA_DIR")
 assert DATA_DIR is not None
 
 
+TIME_TO_PACKET_LIMITS: tuple[int, ...] = (
+    100,
+    500,
+    *tuple(range(1000, 20001, 1000)),
+)
+
+
+def _time_to_packet_col_name(limit: int) -> str:
+    return f"time_to_{int(limit)}_packets"
+
+
 def _load_pickle_data(data_path: str) -> dict[int, list[list[np.ndarray | list]]]:
     """
     Load samples from pickle file
@@ -61,6 +72,30 @@ def _data_to_meta_row(
             return 0
         return data[-1, 0] - data[0, 0]
 
+    def _time_to_packet_stats() -> dict[str, float]:
+        stats: dict[str, float] = {}
+        if len(data) == 0:
+            for n in TIME_TO_PACKET_LIMITS:
+                stats[_time_to_packet_col_name(n)] = 0.0
+            return stats
+
+        t0 = float(data[0, 0])
+        t_last = float(data[-1, 0])
+        total = t_last - t0
+        n_packets = int(len(data))
+
+        for n in TIME_TO_PACKET_LIMITS:
+            col = _time_to_packet_col_name(n)
+            if n_packets >= n:
+                stats[col] = float(data[n - 1, 0] - t0)
+            else:
+                # Requested by caller: if the trace has fewer than n packets,
+                # use the total duration of the trace.
+                stats[col] = float(total)
+
+        return stats
+
+    time_to_packet = _time_to_packet_stats()
     row_df = (
         pd.Series(
             {
@@ -74,6 +109,7 @@ def _data_to_meta_row(
                 "n_packets_up": _n_packets("up"),
                 "n_packets_down": _n_packets("down"),
                 assets.TRACE_F_PATH: orig_path,
+                **time_to_packet,
             }
         )
         .to_frame()
@@ -89,6 +125,10 @@ def _data_to_meta_row(
                 assets.DATASET: str,
                 "n_packets_up": int,
                 "n_packets_down": int,
+                **{
+                    _time_to_packet_col_name(n): float
+                    for n in TIME_TO_PACKET_LIMITS
+                },
             }
         )
     )
