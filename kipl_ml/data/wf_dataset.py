@@ -248,20 +248,21 @@ def _exclude_long_traces(
     n_ref_total = int(m_ref.sum())
 
     m_excl = t_col > t_max
-    n_excl = (m_excl & m_ref).sum()
+    n1_excl = m_excl.sum()
+    n2_excl = (m_excl & m_ref).sum()
 
     logger.warning(
         "Filtering long traces by %s > %.3fs: excluded=%d/%d (%.2f%% all), "
         + "excluded among n_packets>=%d: %d/%d (%.2f%%)",
         col,
         t_max,
-        n_excl,
+        n1_excl,
         n_all,
-        (100.0 * n_excl / max(1, n_all)),
+        (100.0 * n1_excl / max(1, n_all)),
         n_ref,
-        n_excl,
+        n2_excl,
         n_ref_total,
-        (100.0 * n_excl / max(1, n_ref_total)),
+        (100.0 * n2_excl / max(1, n_ref_total)),
     )
 
     return meta_df.loc[~m_excl]
