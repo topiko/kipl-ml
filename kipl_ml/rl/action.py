@@ -13,6 +13,24 @@ from kipl_ml.trace.enums import Feats
 logger = get_logger(__name__)
 
 
+def _apply_delay_clamp_inplace(
+    t: torch.Tensor,
+    delay_starts: torch.Tensor,
+    delay_durations: torch.Tensor,
+) -> torch.Tensor:
+    """Clamp times in each delay window [t0, t0+d) to t0+d."""
+    if delay_starts.numel() == 0:
+        return t
+
+    order = torch.argsort(delay_starts)
+    t0s = delay_starts[order]
+    ds = delay_durations[order]
+    for t0, d in zip(t0s, ds):
+        t1 = t0 + d
+        t = torch.where((t >= t0) & (t < t1), t1, t)
+    return t
+
+
 @dataclass
 class TraceExecState:
     """Accumulate stepwise actions and finalize once.
@@ -234,15 +252,11 @@ class TraceExecState:
             # Apply delay by clamping within each delay window.
             m_del = delay_idx == i
             if m_del.any():
-                t0 = delay_t0[m_del].to(dtype=self.dtype_t)
-                dd = delay_d[m_del].to(dtype=self.dtype_t)
-                order = torch.argsort(t0)
-                t0 = t0[order]
-                dd = dd[order]
-
-                for t00, d0 in zip(t0, dd):
-                    t1 = t00 + d0
-                    t = torch.where((t >= t00) & (t < t1), t1, t)
+                t = _apply_delay_clamp_inplace(
+                    t,
+                    delay_t0[m_del].to(dtype=self.dtype_t),
+                    delay_d[m_del].to(dtype=self.dtype_t),
+                )
 
             max_len = max(max_len, int(t.numel()))
             out_times_l.append(t)
@@ -509,19 +523,11 @@ def send_exec(
             if not bool(m.any().item()):
                 continue
 
-            t0s = times[i][m]
-            ds = delay_s[i][m]
-            order = torch.argsort(t0s)
-            t0s = t0s[order]
-            ds = ds[order]
-
-            for t0, d in zip(t0s, ds):
-                t1 = t0 + d
-                X[Feats.TIMES][i] = torch.where(
-                    (X[Feats.TIMES][i] >= t0) & (X[Feats.TIMES][i] < t1),
-                    t1,
-                    X[Feats.TIMES][i],
-                )
+            X[Feats.TIMES][i] = _apply_delay_clamp_inplace(
+                X[Feats.TIMES][i],
+                times[i][m],
+                delay_s[i][m],
+            )
 
     X = _sort_feature_dict(X)
 

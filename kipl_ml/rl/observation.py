@@ -10,6 +10,17 @@ from kipl_ml.trace.enums import Feats
 logger = get_logger(__name__)
 
 
+def _as_batch_vec(x: torch.Tensor, name: str) -> torch.Tensor:
+    """Normalize (B,) or (B,1) tensors to (B,)."""
+    if x.ndim == 2:
+        if x.shape[1] != 1:
+            raise ValueError(f"{name} must be (B,) or (B,1)")
+        x = x.squeeze(1)
+    if x.ndim != 1:
+        raise ValueError(f"{name} must be (B,) or (B,1)")
+    return x
+
+
 def _add_actions_to_silence_periods(
     feature_dict: dict[Feats, torch.Tensor], time_step: float, max_silence_s: float
 ) -> dict[Feats, torch.Tensor]:
@@ -205,10 +216,11 @@ def get_window_feature_dict(
             torch.where(feature_dict[f].isfinite(), feature_dict[f], 0).sum(dim=1)
             != (X[Feats.DIRS] == k).sum(dim=1)
         ).any():
-            print(f, k)
-            print(feature_dict[f].sum(dim=1), (X[Feats.DIRS] == k).sum(dim=1))
-            breakpoint()
-            raise ValueError("Missing packets")
+            got = torch.where(feature_dict[f].isfinite(), feature_dict[f], 0).sum(dim=1)
+            exp = (X[Feats.DIRS] == k).sum(dim=1)
+            raise ValueError(
+                f"Missing packets for {f}: got={got.detach().cpu().tolist()} expected={exp.detach().cpu().tolist()}"
+            )
 
     return feature_dict
 
@@ -488,14 +500,8 @@ class WindowFeatureStreamer:
         Packets that would occur within the delay window are clamped to the right
         edge (start_s+delay_s). Values must be multiples of dt.
         """
-        if start_s.ndim == 2:
-            if start_s.shape[1] != 1:
-                raise ValueError("start_s must be (B,) or (B,1)")
-            start_s = start_s.squeeze(1)
-        if delay_s.ndim == 2:
-            if delay_s.shape[1] != 1:
-                raise ValueError("delay_s must be (B,) or (B,1)")
-            delay_s = delay_s.squeeze(1)
+        start_s = _as_batch_vec(start_s, "start_s")
+        delay_s = _as_batch_vec(delay_s, "delay_s")
 
         if start_s.shape[0] != self.bs or delay_s.shape[0] != self.bs:
             raise ValueError("start_s/delay_s batch mismatch")
@@ -512,14 +518,8 @@ class WindowFeatureStreamer:
         self, start_bins: torch.Tensor, shift_bins: torch.Tensor
     ) -> None:
         """Apply a delay window [start_bin, start_bin+shift_bins) per trace."""
-        if start_bins.ndim == 2:
-            if start_bins.shape[1] != 1:
-                raise ValueError("start_bins must be (B,) or (B,1)")
-            start_bins = start_bins.squeeze(1)
-        if shift_bins.ndim == 2:
-            if shift_bins.shape[1] != 1:
-                raise ValueError("shift_bins must be (B,) or (B,1)")
-            shift_bins = shift_bins.squeeze(1)
+        start_bins = _as_batch_vec(start_bins, "start_bins")
+        shift_bins = _as_batch_vec(shift_bins, "shift_bins")
 
         if start_bins.shape[0] != self.bs or shift_bins.shape[0] != self.bs:
             raise ValueError("start_bins/shift_bins batch mismatch")
