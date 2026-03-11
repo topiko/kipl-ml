@@ -9,9 +9,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -24,13 +21,13 @@ from experiment.obsrl.invariants import (
     format_recomputed_fd_report,
     format_row24_report,
 )
-from kipl_ml.data.utils import Datasets, assets
+from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
 from kipl_ml.data.wf_dataset import get_train_valid_test
 from kipl_ml.models.trgen import AGENT1
 from kipl_ml.rl.action import send_exec
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.simulate import policy_rollout_streaming
-from kipl_ml.tools.plottr import plot_actions, plot_obs_features, plot_trace
+from kipl_ml.tools.plottr import plot_actions, plot_tam
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import FeatureTrs
 
@@ -66,6 +63,116 @@ def _pattern(name: str) -> list[int]:
     if name == "do_nothing":
         return [0]
     raise ValueError(f"Unknown pattern: {name}")
+
+
+def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
+    dt_us = max(1, int(round(float(dt) * 1e6)))
+    t_us = torch.round(times * 1e6).to(torch.long)
+    return torch.div(t_us, dt_us, rounding_mode="floor")
+
+
+def _tam_from_trace(
+    X: dict[Feats, torch.Tensor],
+    dt: float,
+    *,
+    idx: int = 0,
+) -> dict[Feats, torch.Tensor]:
+    t = X[Feats.TIMES][idx]
+    d = X[Feats.DIRS][idx]
+    p = X[Feats.PADDING][idx] != 0
+
+    m = (d != 0) & torch.isfinite(t)
+    if not bool(m.any().item()):
+        z = torch.zeros((1,), device=t.device, dtype=t.dtype)
+        return {
+            Feats.TAM_TIMES: z,
+            Feats.TAM_UP_COUNTS: z,
+            Feats.TAM_DOWN_COUNTS: z,
+            Feats.TAM_UP_PAD: z,
+            Feats.TAM_DOWN_PAD: z,
+        }
+
+    t = t[m]
+    d = d[m]
+    p = p[m]
+    bins = _time_to_bin_idx(t, dt)
+    n_bins = int(bins.max().item()) + 1
+
+    up = torch.zeros((n_bins,), device=t.device, dtype=t.dtype)
+    down = torch.zeros((n_bins,), device=t.device, dtype=t.dtype)
+    up_pad = torch.zeros((n_bins,), device=t.device, dtype=t.dtype)
+    down_pad = torch.zeros((n_bins,), device=t.device, dtype=t.dtype)
+
+    m_up = d == int(UPLOAD)
+    m_down = d == int(DOWNLOAD)
+
+    up.scatter_add_(0, bins, m_up.to(t.dtype))
+    down.scatter_add_(0, bins, m_down.to(t.dtype))
+    up_pad.scatter_add_(0, bins, (m_up & p).to(t.dtype))
+    down_pad.scatter_add_(0, bins, (m_down & p).to(t.dtype))
+
+    tb = torch.arange(n_bins, device=t.device, dtype=t.dtype)
+    tt = tb * float(dt)
+
+    return {
+        Feats.TAM_TIMES: tt,
+        Feats.TAM_UP_COUNTS: up,
+        Feats.TAM_DOWN_COUNTS: down,
+        Feats.TAM_UP_PAD: up_pad,
+        Feats.TAM_DOWN_PAD: down_pad,
+    }
+
+
+def _tam_from_fd(fd: dict[Feats, torch.Tensor], *, idx: int = 0) -> dict[Feats, torch.Tensor]:
+    t = fd[Feats.TIMES][idx]
+    m = torch.isfinite(t)
+    if not bool(m.any().item()):
+        z = torch.zeros((1,), device=t.device, dtype=t.dtype)
+        return {
+            Feats.TAM_TIMES: z,
+            Feats.TAM_UP_COUNTS: z,
+            Feats.TAM_DOWN_COUNTS: z,
+            Feats.TAM_UP_PAD: z,
+            Feats.TAM_DOWN_PAD: z,
+        }
+
+    tt = t[m]
+    up = fd[Feats.UP_COUNT][idx][m]
+    down = fd[Feats.DOWN_COUNT][idx][m]
+    z = torch.zeros_like(up)
+    return {
+        Feats.TAM_TIMES: tt,
+        Feats.TAM_UP_COUNTS: up,
+        Feats.TAM_DOWN_COUNTS: down,
+        Feats.TAM_UP_PAD: z,
+        Feats.TAM_DOWN_PAD: z,
+    }
+
+
+def _maybe_enable_interactive_backend(show: bool, backend: str | None) -> None:
+    if backend:
+        try:
+            plt.switch_backend(backend)
+            print(f"Using matplotlib backend: {plt.get_backend()}")
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not switch to backend '{backend}': {exc}"
+            ) from exc
+
+    if not show:
+        return
+
+    current = str(plt.get_backend()).lower()
+    if current not in {"agg", "module://matplotlib_inline.backend_inline", "inline"}:
+        return
+
+    for cand in ("QtAgg", "TkAgg", "GTK3Agg", "WXAgg", "MacOSX"):
+        try:
+            plt.switch_backend(cand)
+            print(f"Using matplotlib backend: {plt.get_backend()}")
+            return
+        except Exception:
+            continue
 
 
 def _sorted_rows(X: dict[Feats, torch.Tensor], n: int) -> np.ndarray:
@@ -124,7 +231,10 @@ def main() -> None:
     )
     ap.add_argument("--out", default="experiment/obsrl/plot_real_defended_debug.png")
     ap.add_argument("--show", action="store_true")
+    ap.add_argument("--backend", default="")
     args = ap.parse_args()
+
+    _maybe_enable_interactive_backend(args.show, args.backend or None)
 
     device = torch.device(args.device)
 
@@ -208,21 +318,35 @@ def main() -> None:
         )
     )
 
-    plot_trace(Xb, idx=0, ax=axes[0])
-    axes[0].set_title("Base trace")
-    plot_obs_features(fd, idx=0, ax=axes[1])
-    axes[1].set_title("Obs features")
+    tam_base = _tam_from_trace(Xb, float(args.dt), idx=0)
+    tam_fd = _tam_from_fd(fd, idx=0)
+    tam_obs = _tam_from_trace(X_obs, float(args.dt), idx=0)
+
+    plot_tam(tam_base, window_width=float(args.dt), ax=axes[0])
+    axes[0].set_title("Base trace (TAM-like)")
+    plot_tam(tam_fd, window_width=float(args.dt), ax=axes[1])
+    axes[1].set_title("Obs features (TAM-like)")
     plot_actions(act_times, actions, idx=0, ax=axes[2])
     axes[2].set_title("Actions")
-    plot_trace(X_obs, idx=0, ax=axes[3])
-    axes[3].set_title("Defended trace (X_obs)")
+    plot_tam(tam_obs, window_width=float(args.dt), ax=axes[3])
+    axes[3].set_title("Defended trace (X_obs, TAM-like)")
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
     fig.savefig(out, dpi=150)
     if args.show:
-        plt.show()
+        backend = plt.get_backend().lower()
+        if backend in {"agg", "module://matplotlib_inline.backend_inline", "inline"}:
+            print(
+                "NOTE: backend "
+                + f"'{backend}' is non-interactive; pass --backend TkAgg/QtAgg to show"
+            )
+        else:
+            try:
+                plt.show()
+            except Exception as exc:
+                print(f"NOTE: backend '{backend}' could not open window: {exc}")
     plt.close(fig)
 
     print(f"OK: plotted defended real trace -> {out}")

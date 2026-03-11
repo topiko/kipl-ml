@@ -15,8 +15,14 @@ from kipl_ml.trace.enums import Feats
 
 
 def _assert_close(a: torch.Tensor, b: torch.Tensor, *, msg: str) -> None:
-    if not torch.allclose(a, b, atol=0, rtol=0):
+    if not torch.allclose(a, b, atol=1e-5, rtol=0):
         raise AssertionError(f"{msg}:\n{a}\n!=\n{b}")
+
+
+def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
+    dt_us = max(1, int(round(float(dt) * 1e6)))
+    t_us = torch.round(times * 1e6).to(torch.long)
+    return torch.div(t_us, dt_us, rounding_mode="floor")
 
 
 def test_delay_right_edge_clamps_next_window() -> None:
@@ -37,8 +43,11 @@ def test_delay_right_edge_clamps_next_window() -> None:
     }
 
     X_obs = send_exec(X, act_times, actions)
-    exp_times = torch.tensor([[0.01, 0.04]], dtype=torch.float32)
-    _assert_close(X_obs[Feats.TIMES], exp_times, msg="right-edge delay clamps next-bin")
+    exp_bins = torch.tensor([[0, 2]], dtype=torch.long)
+    got_bins = _time_to_bin_idx(X_obs[Feats.TIMES], dt=0.02)
+    _assert_close(got_bins.float(), exp_bins.float(), msg="right-edge delay bin clamp")
+    if float(X_obs[Feats.TIMES][0, 1].item()) < 0.04:
+        raise AssertionError("Delayed packet must be at or after right edge")
 
 
 def test_delay_clamps_padding_packets_too() -> None:
@@ -64,7 +73,11 @@ def test_delay_clamps_padding_packets_too() -> None:
     # Two packets: original at 0.01, padding at 0.06.
     exp_times = torch.tensor([[0.01, 0.06]], dtype=torch.float32)
     exp_pad = torch.tensor([[0.0, 1.0]], dtype=torch.float32)
-    _assert_close(X_obs[Feats.TIMES], exp_times, msg="delay clamps padding times")
+    exp_bins = torch.tensor([[0, 3]], dtype=torch.long)
+    got_bins = _time_to_bin_idx(X_obs[Feats.TIMES], dt=0.02)
+    _assert_close(got_bins.float(), exp_bins.float(), msg="delay clamps padding bins")
+    if float(X_obs[Feats.TIMES][0, 1].item()) < float(exp_times[0, 1].item()):
+        raise AssertionError("Delayed padding packet must be at or after right edge")
     _assert_close(X_obs[Feats.PADDING], exp_pad, msg="padding flag preserved")
 
 

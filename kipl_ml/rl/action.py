@@ -38,6 +38,16 @@ def _duration_to_bin_offsets(durations: torch.Tensor, dt: float) -> torch.Tensor
     return torch.div(d_us + (dt_us // 2), dt_us, rounding_mode="floor")
 
 
+def _nudge_right_edge(times: torch.Tensor) -> torch.Tensor:
+    """Move exact/right-edge times to the next representable float.
+
+    This keeps boundary-aligned synthetic packets inside the intended target bin
+    under float floor/binning operations.
+    """
+    inf = torch.full_like(times, float("inf"))
+    return torch.nextafter(times, inf)
+
+
 def _apply_delay_clamp_bins_inplace(
     t: torch.Tensor,
     start_bins: torch.Tensor,
@@ -61,7 +71,9 @@ def _apply_delay_clamp_bins_inplace(
         m = (bins >= s_i) & (bins < e_i)
         if bool(m.any().item()):
             bins = torch.where(m, torch.full_like(bins, e_i), bins)
-            t = torch.where(m, torch.full_like(t, float(e_i) * dt_s), t)
+            edge = torch.full_like(t, float(e_i) * dt_s)
+            edge = _nudge_right_edge(edge)
+            t = torch.where(m, edge, t)
     return t
 
 
@@ -243,6 +255,7 @@ class TraceExecState:
             fixed_idx = si.repeat_interleave(rep)
             fixed_bins = st.repeat_interleave(rep)
             fixed_times = fixed_bins.to(self.dtype_t) * float(self.time_step_s)
+            fixed_times = _nudge_right_edge(fixed_times)
             fixed_dirs = sd.repeat_interleave(rep)
             fixed_pad = torch.ones_like(fixed_times, dtype=self.dtype_t)
 
