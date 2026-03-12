@@ -5,6 +5,7 @@ from typing import Any, Literal, cast, overload
 import torch
 
 from kipl_ml.data.utils import UPLOAD
+from kipl_ml.models.trgen import _hidden_w_mask
 from kipl_ml.rl.action import TraceExecState
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
@@ -51,24 +52,6 @@ def _apply_extend_end_inplace(
     # window generator.
     X[Feats.DIRS][row_idx, col_idx] = UPLOAD
     X[Feats.TIMES][mask] += extend_end_s
-
-
-def _hidden_w_mask(
-    h: tuple[torch.Tensor, ...] | None,
-    mask: torch.Tensor,
-    hmasked: tuple[torch.Tensor, ...] | None = None,
-) -> tuple[torch.Tensor, ...] | None:
-    if h is None:
-        if not mask.all():
-            raise ValueError("Hidden is none, but only a subset is selected")
-        return hmasked
-
-    if hmasked is None:
-        return tuple(h_[:, mask] for h_ in h)
-
-    for i, h_ in enumerate(h):
-        h_[:, mask] = hmasked[i]
-    return h
 
 
 def policy_rollout_single_pass(
