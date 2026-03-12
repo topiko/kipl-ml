@@ -60,9 +60,12 @@ def _feature_map(
     dt: float | None = None,
 ) -> list[torch.Tensor] | torch.Tensor:
     def _map_one(fi: Feats) -> torch.Tensor:
-        v = x[fi].float()
-        if fi in (Feats.TIMES, Feats.Dt) and dt is not None:
-            v = v * dt  # Convert int bins back to seconds for scaling.
+        v = x[fi]
+        # Convert int bins to seconds; skip if already float.
+        if fi in (Feats.TIMES, Feats.Dt) and dt is not None and not v.is_floating_point():
+            v = v.float() * dt
+        else:
+            v = v.float()
         if fi == Feats.SILENCE_FLAG:
             return v.unsqueeze(-1)  # keep 0/1
         if fi in (Feats.TIMES, Feats.TAM_TIMES):
