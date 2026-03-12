@@ -166,11 +166,11 @@ def get_window_feature_dict(
     n_bins = int(bin_idx.max().item()) + 1
     shape = (bs, n_bins)
 
-    up_counts = torch.zeros(shape, device=device).scatter_add_(
-        1, bin_idx, (X[Feats.DIRS] == UPLOAD).float()
+    up_counts = torch.zeros(shape, device=device, dtype=torch.long).scatter_add_(
+        1, bin_idx, (X[Feats.DIRS] == UPLOAD).long()
     )
-    down_counts = torch.zeros(shape, device=device).scatter_add_(
-        1, bin_idx, (X[Feats.DIRS] == DOWNLOAD).float()
+    down_counts = torch.zeros(shape, device=device, dtype=torch.long).scatter_add_(
+        1, bin_idx, (X[Feats.DIRS] == DOWNLOAD).long()
     )
     # Store bin indices as long; use scatter to pick the bin index for each occupied bin.
     times_idx = torch.zeros(shape, device=device, dtype=torch.long).scatter_(
@@ -261,6 +261,7 @@ class _TraceWindowCursor:
         seq_len: int,
         dt: float,
         K: int,
+        times_are_bins: bool = False,
     ):
         self.seq_len = int(seq_len)
         if self.seq_len <= 0:
@@ -268,16 +269,20 @@ class _TraceWindowCursor:
         self.dt = float(dt)
         self.K = int(K)
 
-        bins = _time_to_bin_idx(times[: self.seq_len], self.dt)
+        # Times are already bins if passed from WindowFeatureStreamer.
+        if times_are_bins:
+            bins = times[: self.seq_len]
+        else:
+            bins = _time_to_bin_idx(times[: self.seq_len], self.dt)
         dirs_ = dirs[: self.seq_len].to(dtype=torch.long)
 
         # Unique consecutive bins and inverse indices for scatter_add.
         uniq, inv = torch.unique_consecutive(bins, return_inverse=True)
         nseg = int(uniq.numel())
-        up_counts = torch.zeros((nseg,), device=times.device, dtype=torch.float)
-        down_counts = torch.zeros((nseg,), device=times.device, dtype=torch.float)
-        up_counts.scatter_add_(0, inv, (dirs_ == UPLOAD).float())
-        down_counts.scatter_add_(0, inv, (dirs_ == DOWNLOAD).float())
+        up_counts = torch.zeros((nseg,), device=times.device, dtype=torch.long)
+        down_counts = torch.zeros((nseg,), device=times.device, dtype=torch.long)
+        up_counts.scatter_add_(0, inv, (dirs_ == UPLOAD).long())
+        down_counts.scatter_add_(0, inv, (dirs_ == DOWNLOAD).long())
 
         self._pkt_bins = uniq
         self._up_counts = up_counts
@@ -328,19 +333,19 @@ class _TraceWindowCursor:
             return None
         return self._map_bin(int(self._pkt_bins[self.p].item()))
 
-    def _consume_pkt_bin(self, b: int) -> tuple[float, float]:
+    def _consume_pkt_bin(self, b: int) -> tuple[int, int]:
         # Consume one or more original bins that map to the same output bin b.
         if self.p >= int(self._pkt_bins.numel()):
             raise StopIteration
 
-        up = 0.0
-        down = 0.0
+        up = 0
+        down = 0
         while self.p < int(self._pkt_bins.numel()):
             bb = self._map_bin(int(self._pkt_bins[self.p].item()))
             if bb != b:
                 break
-            up += float(self._up_counts[self.p].item())
-            down += float(self._down_counts[self.p].item())
+            up += int(self._up_counts[self.p].item())
+            down += int(self._down_counts[self.p].item())
             self.p += 1
 
         self.next_pkt_bin = self._peek_pkt_bin()
@@ -364,7 +369,7 @@ class _TraceWindowCursor:
             return self.silence_next
         return self.next_pkt_bin
 
-    def step(self) -> tuple[int, float, float, int | None]:
+    def step(self) -> tuple[int, int, int, int | None]:
         """Return (bin, up_count, down_count, next_bin_or_none) and advance."""
         if (b := self._peek_next_bin()) is None:
             raise StopIteration
@@ -378,7 +383,7 @@ class _TraceWindowCursor:
                     self.silence_next = None
                 self.last_bin = b
                 self.last_was_silence = True
-                return b, 0.0, 0.0, self._peek_next_bin()
+                return b, 0, 0, self._peek_next_bin()
 
         # Packet bin.
         up, down = self._consume_pkt_bin(b)
@@ -458,6 +463,7 @@ class WindowFeatureStreamer:
                     seq_len=int(self.pkt_seq_lens[i].item()),
                     dt=self.dt,
                     K=self.K,
+                    times_are_bins=True,
                 )
             )
 
@@ -476,8 +482,8 @@ class WindowFeatureStreamer:
             bins = torch.zeros((bs, 1), device=device, dtype=torch.long)
         # Emit int bins (not float times)
         times = torch.full((bs, 1), -1, device=device, dtype=torch.long)  # -1 = invalid
-        up = torch.full((bs, 1), -1, device=device, dtype=torch.long)
-        down = torch.full((bs, 1), -1, device=device, dtype=torch.long)
+        up = torch.zeros((bs, 1), device=device, dtype=torch.long)
+        down = torch.zeros((bs, 1), device=device, dtype=torch.long)
         dts = torch.full((bs, 1), -1, device=device, dtype=torch.long)  # bin count
 
         for i in range(bs):

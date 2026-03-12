@@ -95,8 +95,10 @@ def main() -> None:
 
     steps: dict[Feats, list[torch.Tensor]] = {f: [] for f in features}
 
-    # Safety bound: worst case we insert one window every dt up to last time + extend.
-    max_steps = int((X[Feats.TIMES].max().item() + extend_end_s) / dt) + 10
+    # Safety bound: with silence insertion, we can have more windows than bins.
+    # Worst case: one window per bin + silence windows. Use 3x the bin count.
+    max_bins = int((X[Feats.TIMES].max().item() + extend_end_s) / dt) + 10
+    max_steps = max_bins * 3
 
     for _ in range(max_steps):
         fd_t = streamer.step()
@@ -111,7 +113,8 @@ def main() -> None:
 
     # Compare lengths.
     seq_lens_full = fd_full[Feats.SEQ_LENS]
-    seq_lens_stream = fd_stream[Feats.TIMES].isfinite().sum(dim=1).long()
+    # TIMES are int bins with -1 sentinel; count valid entries.
+    seq_lens_stream = (fd_stream[Feats.TIMES] >= 0).sum(dim=1)
     torch.testing.assert_close(seq_lens_stream, seq_lens_full, atol=0, rtol=0)
 
     # Ensure same max length.
@@ -120,14 +123,14 @@ def main() -> None:
     if L_stream != L_full:
         raise AssertionError(f"Length mismatch: stream={L_stream} full={L_full}")
 
-    # Exact compare on finite positions.
-    mask = fd_full[Feats.TIMES].isfinite()
+    # Exact compare on valid positions (TIMES >= 0 for int bins).
+    mask = fd_full[Feats.TIMES] >= 0
     for f in features:
         a = fd_full[f]
         b = fd_stream[f]
         atol = 0.0
         if f in {Feats.Dt, Feats.TIMES}:
-            atol = 1e-6
+            atol = 0  # int bins, exact match
         try:
             torch.testing.assert_close(
                 a[mask], b[mask], atol=atol, rtol=0.0, msg=str(f)
@@ -146,9 +149,10 @@ def main() -> None:
                 print("stream.dt", fd_stream[Feats.Dt][i0, :10])
             raise e
 
-        # NaNs in the tail should align too.
-        if not torch.equal(a.isnan(), b.isnan()):
-            raise AssertionError(f"NaN mask mismatch for {f}")
+        # -1 sentinel in the tail should align too (for int-bin features).
+        if f in (Feats.TIMES, Feats.Dt):
+            if not torch.equal(a < 0, b < 0):
+                raise AssertionError(f"Sentinel mask mismatch for {f}")
 
     print("OK: WindowFeatureStreamer matches get_window_feature_dict")
 
@@ -157,7 +161,7 @@ def main() -> None:
 
         os.makedirs(args.outdir, exist_ok=True)
         i = int(args.idx)
-        mask_i = fd_full[Feats.TIMES][i].isfinite()
+        mask_i = fd_full[Feats.TIMES][i] >= 0
 
         fig, axes = plt.subplots(5, 1, figsize=(18, 12), sharex=True)
         fig.suptitle(f"WindowFeatureStreamer equiv (batch={i})")

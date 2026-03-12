@@ -175,13 +175,20 @@ def _assert_close_masked(
         raise AssertionError(f"{name}: shape mismatch {a.shape} vs {b.shape}")
     aa = a[mask]
     bb = b[mask]
-    try:
-        torch.testing.assert_close(aa, bb, atol=atol, rtol=rtol, msg=name)
-    except AssertionError as e:
-        diff = (aa - bb).abs()
-        mx = float(diff.max().item()) if diff.numel() else 0.0
-        mean = float(diff.mean().item()) if diff.numel() else 0.0
-        raise AssertionError(f"{name}: max_abs_diff={mx:.6g} mean_abs_diff={mean:.6g}") from e
+    # For int tensors, use exact comparison
+    if aa.is_floating_point():
+        try:
+            torch.testing.assert_close(aa, bb, atol=atol, rtol=rtol, msg=name)
+        except AssertionError as e:
+            diff = (aa - bb).abs()
+            mx = float(diff.max().item()) if diff.numel() else 0.0
+            mean = float(diff.mean().item()) if diff.numel() else 0.0
+            raise AssertionError(f"{name}: max_abs_diff={mx:.6g} mean_abs_diff={mean:.6g}") from e
+    else:
+        if not torch.equal(aa, bb):
+            diff = (aa - bb).abs()
+            mx = int(diff.max().item()) if diff.numel() else 0
+            raise AssertionError(f"{name}: int tensor mismatch, max_diff={mx}")
 
 
 def main() -> None:
@@ -387,7 +394,7 @@ def main() -> None:
         fd_b,
     ) = out_b
 
-    seq_lens = fd_a[Feats.TIMES].isnan().logical_not().sum(dim=1)
+    seq_lens = (fd_a[Feats.TIMES] >= 0).sum(dim=1)
     T = act_times_a.shape[1]
     mask = torch.arange(T, device=device)[None, :] < seq_lens[:, None]
 
