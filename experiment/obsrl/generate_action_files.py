@@ -7,53 +7,11 @@ import torch
 
 from kipl_ml.data.utils import Datasets, assets, load_dataset_meta_df
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
-from kipl_ml.rl.action import TraceExecState
-from kipl_ml.rl.enums import Actions
+from kipl_ml.rl.action import execute_actions_from_sequence
 from kipl_ml.rl.observation import get_window_feature_dict
-from kipl_ml.rl.utils import _boundary_time_to_bin_idx, _duration_to_bin_offsets
 from kipl_ml.tools.mlflow_utils import set_tracking_uri_from_env
 from kipl_ml.trace.features import Feats, FeatureTrs
 
-
-def _exec_actions(
-    X: dict[Feats, torch.Tensor],
-    act_times: torch.Tensor,
-    actions: dict,
-    time_step_s: float,
-) -> dict[Feats, torch.Tensor]:
-    """Execute actions via TraceExecState, handling float or int bin times."""
-    exec_state = TraceExecState(
-        {
-            Feats.TIMES: X[Feats.TIMES].clone(),
-            Feats.DIRS: X[Feats.DIRS].clone(),
-            Feats.PADDING: X.get(Feats.PADDING, torch.zeros_like(X[Feats.TIMES])),
-        },
-        time_step_s=time_step_s,
-    )
-
-    # Convert float times/actions to int bins if needed.
-    if act_times.is_floating_point():
-        times_bin = _boundary_time_to_bin_idx(act_times, time_step_s)
-        times_bin = torch.where(act_times.isfinite(), times_bin, torch.full_like(times_bin, -1))
-        actions = dict(actions)
-        for k in (Actions.DELAY, Actions.SEND_UP_AFTER_TIME, Actions.SEND_DOWN_AFTER_TIME):
-            if k in actions and actions[k].is_floating_point():
-                actions[k] = _duration_to_bin_offsets(actions[k], time_step_s)
-    else:
-        times_bin = act_times
-
-    bs, T = times_bin.shape
-    for t_i in range(T):
-        active = times_bin[:, t_i] >= 0
-        if not bool(active.any().item()):
-            continue
-        trace_idx = torch.where(active)[0]
-        exec_state.step(
-            trace_idx=trace_idx,
-            times=times_bin[active, t_i : t_i + 1],
-            actions={k: v[active, t_i : t_i + 1] for k, v in actions.items()},
-        )
-    return exec_state.finalize()
 
 WORKING_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR_PATH = os.path.join(WORKING_DIR, "config")
@@ -114,7 +72,9 @@ def generate_for(
                 fd, None, h_detach_period=1000, seq_lens=action_seq_lens
             )
 
-        Xobs = _exec_actions(X, act_times, actions, time_step_s=float(obs.time_step))
+        Xobs = execute_actions_from_sequence(
+            X, act_times, actions, time_step_s=float(obs.time_step)
+        )
         act_times = act_times.squeeze(0).cpu().numpy()
 
         action_df = pd.DataFrame(data=act_times, columns=["act_times [s]"])

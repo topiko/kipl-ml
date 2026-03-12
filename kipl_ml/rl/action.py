@@ -371,3 +371,43 @@ def _get_times_and_mode(
         raise ValueError("Invalid send mode detected")
 
     return times, mode
+
+
+def execute_actions_from_sequence(
+    X: dict[Feats, torch.Tensor],
+    act_times: torch.Tensor,
+    actions: dict[Actions, torch.Tensor],
+    time_step_s: float,
+) -> dict[Feats, torch.Tensor]:
+    """Execute a sequence of actions on a trace.
+
+    Args:
+        X: Base trace with TIMES, DIRS, PADDING.
+        act_times: (B, T) int bin action times. -1 for inactive.
+        actions: Dict of (B, T) action tensors (int bins).
+        time_step_s: Time step in seconds.
+
+    Returns:
+        Obfuscated trace with TIMES, DIRS, PADDING.
+    """
+    exec_state = TraceExecState(
+        {
+            Feats.TIMES: X[Feats.TIMES].clone(),
+            Feats.DIRS: X[Feats.DIRS].clone(),
+            Feats.PADDING: X.get(Feats.PADDING, torch.zeros_like(X[Feats.TIMES])),
+        },
+        time_step_s=time_step_s,
+    )
+
+    bs, T = act_times.shape
+    for t_i in range(T):
+        active = act_times[:, t_i] >= 0
+        if not bool(active.any().item()):
+            continue
+        trace_idx = torch.where(active)[0]
+        exec_state.step(
+            trace_idx=trace_idx,
+            times=act_times[active, t_i : t_i + 1],
+            actions={k: v[active, t_i : t_i + 1] for k, v in actions.items()},
+        )
+    return exec_state.finalize()
