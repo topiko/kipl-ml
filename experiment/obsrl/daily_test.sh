@@ -50,6 +50,11 @@ run "Rollout sanity (do_nothing)" \
     --runs "${RUNS}" --warmup "${WARMUP}" --runs_rewards "${RUNS_REWARDS}" \
     --selector_pattern do_nothing
 
+run "Rollout sanity (send_cycle - single-pass)" \
+  python -u experiment/obsrl/codex_debug/debug_rollout_equiv.py \
+    --runs "${RUNS}" --warmup "${WARMUP}" --runs_rewards "${RUNS_REWARDS}" \
+    --selector_pattern send_cycle
+
 run "Rollout sanity (send_and_delay_cycle)" \
   python -u experiment/obsrl/codex_debug/debug_rollout_equiv.py \
     --runs "${RUNS}" --warmup "${WARMUP}" --runs_rewards "${RUNS_REWARDS}" \

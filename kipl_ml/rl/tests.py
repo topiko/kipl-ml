@@ -289,5 +289,69 @@ class TestExecuteActionsFromSequence(unittest.TestCase):
         self.assertTrue(torch.isfinite(X_obs[Feats.TIMES]).all())
 
 
+class TestSinglePassRollout(unittest.TestCase):
+    DT = 0.02
+
+    def test_single_pass_no_delay(self):
+        from kipl_ml.models.trgen import AGENT1
+        from kipl_ml.rl.simulate import policy_rollout_single_pass
+
+        times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
+        dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
+        padding = torch.zeros_like(dirs)
+
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+
+        obs = AGENT1(
+            time_step=self.DT,
+            max_silence_s=0.1,
+            enable_delay=False,
+            send_mode="fixed",
+            prob_eps=0.0,
+        )
+        obs.eval()
+
+        with torch.no_grad():
+            fd, act_times, actions, _, _, _, _, X_obs = policy_rollout_single_pass(
+                obs, X, sample=False, extend_end_s=0.0
+            )
+
+        self.assertTrue(torch.isfinite(X_obs[Feats.TIMES]).all())
+        self.assertEqual(fd[Feats.TIMES].dtype, torch.long)
+        self.assertEqual(fd[Feats.Dt].dtype, torch.long)
+        self.assertTrue((fd[Feats.TIMES] >= 0).any())
+
+    def test_single_pass_matches_execute_actions(self):
+        from kipl_ml.models.trgen import AGENT1
+        from kipl_ml.rl.simulate import policy_rollout_single_pass
+
+        times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
+        dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
+        padding = torch.zeros_like(dirs)
+
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+
+        obs = AGENT1(
+            time_step=self.DT,
+            max_silence_s=0.1,
+            enable_delay=False,
+            send_mode="fixed",
+            prob_eps=0.0,
+        )
+        obs.eval()
+
+        with torch.no_grad():
+            fd, act_times, actions, _, _, _, _, X_obs = policy_rollout_single_pass(
+                obs, X, sample=False, extend_end_s=0.0
+            )
+
+        valid_mask = act_times >= 0
+        if valid_mask.any():
+            X_obs2 = execute_actions_from_sequence(
+                X, act_times, actions, time_step_s=self.DT
+            )
+            self.assertTrue(torch.allclose(X_obs[Feats.TIMES], X_obs2[Feats.TIMES], atol=1e-6))
+
+
 if __name__ == "__main__":
     unittest.main()
