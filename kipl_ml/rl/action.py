@@ -58,43 +58,6 @@ def _apply_delay_clamp_bins_inplace(
     return t
 
 
-def _apply_delay_clamp_inplace(
-    t: torch.Tensor,
-    delay_starts: torch.Tensor,
-    delay_durations: torch.Tensor,
-) -> torch.Tensor:
-    """Clamp times in each delay window [t0, t0+d) to t0+d."""
-    if delay_starts.numel() == 0:
-        return t
-
-    order = torch.argsort(delay_starts)
-    t0s = delay_starts[order]
-    ds = delay_durations[order]
-
-    # Prefer bin-space clamping when delay duration is constant.
-    pos = ds[ds > 0]
-    if pos.numel() > 0:
-        d0 = float(pos[0].item())
-        if torch.allclose(pos, torch.full_like(pos, d0), atol=1e-6, rtol=0.0):
-            dt_q = round(d0 * 1e6)
-            dt_s = dt_q / 1e6
-            if dt_s > 0:
-                start_bins = _boundary_time_to_bin_idx(t0s, dt_s)
-                shift_bins = _duration_to_bin_offsets(ds, dt_s)
-                return _apply_delay_clamp_bins_inplace(
-                    t,
-                    start_bins=start_bins,
-                    shift_bins=shift_bins,
-                    dt_s=dt_s,
-                )
-
-    # Fallback: float interval clamping.
-    for t0, d in zip(t0s, ds):
-        t1 = t0 + d
-        t = torch.where((t >= t0) & (t < t1), t1, t)
-    return t
-
-
 @dataclass
 class TraceExecState:
     """Accumulate stepwise actions and finalize once.
