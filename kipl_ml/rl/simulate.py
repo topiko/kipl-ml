@@ -340,17 +340,6 @@ def _policy_rollout_streaming_impl(
             start_bins_full[active_idx_cpu] = start_bins_a
             streamer.apply_delay_bins(start_bins_full, shift_full)
 
-        if max_packets is not None:
-            active_n = int(active_cpu.sum().item())
-            inc = torch.zeros((active_n,), device=device, dtype=torch.long)
-            if Actions.SEND_COUNT_UP in actions_a:
-                inc = inc + actions_a[Actions.SEND_COUNT_UP].squeeze(1)
-            if Actions.SEND_COUNT_DOWN in actions_a:
-                inc = inc + actions_a[Actions.SEND_COUNT_DOWN].squeeze(1)
-            pad_n[active_idx] = pad_n[active_idx] + inc
-            if ((base_n + pad_n) >= int(max_packets)).all():
-                break
-
         if record_policy:
             # Scatter back to full batch. -1 = inactive.
             act_times_t = torch.full((bs, 1), -1, device=device, dtype=torch.long)
@@ -385,6 +374,17 @@ def _policy_rollout_streaming_impl(
             values_actor_l.append(values_t)
             ent_sel_l.append(ent_sel_t)
             ent_cond_l.append(ent_cond_t)
+
+        if max_packets is not None:
+            active_n = int(active_cpu.sum().item())
+            inc = torch.zeros((active_n,), device=device, dtype=torch.long)
+            if Actions.SEND_COUNT_UP in actions_a:
+                inc = inc + actions_a[Actions.SEND_COUNT_UP].squeeze(1)
+            if Actions.SEND_COUNT_DOWN in actions_a:
+                inc = inc + actions_a[Actions.SEND_COUNT_DOWN].squeeze(1)
+            pad_n[active_idx] = pad_n[active_idx] + inc
+            if ((base_n + pad_n) >= int(max_packets)).all():
+                break
 
     X_obs = exec_state.finalize()
     if max_packets is not None:
