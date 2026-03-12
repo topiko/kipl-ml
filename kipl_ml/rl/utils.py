@@ -2,36 +2,6 @@ from __future__ import annotations
 
 import torch
 
-from kipl_ml.logging.logger import get_logger
-
-logger = get_logger(__name__)
-
-
-def _fill_after_seq_end(
-    values: torch.Tensor, pad_val: float, fill_val: str = "nan"
-) -> torch.Tensor:
-    mask = (values != pad_val).float()
-
-    rows, cols = torch.where(mask.diff(dim=1) < 0)
-
-    # A strict assertion: there must be exactly one transition from non-pad
-    # to pad per row. If you need to fill using an explicit mask, use
-    # fill_after_seq_end(...).
-    if rows.unique().numel() != len(rows):
-        raise ValueError("More than one val -> pad_val detected!")
-
-    for idx_r, idx_c in zip(rows, cols):
-        if fill_val == "nan":
-            values[idx_r, (idx_c + 1) :] = torch.nan
-        elif fill_val == "last":
-            values[idx_r, (idx_c + 1) :] = values[idx_r, idx_c]
-        elif fill_val == "max":
-            values[idx_r, (idx_c + 1) :] = values[idx_r, :].max()
-        else:
-            raise ValueError(f"Unknown fill_val option: {fill_val}")
-
-    return values
-
 
 def fill_after_seq_end(
     values: torch.Tensor,
@@ -103,42 +73,6 @@ def _flush_left(
     values_pushed[row_valid, col_valid] = values[keep_mask]
 
     return values_pushed
-
-
-def _append_values(
-    base: torch.Tensor, values: torch.Tensor, on_short_base: str = "raise"
-) -> torch.Tensor:
-    if base.shape[0] != values.shape[0]:
-        raise ValueError("Batch size of buffer and values must match")
-
-    B = base.shape[0]
-
-    # (B, )
-    start_idxs = (base != 0).sum(dim=1)
-
-    if ((start_idxs + values.shape[1]) > base.shape[1]).any():
-        if on_short_base == "raise":
-            raise ValueError("Base buffer too short to append values")
-        elif on_short_base == "cat":
-            # Allow for base expansion
-            base = torch.cat(
-                (base, torch.zeros((B, values.shape[1]), device=base.device)), dim=1
-            )
-        else:
-            raise ValueError(f"Unknown on_short_base option: {on_short_base}")
-
-    M = values.shape[1]
-    # (B, M) column indices
-    col_idxs = torch.arange(M, device=base.device).unsqueeze(0).expand(
-        B, -1
-    ) + start_idxs.unsqueeze(1)
-
-    # (B, M) row indices
-    row_idxs = torch.arange(B, device=base.device).unsqueeze(1).expand(-1, M)
-
-    base[row_idxs, col_idxs] = values
-
-    return base
 
 
 def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
