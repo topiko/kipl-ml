@@ -41,12 +41,15 @@ def get_rewards(
     if obs_dt_s is not None and action_times.dtype in (torch.long, torch.int):
         action_times_f = action_times.float() * float(obs_dt_s)
         # Mark invalid bins (-1) as inf so searchsorted sorts them last.
-        action_times_f = torch.where(action_times >= 0, action_times_f, torch.tensor(float("inf")))
+        action_times_f = torch.where(
+            action_times >= 0, action_times_f, torch.tensor(float("inf"))
+        )
     else:
         action_times_f = action_times.float()
 
     rewards: dict[str, torch.Tensor] = {
-        k.replace("_scale", ""): torch.zeros((bs, T), device=action_times.device) for k in reward_scales
+        k.replace("_scale", ""): torch.zeros((bs, T), device=action_times.device)
+        for k in reward_scales
     }
 
     # (B, N)
@@ -73,42 +76,36 @@ def get_rewards(
 
     boundaries = action_times_f
 
+    # Padding penalty: count actual padding packets per action interval.
+    # Shared by both dir and tam paths -- uses X_obs packet times.
+    # =============================================
+    pkt_idx = torch.searchsorted(boundaries, times, right=True) - 1
+    pkt_valid_idx = (pkt_idx >= 0) & (pkt_idx < T)
+    pkt_in_seq = (
+        torch.arange(N, device=times.device)[None, :]
+        < packet_seq_lens.to(times.device)[:, None]
+    )
+    pkt_valid = pkt_valid_idx & pkt_in_seq
+    pkt_idx_clamped = pkt_idx.clamp(0, T - 1)
+
+    pad_w = (padding & pkt_valid).to(times.dtype)
+    npad = torch.zeros(
+        (bs, T), device=times.device, dtype=times.dtype
+    ).scatter_add_(1, pkt_idx_clamped, pad_w)
+    rewards["padding"] -= npad * reward_scales["padding_scale"]
+
     if feat_mode == "dir":
-        # Assign each packet time to an action interval [t_i, t_{i+1}).
-        # We treat NaNs in action_times as +inf, which makes the last finite action
-        # cover the rest of the trace.
-        # (B, N) in [0..T], then shift to [ -1 .. T-1 ]
-        idx = torch.searchsorted(boundaries, times, right=True) - 1
-        valid_idx = (idx >= 0) & (idx < T)
-
-        # Ignore padded packets beyond seq_lens.
-        pkt_valid = (
-            torch.arange(N, device=times.device)[None, :]
-            < packet_seq_lens.to(times.device)[:, None]
-        )
-        valid = valid_idx & pkt_valid
-
-        idx_clamped = idx.clamp(0, T - 1)
-
-        # Padding penalty: count padding packets per action interval.
-        # =============================================
-        pad_w = (padding & valid).to(times.dtype)
-        npad = torch.zeros(
-            (bs, T), device=times.device, dtype=times.dtype
-        ).scatter_add_(1, idx_clamped, pad_w)
-        rewards["padding"] -= npad * reward_scales["padding_scale"]
-
         # Classifier reward: mean over normal packets per interval.
         # =============================================
-        normal_w = ((~padding) & valid).to(times.dtype)
+        normal_w = ((~padding) & pkt_valid).to(times.dtype)
         normal_cnt = torch.zeros(
             (bs, T), device=times.device, dtype=times.dtype
-        ).scatter_add_(1, idx_clamped, normal_w)
+        ).scatter_add_(1, pkt_idx_clamped, normal_w)
 
         r_pkt = torch.clamp(-m, min=-10, max=10.0)
         normal_sum = torch.zeros(
             (bs, T), device=times.device, dtype=times.dtype
-        ).scatter_add_(1, idx_clamped, r_pkt * normal_w)
+        ).scatter_add_(1, pkt_idx_clamped, r_pkt * normal_w)
         mean_p = torch.where(normal_cnt > 0, normal_sum / normal_cnt, 0.0)
         rewards["clf"] += mean_p * reward_scales["clf_scale"]
 
@@ -140,15 +137,6 @@ def get_rewards(
 
         idxs = torch.searchsorted(boundaries_bins, disc_bins, right=True) - 1
         idxs = idxs.clamp(0, T - 1)
-
-        # padding
-        # =============================================
-        rewards["padding"] -= (
-            actions[Actions.SEND_COUNT_DOWN] * reward_scales["padding_scale"]
-        )
-        rewards["padding"] -= (
-            actions[Actions.SEND_COUNT_UP] * reward_scales["padding_scale"]
-        )
 
         # clf
         # =============================================
@@ -220,7 +208,8 @@ def get_rewards(
             mean_p.diff(dim=1, prepend=mean_p[:, :1].clone())
             / action_times_f.diff(
                 dim=1,
-                prepend=torch.ones((bs, 1), device=action_times_f.device) * float("-inf"),
+                prepend=torch.ones((bs, 1), device=action_times_f.device)
+                * float("-inf"),
             )
         ).clamp(max=0)
         * reward_scales["d_clf_scale"],
@@ -301,7 +290,11 @@ def compute_rewards_league(
             disc_seq_lens,
             feat_mode=disc.feat_mode,
             reward_scales=reward_scales,
-            tam_dt_s=(float(disc.tam_dict.get("window_width_s", 0.0)) if getattr(disc, "feat_mode", None) == "tam" else None),
+            tam_dt_s=(
+                float(disc.tam_dict.get("window_width_s", 0.0))
+                if getattr(disc, "feat_mode", None) == "tam"
+                else None
+            ),
         )
         rewards_l.append(rewards_)
 
