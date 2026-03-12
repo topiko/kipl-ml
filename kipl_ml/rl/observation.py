@@ -9,7 +9,6 @@ from kipl_ml.rl.utils import (
     _duration_to_bin_offsets,
     _flush_left,
     _time_to_bin_idx,
-    fill_after_seq_end,
 )
 from kipl_ml.trace.enums import Feats
 
@@ -98,15 +97,21 @@ def _add_actions_to_silence_periods(
     add_times[rows_s, pos] = new_bins_s
 
     # Inserted windows have zero counts.
-    add_up = torch.zeros((B, max_add), device=device, dtype=feature_dict[Feats.UP_COUNT].dtype)
-    add_down = torch.zeros((B, max_add), device=device, dtype=feature_dict[Feats.DOWN_COUNT].dtype)
+    add_up = torch.zeros(
+        (B, max_add), device=device, dtype=feature_dict[Feats.UP_COUNT].dtype
+    )
+    add_down = torch.zeros(
+        (B, max_add), device=device, dtype=feature_dict[Feats.DOWN_COUNT].dtype
+    )
 
     # Concatenate and sort. Use large value to push -1 sentinels to the end.
     times_all = torch.cat([feature_dict[Feats.TIMES], add_times], dim=1)
     up_all = torch.cat([feature_dict[Feats.UP_COUNT], add_up], dim=1)
     down_all = torch.cat([feature_dict[Feats.DOWN_COUNT], add_down], dim=1)
 
-    sort_key = torch.where(times_all >= 0, times_all, torch.full_like(times_all, int(1e18)))
+    sort_key = torch.where(
+        times_all >= 0, times_all, torch.full_like(times_all, int(1e18))
+    )
     sort_idx = torch.argsort(sort_key, dim=1)
 
     feature_dict[Feats.TIMES] = times_all.gather(1, sort_idx)

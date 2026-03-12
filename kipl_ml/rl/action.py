@@ -171,10 +171,13 @@ class TraceExecState:
         # Enforce delay exclusivity for step execution.
         delay_mask = None
         if Actions.DELAY in actions:
-            delay_mask = (actions[Actions.DELAY] > 0)
+            delay_mask = actions[Actions.DELAY] > 0
 
         # Padding sends.
-        if Actions.SEND_COUNT_UP not in actions or Actions.SEND_COUNT_DOWN not in actions:
+        if (
+            Actions.SEND_COUNT_UP not in actions
+            or Actions.SEND_COUNT_DOWN not in actions
+        ):
             raise ValueError("Missing SEND_COUNT actions")
 
         def _record_dir(direction: str, dir_val: int) -> None:
@@ -340,7 +343,11 @@ def _sort_feature_dict(
     except TypeError:
         # Fallback for older torch: stable tie-break via column index.
         B, L = times.shape
-        tie = torch.arange(L, device=times.device, dtype=torch.long).unsqueeze(0).expand(B, -1)
+        tie = (
+            torch.arange(L, device=times.device, dtype=torch.long)
+            .unsqueeze(0)
+            .expand(B, -1)
+        )
         time_key = torch.round(times.to(torch.float64) * 1e6).to(torch.long)
         key = time_key * (L + 1) + tie
         indices = torch.argsort(key, dim=1)
