@@ -482,6 +482,22 @@ def send_exec(
     if time_step_s is None:
         time_step_s = _infer_time_step_s(times, actions)
 
+    # Convert float times/actions to int bins for TraceExecState.
+    if times.is_floating_point():
+        times_bin = _boundary_time_to_bin_idx(times, time_step_s)
+        # Convert delay and send-after-time actions from seconds to bins.
+        if Actions.DELAY in actions and actions[Actions.DELAY].is_floating_point():
+            actions[Actions.DELAY] = _duration_to_bin_offsets(
+                actions[Actions.DELAY], time_step_s
+            )
+        for k in (Actions.SEND_UP_AFTER_TIME, Actions.SEND_DOWN_AFTER_TIME):
+            if k in actions and actions[k].is_floating_point():
+                actions[k] = _duration_to_bin_offsets(actions[k], time_step_s)
+        # Mark non-finite entries as -1 (invalid).
+        times_bin = torch.where(times.isfinite(), times_bin, torch.full_like(times_bin, -1))
+    else:
+        times_bin = times
+
     exec_state = TraceExecState(
         {
             Feats.TIMES: X[Feats.TIMES],
@@ -491,14 +507,14 @@ def send_exec(
         time_step_s=float(time_step_s),
     )
 
-    _, T = times.shape
+    _, T = times_bin.shape
     for t_i in range(T):
-        active = times[:, t_i].isfinite()
+        active = times_bin[:, t_i] >= 0
         if not bool(active.any().item()):
             continue
 
         trace_idx = torch.where(active)[0]
-        step_times = times[active, t_i : t_i + 1]
+        step_times = times_bin[active, t_i : t_i + 1]
         step_actions = {k: v[active, t_i : t_i + 1] for k, v in actions.items()}
         exec_state.step(
             trace_idx=trace_idx,
