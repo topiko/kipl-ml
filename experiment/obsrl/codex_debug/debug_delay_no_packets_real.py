@@ -18,6 +18,7 @@ from kipl_ml.data.wf_dataset import get_train_valid_test
 from kipl_ml.models.trgen import AGENT1
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.simulate import policy_rollout_streaming
+from kipl_ml.rl.utils import _time_to_bin_idx
 from kipl_ml.trace.enums import Feats
 
 
@@ -34,14 +35,6 @@ class _AlwaysDelay(torch.nn.Module):
         logits = torch.zeros((b, l, self.n_actions), device=x.device, dtype=x.dtype)
         logits[..., self.delay_idx] = self.high
         return logits
-
-
-def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
-    if dt <= 0:
-        raise ValueError(f"dt must be > 0, got {dt}")
-    dt_us = max(1, int(round(float(dt) * 1e6)))
-    t_us = torch.round(times * 1e6).to(torch.long)
-    return torch.div(t_us, dt_us, rounding_mode="floor")
 
 
 def main() -> None:
@@ -100,7 +93,8 @@ def main() -> None:
 
     delay = actions[Actions.DELAY][0]
     t_all = act_times[0]
-    m_delay = torch.isfinite(t_all) & (delay > 0)
+    # act_times are int bins; -1 for inactive
+    m_delay = (t_all >= 0) & (delay > 0)
     if int(m_delay.sum().item()) < n:
         raise AssertionError(f"Only produced {int(m_delay.sum().item())} delay steps, need >= {n}")
 
@@ -113,8 +107,8 @@ def main() -> None:
     pkt_t = pkt_t[pkt_m]
     pkt_bins = _time_to_bin_idx(pkt_t, dt)
     for t0, dd in zip(t0s, ds):
-        s = int(_time_to_bin_idx(t0.unsqueeze(0), dt).item())
-        sh = int(torch.round(dd / dt).item())
+        s = int(t0.item())
+        sh = int(dd.item())
         if sh <= 0:
             continue
         e = s + sh
@@ -127,14 +121,14 @@ def main() -> None:
 
     # 2) Verify obs features observe no packets during same interval.
     w_t = fd[Feats.TIMES][0]
-    w_m_finite = torch.isfinite(w_t)
-    w_bins = _time_to_bin_idx(w_t[w_m_finite], dt)
-    up_w = fd[Feats.UP_COUNT][0][w_m_finite]
-    down_w = fd[Feats.DOWN_COUNT][0][w_m_finite]
+    w_m_valid = w_t >= 0
+    w_bins = w_t[w_m_valid]
+    up_w = fd[Feats.UP_COUNT][0][w_m_valid]
+    down_w = fd[Feats.DOWN_COUNT][0][w_m_valid]
 
     for t0, dd in zip(t0s, ds):
-        s = int(_time_to_bin_idx(t0.unsqueeze(0), dt).item())
-        sh = int(torch.round(dd / dt).item())
+        s = int(t0.item())
+        sh = int(dd.item())
         if sh <= 0:
             continue
         e = s + sh
@@ -145,15 +139,15 @@ def main() -> None:
             if not bool((up == 0).all().item()) or not bool((down == 0).all().item()):
                 raise AssertionError(
                     "Observed packets during delay block in obs features: "
-                    + f"up_max={float(up.max().item()):.3f}, down_max={float(down.max().item()):.3f}"
+                    + f"up_max={int(up.max().item())}, down_max={int(down.max().item())}"
                 )
 
     # 2b) Sanity: totals in features match executed trace totals.
-    up_total_fd = float(fd[Feats.UP_COUNT][0].nan_to_num(nan=0.0).sum().item())
-    down_total_fd = float(fd[Feats.DOWN_COUNT][0].nan_to_num(nan=0.0).sum().item())
-    up_total_x = float((X_obs[Feats.DIRS][0] == 1).sum().item())
-    down_total_x = float((X_obs[Feats.DIRS][0] == -1).sum().item())
-    if abs(up_total_fd - up_total_x) > 1e-3 or abs(down_total_fd - down_total_x) > 1e-3:
+    up_total_fd = int(fd[Feats.UP_COUNT][0][fd[Feats.UP_COUNT][0] >= 0].sum().item())
+    down_total_fd = int(fd[Feats.DOWN_COUNT][0][fd[Feats.DOWN_COUNT][0] >= 0].sum().item())
+    up_total_x = int((X_obs[Feats.DIRS][0] == 1).sum().item())
+    down_total_x = int((X_obs[Feats.DIRS][0] == -1).sum().item())
+    if up_total_fd != up_total_x or down_total_fd != down_total_x:
         raise AssertionError(
             "Feature totals mismatch executed trace totals: "
             + f"up(fd)={up_total_fd}, up(X_obs)={up_total_x}, "
@@ -161,7 +155,7 @@ def main() -> None:
         )
 
     # 3) Verify first N emitted actions were DELAY.
-    delay_steps = delay[torch.isfinite(act_times[0])]
+    delay_steps = delay[act_times[0] >= 0]
     if delay_steps.numel() < n:
         raise AssertionError(f"Only produced {int(delay_steps.numel())} steps, need >= {n}")
     if not bool((delay_steps[:n] > 0).all().item()):
