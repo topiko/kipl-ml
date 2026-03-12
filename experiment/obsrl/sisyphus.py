@@ -549,43 +549,31 @@ def main(cfg: DictConfig):
     time_clamp = (
         (0.0, cfg.trace.dur_max, True) if cfg.trace.dur_max is not None else None
     )
-    if discriminator_orig.feat_mode == "tam":
-        feature_names = discriminator_orig.features
-        tam_d = discriminator_orig.tam_dict
-        tam_d["max_load_time_s"] = cfg.disc.tam_max_load_time_s
+    feature_names = discriminator_orig.features
+    tam_d = discriminator_orig.tam_dict
+    tam_d["max_load_time_s"] = cfg.disc.tam_max_load_time_s
 
-        tam_ww = tam_d["window_width_s"]
-        if abs(tam_ww - float(cfg.obs.time_step_s)) > 1e-6:
-            raise ValueError(
-                "TAM window_width_s must match obs.time_step_s for TAM reward mapping. "
-                + f"Got tam_ww={tam_ww:.6f}s and obs.time_step_s={float(cfg.obs.time_step_s):.6f}s."
-            )
-        npackets = None
-
-        disc_trs = [
-            get_feature_tr(fn, npackets, time_clamp, tam_kwargs=tam_d)
-            for fn in feature_names
-        ]
-        disc_trs += [
-            get_feature_tr(f, npackets, time_clamp, tam_kwargs=tam_d)
-            for f in (Feats.TAM_DOWN_PAD, Feats.TAM_UP_PAD)
-        ]
-        # Expose integer TAM bins for reward mapping (disc ignores extra keys).
-        disc_trs.append(
-            get_feature_tr(Feats.TAM_BINS, npackets, time_clamp, tam_kwargs=tam_d)
-        )
-
-        disc_feats = FeatureTrs(feature_trs=disc_trs)
-    elif discriminator_orig.feat_mode == "dir":
-        feature_names = discriminator_orig.features
-        npackets = cfg.trace.len
-
-        # Discriminator features, w.o. limit on n_packets
-        disc_feats = FeatureTrs(feature_names=feature_names, n_packets=None)
-    else:
+    tam_ww = tam_d["window_width_s"]
+    if abs(tam_ww - float(cfg.obs.time_step_s)) > 1e-6:
         raise ValueError(
-            f"Unknown feat_mode {discriminator_orig.feat_mode} in discriminator_orig!"
+            "TAM window_width_s must match obs.time_step_s for TAM reward mapping. "
+            + f"Got tam_ww={tam_ww:.6f}s and obs.time_step_s={float(cfg.obs.time_step_s):.6f}s."
         )
+    npackets = None
+
+    disc_trs = [
+        get_feature_tr(fn, npackets, time_clamp, tam_kwargs=tam_d)
+        for fn in feature_names
+    ]
+    disc_trs += [
+        get_feature_tr(f, npackets, time_clamp, tam_kwargs=tam_d)
+        for f in (Feats.TAM_DOWN_PAD, Feats.TAM_UP_PAD)
+    ]
+    disc_trs.append(
+        get_feature_tr(Feats.TAM_BINS, npackets, time_clamp, tam_kwargs=tam_d)
+    )
+
+    disc_feats = FeatureTrs(feature_trs=disc_trs)
 
     logger.info("Discriminator features_trs:")
     disc_feats.report()

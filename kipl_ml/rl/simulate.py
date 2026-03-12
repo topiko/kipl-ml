@@ -23,18 +23,6 @@ _StreamingRollout = tuple[
 ]
 
 
-def _ensure_trace_dict(
-    X: dict[Feats, torch.Tensor],
-) -> dict[Feats, torch.Tensor]:
-    if Feats.TIMES not in X or Feats.DIRS not in X:
-        raise ValueError("X must contain TIMES and DIRS")
-
-    X2 = {k: v.clone() for k, v in X.items()}
-    if Feats.PADDING not in X2:
-        X2[Feats.PADDING] = torch.zeros_like(X2[Feats.TIMES])
-    return X2
-
-
 def _apply_extend_end_inplace(
     X: dict[Feats, torch.Tensor], extend_end_s: float
 ) -> None:
@@ -75,7 +63,11 @@ def policy_rollout_single_pass(
 
     obs_ = cast(Any, obs)
 
-    Xb = _ensure_trace_dict(X)
+    if Feats.TIMES not in X or Feats.DIRS not in X:
+        raise ValueError("X must contain TIMES and DIRS")
+    Xb = {k: v.clone() for k, v in X.items()}
+    if Feats.PADDING not in Xb:
+        Xb[Feats.PADDING] = torch.zeros_like(Xb[Feats.TIMES])
     _apply_extend_end_inplace(Xb, extend_end_s)
 
     fd = get_window_feature_dict(
@@ -237,7 +229,11 @@ def _policy_rollout_streaming_impl(
     tuple.
     """
 
-    Xb = _ensure_trace_dict(X)
+    if Feats.TIMES not in X or Feats.DIRS not in X:
+        raise ValueError("X must contain TIMES and DIRS")
+    Xb = {k: v.clone() for k, v in X.items()}
+    if Feats.PADDING not in Xb:
+        Xb[Feats.PADDING] = torch.zeros_like(Xb[Feats.TIMES])
     _apply_extend_end_inplace(Xb, extend_end_s)
 
     obs_ = cast(Any, obs)
@@ -292,12 +288,14 @@ def _policy_rollout_streaming_impl(
     while True:
         fd_t_full = streamer.step()
 
-        # TIMES are now int bins; -1 means invalid
+        # TIMES are int bins; -1 means invalid.
+        # active_cpu is on stream_device (CPU when X is on GPU to avoid syncs).
         active_cpu = (fd_t_full[Feats.TIMES] >= 0).squeeze(1)
         if int(active_cpu.sum().item()) == 0:
             break
 
-        active = active_cpu.to(device=device)
+        # active_gpu is on device (GPU when X is on GPU).
+        active_gpu = active_cpu.to(device)
 
         if record_policy:
             assert fd_steps is not None
@@ -314,58 +312,57 @@ def _policy_rollout_streaming_impl(
             for k in obs_.features
         }
 
-        h_active = _hidden_w_mask(hobs, active)
+        h_active = _hidden_w_mask(hobs, active_gpu)
         act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
             obs_.act_step(fd_t_active, h_active, sample=sample)
         )
 
-        hobs = _hidden_w_mask(hobs, active, h_active)
-        active_idx_cpu = torch.where(active_cpu)[0]
-        active_idx = active_idx_cpu.to(device)
+        hobs = _hidden_w_mask(hobs, active_gpu, h_active)
 
-        exec_state.step(trace_idx=active_idx, times=act_times_a, actions=actions_a)
+        exec_state.step(
+            trace_idx=torch.where(active_gpu)[0],
+            times=act_times_a,
+            actions=actions_a,
+        )
 
         if Actions.DELAY in actions_a and (actions_a[Actions.DELAY] > 0).any():
-            # All values are already int bins - no conversion needed.
+            delay_idx = torch.where(active_cpu)[0]
             shift_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
-            shift_bins_a = actions_a[Actions.DELAY].squeeze(1).detach().to(stream_device).long()
-            shift_full[active_idx_cpu] = shift_bins_a
+            shift_full[delay_idx] = actions_a[Actions.DELAY].squeeze(1).to(stream_device).long()
 
             start_bins_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
-            # start = current window bin + dt bins (= action time bin)
-            start_bins_a = (
+            start_bins_full[delay_idx] = (
                 fd_t_full[Feats.TIMES][active_cpu].squeeze(1)
                 + fd_t_full[Feats.Dt][active_cpu].squeeze(1)
             )
-            start_bins_full[active_idx_cpu] = start_bins_a
             streamer.apply_delay_bins(start_bins_full, shift_full)
 
         if record_policy:
             # Scatter back to full batch. -1 = inactive.
             act_times_t = torch.full((bs, 1), -1, device=device, dtype=torch.long)
-            act_times_t[active] = act_times_a
+            act_times_t[active_gpu] = act_times_a
 
             log_ps_t = torch.zeros((bs, 1), device=device)
-            log_ps_t[active] = log_ps_a
+            log_ps_t[active_gpu] = log_ps_a
 
             values_t = torch.zeros((bs, 1), device=device)
-            values_t[active] = values_a
+            values_t[active_gpu] = values_a
 
             sel_probs_t = torch.zeros((bs, 1, sel_probs_a.shape[-1]), device=device)
-            sel_probs_t[active] = sel_probs_a
+            sel_probs_t[active_gpu] = sel_probs_a
 
             ent_sel_t = torch.zeros((bs, 1), device=device)
-            ent_sel_t[active] = ent_a["selection_entropy"]
+            ent_sel_t[active_gpu] = ent_a["selection_entropy"]
 
             ent_cond_t = torch.zeros((bs, 1), device=device)
-            ent_cond_t[active] = ent_a["conditional_entropy"]
+            ent_cond_t[active_gpu] = ent_a["conditional_entropy"]
 
             if actions_l is None:
                 actions_l = {k: [] for k in actions_a.keys()}
 
             for k in actions_l.keys():
                 a_full = torch.zeros((bs, 1), device=device, dtype=actions_a[k].dtype)
-                a_full[active] = actions_a[k]
+                a_full[active_gpu] = actions_a[k]
                 actions_l[k].append(a_full)
 
             act_times_l.append(act_times_t)
@@ -376,13 +373,14 @@ def _policy_rollout_streaming_impl(
             ent_cond_l.append(ent_cond_t)
 
         if max_packets is not None:
-            active_n = int(active_cpu.sum().item())
+            dev_idx = torch.where(active_gpu)[0]
+            active_n = dev_idx.shape[0]
             inc = torch.zeros((active_n,), device=device, dtype=torch.long)
             if Actions.SEND_COUNT_UP in actions_a:
                 inc = inc + actions_a[Actions.SEND_COUNT_UP].squeeze(1)
             if Actions.SEND_COUNT_DOWN in actions_a:
                 inc = inc + actions_a[Actions.SEND_COUNT_DOWN].squeeze(1)
-            pad_n[active_idx] = pad_n[active_idx] + inc
+            pad_n[dev_idx] = pad_n[dev_idx] + inc
             if ((base_n + pad_n) >= int(max_packets)).all():
                 break
 

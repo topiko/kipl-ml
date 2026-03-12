@@ -353,5 +353,203 @@ class TestSinglePassRollout(unittest.TestCase):
             self.assertTrue(torch.allclose(X_obs[Feats.TIMES], X_obs2[Feats.TIMES], atol=1e-6))
 
 
+class TestVaryingSeqLens(unittest.TestCase):
+    DT = 0.02
+    MAX_SILENCE_S = 0.1
+
+    def test_single_pass_varying_seq_lens(self):
+        times = torch.tensor(
+            [
+                [0.0, 0.02, 0.04, 0.06, 0.08],
+                [0.0, 0.02, 0.04, 0.0, 0.0],
+                [0.0, 0.02, 0.0, 0.0, 0.0],
+            ]
+        )
+        dirs = torch.tensor(
+            [
+                [UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD],
+                [UPLOAD, DOWNLOAD, UPLOAD, 0, 0],
+                [UPLOAD, DOWNLOAD, 0, 0, 0],
+            ],
+            dtype=torch.float32,
+        )
+        padding = torch.zeros_like(dirs)
+
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        features = [Feats.TIMES, Feats.Dt, Feats.UP_COUNT, Feats.DOWN_COUNT]
+
+        fd = get_window_feature_dict(X, self.DT, self.MAX_SILENCE_S, features)
+
+        seq_lens = fd[Feats.SEQ_LENS]
+        self.assertEqual(seq_lens.shape[0], 3)
+        self.assertTrue((seq_lens > 0).all())
+
+        for i in range(3):
+            valid_count = (fd[Feats.TIMES][i] >= 0).sum().item()
+            self.assertEqual(valid_count, seq_lens[i].item())
+
+            if seq_lens[i].item() < fd[Feats.TIMES].shape[1]:
+                invalid_start = seq_lens[i].item()
+                self.assertTrue((fd[Feats.TIMES][i, invalid_start:] == -1).all())
+                self.assertTrue((fd[Feats.Dt][i, invalid_start:] == -1).all())
+
+    def test_streaming_varying_seq_lens(self):
+        times = torch.tensor(
+            [
+                [0.0, 0.02, 0.04, 0.06, 0.08],
+                [0.0, 0.02, 0.04, 0.0, 0.0],
+                [0.0, 0.02, 0.0, 0.0, 0.0],
+            ]
+        )
+        dirs = torch.tensor(
+            [
+                [UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD],
+                [UPLOAD, DOWNLOAD, UPLOAD, 0, 0],
+                [UPLOAD, DOWNLOAD, 0, 0, 0],
+            ],
+            dtype=torch.float32,
+        )
+        padding = torch.zeros_like(dirs)
+
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        features = [Feats.TIMES, Feats.Dt, Feats.UP_COUNT, Feats.DOWN_COUNT]
+
+        streamer = WindowFeatureStreamer(X, self.DT, self.MAX_SILENCE_S, features)
+
+        steps = {f: [] for f in features}
+        max_steps = 100
+        for _ in range(max_steps):
+            fd_t = streamer.step()
+            for f in features:
+                steps[f].append(fd_t[f])
+            if streamer.done.all():
+                break
+
+        self.assertTrue(streamer.done.all(), "All traces should be done")
+
+        fd_stream = {f: torch.cat(steps[f], dim=1) for f in features}
+
+        seq_lens_stream = (fd_stream[Feats.TIMES] >= 0).sum(dim=1)
+
+        self.assertTrue((seq_lens_stream > 0).all())
+
+        for i in range(3):
+            valid_count = (fd_stream[Feats.TIMES][i] >= 0).sum().item()
+            self.assertEqual(valid_count, seq_lens_stream[i].item())
+
+    def test_single_pass_matches_streaming_varying_lens(self):
+        times = torch.tensor(
+            [
+                [0.0, 0.02, 0.04, 0.06, 0.08, 0.10],
+                [0.0, 0.02, 0.04, 0.0, 0.0, 0.0],
+                [0.0, 0.02, 0.0, 0.0, 0.0, 0.0],
+            ]
+        )
+        dirs = torch.tensor(
+            [
+                [UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD],
+                [UPLOAD, DOWNLOAD, UPLOAD, 0, 0, 0],
+                [UPLOAD, DOWNLOAD, 0, 0, 0, 0],
+            ],
+            dtype=torch.float32,
+        )
+        padding = torch.zeros_like(dirs)
+
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        features = [Feats.TIMES, Feats.Dt, Feats.UP_COUNT, Feats.DOWN_COUNT]
+
+        fd_full = get_window_feature_dict(
+            {k: v.clone() for k, v in X.items()}, self.DT, self.MAX_SILENCE_S, features
+        )
+
+        streamer = WindowFeatureStreamer(
+            {k: v.clone() for k, v in X.items()}, self.DT, self.MAX_SILENCE_S, features
+        )
+
+        steps = {f: [] for f in features}
+        for _ in range(100):
+            fd_t = streamer.step()
+            for f in features:
+                steps[f].append(fd_t[f])
+            if streamer.done.all():
+                break
+
+        fd_stream = {f: torch.cat(steps[f], dim=1) for f in features}
+
+        seq_lens_full = fd_full[Feats.SEQ_LENS]
+        seq_lens_stream = (fd_stream[Feats.TIMES] >= 0).sum(dim=1)
+
+        self.assertTrue(torch.equal(seq_lens_stream, seq_lens_full))
+
+        for i in range(3):
+            T = seq_lens_full[i].item()
+            self.assertTrue(
+                torch.equal(fd_full[Feats.TIMES][i, :T], fd_stream[Feats.TIMES][i, :T])
+            )
+            self.assertTrue(
+                torch.equal(fd_full[Feats.UP_COUNT][i, :T], fd_stream[Feats.UP_COUNT][i, :T])
+            )
+            self.assertTrue(
+                torch.equal(fd_full[Feats.DOWN_COUNT][i, :T], fd_stream[Feats.DOWN_COUNT][i, :T])
+            )
+
+    def test_policy_rollout_varying_seq_lens(self):
+        from kipl_ml.models.trgen import AGENT1
+        from kipl_ml.rl.simulate import policy_rollout_single_pass, policy_rollout_streaming
+
+        times = torch.tensor(
+            [
+                [0.0, 0.02, 0.04, 0.06, 0.08],
+                [0.0, 0.02, 0.04, 0.0, 0.0],
+                [0.0, 0.02, 0.0, 0.0, 0.0],
+            ]
+        )
+        dirs = torch.tensor(
+            [
+                [UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD],
+                [UPLOAD, DOWNLOAD, UPLOAD, 0, 0],
+                [UPLOAD, DOWNLOAD, 0, 0, 0],
+            ],
+            dtype=torch.float32,
+        )
+        padding = torch.zeros_like(dirs)
+
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+
+        obs = AGENT1(
+            time_step=self.DT,
+            max_silence_s=self.MAX_SILENCE_S,
+            enable_delay=False,
+            send_mode="fixed",
+            prob_eps=0.0,
+        )
+        obs.eval()
+
+        with torch.no_grad():
+            fd_sp, act_times_sp, actions_sp, _, _, _, _, X_obs_sp = (
+                policy_rollout_single_pass(obs, X, sample=False, extend_end_s=0.0)
+            )
+
+            fd_st, act_times_st, actions_st, _, _, _, _, X_obs_st = (
+                policy_rollout_streaming(obs, X, sample=False, extend_end_s=0.0)
+            )
+
+        seq_lens_sp = fd_sp[Feats.SEQ_LENS]
+        seq_lens_st = (act_times_st >= 0).sum(dim=1)
+
+        self.assertTrue(torch.equal(seq_lens_sp, seq_lens_st))
+
+        for i in range(3):
+            valid_sp = (act_times_sp[i] >= 0).sum().item()
+            valid_st = (act_times_st[i] >= 0).sum().item()
+            self.assertEqual(valid_sp, seq_lens_sp[i].item())
+            self.assertEqual(valid_st, seq_lens_st[i].item())
+
+            if seq_lens_sp[i].item() < act_times_sp.shape[1]:
+                invalid_start = seq_lens_sp[i].item()
+                self.assertTrue((act_times_sp[i, invalid_start:] < 0).all())
+                self.assertTrue((act_times_st[i, invalid_start:] < 0).all())
+
+
 if __name__ == "__main__":
     unittest.main()

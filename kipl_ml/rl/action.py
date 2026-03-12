@@ -23,7 +23,9 @@ def _nudge_right_edge(times: torch.Tensor) -> torch.Tensor:
     """Move exact/right-edge times to the next representable float.
 
     This keeps boundary-aligned synthetic packets inside the intended target bin
-    under float floor/binning operations.
+    under float floor/binning operations. For example, a packet at exactly t=0.04s
+    with dt=0.02s should land in bin 2, not bin 1. Without nudging, float rounding
+    could place it at 0.039999... which floors to bin 1.
     """
     inf = torch.full_like(times, float("inf"))
     return torch.nextafter(times, inf)
@@ -300,20 +302,8 @@ def _sort_feature_dict(
     feature_dict: dict[Feats, torch.Tensor],
 ) -> dict[Feats, torch.Tensor]:
     times = feature_dict[Feats.TIMES]
-    try:
-        # Stable sort preserves relative order for equal timestamps.
-        indices = torch.argsort(times, dim=1, stable=True)
-    except TypeError:
-        # Fallback for older torch: stable tie-break via column index.
-        B, L = times.shape
-        tie = (
-            torch.arange(L, device=times.device, dtype=torch.long)
-            .unsqueeze(0)
-            .expand(B, -1)
-        )
-        time_key = torch.round(times.to(torch.float64) * 1e6).to(torch.long)
-        key = time_key * (L + 1) + tie
-        indices = torch.argsort(key, dim=1)
+    # Stable sort preserves relative order for equal timestamps.
+    indices = torch.argsort(times, dim=1, stable=True)
 
     sorted_times = times.gather(1, indices)
 
@@ -351,26 +341,17 @@ def _sort_feature_dict(
 def _get_times_and_mode(
     actions: dict[Actions, torch.Tensor], direction: str
 ) -> tuple[torch.Tensor, str]:
+    """Get send-after times for fixed-mode sends."""
     if direction not in {"up", "down"}:
-        raise ValueError("Invalid direction detected")
-    spread_time_key = (
-        Actions.SPREAD_TIME_UP if direction == "up" else Actions.SPREAD_TIME_DOWN
-    )
+        raise ValueError(f"Invalid direction: {direction}")
     send_after_time_key = (
         Actions.SEND_UP_AFTER_TIME
         if direction == "up"
         else Actions.SEND_DOWN_AFTER_TIME
     )
-
-    if spread_time_key in actions:
-        raise NotImplementedError("send_mode='spread' is deprecated; use fixed")
-    if send_after_time_key in actions:
-        times = actions[send_after_time_key]
-        mode = "fixed"
-    else:
-        raise ValueError("Invalid send mode detected")
-
-    return times, mode
+    if send_after_time_key not in actions:
+        raise ValueError(f"Missing {send_after_time_key} in actions")
+    return actions[send_after_time_key], "fixed"
 
 
 def execute_actions_from_sequence(

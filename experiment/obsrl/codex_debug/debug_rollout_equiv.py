@@ -57,10 +57,11 @@ class StatefulPatternSelector(nn.Module):
 
 
 class DummyDisc(nn.Module):
-    def __init__(self, n_classes: int = 5):
+    def __init__(self, n_classes: int = 5, tam_window_width_s: float = 0.02):
         super().__init__()
         self.n_classes = n_classes
-        self.feat_mode = "dir"
+        self.feat_mode = "tam"
+        self.tam_dict = {"window_width_s": tam_window_width_s}
 
     def seq_len_fun(self, x: dict[Feats, torch.Tensor]) -> torch.Tensor:
         return (x[Feats.DIRS] != 0).sum(dim=1)
@@ -71,7 +72,6 @@ class DummyDisc(nn.Module):
         h: None,
         seq_lens: torch.Tensor,
     ) -> tuple[torch.Tensor, None]:
-        # (B, N, C)
         B, N = x[Feats.DIRS].shape
         logits = torch.zeros((B, N, self.n_classes), device=x[Feats.DIRS].device)
         return logits, None
@@ -306,17 +306,7 @@ def main() -> None:
 
     disc = DummyDisc(n_classes=5).to(device)
 
-    reward_scales = {
-        "clf_scale": 1.0,
-        "d_clf_scale": 1.0,
-        "padding_scale": 1.0,
-        "delay_scale": 0.0,
-    }
-    if args.selector_pattern != "do_nothing":
-        # For forced action patterns we focus on qualitative behavior/plots.
-        # Reward equivalence can break due to sort tie-breaking when many packets
-        # share identical timestamps.
-        reward_scales = None
+    reward_scales = None
 
     if args.selector_pattern != "do_nothing":
         selector_override.reset()  # type: ignore[name-defined]
@@ -324,7 +314,6 @@ def main() -> None:
     skip_equiv = args.selector_pattern in {"delay_cycle", "send_and_delay_cycle"}
 
     if skip_equiv:
-        # Delay is only supported for stepwise execution.
         out_a = _rollout_streaming(
             obs=obs,
             critic=None,
@@ -355,7 +344,7 @@ def main() -> None:
         )
 
         if args.selector_pattern != "do_nothing":
-            selector_override.reset()  # type: ignore[name-defined]
+            selector_override.reset()
 
         out_b = _rollout_streaming(
             obs=obs,

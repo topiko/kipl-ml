@@ -21,17 +21,25 @@ from kipl_ml.trace.enums import Feats
 
 
 class _IdentityFeatures:
+    def __init__(self, n_tam_bins: int = 10):
+        self.n_tam_bins = n_tam_bins
+
     def __call__(self, x: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
-        return x
+        out = dict(x)
+        B = x[Feats.TIMES].shape[0]
+        out[Feats.TAM_TIMES] = torch.linspace(0.0, 0.18, self.n_tam_bins).unsqueeze(0).expand(B, -1)
+        out[Feats.TAM_UP_COUNTS] = torch.ones((B, self.n_tam_bins), dtype=torch.long)
+        out[Feats.TAM_DOWN_COUNTS] = torch.ones((B, self.n_tam_bins), dtype=torch.long)
+        return out
 
     def transform_batch(
         self, x: dict[Feats, torch.Tensor]
     ) -> dict[Feats, torch.Tensor]:
-        return x
+        return self(x)
 
 
 class _DummyDisc(torch.nn.Module):
-    def __init__(self, feat_mode: str = "dir"):
+    def __init__(self, feat_mode: str = "tam"):
         super().__init__()
         self.feat_mode = feat_mode
         self.tam_dict = {"window_width_s": 0.02}
@@ -102,9 +110,9 @@ def main() -> None:
 
     plot_utils._plot_single(
         cfg=OmegaConf.create({}),
-        disc_orig=_DummyDisc("dir"),
-        disc_trained=_DummyDisc("dir"),
-        disc_features=_IdentityFeatures(),
+        disc_orig=_DummyDisc("tam"),
+        disc_trained=_DummyDisc("tam"),
+        disc_features=_IdentityFeatures(n_tam_bins=10),
         e=1,
         device=device,
         ds_idx=0,

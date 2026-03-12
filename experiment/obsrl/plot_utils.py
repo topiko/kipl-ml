@@ -188,12 +188,7 @@ def _plot_single(
     ax_fd.sharey(ax)
     ax_o.sharey(ax)
 
-    if disc_orig.feat_mode == "dir":
-        plot_fn_ = plot_trace
-    elif disc_orig.feat_mode == "tam":
-        plot_fn_ = partial(plot_tam, window_width=disc_orig.tam_dict["window_width_s"])
-    else:
-        raise ValueError(f"Unknown feat_mode {disc_orig.feat_mode}")
+    plot_fn_ = partial(plot_tam, window_width=disc_orig.tam_dict["window_width_s"])
 
     # Orig disc on trace:
     # ========================================

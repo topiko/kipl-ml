@@ -23,14 +23,31 @@ def get_rewards(
     disc_logits: torch.Tensor,
     packet_seq_lens: torch.Tensor,
     disc_seq_lens: torch.Tensor,
-    feat_mode: str,
     reward_scales: dict[str, float],
     tam_dt_s: float | None = None,
 ) -> dict[str, torch.Tensor]:
-    # Shapes:
-    # - action_times: (B, T) int bins
-    # - disc_logits: (B, N, C)
-    # - seq_lens: (B,)
+    """Compute rewards for TAM-based discriminator.
+
+    Args:
+        action_times: (B, T) int bins
+        actions: Dict of action tensors
+        X_obs: Executed trace
+        X_raw: Original trace (for delay penalty)
+        obs_dt_s: Observation time step
+        X_disc: Discriminator input features
+        y: Target labels
+        disc_logits: (B, N, C) discriminator logits
+        packet_seq_lens: (B,) packet sequence lengths
+        disc_seq_lens: (B,) discriminator sequence lengths
+        reward_scales: Dict of reward scale factors
+        tam_dt_s: TAM bin width in seconds (required)
+
+    Returns:
+        Dict of reward tensors (B, T)
+    """
+    if tam_dt_s is None or tam_dt_s <= 0:
+        raise ValueError("tam_dt_s must be provided for TAM reward mapping")
+
     N = disc_logits.shape[1]
     bs, T = action_times.shape
 
@@ -53,11 +70,6 @@ def get_rewards(
     times = X_obs[Feats.TIMES][:, :N]
     padding = X_obs[Feats.PADDING][:, :N].bool()
 
-    # (B, N, C)
-    # probs = nn.functional.softmax(disc_logits, dim=-1)
-    # (B, N)
-    # target_probs = probs.gather(2, y[:, None, None].expand(-1, N, 1)).squeeze(-1)
-
     # (B, N, 1)
     target_idx = y[:, None, None].expand(-1, N, 1)
 
@@ -74,8 +86,6 @@ def get_rewards(
     boundaries = action_times_f
 
     # Padding penalty: count actual padding packets per action interval.
-    # Shared by both dir and tam paths -- uses X_obs packet times.
-    # =============================================
     pkt_idx = torch.searchsorted(boundaries, times, right=True) - 1
     pkt_valid_idx = (pkt_idx >= 0) & (pkt_idx < T)
     pkt_in_seq = (
@@ -91,81 +101,54 @@ def get_rewards(
     ).scatter_add_(1, pkt_idx_clamped, pad_w)
     rewards["padding"] -= npad * reward_scales["padding_scale"]
 
-    if feat_mode == "dir":
-        # Classifier reward: mean over normal packets per interval.
-        # =============================================
-        normal_w = ((~padding) & pkt_valid).to(times.dtype)
-        normal_cnt = torch.zeros(
-            (bs, T), device=times.device, dtype=times.dtype
-        ).scatter_add_(1, pkt_idx_clamped, normal_w)
+    # TAM reward computation
+    # (bs, N-1)
+    disc_bins_full = X_disc.get(Feats.TAM_BINS, None)
+    if disc_bins_full is None:
+        # Backward-compat fallback: derive bins from times.
+        disc_bins_full = _time_to_bin_idx(X_disc[Feats.TAM_TIMES], float(tam_dt_s))
 
-        r_pkt = torch.clamp(-m, min=-10, max=10.0)
-        normal_sum = torch.zeros(
-            (bs, T), device=times.device, dtype=times.dtype
-        ).scatter_add_(1, pkt_idx_clamped, r_pkt * normal_w)
-        mean_p = torch.where(normal_cnt > 0, normal_sum / normal_cnt, 0.0)
-        rewards["clf"] += mean_p * reward_scales["clf_scale"]
+    disc_bins = disc_bins_full[:, 1:].contiguous().to(torch.long)
+    m = m[:, 1:]
 
-    elif feat_mode == "tam":
-        if tam_dt_s is None or tam_dt_s <= 0:
-            raise ValueError("tam_dt_s must be provided for TAM reward mapping")
-
-        # (bs, N-1)
-        disc_bins_full = X_disc.get(Feats.TAM_BINS, None)
-        if disc_bins_full is None:
-            # Backward-compat fallback: derive bins from times.
-            disc_bins_full = _time_to_bin_idx(X_disc[Feats.TAM_TIMES], float(tam_dt_s))
-
-        disc_bins = disc_bins_full[:, 1:].contiguous().to(torch.long)
-        m = m[:, 1:]
-
-        # (bs, T) int64, NaNs -> large bin so they sort last.
-        boundaries_bins = torch.full(
-            boundaries.shape,
-            int(1e18),
-            device=boundaries.device,
-            dtype=torch.long,
-        )
-        m_fin = boundaries.isfinite()
-        if bool(m_fin.any().item()):
-            boundaries_bins[m_fin] = _boundary_time_to_bin_idx(
-                boundaries[m_fin], float(tam_dt_s)
-            )
-
-        idxs = torch.searchsorted(boundaries_bins, disc_bins, right=True) - 1
-        idxs = idxs.clamp(0, T - 1)
-
-        # clf
-        # =============================================
-        # (bs, N)
-        disc_seq_len_mask = (
-            torch.arange(N, device=disc_logits.device)[None, :]
-            < disc_seq_lens[:, None].to(disc_logits.device)
-        )[:, 1:].float()
-
-        # (bs, T)
-        sum_ = torch.zeros(
-            (bs, T), device=times.device, dtype=times.dtype
-        ).scatter_add_(1, idxs, torch.ones_like(m) * disc_seq_len_mask)
-
-        # (bs, N)
-        r_pkt = torch.clamp(-m, min=-10, max=10.0)
-        # (bs, T)
-        mp = torch.zeros((bs, T), device=times.device, dtype=times.dtype).scatter_add_(
-            1, idxs, r_pkt * disc_seq_len_mask
+    # (bs, T) int64, NaNs -> large bin so they sort last.
+    boundaries_bins = torch.full(
+        boundaries.shape,
+        int(1e18),
+        device=boundaries.device,
+        dtype=torch.long,
+    )
+    m_fin = boundaries.isfinite()
+    if bool(m_fin.any().item()):
+        boundaries_bins[m_fin] = _boundary_time_to_bin_idx(
+            boundaries[m_fin], float(tam_dt_s)
         )
 
-        # Note: disc_seq_lens can truncate trailing empty TAM bins; any actions past
-        # the disc coverage simply get zero TAM reward. No float horizon checks.
+    idxs = torch.searchsorted(boundaries_bins, disc_bins, right=True) - 1
+    idxs = idxs.clamp(0, T - 1)
 
-        mean_p = torch.where(sum_ > 0, mp / sum_, 0.0)
-        rewards["clf"] += mean_p * reward_scales["clf_scale"]
-        # =============================================
+    # clf reward
+    disc_seq_len_mask = (
+        torch.arange(N, device=disc_logits.device)[None, :]
+        < disc_seq_lens[:, None].to(disc_logits.device)
+    )[:, 1:].float()
+
+    # (bs, T)
+    sum_ = torch.zeros(
+        (bs, T), device=times.device, dtype=times.dtype
+    ).scatter_add_(1, idxs, torch.ones_like(m) * disc_seq_len_mask)
+
+    # (bs, N)
+    r_pkt = torch.clamp(-m, min=-10, max=10.0)
+    # (bs, T)
+    mp = torch.zeros((bs, T), device=times.device, dtype=times.dtype).scatter_add_(
+        1, idxs, r_pkt * disc_seq_len_mask
+    )
+
+    mean_p = torch.where(sum_ > 0, mp / sum_, 0.0)
+    rewards["clf"] += mean_p * reward_scales["clf_scale"]
 
     # Delay penalty: charge only for packets that actually get delayed.
-    # With right-edge semantics, DELAY at step t affects the window that starts at
-    # action_times[t]. We approximate the number delayed as the number of original
-    # packets whose bin matches start_bin = round(action_times[t] / dt).
     if (
         X_raw is not None
         and obs_dt_s is not None
@@ -285,13 +268,8 @@ def compute_rewards_league(
             logits,
             packet_seq_lens_gpu,
             disc_seq_lens,
-            feat_mode=disc.feat_mode,
             reward_scales=reward_scales,
-            tam_dt_s=(
-                float(disc.tam_dict.get("window_width_s", 0.0))
-                if getattr(disc, "feat_mode", None) == "tam"
-                else None
-            ),
+            tam_dt_s=float(disc.tam_dict.get("window_width_s", 0.0)),
         )
         rewards_l.append(rewards_)
 

@@ -15,17 +15,6 @@ from kipl_ml.trace.enums import Feats
 logger = get_logger(__name__)
 
 
-def _as_batch_vec(x: torch.Tensor, name: str) -> torch.Tensor:
-    """Normalize (B,) or (B,1) tensors to (B,)."""
-    if x.ndim == 2:
-        if x.shape[1] != 1:
-            raise ValueError(f"{name} must be (B,) or (B,1)")
-        x = x.squeeze(1)
-    if x.ndim != 1:
-        raise ValueError(f"{name} must be (B,) or (B,1)")
-    return x
-
-
 def _add_actions_to_silence_periods(
     feature_dict: dict[Feats, torch.Tensor], time_step: float, max_silence_s: float
 ) -> dict[Feats, torch.Tensor]:
@@ -536,8 +525,11 @@ class WindowFeatureStreamer:
         Packets that would occur within the delay window are clamped to the right
         edge (start_s+delay_s). Values must be multiples of dt.
         """
-        start_s = _as_batch_vec(start_s, "start_s")
-        delay_s = _as_batch_vec(delay_s, "delay_s")
+        # Normalize (B,) or (B,1) to (B,)
+        if start_s.ndim == 2:
+            start_s = start_s.squeeze(1)
+        if delay_s.ndim == 2:
+            delay_s = delay_s.squeeze(1)
 
         if start_s.shape[0] != self.bs or delay_s.shape[0] != self.bs:
             raise ValueError("start_s/delay_s batch mismatch")
@@ -554,8 +546,11 @@ class WindowFeatureStreamer:
         self, start_bins: torch.Tensor, shift_bins: torch.Tensor
     ) -> None:
         """Apply a delay window [start_bin, start_bin+shift_bins) per trace."""
-        start_bins = _as_batch_vec(start_bins, "start_bins")
-        shift_bins = _as_batch_vec(shift_bins, "shift_bins")
+        # Normalize (B,) or (B,1) to (B,)
+        if start_bins.ndim == 2:
+            start_bins = start_bins.squeeze(1)
+        if shift_bins.ndim == 2:
+            shift_bins = shift_bins.squeeze(1)
 
         if start_bins.shape[0] != self.bs or shift_bins.shape[0] != self.bs:
             raise ValueError("start_bins/shift_bins batch mismatch")

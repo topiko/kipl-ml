@@ -252,11 +252,14 @@ The goal is correctness first (equivalence with the old single-pass pipeline whe
 - Removed `league_rewards2rewards` from experiment/obsrl/utils.py.
 - Removed `experiment/trace_gan/` directory entirely.
 - Removed `kipl_ml/model_eval/obsfuscator.py`.
+- Removed `_as_batch_vec` from observation.py (inlined).
+- Removed `_ensure_trace_dict` from simulate.py (inlined).
+- Removed torch < 2.0 fallback in `_sort_feature_dict`.
+- Removed `feat_mode` parameter from `get_rewards()` - now TAM-only.
+- Removed "dir" feature mode entirely - only "tam" is supported.
+- Removed `feat_mode` validation checks from plot_utils.py, obs_agent_01.py, sisyphus.py.
 - Consolidated bin conversion functions in `kipl_ml/rl/utils.py`.
 - Added `execute_actions_from_sequence` helper to reduce code duplication.
 - All debug scripts updated for int bins.
-
-## Next Steps
-
-- Review test coverage in `experiment/obsrl/` for blind spots.
-- Revise unittest scheme (`run_test.sh`) for consistency.
+- Added 19 unit tests in `kipl_ml/rl/tests.py`.
+- Created `v0.1.0-intbins` git tag.

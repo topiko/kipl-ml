@@ -100,18 +100,7 @@ class RNNCLF1(nn.Module):
         ):
             raise NotImplementedError("Deprecated")
 
-        elif set(features).issubset(
-            {
-                Feats.DIRS,
-                Feats.DIR_PROBS,
-                Feats.IATS,
-                Feats.TIMES,
-                Feats.LOG1P_IATS,
-            }
-        ):
-            self.seq_len_fun = dir_seq_len_fun
-            self.feat_mode = "dir"
-        elif set(features).issubset(
+        if set(features).issubset(
             {
                 Feats.TAM_UP_COUNTS,
                 Feats.TAM_DOWN_COUNTS,
@@ -122,7 +111,9 @@ class RNNCLF1(nn.Module):
             self.tam_dict = tam_dict or {}
             self.feat_mode = "tam"
         else:
-            raise ValueError(f"Invalid set of feats. {'-'.join(features)}")
+            raise ValueError(
+                f"Invalid set of feats. {'-'.join(features)}. Only TAM features are supported."
+            )
 
         self.features = features
         nfeat = len(features)

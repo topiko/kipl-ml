@@ -57,37 +57,29 @@ def main(cfg: DictConfig):
         mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
     )
 
-    if discriminator_orig.feat_mode == "tam":
-        feature_names = discriminator_orig.features
-        tam_d = discriminator_orig.tam_dict
-        tam_d["max_load_time_s"] = 200
+    feature_names = discriminator_orig.features
+    tam_d = discriminator_orig.tam_dict
+    tam_d["max_load_time_s"] = 200
 
-        # TAM bin width must match obs_time_step_s for reward mapping.
-        max_matrix_len = tam_d.get("max_matrix_len", None)
-        if max_matrix_len is None:
-            raise ValueError("tam_dict missing max_matrix_len")
-        tam_ww = float(tam_d.get("window_width_s", tam_d["max_load_time_s"] / max_matrix_len))
-        if abs(tam_ww - float(cfg.obs_time_step_s)) > 1e-6:
-            raise ValueError(
-                "TAM window_width_s must match obs_time_step_s for TAM reward mapping. "
-                + f"Got tam_ww={tam_ww:.6f}s and obs_time_step_s={float(cfg.obs_time_step_s):.6f}s. "
-                + f"(max_load_time_s={float(tam_d['max_load_time_s'])}, max_matrix_len={int(max_matrix_len)})"
-            )
-        npackets = None
+    max_matrix_len = tam_d.get("max_matrix_len", None)
+    if max_matrix_len is None:
+        raise ValueError("tam_dict missing max_matrix_len")
+    tam_ww = float(tam_d.get("window_width_s", tam_d["max_load_time_s"] / max_matrix_len))
+    if abs(tam_ww - float(cfg.obs_time_step_s)) > 1e-6:
+        raise ValueError(
+            "TAM window_width_s must match obs_time_step_s for TAM reward mapping. "
+            + f"Got tam_ww={tam_ww:.6f}s and obs_time_step_s={float(cfg.obs_time_step_s):.6f}s. "
+            + f"(max_load_time_s={float(tam_d['max_load_time_s'])}, max_matrix_len={int(max_matrix_len)})"
+        )
+    npackets = None
 
-        disc_trs = [get_feature_tr(fn, npackets, tam_kwargs=tam_d) for fn in feature_names]
-        disc_trs += [
-            get_feature_tr(f, npackets, tam_kwargs=tam_d)
-            for f in (Feats.TAM_DOWN_PAD, Feats.TAM_UP_PAD)
-        ]
-        disc_trs.append(get_feature_tr(Feats.TAM_BINS, npackets, tam_kwargs=tam_d))
-        disc_feats = FeatureTrs(feature_trs=disc_trs, n_packets=None)
-    elif discriminator_orig.feat_mode == "dir":
-        feature_names = discriminator_orig.features
-        npackets = cfg.trace.len
-
-        # Discriminator features, w.o. limit on n_packets
-        disc_feats = FeatureTrs(feature_names=feature_names, n_packets=None)
+    disc_trs = [get_feature_tr(fn, npackets, tam_kwargs=tam_d) for fn in feature_names]
+    disc_trs += [
+        get_feature_tr(f, npackets, tam_kwargs=tam_d)
+        for f in (Feats.TAM_DOWN_PAD, Feats.TAM_UP_PAD)
+    ]
+    disc_trs.append(get_feature_tr(Feats.TAM_BINS, npackets, tam_kwargs=tam_d))
+    disc_feats = FeatureTrs(feature_trs=disc_trs, n_packets=None)
 
     # This one already somewhat trained for obsfuscation.
     discriminator = mlflow.pytorch.load_model(
