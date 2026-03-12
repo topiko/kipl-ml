@@ -17,7 +17,6 @@ from experiment.obsrl.utils import (
     _get_optim,
     _restore_obs_def_ds,
     ema_update,
-    get_action_seq_lens,
     get_active_league,
     get_advantages,
     keymap,
@@ -139,7 +138,7 @@ def train_obs_one_epoch(
                 reward_scales=reward_scales,
             )
 
-            action_seq_lens = get_action_seq_lens(fd)
+            action_seq_lens = fd[Feats.SEQ_LENS]
 
             time_mask = make_time_mask(
                 action_seq_lens, fd[Feats.TIMES].shape[1], device=device

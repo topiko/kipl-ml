@@ -205,7 +205,7 @@ def get_league_scores(
                         reward_scales=reward_scales,
                     )[2:]
 
-                    action_seq_lens = get_action_seq_lens(fd)
+                    action_seq_lens = fd[Feats.SEQ_LENS]
 
                     time_mask = make_time_mask(
                         action_seq_lens, fd[Feats.TIMES].shape[1], device=device
@@ -436,10 +436,6 @@ def get_active_league(
         logger.info(f"\t{i:4d} == {league[i][0]:4d}{str_} : {s:.4f}")
 
     return league, active_league_idx, active_league, weights
-
-
-def get_action_seq_lens(fd: dict[Feats, torch.Tensor]) -> torch.Tensor:
-    return fd[Feats.SEQ_LENS]
 
 
 def ema_update(value: float | None, cur_value: float, ema_decay: float) -> float:

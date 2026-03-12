@@ -16,7 +16,6 @@ from experiment.obsrl.utils import (
     _append_to_league,
     _get_optim,
     ema_update,
-    get_action_seq_lens,
     get_active_league,
     get_advantages,
     keymap,
@@ -320,7 +319,7 @@ def main(cfg: DictConfig):
                         )
 
                     if train_obs:
-                        action_seq_lens = get_action_seq_lens(fd)
+                        action_seq_lens = fd[Feats.SEQ_LENS]
 
                         time_mask = make_time_mask(
                             action_seq_lens, fd[Feats.TIMES].shape[1], device=device

@@ -16,7 +16,6 @@ from experiment.obsrl.invariants import (
 )
 from experiment.obsrl.sim import rollout
 from experiment.obsrl.utils import (
-    get_action_seq_lens,
     get_advantages,
 )
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
@@ -107,7 +106,7 @@ def _plot_set(
             reward_scales=reward_scales,
         )
 
-    action_seq_lens = get_action_seq_lens(fd)
+    action_seq_lens = fd[Feats.SEQ_LENS]
     G, advantages = get_advantages(league_rewards, values, action_seq_lens, cfg)
 
     # Pre-compute discriminator probabilities in batch to avoid per-figure forwards.
