@@ -285,16 +285,13 @@ def _forward_w_detach(
             break
 
         # (N, h_detach_period)
-        x_chunk = {
-            k: torch.where(
-                v[
-                    active_seqs, i * h_detach_period : (i + 1) * h_detach_period
-                ].isfinite(),
-                v[active_seqs, i * h_detach_period : (i + 1) * h_detach_period],
-                0,
-            )
-            for k, v in x.items()
-        }
+        x_chunk = {}
+        for k, v in x.items():
+            chunk = v[active_seqs, i * h_detach_period : (i + 1) * h_detach_period]
+            if chunk.is_floating_point():
+                x_chunk[k] = torch.where(chunk.isfinite(), chunk, 0)
+            else:
+                x_chunk[k] = torch.where(chunk >= 0, chunk, 0)
 
         if h is not None:
             h_active = _hidden_w_mask(h, active_seqs)

@@ -439,7 +439,7 @@ def get_active_league(
 
 
 def get_action_seq_lens(fd: dict[Feats, torch.Tensor]) -> torch.Tensor:
-    return fd[Feats.TIMES].isnan().logical_not().sum(dim=1)
+    return fd[Feats.SEQ_LENS]
 
 
 def ema_update(value: float | None, cur_value: float, ema_decay: float) -> float:
