@@ -26,11 +26,11 @@ def evaluate_obs(
             n = 1
             for X, _ in pbar:
                 X = dict_to_device(X, get_device())
-                Xobs = obsfuscator(X)
+                X_obs = obsfuscator(X)
 
                 for m in metrics:
                     mv = metric_vals[m.name]
-                    metric_vals[m.name] = mv + (m(Xobs, X).item() - mv) / n
+                    metric_vals[m.name] = mv + (m(X_obs, X).item() - mv) / n
 
                 n += 1
 

@@ -322,17 +322,17 @@ def main(cfg: DictConfig):
                 )
                 ax.set_title(f"True class: {y.item()}, idx={didx}")
 
-                Xobs = obs(X)
+                X_obs = obs(X)
 
-                logits_obs = discriminator(Xobs)[0]
+                logits_obs = discriminator(X_obs)[0]
                 ax = plot_bursts(
-                    Xobs,
+                    X_obs,
                     ax=axarr[1, i],
                     cl_probs=nn.functional.softmax(logits_obs, dim=-1),
                     true_class=y.item(),
                 )
 
-                ax.set_title(f"Overhead {len_loss(Xobs, X)}")
+                ax.set_title(f"Overhead {len_loss(X_obs, X)}")
 
             fig.canvas.draw()
 

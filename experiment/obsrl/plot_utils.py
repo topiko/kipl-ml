@@ -117,9 +117,9 @@ def _plot_set(
     probs_d = nn.functional.softmax(logits_d, dim=-1)
 
     # Obs traces
-    Xobs_d = disc_features.transform_batch(X_obs)
-    Xobs_d = dict_to_device(Xobs_d, device)
-    logits_o, _ = disc_trained(Xobs_d)
+    X_obs_d = disc_features.transform_batch(X_obs)
+    X_obs_d = dict_to_device(X_obs_d, device)
+    logits_o, _ = disc_trained(X_obs_d)
     probs_o = nn.functional.softmax(logits_o, dim=-1)
 
     logger.info("Generating figs:")
@@ -323,9 +323,9 @@ def _plot_single(
     # Trained disc on obsfuscated trace (from batched rollout):
     # ========================================
     # Plot obsfuscated
-    Xobs_i = disc_features.transform_batch(X_obs)
+    X_obs_i = disc_features.transform_batch(X_obs)
     plot_fn_(
-        Xobs_i,
+        X_obs_i,
         ax=ax_o,
         cl_probs=probs_obs,
         idx=batch_i,

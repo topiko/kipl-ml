@@ -304,7 +304,7 @@ def main(cfg: DictConfig):
                             entropies,
                             _,
                             _,
-                            Xobs,
+                            X_obs,
                             fd,
                         ) = rollout(
                             obs=obs,
@@ -432,7 +432,7 @@ def main(cfg: DictConfig):
 
                     disc_loss, _ = train_disc_one_batch(
                         disc=discriminator,
-                        X=Xobs,
+                        X=X_obs,
                         y=y,
                         disc_opm=disc_optim,
                         feature_trs=disc_feats,
@@ -484,14 +484,14 @@ def main(cfg: DictConfig):
                     losses_metrics_d["disc_loss"].append(disc_loss)
                     # (B, )
                     normal_packets = (
-                        (Xobs[Feats.DIRS] != 0) & (Xobs[Feats.PADDING] == 0)
+                        (X_obs[Feats.DIRS] != 0) & (X_obs[Feats.PADDING] == 0)
                     ).sum(dim=1)
                     # (B, )
                     padding_packets_up = (
-                        (Xobs[Feats.DIRS] == UPLOAD) & (Xobs[Feats.PADDING] == 1)
+                        (X_obs[Feats.DIRS] == UPLOAD) & (X_obs[Feats.PADDING] == 1)
                     ).sum(dim=1)
                     padding_packets_down = (
-                        (Xobs[Feats.DIRS] == DOWNLOAD) & (Xobs[Feats.PADDING] == 1)
+                        (X_obs[Feats.DIRS] == DOWNLOAD) & (X_obs[Feats.PADDING] == 1)
                     ).sum(dim=1)
                     padding_packets = padding_packets_down + padding_packets_up
 

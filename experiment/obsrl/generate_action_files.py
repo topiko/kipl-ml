@@ -72,7 +72,7 @@ def generate_for(
                 fd, None, h_detach_period=1000, seq_lens=action_seq_lens
             )
 
-        Xobs = execute_actions_from_sequence(
+        X_obs = execute_actions_from_sequence(
             X, act_times, actions, time_step_s=float(obs.time_step)
         )
         act_times = act_times.squeeze(0).cpu().numpy()
@@ -83,7 +83,7 @@ def generate_for(
             action_df[k] = v.squeeze(0).cpu().numpy()
 
         obs_df = pd.DataFrame(
-            data={k: v.squeeze(0).cpu().numpy() for k, v in Xobs.items()}
+            data={k: v.squeeze(0).cpu().numpy() for k, v in X_obs.items()}
         ).astype({Feats.DIRS: int, Feats.PADDING: int})
 
         action_df.to_csv(f"{data_dir}/generated_actions_{i:02d}.csv", index=False)
