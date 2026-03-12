@@ -16,6 +16,7 @@ from experiment.obsrl.utils import (
     _get_obs_def_dl,
     _get_optim,
     _restore_obs_def_ds,
+    dl_,
     ema_update,
     get_active_league,
     get_advantages,
@@ -26,7 +27,6 @@ from experiment.obsrl.utils import (
     masked_mean,
     train_disc_one_epoch,
 )
-from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test

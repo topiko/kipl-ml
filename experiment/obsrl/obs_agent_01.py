@@ -15,6 +15,7 @@ from experiment.obsrl.sim import rollout
 from experiment.obsrl.utils import (
     _append_to_league,
     _get_optim,
+    dl_,
     ema_update,
     get_active_league,
     get_advantages,
@@ -24,7 +25,6 @@ from experiment.obsrl.utils import (
     train_disc_one_batch,
     valid_metrics,
 )
-from experiment.trace_gan.data_utils import dl_
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
 from kipl_ml.data.wf_dataset import dict_to_device, get_train_valid_test

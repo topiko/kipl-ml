@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import copy
+import multiprocessing
 
 import dotenv
 import mlflow
@@ -7,11 +10,10 @@ import pandas as pd
 import torch
 from omegaconf import DictConfig
 from torch import nn
-from torch.utils.data import SubsetRandomSampler
+from torch.utils.data import DataLoader, SubsetRandomSampler
 from tqdm import tqdm
 
 from experiment.obsrl.sim import rollout
-from experiment.trace_gan.data_utils import dl_
 from experiment.utils.list_models import list_logged_models_for_run
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.defences.base import NoDefence
@@ -29,6 +31,27 @@ from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
 dotenv.load_dotenv()
+
+
+def dl_(
+    ds: WFDataset,
+    bs: int,
+    collate_fn: callable | None,
+    shuffle: bool = False,
+    nworkers: int | None = None,
+    **kwargs,
+) -> DataLoader:
+    if nworkers is None:
+        nworkers = multiprocessing.cpu_count() // 8 * 7
+
+    return DataLoader(
+        ds,
+        batch_size=bs,
+        shuffle=shuffle,
+        num_workers=nworkers,
+        collate_fn=collate_fn,
+        **kwargs,
+    )
 
 
 def keymap(key: str) -> str:

@@ -10,8 +10,7 @@ from omegaconf import DictConfig
 from torch import nn
 from tqdm import tqdm
 
-from experiment.obsrl.utils import train_disc_one_batch
-from experiment.trace_gan.data_utils import dl_
+from experiment.obsrl.utils import dl_, train_disc_one_batch
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import assets
 from kipl_ml.data.wf_dataset import dict_to_device, get_train_valid_test
