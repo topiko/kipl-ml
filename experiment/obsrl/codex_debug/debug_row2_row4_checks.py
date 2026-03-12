@@ -22,7 +22,6 @@ from experiment.obsrl.invariants import (
 from kipl_ml.data.utils import Datasets, assets
 from kipl_ml.data.wf_dataset import get_train_valid_test
 from kipl_ml.models.trgen import AGENT1
-from kipl_ml.rl.action import send_exec
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.simulate import policy_rollout_streaming
 from kipl_ml.trace.enums import Feats
@@ -70,37 +69,6 @@ def _sorted_rows(X: dict[Feats, torch.Tensor], n: int, idx: int) -> np.ndarray:
     return rows[order]
 
 
-def _check_finalize_matches_send_exec(
-    X_base: dict[Feats, torch.Tensor],
-    act_times: torch.Tensor,
-    actions: dict[Actions, torch.Tensor],
-    X_obs: dict[Feats, torch.Tensor],
-    *,
-    idx: int,
-    dt_s: float,
-) -> None:
-    X_ref = send_exec(
-        {
-            Feats.TIMES: X_base[Feats.TIMES].clone(),
-            Feats.DIRS: X_base[Feats.DIRS].clone(),
-            Feats.PADDING: X_base[Feats.PADDING].clone(),
-        },
-        act_times,
-        actions,
-        time_step_s=dt_s,
-    )
-
-    n_obs = int((X_obs[Feats.DIRS][idx] != 0).sum().item())
-    n_ref = int((X_ref[Feats.DIRS][idx] != 0).sum().item())
-    if n_obs != n_ref:
-        raise AssertionError(f"Packet count mismatch finalize vs send_exec: {n_obs} vs {n_ref}")
-
-    a = _sorted_rows(X_obs, n_obs, idx=idx)
-    b = _sorted_rows(X_ref, n_ref, idx=idx)
-    if a.shape != b.shape or not np.array_equal(a, b):
-        raise AssertionError("TraceExecState.finalize output differs from send_exec (multiset)")
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", default=str(Datasets.BIGENOUGH))
@@ -119,7 +87,6 @@ def main() -> None:
         choices=["delay_only", "send_and_delay_cycle", "do_nothing", "all"],
         default="all",
     )
-    ap.add_argument("--skip_finalize_check", action="store_true")
     args = ap.parse_args()
 
     torch.manual_seed(int(args.seed))
@@ -182,21 +149,6 @@ def main() -> None:
                     extend_end_s=float(args.extend_end_s),
                     max_packets=None,
                 )
-
-            if not args.skip_finalize_check:
-                try:
-                    _check_finalize_matches_send_exec(
-                        Xb,
-                        act_times,
-                        actions,
-                        X_obs,
-                        idx=0,
-                        dt_s=float(args.dt),
-                    )
-                except Exception as exc:
-                    failures.append(
-                        f"pattern={pattern_name} idx={ds_idx} finalize/send_exec mismatch: {exc}"
-                    )
 
             row24 = check_row2_equals_row4_minus_padding(
                 fd,

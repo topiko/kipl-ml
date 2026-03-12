@@ -24,7 +24,6 @@ from experiment.obsrl.invariants import (
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
 from kipl_ml.data.wf_dataset import get_train_valid_test
 from kipl_ml.models.trgen import AGENT1
-from kipl_ml.rl.action import send_exec
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.simulate import policy_rollout_streaming
 from kipl_ml.tools.plottr import plot_actions, plot_tam
@@ -185,35 +184,6 @@ def _sorted_rows(X: dict[Feats, torch.Tensor], n: int) -> np.ndarray:
     return rows[order]
 
 
-def _check_finalize_matches_send_exec(
-    X_base: dict[Feats, torch.Tensor],
-    act_times: torch.Tensor,
-    actions: dict[Actions, torch.Tensor],
-    X_obs: dict[Feats, torch.Tensor],
-    dt_s: float,
-) -> None:
-    X_ref = send_exec(
-        {
-            Feats.TIMES: X_base[Feats.TIMES].clone(),
-            Feats.DIRS: X_base[Feats.DIRS].clone(),
-            Feats.PADDING: X_base[Feats.PADDING].clone(),
-        },
-        act_times,
-        actions,
-        time_step_s=dt_s,
-    )
-
-    n_obs = int((X_obs[Feats.DIRS][0] != 0).sum().item())
-    n_ref = int((X_ref[Feats.DIRS][0] != 0).sum().item())
-    if n_obs != n_ref:
-        raise AssertionError(f"Packet count mismatch finalize vs send_exec: {n_obs} vs {n_ref}")
-
-    a = _sorted_rows(X_obs, n_obs)
-    b = _sorted_rows(X_ref, n_ref)
-    if a.shape != b.shape or not np.array_equal(a, b):
-        raise AssertionError("TraceExecState.finalize output differs from send_exec (multiset)")
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", default=str(Datasets.BIGENOUGH))
@@ -275,7 +245,6 @@ def main() -> None:
         )
 
     # Invariants / diagnostics.
-    _check_finalize_matches_send_exec(Xb, act_times, actions, X_obs, dt_s=float(args.dt))
     row24 = check_row2_equals_row4_minus_padding(
         fd,
         X_obs,
@@ -350,7 +319,6 @@ def main() -> None:
     plt.close(fig)
 
     print(f"OK: plotted defended real trace -> {out}")
-    print("OK: finalize matches send_exec")
     print("OK: row2(fd) == row4(X_obs)-padding")
     print(
         "OK: totals fd(up,down)="

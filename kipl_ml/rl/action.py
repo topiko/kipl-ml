@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import gcd
 
 import torch
 
@@ -221,7 +220,7 @@ class TraceExecState:
         _record_dir("down", DOWNLOAD)
 
     def finalize(self) -> dict[Feats, torch.Tensor]:
-        """Build a finalized trace dict like send_exec would produce."""
+        """Build a finalized defended trace dict."""
 
         B = int(self.X_base[Feats.TIMES].shape[0])
 
@@ -402,124 +401,3 @@ def _get_times_and_mode(
         raise ValueError("Invalid send mode detected")
 
     return times, mode
-
-
-def _infer_time_step_s(
-    times: torch.Tensor,
-    actions: dict[Actions, torch.Tensor],
-) -> float:
-    cand_us: list[int] = []
-
-    if Actions.DELAY in actions:
-        d = actions[Actions.DELAY]
-        pos = d[torch.isfinite(d) & (d > 0)]
-        if pos.numel() > 0:
-            cand_us.extend(
-                [int(v) for v in torch.round(pos * 1e6).to(torch.long).detach().cpu().tolist()]
-            )
-
-    for k in (Actions.SEND_UP_AFTER_TIME, Actions.SEND_DOWN_AFTER_TIME):
-        if k in actions:
-            a = actions[k]
-            pos = a[torch.isfinite(a) & (a > 0)]
-            if pos.numel() > 0:
-                cand_us.extend(
-                    [
-                        int(v)
-                        for v in torch.round(pos * 1e6).to(torch.long).detach().cpu().tolist()
-                    ]
-                )
-
-    if times.ndim != 2:
-        raise ValueError("times must be (B,T) to infer time_step_s")
-    dt = times[:, 1:] - times[:, :-1]
-    m = torch.isfinite(times[:, 1:]) & torch.isfinite(times[:, :-1]) & (dt > 0)
-    pos = dt[m]
-    if pos.numel() > 0:
-        cand_us.extend(
-            [int(v) for v in torch.round(pos * 1e6).to(torch.long).detach().cpu().tolist()]
-        )
-
-    cand_us = [v for v in cand_us if v > 0]
-    if not cand_us:
-        return 1e-6
-
-    dt_us = cand_us[0]
-    for v in cand_us[1:]:
-        dt_us = gcd(dt_us, v)
-        if dt_us == 1:
-            break
-
-    dt_q = max(1, dt_us) / 1e6
-    if dt_q <= 0:
-        raise ValueError(f"Inferred non-positive time_step_s: {dt_q}")
-    return dt_q
-
-
-def send_exec(
-    X: dict[Feats, torch.Tensor],
-    times: torch.Tensor,
-    actions: dict[Actions, torch.Tensor],
-    *,
-    time_step_s: float | None = None,
-) -> dict[Feats, torch.Tensor]:
-    if set(X.keys()) - {Feats.TIMES, Feats.DIRS, Feats.PADDING}:
-        raise ValueError("Invalid set of features detected")
-
-    X = {k: v.clone() for k, v in X.items()}
-    actions = {k: v.clone() for k, v in actions.items()}
-
-    if Feats.PADDING not in X:
-        X[Feats.PADDING] = torch.zeros_like(X[Feats.TIMES])
-
-    if times.ndim != 2:
-        raise ValueError("times must be (B,T)")
-
-    for k, v in actions.items():
-        if v.shape != times.shape:
-            raise ValueError(f"Action tensor {k} must match times shape")
-
-    if time_step_s is None:
-        time_step_s = _infer_time_step_s(times, actions)
-
-    # Convert float times/actions to int bins for TraceExecState.
-    if times.is_floating_point():
-        times_bin = _boundary_time_to_bin_idx(times, time_step_s)
-        # Convert delay and send-after-time actions from seconds to bins.
-        if Actions.DELAY in actions and actions[Actions.DELAY].is_floating_point():
-            actions[Actions.DELAY] = _duration_to_bin_offsets(
-                actions[Actions.DELAY], time_step_s
-            )
-        for k in (Actions.SEND_UP_AFTER_TIME, Actions.SEND_DOWN_AFTER_TIME):
-            if k in actions and actions[k].is_floating_point():
-                actions[k] = _duration_to_bin_offsets(actions[k], time_step_s)
-        # Mark non-finite entries as -1 (invalid).
-        times_bin = torch.where(times.isfinite(), times_bin, torch.full_like(times_bin, -1))
-    else:
-        times_bin = times
-
-    exec_state = TraceExecState(
-        {
-            Feats.TIMES: X[Feats.TIMES],
-            Feats.DIRS: X[Feats.DIRS],
-            Feats.PADDING: X[Feats.PADDING],
-        },
-        time_step_s=float(time_step_s),
-    )
-
-    _, T = times_bin.shape
-    for t_i in range(T):
-        active = times_bin[:, t_i] >= 0
-        if not bool(active.any().item()):
-            continue
-
-        trace_idx = torch.where(active)[0]
-        step_times = times_bin[active, t_i : t_i + 1]
-        step_actions = {k: v[active, t_i : t_i + 1] for k, v in actions.items()}
-        exec_state.step(
-            trace_idx=trace_idx,
-            times=step_times,
-            actions=step_actions,
-        )
-
-    return exec_state.finalize()

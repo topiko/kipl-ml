@@ -5,7 +5,7 @@ from typing import Any, Literal, cast, overload
 import torch
 
 from kipl_ml.data.utils import UPLOAD
-from kipl_ml.rl.action import TraceExecState, send_exec
+from kipl_ml.rl.action import TraceExecState
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
 from kipl_ml.trace.enums import Feats
@@ -111,7 +111,28 @@ def policy_rollout_single_pass(
         seq_lens=action_seq_lens,
         sample=sample,
     )
-    X_obs = send_exec(Xb, act_times, actions, time_step_s=float(obs_.time_step))
+
+    # Execute actions via TraceExecState (act_times and actions are int bins).
+    exec_state = TraceExecState(
+        {
+            Feats.TIMES: Xb[Feats.TIMES].clone(),
+            Feats.DIRS: Xb[Feats.DIRS].clone(),
+            Feats.PADDING: Xb[Feats.PADDING].clone(),
+        },
+        time_step_s=float(obs_.time_step),
+    )
+    bs, T = act_times.shape
+    for t_i in range(T):
+        active = act_times[:, t_i] >= 0
+        if not bool(active.any().item()):
+            continue
+        trace_idx = torch.where(active)[0]
+        exec_state.step(
+            trace_idx=trace_idx,
+            times=act_times[active, t_i : t_i + 1],
+            actions={k: v[active, t_i : t_i + 1] for k, v in actions.items()},
+        )
+    X_obs = exec_state.finalize()
 
     fd[Feats.SEQ_LENS] = action_seq_lens
     return fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, X_obs
