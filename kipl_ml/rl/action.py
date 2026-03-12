@@ -155,13 +155,14 @@ class TraceExecState:
             return
 
         # Delay events (exclusive).
-        act_bins = _boundary_time_to_bin_idx(times.squeeze(1), self.time_step_s)
+        # times are already int bins.
+        act_bins = times.squeeze(1).to(torch.long)
 
         if Actions.DELAY in actions:
-            delay_s = actions[Actions.DELAY]
-            if delay_s.shape != times.shape:
+            delay_bins = actions[Actions.DELAY]
+            if delay_bins.shape != times.shape:
                 raise ValueError("DELAY must match times shape")
-            delay_bins = _duration_to_bin_offsets(delay_s.squeeze(1), self.time_step_s)
+            delay_bins = delay_bins.squeeze(1).to(torch.long)
             mask = delay_bins > 0
             if mask.any():
                 self._delay_trace_idx.append(trace_idx[mask].detach().clone())
@@ -196,9 +197,8 @@ class TraceExecState:
             if send_mode != "fixed":
                 raise NotImplementedError("send_mode='spread' is deprecated; use fixed")
 
-            decay_bins = _duration_to_bin_offsets(
-                decay_times.squeeze(1), self.time_step_s
-            )
+            # decay_times are already int bins (send_after_bins).
+            decay_bins = decay_times.squeeze(1).to(torch.long)
 
             m = send_counts > 0
             if not m.any():

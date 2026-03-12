@@ -31,14 +31,22 @@ def get_rewards(
     tam_dt_s: float | None = None,
 ) -> dict[str, torch.Tensor]:
     # Shapes:
-    # - action_times: (B, T)
+    # - action_times: (B, T) int bins
     # - disc_logits: (B, N, C)
     # - seq_lens: (B,)
     N = disc_logits.shape[1]
     bs, T = action_times.shape
 
+    # Convert int bin action times to float seconds for reward computation.
+    if obs_dt_s is not None and action_times.dtype in (torch.long, torch.int):
+        action_times_f = action_times.float() * float(obs_dt_s)
+        # Mark invalid bins (-1) as inf so searchsorted sorts them last.
+        action_times_f = torch.where(action_times >= 0, action_times_f, torch.tensor(float("inf")))
+    else:
+        action_times_f = action_times.float()
+
     rewards: dict[str, torch.Tensor] = {
-        k.replace("_scale", ""): torch.zeros_like(action_times) for k in reward_scales
+        k.replace("_scale", ""): torch.zeros((bs, T), device=action_times.device) for k in reward_scales
     }
 
     # (B, N)
@@ -63,7 +71,7 @@ def get_rewards(
     # (B, N)
     m = target_logits - rest_lse
 
-    boundaries = action_times.nan_to_num(nan=float("inf"))
+    boundaries = action_times_f
 
     if feat_mode == "dir":
         # Assign each packet time to an action interval [t_i, t_{i+1}).
@@ -183,7 +191,7 @@ def get_rewards(
         delay = actions[Actions.DELAY]
         if delay.ndim == 3 and delay.shape[-1] == 1:
             delay = delay.squeeze(-1)
-        delay_mask = (delay > 0) & action_times.isfinite()
+        delay_mask = (delay > 0) & (action_times >= 0)
 
         # (B, L) original packet bins; fill padding with +inf bin to preserve sort.
         dirs0 = X_raw[Feats.DIRS]
@@ -192,16 +200,16 @@ def get_rewards(
         t0_f = fill_after_seq_end(t0, m0, fill_val="max")
         pkt_bins = _time_to_bin_idx(t0_f, float(obs_dt_s))
 
-        # (B, T) start bins for delay windows.
-        start_bins = _boundary_time_to_bin_idx(action_times, float(obs_dt_s))
+        # (B, T) start bins for delay windows. action_times are already int bins.
+        start_bins = action_times.to(torch.long)
 
         # Count occurrences per step via searchsorted on sorted pkt_bins.
         lo = torch.searchsorted(pkt_bins, start_bins, right=False)
         hi = torch.searchsorted(pkt_bins, start_bins, right=True)
-        delayed_cnt = (hi - lo).to(action_times.dtype)
+        delayed_cnt = (hi - lo).float()
 
         rewards["delay"] -= (
-            delayed_cnt * delay_mask.to(action_times.dtype) * reward_scales["delay_scale"]
+            delayed_cnt * delay_mask.float() * reward_scales["delay_scale"]
         )
 
     # change in prob reward
@@ -210,9 +218,9 @@ def get_rewards(
         mask & mask.roll(1, dims=1),
         (
             mean_p.diff(dim=1, prepend=mean_p[:, :1].clone())
-            / action_times.diff(
+            / action_times_f.diff(
                 dim=1,
-                prepend=torch.ones((bs, 1), device=action_times.device) * float("-inf"),
+                prepend=torch.ones((bs, 1), device=action_times_f.device) * float("-inf"),
             )
         ).clamp(max=0)
         * reward_scales["d_clf_scale"],

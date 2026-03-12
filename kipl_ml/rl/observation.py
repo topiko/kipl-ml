@@ -405,6 +405,9 @@ class WindowFeatureStreamer:
         self.X = {k: v.clone() for k, v in X.items()}
         device = self.X[Feats.TIMES].device
 
+        # Convert float times to int bins (bin space throughout)
+        self.X[Feats.TIMES] = _time_to_bin_idx(self.X[Feats.TIMES], self.dt)
+
         if extend_end_s > 0:
             bs, L = self.X[Feats.DIRS].shape
             mask = self.X[Feats.DIRS] == 0
@@ -412,7 +415,9 @@ class WindowFeatureStreamer:
             col_idx = seq_lens[seq_lens != L]
             row_idx = torch.arange(bs, device=device)[seq_lens != L]
             self.X[Feats.DIRS][row_idx, col_idx] = UPLOAD
-            self.X[Feats.TIMES][mask] += extend_end_s
+            # Extend end in bin space
+            extend_end_bins = int(round(extend_end_s / self.dt))
+            self.X[Feats.TIMES][mask] += extend_end_bins
 
         # K in bin index space.
         K = int(self.max_silence_s / self.dt) if self.dt > 0 else 1
@@ -426,7 +431,8 @@ class WindowFeatureStreamer:
                 f"Found empty traces (seq_len=0) in WindowFeatureStreamer: n={int(bad.numel())}."
             )
         self.bs = int(dirs.shape[0])
-        self.dtype = self.X[Feats.TIMES].dtype
+        # Store as int bins (not float)
+        self.dtype = torch.long
 
         self._cursors: list[_TraceWindowCursor] = []
         for i in range(self.bs):
@@ -453,10 +459,11 @@ class WindowFeatureStreamer:
         bins = None
         if emit_bins:
             bins = torch.zeros((bs, 1), device=device, dtype=torch.long)
-        times = torch.full((bs, 1), torch.nan, device=device, dtype=self.dtype)
-        up = torch.full((bs, 1), torch.nan, device=device, dtype=self.dtype)
-        down = torch.full((bs, 1), torch.nan, device=device, dtype=self.dtype)
-        dts = torch.full((bs, 1), torch.nan, device=device, dtype=self.dtype)
+        # Emit int bins (not float times)
+        times = torch.full((bs, 1), -1, device=device, dtype=torch.long)  # -1 = invalid
+        up = torch.full((bs, 1), -1, device=device, dtype=torch.long)
+        down = torch.full((bs, 1), -1, device=device, dtype=torch.long)
+        dts = torch.full((bs, 1), -1, device=device, dtype=torch.long)  # bin count
 
         for i in range(bs):
             if self.done[i]:
@@ -471,15 +478,15 @@ class WindowFeatureStreamer:
             if emit_bins:
                 assert bins is not None
                 bins[i, 0] = int(b)
-            times[i, 0] = float(b) * self.dt
+            times[i, 0] = b  # int bin index
             up[i, 0] = u
             down[i, 0] = d
 
             if b_next is None:
-                dts[i, 0] = self.dt
+                dts[i, 0] = 1  # 1 bin default
                 self.done[i] = True
             else:
-                dts[i, 0] = float(b_next - b) * self.dt
+                dts[i, 0] = b_next - b  # bin difference
 
         fd: dict[Feats, torch.Tensor] = {
             Feats.UP_COUNT: up,

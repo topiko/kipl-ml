@@ -58,11 +58,12 @@ def _feature_map(
     x: dict[Feats, torch.Tensor], f: Feats | list[Feats]
 ) -> list[torch.Tensor] | torch.Tensor:
     def _map_one(fi: Feats) -> torch.Tensor:
+        v = x[fi].float()
         if fi == Feats.SILENCE_FLAG:
-            return x[fi].unsqueeze(-1)  # keep 0/1
+            return v.unsqueeze(-1)  # keep 0/1
         if fi in (Feats.TIMES, Feats.TAM_TIMES):
-            return (x[fi] / (x[fi] + 10)).unsqueeze(-1)
-        return torch.log1p(x[fi]).unsqueeze(-1)
+            return (v / (v + 10)).unsqueeze(-1)
+        return torch.log1p(v).unsqueeze(-1)
 
     if isinstance(f, list):
         return [_map_one(fi) for fi in f]
@@ -618,8 +619,8 @@ class AGENT1(nn.Module):
 
         send_count_u = self.send_count_bins[send_count_u_idx]
         send_count_d = self.send_count_bins[send_count_d_idx]
-        send_time_u = self.send_time_bins[send_time_u_idx]
-        send_time_d = self.send_time_bins[send_time_d_idx]
+        send_time_u = self.send_after_bins[send_time_u_idx]  # int bins
+        send_time_d = self.send_after_bins[send_time_d_idx]  # int bins
 
         up_p = sel_probs[..., 1] + sel_probs[..., 3]
         down_p = sel_probs[..., 2] + sel_probs[..., 3]
@@ -657,7 +658,7 @@ class AGENT1(nn.Module):
         if self.enable_delay and sel_probs.shape[-1] >= 5:
             mask = selections == 4
             log_probs[mask] = sel_log_probs[mask]
-            actions[Actions.DELAY][mask] = float(self.time_step)
+            actions[Actions.DELAY][mask] = 1  # 1 bin of delay
             actions[Actions.DO_NOTHING][mask] = 0
             actions[Actions.SEND_COUNT_UP][mask] = 0
             actions[Actions.SEND_COUNT_DOWN][mask] = 0
@@ -687,11 +688,9 @@ class AGENT1(nn.Module):
         )
 
         values = action_outputs[Feats.STATE_VALUE]
+        # x[TIMES] and x[Dt] are int bins; action time = current bin + dt bins.
+        # Invalid entries have -1; result will be negative for those.
         times = x[Feats.TIMES] + x[Feats.Dt]
-        m_fin = torch.isfinite(times)
-        if bool(m_fin.any().item()):
-            tb = torch.round(times[m_fin].to(torch.float64) / float(self.time_step))
-            times[m_fin] = tb.to(times.dtype) * float(self.time_step)
 
         if self.send_mode != "fixed":
             raise NotImplementedError(

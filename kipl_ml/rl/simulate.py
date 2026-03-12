@@ -8,7 +8,6 @@ from kipl_ml.data.utils import UPLOAD
 from kipl_ml.rl.action import TraceExecState, send_exec
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
-from kipl_ml.rl.utils import _duration_to_bin_offsets
 from kipl_ml.trace.enums import Feats
 
 _StreamingRollout = tuple[
@@ -270,8 +269,6 @@ def _policy_rollout_streaming_impl(
     }
 
     streamer_features = list(obs_.features)
-    if Feats.WINDOW_BINS not in streamer_features:
-        streamer_features.append(Feats.WINDOW_BINS)
 
     streamer = WindowFeatureStreamer(
         Xs,
@@ -309,7 +306,8 @@ def _policy_rollout_streaming_impl(
     while True:
         fd_t_full = streamer.step()
 
-        active_cpu = fd_t_full[Feats.TIMES].isfinite().squeeze(1)
+        # TIMES are now int bins; -1 means invalid
+        active_cpu = (fd_t_full[Feats.TIMES] >= 0).squeeze(1)
         if int(active_cpu.sum().item()) == 0:
             break
 
@@ -320,8 +318,13 @@ def _policy_rollout_streaming_impl(
             for f in obs_.features:
                 fd_steps[f].append(fd_t_full[f].to(device))
 
+        # Replace -1 with 0 for invalid entries (agent expects 0 for padding)
         fd_t_active = {
-            k: fd_t_full[k][active_cpu].nan_to_num(nan=0.0).to(device)
+            k: torch.where(
+                fd_t_full[k][active_cpu] >= 0,
+                fd_t_full[k][active_cpu],
+                torch.zeros_like(fd_t_full[k][active_cpu])
+            ).to(device)
             for k in obs_.features
         }
 
@@ -337,23 +340,16 @@ def _policy_rollout_streaming_impl(
         exec_state.step(trace_idx=active_idx, times=act_times_a, actions=actions_a)
 
         if Actions.DELAY in actions_a and (actions_a[Actions.DELAY] > 0).any():
-            # Apply delay in window-bin space to avoid float transfers.
+            # All values are already int bins - no conversion needed.
             shift_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
-            shift_bins_a = _duration_to_bin_offsets(
-                actions_a[Actions.DELAY].squeeze(1).detach().to("cpu"),
-                float(obs_.time_step),
-            )
+            shift_bins_a = actions_a[Actions.DELAY].squeeze(1).detach().to(stream_device).long()
             shift_full[active_idx_cpu] = shift_bins_a
 
-            dt_bins_a = _duration_to_bin_offsets(
-                fd_t_full[Feats.Dt][active_cpu].squeeze(1),
-                float(obs_.time_step),
-            )
-
             start_bins_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
+            # start = current window bin + dt bins (= action time bin)
             start_bins_a = (
-                fd_t_full[Feats.WINDOW_BINS][active_cpu].squeeze(1).to(torch.long)
-                + dt_bins_a
+                fd_t_full[Feats.TIMES][active_cpu].squeeze(1).to(torch.long)
+                + fd_t_full[Feats.Dt][active_cpu].squeeze(1).to(torch.long)
             )
             start_bins_full[active_idx_cpu] = start_bins_a
             streamer.apply_delay_bins(start_bins_full, shift_full)
@@ -370,8 +366,8 @@ def _policy_rollout_streaming_impl(
                 break
 
         if record_policy:
-            # Scatter back to full batch.
-            act_times_t = torch.full((bs, 1), torch.nan, device=device)
+            # Scatter back to full batch. -1 = inactive.
+            act_times_t = torch.full((bs, 1), -1, device=device, dtype=torch.long)
             act_times_t[active] = act_times_a
 
             log_ps_t = torch.zeros((bs, 1), device=device)
@@ -427,6 +423,6 @@ def _policy_rollout_streaming_impl(
     actions = {k: torch.cat(vs, dim=1) for k, vs in actions_l.items()}
 
     fd = {f: torch.cat(vs, dim=1) for f, vs in fd_steps.items()}
-    fd[Feats.SEQ_LENS] = act_times.isfinite().sum(dim=1).long()
+    fd[Feats.SEQ_LENS] = (act_times >= 0).sum(dim=1).long()
 
     return fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, X_obs
