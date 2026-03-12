@@ -4,7 +4,13 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.rl.utils import _flush_left, fill_after_seq_end
+from kipl_ml.rl.utils import (
+    _boundary_time_to_bin_idx,
+    _duration_to_bin_offsets,
+    _flush_left,
+    _time_to_bin_idx,
+    fill_after_seq_end,
+)
 from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
@@ -19,31 +25,6 @@ def _as_batch_vec(x: torch.Tensor, name: str) -> torch.Tensor:
     if x.ndim != 1:
         raise ValueError(f"{name} must be (B,) or (B,1)")
     return x
-
-
-def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
-    """Map seconds to integer bins with microsecond quantization."""
-    if dt <= 0:
-        raise ValueError(f"dt must be > 0, got {dt}")
-
-    dt_us = max(1, int(round(float(dt) * 1e6)))
-    t_us = torch.round(times * 1e6).to(torch.long)
-    return torch.div(t_us, dt_us, rounding_mode="floor")
-
-
-def _boundary_time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
-    if dt <= 0:
-        raise ValueError(f"dt must be > 0, got {dt}")
-    return torch.round(times.to(torch.float64) / float(dt)).to(torch.long)
-
-
-def _duration_to_bin_offsets(durations: torch.Tensor, dt: float) -> torch.Tensor:
-    if dt <= 0:
-        raise ValueError(f"dt must be > 0, got {dt}")
-
-    dt_us = max(1, int(round(float(dt) * 1e6)))
-    d_us = torch.round(durations * 1e6).to(torch.long)
-    return torch.div(d_us + (dt_us // 2), dt_us, rounding_mode="floor")
 
 
 def _add_actions_to_silence_periods(

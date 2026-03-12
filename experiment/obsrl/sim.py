@@ -4,26 +4,15 @@ from torch import nn
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.simulate import policy_rollout_single_pass, policy_rollout_streaming
-from kipl_ml.rl.utils import fill_after_seq_end
+from kipl_ml.rl.utils import (
+    _boundary_time_to_bin_idx,
+    _time_to_bin_idx,
+    fill_after_seq_end,
+)
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import FeatureTrs
 
 logger = get_logger(__name__)
-
-
-def _time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
-    if dt <= 0:
-        raise ValueError(f"dt must be > 0, got {dt}")
-
-    dt_us = max(1, int(round(float(dt) * 1e6)))
-    t_us = torch.round(times * 1e6).to(torch.long)
-    return torch.div(t_us, dt_us, rounding_mode="floor")
-
-
-def _boundary_time_to_bin_idx(times: torch.Tensor, dt: float) -> torch.Tensor:
-    if dt <= 0:
-        raise ValueError(f"dt must be > 0, got {dt}")
-    return torch.round(times.to(torch.float64) / float(dt)).to(torch.long)
 
 
 def get_rewards(

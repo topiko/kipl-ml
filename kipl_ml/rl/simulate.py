@@ -8,6 +8,7 @@ from kipl_ml.data.utils import UPLOAD
 from kipl_ml.rl.action import TraceExecState, send_exec
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
+from kipl_ml.rl.utils import _duration_to_bin_offsets
 from kipl_ml.trace.enums import Feats
 
 _StreamingRollout = tuple[
@@ -20,14 +21,6 @@ _StreamingRollout = tuple[
     dict[str, torch.Tensor],
     dict[Feats, torch.Tensor],
 ]
-
-
-def _duration_to_bin_offsets(durations: torch.Tensor, dt: float) -> torch.Tensor:
-    if dt <= 0:
-        raise ValueError(f"dt must be > 0, got {dt}")
-    dt_us = max(1, int(round(float(dt) * 1e6)))
-    d_us = torch.round(durations * 1e6).to(torch.long)
-    return torch.div(d_us + (dt_us // 2), dt_us, rounding_mode="floor")
 
 
 def _ensure_trace_dict(
