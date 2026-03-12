@@ -383,8 +383,9 @@ def execute_actions_from_sequence(
 
     Args:
         X: Base trace with TIMES, DIRS, PADDING.
-        act_times: (B, T) int bin action times. -1 for inactive.
-        actions: Dict of (B, T) action tensors (int bins).
+        act_times: (B, T) action times. Int bins or float seconds.
+            -1 for inactive (int) or NaN/inf for inactive (float).
+        actions: Dict of (B, T) action tensors. Int bins or float seconds.
         time_step_s: Time step in seconds.
 
     Returns:
@@ -399,15 +400,28 @@ def execute_actions_from_sequence(
         time_step_s=time_step_s,
     )
 
-    bs, T = act_times.shape
+    # Convert float times/actions to int bins if needed.
+    if act_times.is_floating_point():
+        times_bin = _boundary_time_to_bin_idx(act_times, time_step_s)
+        times_bin = torch.where(
+            act_times.isfinite(), times_bin, torch.full_like(times_bin, -1)
+        )
+        actions = dict(actions)
+        for k in (Actions.DELAY, Actions.SEND_UP_AFTER_TIME, Actions.SEND_DOWN_AFTER_TIME):
+            if k in actions and actions[k].is_floating_point():
+                actions[k] = _duration_to_bin_offsets(actions[k], time_step_s)
+    else:
+        times_bin = act_times
+
+    bs, T = times_bin.shape
     for t_i in range(T):
-        active = act_times[:, t_i] >= 0
+        active = times_bin[:, t_i] >= 0
         if not bool(active.any().item()):
             continue
         trace_idx = torch.where(active)[0]
         exec_state.step(
             trace_idx=trace_idx,
-            times=act_times[active, t_i : t_i + 1],
+            times=times_bin[active, t_i : t_i + 1],
             actions={k: v[active, t_i : t_i + 1] for k, v in actions.items()},
         )
     return exec_state.finalize()
