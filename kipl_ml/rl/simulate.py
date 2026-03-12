@@ -369,8 +369,8 @@ def _policy_rollout_streaming_impl(
             start_bins_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
             # start = current window bin + dt bins (= action time bin)
             start_bins_a = (
-                fd_t_full[Feats.TIMES][active_cpu].squeeze(1).to(torch.long)
-                + fd_t_full[Feats.Dt][active_cpu].squeeze(1).to(torch.long)
+                fd_t_full[Feats.TIMES][active_cpu].squeeze(1)
+                + fd_t_full[Feats.Dt][active_cpu].squeeze(1)
             )
             start_bins_full[active_idx_cpu] = start_bins_a
             streamer.apply_delay_bins(start_bins_full, shift_full)
@@ -379,9 +379,9 @@ def _policy_rollout_streaming_impl(
             active_n = int(active_cpu.sum().item())
             inc = torch.zeros((active_n,), device=device, dtype=torch.long)
             if Actions.SEND_COUNT_UP in actions_a:
-                inc = inc + actions_a[Actions.SEND_COUNT_UP].squeeze(1).to(torch.long)
+                inc = inc + actions_a[Actions.SEND_COUNT_UP].squeeze(1)
             if Actions.SEND_COUNT_DOWN in actions_a:
-                inc = inc + actions_a[Actions.SEND_COUNT_DOWN].squeeze(1).to(torch.long)
+                inc = inc + actions_a[Actions.SEND_COUNT_DOWN].squeeze(1)
             pad_n[active_idx] = pad_n[active_idx] + inc
             if ((base_n + pad_n) >= int(max_packets)).all():
                 break

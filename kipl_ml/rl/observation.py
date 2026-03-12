@@ -554,9 +554,6 @@ class WindowFeatureStreamer:
         if start_bins.shape[0] != self.bs or shift_bins.shape[0] != self.bs:
             raise ValueError("start_bins/shift_bins batch mismatch")
 
-        start_bins = start_bins.to(torch.long)
-        shift_bins = shift_bins.to(torch.long)
-
         for i in range(self.bs):
             if self.done[i]:
                 continue

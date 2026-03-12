@@ -39,8 +39,8 @@ def _apply_delay_clamp_bins_inplace(
         return t
 
     order = torch.argsort(start_bins)
-    starts = start_bins[order].to(torch.long)
-    shifts = shift_bins[order].to(torch.long)
+    starts = start_bins[order]
+    shifts = shift_bins[order]
 
     bins = _time_to_bin_idx(t, dt_s)
     for s, sh in zip(starts, shifts):
@@ -155,13 +155,13 @@ class TraceExecState:
 
         # Delay events (exclusive).
         # times are already int bins.
-        act_bins = times.squeeze(1).to(torch.long)
+        act_bins = times.squeeze(1)
 
         if Actions.DELAY in actions:
             delay_bins = actions[Actions.DELAY]
             if delay_bins.shape != times.shape:
                 raise ValueError("DELAY must match times shape")
-            delay_bins = delay_bins.squeeze(1).to(torch.long)
+            delay_bins = delay_bins.squeeze(1)
             mask = delay_bins > 0
             if mask.any():
                 self._delay_trace_idx.append(trace_idx[mask].detach().clone())
@@ -200,7 +200,7 @@ class TraceExecState:
                 raise NotImplementedError("send_mode='spread' is deprecated; use fixed")
 
             # decay_times are already int bins (send_after_bins).
-            decay_bins = decay_times.squeeze(1).to(torch.long)
+            decay_bins = decay_times.squeeze(1)
 
             m = send_counts > 0
             if not m.any():
@@ -261,8 +261,8 @@ class TraceExecState:
 
         # Delay events
         if self._delay_start_bin:
-            delay_start_bin = torch.cat(self._delay_start_bin, dim=0).to(torch.long)
-            delay_shift_bin = torch.cat(self._delay_shift_bin, dim=0).to(torch.long)
+            delay_start_bin = torch.cat(self._delay_start_bin, dim=0)
+            delay_shift_bin = torch.cat(self._delay_shift_bin, dim=0)
             delay_idx = torch.cat(self._delay_trace_idx, dim=0)
         else:
             delay_start_bin = torch.zeros((0,), device=self.device, dtype=torch.long)
