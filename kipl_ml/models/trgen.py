@@ -55,10 +55,14 @@ def tam_seq_len_fun(x: dict[Feats, torch.Tensor]) -> torch.Tensor:
 
 
 def _feature_map(
-    x: dict[Feats, torch.Tensor], f: Feats | list[Feats]
+    x: dict[Feats, torch.Tensor],
+    f: Feats | list[Feats],
+    dt: float | None = None,
 ) -> list[torch.Tensor] | torch.Tensor:
     def _map_one(fi: Feats) -> torch.Tensor:
         v = x[fi].float()
+        if fi in (Feats.TIMES, Feats.Dt) and dt is not None:
+            v = v * dt  # Convert int bins back to seconds for scaling.
         if fi == Feats.SILENCE_FLAG:
             return v.unsqueeze(-1)  # keep 0/1
         if fi in (Feats.TIMES, Feats.TAM_TIMES):
@@ -521,7 +525,7 @@ class AGENT1(nn.Module):
 
         # Typically we have time in dim=1, here we always(?)
         # (N, L) x nfeat
-        fs = _feature_map(x, self.features)
+        fs = _feature_map(x, self.features, dt=float(self.time_step))
 
         # (N, L, nfeat)
         inputs = torch.cat(fs, dim=-1)
@@ -798,7 +802,7 @@ class CRITIC01(nn.Module):
 
         # Typically we have time in dim=1, here we always(?)
         # (N, L) x nfeat
-        fs = _feature_map(x, self.features)
+        fs = _feature_map(x, self.features, dt=float(self.time_step))
 
         # (N, L, nfeat)
         inputs = torch.cat(fs, dim=-1)
