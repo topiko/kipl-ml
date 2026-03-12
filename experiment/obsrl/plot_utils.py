@@ -150,6 +150,7 @@ def _plot_set(
                 G=G,
                 advantages=advantages,
                 weights=weights,
+                obs_dt_s=float(obs.time_step),
             )
 
 
@@ -177,6 +178,7 @@ def _plot_single(
     G: torch.Tensor,
     advantages: torch.Tensor,
     weights: torch.Tensor,
+    obs_dt_s: float | None = None,
 ):
     fig, (ax, ax_fd, ax_a, ax_o, ax_b, ax_ret, ax_adv) = plt.subplots(
         7, 1, figsize=(20, 15.0), sharex=True
@@ -217,9 +219,9 @@ def _plot_single(
 
     # Quick invariants for debugging.
     try:
-        dt_vals = fd[Feats.Dt][batch_i]
-        dt_pos = dt_vals[torch.isfinite(dt_vals) & (dt_vals > 0)]
-        dt_s = float(dt_pos.min().item()) if dt_pos.numel() > 0 else 0.0
+        # dt_s: either passed explicitly, or inferred from fd[Dt].
+        # fd[Dt] is now int bins, so we need obs_dt_s to convert.
+        dt_s = obs_dt_s if obs_dt_s is not None else 0.0
 
         if dt_s > 0:
             row24 = check_row2_equals_row4_minus_padding(

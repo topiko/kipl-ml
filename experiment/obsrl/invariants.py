@@ -7,29 +7,8 @@ import torch
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import get_window_feature_dict
+from kipl_ml.rl.utils import _time_to_bin_idx
 from kipl_ml.trace.enums import Feats
-
-
-def _time_to_bin_idx(times: torch.Tensor, dt_s: float) -> torch.Tensor:
-    if dt_s <= 0:
-        raise ValueError(f"dt_s must be > 0, got {dt_s}")
-    dt_us = max(1, int(round(float(dt_s) * 1e6)))
-    t_us = torch.round(times * 1e6).to(torch.long)
-    return torch.div(t_us, dt_us, rounding_mode="floor")
-
-
-def _boundary_time_to_bin_idx(times: torch.Tensor, dt_s: float) -> torch.Tensor:
-    if dt_s <= 0:
-        raise ValueError(f"dt_s must be > 0, got {dt_s}")
-    return torch.round(times.to(torch.float64) / float(dt_s)).to(torch.long)
-
-
-def _duration_to_bin_offsets(durations: torch.Tensor, dt_s: float) -> torch.Tensor:
-    if dt_s <= 0:
-        raise ValueError(f"dt_s must be > 0, got {dt_s}")
-    dt_us = max(1, int(round(float(dt_s) * 1e6)))
-    d_us = torch.round(durations * 1e6).to(torch.long)
-    return torch.div(d_us + (dt_us // 2), dt_us, rounding_mode="floor")
 
 
 @dataclass
@@ -74,17 +53,13 @@ def _get_fd_bins_and_counts(
     fd: dict[Feats, torch.Tensor], idx: int, dt_s: float
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     w_t = fd[Feats.TIMES][idx]
-    m_w = torch.isfinite(w_t)
-    w_t = w_t[m_w]
+    # fd TIMES are int bins; -1 = invalid sentinel.
+    m_w = w_t >= 0
+    w_bins = w_t[m_w].to(torch.long)
 
-    if Feats.WINDOW_BINS in fd:
-        w_bins = fd[Feats.WINDOW_BINS][idx][m_w].to(torch.long)
-    else:
-        w_bins = _boundary_time_to_bin_idx(w_t, dt_s)
-
-    up_fd = torch.round(fd[Feats.UP_COUNT][idx][m_w].nan_to_num(nan=0.0)).to(torch.long)
-    down_fd = torch.round(fd[Feats.DOWN_COUNT][idx][m_w].nan_to_num(nan=0.0)).to(torch.long)
-    return w_t, w_bins, up_fd, down_fd
+    up_fd = torch.round(fd[Feats.UP_COUNT][idx][m_w]).to(torch.long)
+    down_fd = torch.round(fd[Feats.DOWN_COUNT][idx][m_w]).to(torch.long)
+    return w_t[m_w], w_bins, up_fd, down_fd
 
 
 def _get_nonpadding_packet_bins_and_dirs(
@@ -93,7 +68,8 @@ def _get_nonpadding_packet_bins_and_dirs(
     pkt_t = X_obs[Feats.TIMES][idx]
     pkt_d = X_obs[Feats.DIRS][idx]
     pkt_p = X_obs[Feats.PADDING][idx] != 0
-    m = (pkt_d != 0) & (~pkt_p) & torch.isfinite(pkt_t)
+    # X_obs times are float seconds; filter non-padding active packets.
+    m = (pkt_d != 0) & (~pkt_p)
     pkt_t = pkt_t[m]
     pkt_d = pkt_d[m]
     pkt_bins = _time_to_bin_idx(pkt_t, dt_s)
@@ -303,17 +279,20 @@ def count_packets_inside_delay_windows(
 
     t_act = act_times[idx]
     d_act = actions[Actions.DELAY][idx]
-    m = torch.isfinite(t_act) & (d_act > 0)
+    # act_times and DELAY are int bins; -1 = invalid.
+    m = (t_act >= 0) & (d_act > 0)
     if not bool(m.any().item()):
         return DelayLeakReport(n_delay_steps=0, bad_all=0, bad_nonpadding=0, bad_windows_sample=[])
 
-    delay_bins = _duration_to_bin_offsets(d_act[m], dt_s)
-    t0_bins = _boundary_time_to_bin_idx(t_act[m], dt_s)
+    # Already int bins - no conversion needed.
+    delay_bins = d_act[m].to(torch.long)
+    t0_bins = t_act[m].to(torch.long)
 
     pkt_t = X_obs[Feats.TIMES][idx]
     pkt_d = X_obs[Feats.DIRS][idx]
     pkt_p = X_obs[Feats.PADDING][idx] != 0
-    m_all = (pkt_d != 0) & torch.isfinite(pkt_t)
+    # X_obs times are float seconds.
+    m_all = pkt_d != 0
     m_np = m_all & (~pkt_p)
     pkt_bins_all = _time_to_bin_idx(pkt_t[m_all], dt_s)
     pkt_bins_np = _time_to_bin_idx(pkt_t[m_np], dt_s)

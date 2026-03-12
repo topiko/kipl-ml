@@ -124,6 +124,7 @@ def main() -> None:
         G=G,
         advantages=advantages,
         weights=weights,
+        obs_dt_s=dt,
     )
 
     print("OK: plot_utils smoke")
