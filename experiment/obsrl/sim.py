@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 
-from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.simulate import policy_rollout_single_pass, policy_rollout_streaming
 from kipl_ml.rl.utils import (
@@ -11,8 +10,6 @@ from kipl_ml.rl.utils import (
 )
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import FeatureTrs
-
-logger = get_logger(__name__)
 
 
 def get_rewards(

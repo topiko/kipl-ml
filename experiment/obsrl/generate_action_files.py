@@ -1,6 +1,5 @@
 import os
 
-import dotenv
 import mlflow
 import numpy as np
 import pandas as pd
@@ -8,17 +7,12 @@ import torch
 
 from kipl_ml.data.utils import Datasets, assets, load_dataset_meta_df
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
-from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.action import TraceExecState
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import get_window_feature_dict
 from kipl_ml.rl.utils import _boundary_time_to_bin_idx, _duration_to_bin_offsets
 from kipl_ml.tools.mlflow_utils import set_tracking_uri_from_env
-from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import Feats, FeatureTrs
-
-logger = get_logger(__name__)
-dotenv.load_dotenv()
 
 
 def _exec_actions(

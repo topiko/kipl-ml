@@ -444,12 +444,6 @@ def ema_update(value: float | None, cur_value: float, ema_decay: float) -> float
     return ema_decay * value + (1 - ema_decay) * cur_value
 
 
-def league_rewards2rewards(
-    league_rewards: dict[str, torch.Tensor],
-) -> dict[str, torch.Tensor]:
-    return {k: v.mean(dim=0) for k, v in league_rewards.items()}
-
-
 def get_advantages(
     rewards: torch.Tensor | dict[str, torch.Tensor],
     values: torch.Tensor,
