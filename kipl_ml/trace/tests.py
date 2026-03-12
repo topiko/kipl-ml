@@ -148,8 +148,8 @@ class TestTR(unittest.TestCase):
 
         self._shapes_test(tr, trace)
 
-        iats = torch.zeros_like(trace[Feats.TIMES])
-        iats[1:] = torch.diff(trace[Feats.TIMES], dim=0) + 1.0
+        iats = torch.zeros_like(trace[Feats.TIMES])[: self.N_PACKETS]
+        iats[1:] = torch.diff(trace[Feats.TIMES][: self.N_PACKETS], dim=0) + 1.0
         iats[0] = 1.0
 
         dirs = trace[Feats.DIRS][: self.N_PACKETS]
@@ -164,8 +164,8 @@ class TestTR(unittest.TestCase):
 
         self._shapes_test(tr, trace)
 
-        iats = torch.zeros_like(trace[Feats.TIMES])
-        iats[1:] = torch.diff(trace[Feats.TIMES], dim=0)
+        iats = torch.zeros_like(trace[Feats.TIMES])[: self.N_PACKETS]
+        iats[1:] = torch.diff(trace[Feats.TIMES][: self.N_PACKETS], dim=0)
         iats -= iats.mean()
         iats /= iats.std()
 
@@ -183,8 +183,8 @@ class TestTR(unittest.TestCase):
 
         self._shapes_test(tr, trace)
 
-        iats = torch.zeros_like(trace[Feats.TIMES])
-        iats[1:] = torch.diff(trace[Feats.TIMES], dim=0)
+        iats = torch.zeros_like(trace[Feats.TIMES])[: self.N_PACKETS]
+        iats[1:] = torch.diff(trace[Feats.TIMES][: self.N_PACKETS], dim=0)
 
         iats -= iats.mean()
         iats /= torch.absolute(iats).max()
