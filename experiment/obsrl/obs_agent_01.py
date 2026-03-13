@@ -133,9 +133,9 @@ def main(cfg: DictConfig):
         prob_eps={
             Actions.SELECTOR: cfg.obs_prob_eps,
             Actions.SEND_COUNT_UP: f_ * eps,
-            Actions.SEND_TIME_UP: f_ * eps,
+            Actions.SEND_UP_AFTER_BINS: f_ * eps,
             Actions.SEND_COUNT_DOWN: f_ * eps,
-            Actions.SEND_TIME_DOWN: f_ * eps,
+            Actions.SEND_DOWN_AFTER_BINS: f_ * eps,
         },
         prefer_wait_bias=6.0 if cfg.init_for_wait else 0.0,
     ).to(device)

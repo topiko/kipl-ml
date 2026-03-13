@@ -34,10 +34,6 @@ def _hidden_w_mask(
     return h
 
 
-def dir_seq_len_fun(x: dict[Feats, torch.Tensor]) -> torch.Tensor:
-    return (x[Feats.DIRS] != 0).sum(dim=1)
-
-
 def tam_seq_len_fun(x: dict[Feats, torch.Tensor]) -> torch.Tensor:
     bs, nt = x[Feats.TAM_UP_COUNTS].shape
     mask = x[Feats.TAM_UP_COUNTS] + x[Feats.TAM_DOWN_COUNTS] != 0

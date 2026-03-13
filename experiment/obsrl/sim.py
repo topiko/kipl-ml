@@ -155,9 +155,9 @@ def get_rewards(
         and obs_dt_s is not None
         and obs_dt_s > 0
         and "delay_scale" in reward_scales
-        and Actions.DELAY in actions
+        and Actions.DELAY_BINS in actions
     ):
-        delay = actions[Actions.DELAY]
+        delay = actions[Actions.DELAY_BINS]
         if delay.ndim == 3 and delay.shape[-1] == 1:
             delay = delay.squeeze(-1)
         delay_mask = (delay > 0) & (action_times >= 0)
