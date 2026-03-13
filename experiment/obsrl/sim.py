@@ -66,9 +66,8 @@ def get_rewards(
         for k in reward_scales
     }
 
-    # (B, N)
+    # (B, N) - N is number of TAM bins, used for classifier reward
     times = X_obs[Feats.TIMES][:, :N]
-    padding = X_obs[Feats.PADDING][:, :N].bool()
 
     # (B, N, 1)
     target_idx = y[:, None, None].expand(-1, N, 1)
