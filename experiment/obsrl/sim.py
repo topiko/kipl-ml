@@ -114,15 +114,15 @@ def get_rewards(
 
     # (bs, T) int64, NaNs -> large bin so they sort last.
     boundaries_bins = torch.full(
-        boundaries.shape,
+        action_times_f.shape,
         int(1e18),
-        device=boundaries.device,
+        device=action_times_f.device,
         dtype=torch.long,
     )
-    m_fin = boundaries.isfinite()
+    m_fin = action_times_f.isfinite()
     if bool(m_fin.any().item()):
         boundaries_bins[m_fin] = _boundary_time_to_bin_idx(
-            boundaries[m_fin], float(tam_dt_s)
+            action_times_f[m_fin], float(tam_dt_s)
         )
 
     idxs = torch.searchsorted(boundaries_bins, disc_bins, right=True) - 1
