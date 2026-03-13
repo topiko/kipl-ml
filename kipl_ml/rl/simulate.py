@@ -288,9 +288,9 @@ def _policy_rollout_streaming_impl(
     while True:
         fd_t_full = streamer.step()
 
-        # TIMES are int bins; -1 means invalid.
+        # TIME_BINS are int bins; -1 means invalid.
         # active_cpu is on stream_device (CPU when X is on GPU to avoid syncs).
-        active_cpu = (fd_t_full[Feats.TIMES] >= 0).squeeze(1)
+        active_cpu = (fd_t_full[Feats.TIME_BINS] >= 0).squeeze(1)
         if int(active_cpu.sum().item()) == 0:
             break
 
@@ -332,8 +332,8 @@ def _policy_rollout_streaming_impl(
 
             start_bins_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
             start_bins_full[delay_idx] = (
-                fd_t_full[Feats.TIMES][active_cpu].squeeze(1)
-                + fd_t_full[Feats.Dt][active_cpu].squeeze(1)
+                fd_t_full[Feats.TIME_BINS][active_cpu].squeeze(1)
+                + fd_t_full[Feats.Dt_BINS][active_cpu].squeeze(1)
             )
             streamer.apply_delay_bins(start_bins_full, shift_full)
 

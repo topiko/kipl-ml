@@ -62,13 +62,13 @@ def _feature_map(
     def _map_one(fi: Feats) -> torch.Tensor:
         v = x[fi]
         # Convert int bins to seconds; skip if already float.
-        if fi in (Feats.TIMES, Feats.Dt) and dt is not None and not v.is_floating_point():
+        if fi in (Feats.TIME_BINS, Feats.Dt_BINS) and dt is not None and not v.is_floating_point():
             v = v.float() * dt
         else:
             v = v.float()
         if fi == Feats.SILENCE_FLAG:
             return v.unsqueeze(-1)  # keep 0/1
-        if fi in (Feats.TIMES, Feats.TAM_TIMES):
+        if fi in (Feats.TIME_BINS, Feats.TAM_TIMES):
             return (v / (v + 10)).unsqueeze(-1)
         return torch.log1p(v).unsqueeze(-1)
 
@@ -435,8 +435,8 @@ class AGENT1(nn.Module):
         self.features = [
             Feats.UP_COUNT,
             Feats.DOWN_COUNT,
-            Feats.Dt,
-            Feats.TIMES,
+            Feats.Dt_BINS,
+            Feats.TIME_BINS,
             Feats.SILENCE_FLAG,
         ]
         self.num_layers = nlayers
@@ -640,7 +640,7 @@ class AGENT1(nn.Module):
             Actions.SEND_UP_AFTER_BINS: send_time_u.detach().clone(),
         }
         if self.enable_delay and sel_probs.shape[-1] >= 5:
-            actions[Actions.DELAY_BINS] = torch.zeros_like(x[Feats.Dt]).detach().clone()
+            actions[Actions.DELAY_BINS] = torch.zeros_like(x[Feats.Dt_BINS]).detach().clone()
 
         mask = selections == 0
         log_probs[mask] = sel_log_probs[mask]
@@ -685,7 +685,7 @@ class AGENT1(nn.Module):
         values = action_outputs[Feats.STATE_VALUE]
         # x[TIMES] and x[Dt] are int bins; action time = current bin + dt bins.
         # Invalid entries have -1; result will be negative for those.
-        times = x[Feats.TIMES] + x[Feats.Dt]
+        times = x[Feats.TIME_BINS] + x[Feats.Dt_BINS]
 
         if self.send_mode != "fixed":
             raise NotImplementedError(

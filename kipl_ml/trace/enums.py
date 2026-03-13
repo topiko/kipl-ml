@@ -6,13 +6,15 @@ from kipl_ml.data import assets
 class Feats(StrEnum):
     DIRS = assets.DIRS
     SIZES = assets.SIZES
-    TIMES = assets.TIMES
+    TIMES = assets.TIMES  # Raw trace times in seconds (float)
     PADDING = assets.PADDING
+    TIME_BINS = "time_bins"  # Observation times in bin indices (int)
     TIMES_NORMALIZED = f"normalized_{TIMES}"
     TIMES_MAX_NORMALIZED = f"max_normalized_{TIMES}"
     CUM_TIMES = f"cum_{TIMES}"
     CUM_SIZES = f"cum_{SIZES}"
     CUM_SIZES_NORMALIZED = f"normalized_{CUM_SIZES}"
+    CUM_SIZES_MAX_NORMALIZED = f"max_normalized_{CUM_SIZES}"
     LABEL = "label"
     IATS = "iats"
     IATS_NORMALIZED = f"normalized_{IATS}"
@@ -26,9 +28,7 @@ class Feats(StrEnum):
     DOWN_PACKETS = "down_packets"
     TIME_DIRS = f"{TIMES}_dirs"
     IAT_DIRS = f"{IATS}_dirs"
-    # FLOW_IAT_DIRS = f"flow_{IAT_DIRS}"
     IAT_DIRS_NORMALIZED = f"{IATS_NORMALIZED}_dirs"
-    CUM_SIZES_MAX_NORMALIZED = f"max_normalized_{CUM_SIZES}"
     BURST_EDGES = "burst_edges"
     BURST_LENS = "burst_lens"
     BURST_DURS = "burst_durs"
@@ -63,10 +63,13 @@ class Feats(StrEnum):
     ACTION_LOGITS = "action_logits"
     STATE_VALUE = "state_value"
     SEQ_LENS = "seq_lens"
-    Dt = "Delta time"
+    Dt_BINS = "dt_bins"  # Bin duration (int)
     WINDOW_BINS = "window-bins"
     SILENCE_FLAG = "silence_flag"
     DISC_ID = "disc_id"
+
+    # Backward compat
+    Dt = Dt_BINS
 
     def __str__(self) -> str:
         return self.value

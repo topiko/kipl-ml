@@ -21,7 +21,7 @@ def _add_actions_to_silence_periods(
     """Insert empty action windows during silence periods.
 
     This operates in *time bin index* space for speed and numerical stability.
-    - feature_dict[Feats.TIMES] is integer bin indices (long) with -1 after seq end.
+    - feature_dict[Feats.TIME_BINS] is integer bin indices (long) with -1 after seq end.
     - We insert at least one window for every gap between consecutive bins.
     - Additional windows are inserted every K bins, where
       K = max(1, floor(max_silence_s / time_step)).
@@ -29,7 +29,7 @@ def _add_actions_to_silence_periods(
     Inserted windows have UP/DOWN counts set to 0.
     """
 
-    idx = feature_dict[Feats.TIMES]
+    idx = feature_dict[Feats.TIME_BINS]
     if idx.ndim != 2:
         raise ValueError("TIMES must be (B, L)")
 
@@ -94,7 +94,7 @@ def _add_actions_to_silence_periods(
     )
 
     # Concatenate and sort. Use large value to push -1 sentinels to the end.
-    times_all = torch.cat([feature_dict[Feats.TIMES], add_times], dim=1)
+    times_all = torch.cat([feature_dict[Feats.TIME_BINS], add_times], dim=1)
     up_all = torch.cat([feature_dict[Feats.UP_COUNT], add_up], dim=1)
     down_all = torch.cat([feature_dict[Feats.DOWN_COUNT], add_down], dim=1)
 
@@ -103,7 +103,7 @@ def _add_actions_to_silence_periods(
     )
     sort_idx = torch.argsort(sort_key, dim=1)
 
-    feature_dict[Feats.TIMES] = times_all.gather(1, sort_idx)
+    feature_dict[Feats.TIME_BINS] = times_all.gather(1, sort_idx)
     feature_dict[Feats.UP_COUNT] = up_all.gather(1, sort_idx)
     feature_dict[Feats.DOWN_COUNT] = down_all.gather(1, sort_idx)
 
@@ -176,17 +176,17 @@ def get_window_feature_dict(
 
     # Use -1 sentinel for positions after seq end.
     times_bins = torch.where(mask_fl, times_idx, torch.full_like(times_idx, -1))
-    feature_dict[Feats.TIMES] = times_bins
+    feature_dict[Feats.TIME_BINS] = times_bins
 
     # Insert extra windows into silent gaps (operates in int-bin space).
     feature_dict = _add_actions_to_silence_periods(feature_dict, dt, max_silence_s)
 
     # Valid mask: bins >= 0.
-    mask = feature_dict[Feats.TIMES] >= 0
+    mask = feature_dict[Feats.TIME_BINS] >= 0
 
     seq_lens = mask.sum(dim=1)
     # Compute Dt as bin differences (int bins).
-    t = feature_dict[Feats.TIMES]
+    t = feature_dict[Feats.TIME_BINS]
     dts = torch.zeros_like(t)
     dts[:, :-1] = torch.where(
         mask[:, :-1] & mask[:, 1:],
@@ -196,12 +196,12 @@ def get_window_feature_dict(
     # Last valid window gets 1 bin.
     dts[torch.arange(bs), seq_lens - 1] = 1
 
-    feature_dict[Feats.Dt] = dts
+    feature_dict[Feats.Dt_BINS] = dts
     max_l = mask.sum(dim=1).max()
     # Flush left with -1 sentinel for int-bin features, 0 for counts.
     out: dict[Feats, torch.Tensor] = {}
     for k, v in feature_dict.items():
-        if k in (Feats.TIMES, Feats.Dt):
+        if k in (Feats.TIME_BINS, Feats.Dt_BINS):
             out[k] = _flush_left(v.float(), mask, pad_val=-1).to(torch.long)[:, :max_l]
         else:
             out[k] = _flush_left(v, mask, pad_val=0)[:, :max_l]
@@ -215,7 +215,7 @@ def get_window_feature_dict(
         ).float()
 
     K = max(1, int(max_silence_s / dt))
-    dt_valid = feature_dict[Feats.Dt][feature_dict[Feats.Dt] >= 0]
+    dt_valid = feature_dict[Feats.Dt_BINS][feature_dict[Feats.Dt_BINS] >= 0]
     if dt_valid.numel() > 0 and int(dt_valid.max().item()) > K:
         logger.warning(
             f"Found max Dt bin {int(dt_valid.max().item())}, "
@@ -501,8 +501,8 @@ class WindowFeatureStreamer:
         fd: dict[Feats, torch.Tensor] = {
             Feats.UP_COUNT: up,
             Feats.DOWN_COUNT: down,
-            Feats.Dt: dts,
-            Feats.TIMES: times,
+            Feats.Dt_BINS: dts,
+            Feats.TIME_BINS: times,
         }
 
         if emit_bins:

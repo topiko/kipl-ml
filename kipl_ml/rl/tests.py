@@ -84,17 +84,17 @@ class TestWindowFeatureDict(unittest.TestCase):
         padding = torch.zeros_like(dirs)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
-        features = [Feats.TIMES, Feats.Dt, Feats.UP_COUNT, Feats.DOWN_COUNT]
+        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         fd = get_window_feature_dict(X, self.DT, self.MAX_SILENCE_S, features)
 
-        self.assertEqual(fd[Feats.TIMES].dtype, torch.long)
-        self.assertEqual(fd[Feats.Dt].dtype, torch.long)
+        self.assertEqual(fd[Feats.TIME_BINS].dtype, torch.long)
+        self.assertEqual(fd[Feats.Dt_BINS].dtype, torch.long)
         self.assertEqual(fd[Feats.UP_COUNT].dtype, torch.long)
         self.assertEqual(fd[Feats.DOWN_COUNT].dtype, torch.long)
 
-        self.assertTrue((fd[Feats.TIMES] >= 0).any())
-        self.assertTrue((fd[Feats.Dt] >= 0).any())
+        self.assertTrue((fd[Feats.TIME_BINS] >= 0).any())
+        self.assertTrue((fd[Feats.Dt_BINS] >= 0).any())
 
     def test_int_bins_sentinel(self):
         times = torch.tensor([[0.0, 0.02, 0.04]])
@@ -102,15 +102,15 @@ class TestWindowFeatureDict(unittest.TestCase):
         padding = torch.zeros_like(dirs)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
-        features = [Feats.TIMES, Feats.Dt]
+        features = [Feats.TIME_BINS, Feats.Dt_BINS]
 
         fd = get_window_feature_dict(X, self.DT, self.MAX_SILENCE_S, features)
 
-        valid_mask = fd[Feats.TIMES] >= 0
+        valid_mask = fd[Feats.TIME_BINS] >= 0
         self.assertTrue(valid_mask.any())
-        invalid_mask = fd[Feats.TIMES] < 0
+        invalid_mask = fd[Feats.TIME_BINS] < 0
         if invalid_mask.any():
-            self.assertTrue((fd[Feats.TIMES][invalid_mask] == -1).all())
+            self.assertTrue((fd[Feats.TIME_BINS][invalid_mask] == -1).all())
 
 
 class TestWindowFeatureStreamer(unittest.TestCase):
@@ -123,7 +123,7 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         padding = torch.zeros_like(dirs)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
-        features = [Feats.TIMES, Feats.Dt, Feats.UP_COUNT, Feats.DOWN_COUNT]
+        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         streamer = WindowFeatureStreamer(X, self.DT, self.MAX_SILENCE_S, features)
 
@@ -138,8 +138,8 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         self.assertTrue(len(steps) > 0)
 
         for fd_t in steps:
-            self.assertEqual(fd_t[Feats.TIMES].dtype, torch.long)
-            self.assertEqual(fd_t[Feats.Dt].dtype, torch.long)
+            self.assertEqual(fd_t[Feats.TIME_BINS].dtype, torch.long)
+            self.assertEqual(fd_t[Feats.Dt_BINS].dtype, torch.long)
             self.assertEqual(fd_t[Feats.UP_COUNT].dtype, torch.long)
             self.assertEqual(fd_t[Feats.DOWN_COUNT].dtype, torch.long)
 
@@ -149,7 +149,7 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         padding = torch.zeros_like(dirs)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
-        features = [Feats.TIMES, Feats.Dt, Feats.UP_COUNT, Feats.DOWN_COUNT]
+        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         fd_full = get_window_feature_dict(
             {k: v.clone() for k, v in X.items()}, self.DT, self.MAX_SILENCE_S, features
@@ -168,7 +168,7 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         fd_stream = {f: torch.cat(steps[f], dim=1) for f in features}
 
         seq_lens_full = fd_full[Feats.SEQ_LENS]
-        seq_lens_stream = (fd_stream[Feats.TIMES] >= 0).sum(dim=1)
+        seq_lens_stream = (fd_stream[Feats.TIME_BINS] >= 0).sum(dim=1)
         self.assertTrue(torch.equal(seq_lens_stream, seq_lens_full))
 
 
@@ -317,9 +317,9 @@ class TestSinglePassRollout(unittest.TestCase):
             )
 
         self.assertTrue(torch.isfinite(X_obs[Feats.TIMES]).all())
-        self.assertEqual(fd[Feats.TIMES].dtype, torch.long)
-        self.assertEqual(fd[Feats.Dt].dtype, torch.long)
-        self.assertTrue((fd[Feats.TIMES] >= 0).any())
+        self.assertEqual(fd[Feats.TIME_BINS].dtype, torch.long)
+        self.assertEqual(fd[Feats.Dt_BINS].dtype, torch.long)
+        self.assertTrue((fd[Feats.TIME_BINS] >= 0).any())
 
     def test_single_pass_matches_execute_actions(self):
         from kipl_ml.models.trgen import AGENT1
@@ -376,7 +376,7 @@ class TestVaryingSeqLens(unittest.TestCase):
         padding = torch.zeros_like(dirs)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
-        features = [Feats.TIMES, Feats.Dt, Feats.UP_COUNT, Feats.DOWN_COUNT]
+        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         fd = get_window_feature_dict(X, self.DT, self.MAX_SILENCE_S, features)
 
@@ -385,13 +385,13 @@ class TestVaryingSeqLens(unittest.TestCase):
         self.assertTrue((seq_lens > 0).all())
 
         for i in range(3):
-            valid_count = (fd[Feats.TIMES][i] >= 0).sum().item()
+            valid_count = (fd[Feats.TIME_BINS][i] >= 0).sum().item()
             self.assertEqual(valid_count, seq_lens[i].item())
 
-            if seq_lens[i].item() < fd[Feats.TIMES].shape[1]:
+            if seq_lens[i].item() < fd[Feats.TIME_BINS].shape[1]:
                 invalid_start = seq_lens[i].item()
-                self.assertTrue((fd[Feats.TIMES][i, invalid_start:] == -1).all())
-                self.assertTrue((fd[Feats.Dt][i, invalid_start:] == -1).all())
+                self.assertTrue((fd[Feats.TIME_BINS][i, invalid_start:] == -1).all())
+                self.assertTrue((fd[Feats.Dt_BINS][i, invalid_start:] == -1).all())
 
     def test_streaming_varying_seq_lens(self):
         times = torch.tensor(
@@ -412,7 +412,7 @@ class TestVaryingSeqLens(unittest.TestCase):
         padding = torch.zeros_like(dirs)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
-        features = [Feats.TIMES, Feats.Dt, Feats.UP_COUNT, Feats.DOWN_COUNT]
+        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         streamer = WindowFeatureStreamer(X, self.DT, self.MAX_SILENCE_S, features)
 
@@ -429,12 +429,12 @@ class TestVaryingSeqLens(unittest.TestCase):
 
         fd_stream = {f: torch.cat(steps[f], dim=1) for f in features}
 
-        seq_lens_stream = (fd_stream[Feats.TIMES] >= 0).sum(dim=1)
+        seq_lens_stream = (fd_stream[Feats.TIME_BINS] >= 0).sum(dim=1)
 
         self.assertTrue((seq_lens_stream > 0).all())
 
         for i in range(3):
-            valid_count = (fd_stream[Feats.TIMES][i] >= 0).sum().item()
+            valid_count = (fd_stream[Feats.TIME_BINS][i] >= 0).sum().item()
             self.assertEqual(valid_count, seq_lens_stream[i].item())
 
     def test_single_pass_matches_streaming_varying_lens(self):
@@ -456,7 +456,7 @@ class TestVaryingSeqLens(unittest.TestCase):
         padding = torch.zeros_like(dirs)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
-        features = [Feats.TIMES, Feats.Dt, Feats.UP_COUNT, Feats.DOWN_COUNT]
+        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         fd_full = get_window_feature_dict(
             {k: v.clone() for k, v in X.items()}, self.DT, self.MAX_SILENCE_S, features
@@ -477,14 +477,14 @@ class TestVaryingSeqLens(unittest.TestCase):
         fd_stream = {f: torch.cat(steps[f], dim=1) for f in features}
 
         seq_lens_full = fd_full[Feats.SEQ_LENS]
-        seq_lens_stream = (fd_stream[Feats.TIMES] >= 0).sum(dim=1)
+        seq_lens_stream = (fd_stream[Feats.TIME_BINS] >= 0).sum(dim=1)
 
         self.assertTrue(torch.equal(seq_lens_stream, seq_lens_full))
 
         for i in range(3):
             T = seq_lens_full[i].item()
             self.assertTrue(
-                torch.equal(fd_full[Feats.TIMES][i, :T], fd_stream[Feats.TIMES][i, :T])
+                torch.equal(fd_full[Feats.TIME_BINS][i, :T], fd_stream[Feats.TIME_BINS][i, :T])
             )
             self.assertTrue(
                 torch.equal(fd_full[Feats.UP_COUNT][i, :T], fd_stream[Feats.UP_COUNT][i, :T])
