@@ -122,8 +122,8 @@ class TraceExecState:
         # times are already int bins.
         act_bins = times.squeeze(1)
 
-        if Actions.DELAY in actions:
-            delay_bins = actions[Actions.DELAY]
+        if Actions.DELAY_BINS in actions:
+            delay_bins = actions[Actions.DELAY_BINS]
             if delay_bins.shape != times.shape:
                 raise ValueError("DELAY must match times shape")
             delay_bins = delay_bins.squeeze(1)
@@ -135,8 +135,8 @@ class TraceExecState:
 
         # Enforce delay exclusivity for step execution.
         delay_mask = None
-        if Actions.DELAY in actions:
-            delay_mask = actions[Actions.DELAY] > 0
+        if Actions.DELAY_BINS in actions:
+            delay_mask = actions[Actions.DELAY_BINS] > 0
 
         # Padding sends.
         if (
@@ -345,9 +345,9 @@ def _get_times_and_mode(
     if direction not in {"up", "down"}:
         raise ValueError(f"Invalid direction: {direction}")
     send_after_time_key = (
-        Actions.SEND_UP_AFTER_TIME
+        Actions.SEND_UP_AFTER_BINS
         if direction == "up"
-        else Actions.SEND_DOWN_AFTER_TIME
+        else Actions.SEND_DOWN_AFTER_BINS
     )
     if send_after_time_key not in actions:
         raise ValueError(f"Missing {send_after_time_key} in actions")
@@ -388,7 +388,7 @@ def execute_actions_from_sequence(
             act_times.isfinite(), times_bin, torch.full_like(times_bin, -1)
         )
         actions = dict(actions)
-        for k in (Actions.DELAY, Actions.SEND_UP_AFTER_TIME, Actions.SEND_DOWN_AFTER_TIME):
+        for k in (Actions.DELAY_BINS, Actions.SEND_UP_AFTER_BINS, Actions.SEND_DOWN_AFTER_BINS):
             if k in actions and actions[k].is_floating_point():
                 actions[k] = _duration_to_bin_offsets(actions[k], time_step_s)
     else:

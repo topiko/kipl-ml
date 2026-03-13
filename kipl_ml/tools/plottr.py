@@ -358,21 +358,19 @@ def plot_actions(
     if dt_s is not None and dt_s > 0:
         times = times.astype(np.float64) * dt_s
         # DELAY and SEND_*_AFTER_TIME are also in bins.
-        if Actions.DELAY in actions:
-            actions[Actions.DELAY] = actions[Actions.DELAY].astype(np.float64) * dt_s
-        if Actions.SEND_UP_AFTER_TIME in actions:
-            actions[Actions.SEND_UP_AFTER_TIME] = actions[Actions.SEND_UP_AFTER_TIME].astype(np.float64) * dt_s
-        if Actions.SEND_DOWN_AFTER_TIME in actions:
-            actions[Actions.SEND_DOWN_AFTER_TIME] = actions[Actions.SEND_DOWN_AFTER_TIME].astype(np.float64) * dt_s
+        if Actions.DELAY_BINS in actions:
+            actions[Actions.DELAY_BINS] = actions[Actions.DELAY_BINS].astype(np.float64) * dt_s
+        if Actions.SEND_UP_AFTER_BINS in actions:
+            actions[Actions.SEND_UP_AFTER_BINS] = actions[Actions.SEND_UP_AFTER_BINS].astype(np.float64) * dt_s
+        if Actions.SEND_DOWN_AFTER_BINS in actions:
+            actions[Actions.SEND_DOWN_AFTER_BINS] = actions[Actions.SEND_DOWN_AFTER_BINS].astype(np.float64) * dt_s
 
     max_c = 0
     for ackt in (
         Actions.DO_NOTHING,
-        Actions.DELAY,
-        (Actions.SEND_COUNT_UP, Actions.SPREAD_TIME_UP),
-        (Actions.SEND_COUNT_UP, Actions.SEND_UP_AFTER_TIME),
-        (Actions.SEND_COUNT_DOWN, Actions.SPREAD_TIME_DOWN),
-        (Actions.SEND_COUNT_DOWN, Actions.SEND_DOWN_AFTER_TIME),
+        Actions.DELAY_BINS,
+        (Actions.SEND_COUNT_UP, Actions.SEND_UP_AFTER_BINS),
+        (Actions.SEND_COUNT_DOWN, Actions.SEND_DOWN_AFTER_BINS),
     ):
         if isinstance(ackt, tuple):
             if ackt[0] not in actions or ackt[1] not in actions:
@@ -389,10 +387,7 @@ def plot_actions(
                     raise ValueError(f"Unknown action type: {ackt[0]}")
 
             match ackt[1]:
-                case Actions.SPREAD_TIME_UP | Actions.SPREAD_TIME_DOWN:
-                    durs = actions[ackt[1]]
-                    shifts = np.zeros_like(times)
-                case Actions.SEND_UP_AFTER_TIME | Actions.SEND_DOWN_AFTER_TIME:
+                case Actions.SEND_UP_AFTER_BINS | Actions.SEND_DOWN_AFTER_BINS:
                     durs = np.ones_like(times) * 0.005
                     shifts = actions[ackt[1]]
                 case _:
@@ -445,12 +440,12 @@ def plot_actions(
                         zorder=0,
                     )
 
-        elif ackt == Actions.DELAY:
+        elif ackt == Actions.DELAY_BINS:
             # Render delay as a background span (duration effect), not as a
             # "selector" bar, to avoid looking like it co-occurs with DO_NOTHING.
-            if Actions.DELAY not in actions:
+            if Actions.DELAY_BINS not in actions:
                 continue
-            delay_s = actions[Actions.DELAY]
+            delay_s = actions[Actions.DELAY_BINS]
             if delay_s.ndim != 1:
                 raise ValueError("Expected DELAY to be (T,)")
             mask = delay_s > 0

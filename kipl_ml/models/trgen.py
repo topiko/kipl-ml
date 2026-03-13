@@ -369,7 +369,7 @@ class AGENT1(nn.Module):
                 "send_mode='spread' is deprecated; use send_mode='fixed'"
             )
 
-        self.ACTIONS += [Actions.SEND_UP_AFTER_TIME, Actions.SEND_DOWN_AFTER_TIME]
+        self.ACTIONS += [Actions.SEND_UP_AFTER_BINS, Actions.SEND_DOWN_AFTER_BINS]
         if send_time_bins is None:
             send_time_bins = [
                 float(k) * float(time_step) for k in (0, 1, 3, 5, 7, 9)
@@ -640,7 +640,7 @@ class AGENT1(nn.Module):
             Actions.SEND_TIME_UP: send_time_u.detach().clone(),
         }
         if self.enable_delay and sel_probs.shape[-1] >= 5:
-            actions[Actions.DELAY] = torch.zeros_like(x[Feats.Dt]).detach().clone()
+            actions[Actions.DELAY_BINS] = torch.zeros_like(x[Feats.Dt]).detach().clone()
 
         mask = selections == 0
         log_probs[mask] = sel_log_probs[mask]
@@ -653,7 +653,7 @@ class AGENT1(nn.Module):
         if self.enable_delay and sel_probs.shape[-1] >= 5:
             mask = selections == 4
             log_probs[mask] = sel_log_probs[mask]
-            actions[Actions.DELAY][mask] = 1  # 1 bin of delay
+            actions[Actions.DELAY_BINS][mask] = 1  # 1 bin of delay
             actions[Actions.DO_NOTHING][mask] = 0
             actions[Actions.SEND_COUNT_UP][mask] = 0
             actions[Actions.SEND_COUNT_DOWN][mask] = 0
@@ -692,8 +692,8 @@ class AGENT1(nn.Module):
                 "send_mode='spread' is deprecated; use send_mode='fixed'"
             )
 
-        actions[Actions.SEND_UP_AFTER_TIME] = actions.pop(Actions.SEND_TIME_UP)
-        actions[Actions.SEND_DOWN_AFTER_TIME] = actions.pop(Actions.SEND_TIME_DOWN)
+        actions[Actions.SEND_UP_AFTER_BINS] = actions.pop(Actions.SEND_TIME_UP)
+        actions[Actions.SEND_DOWN_AFTER_BINS] = actions.pop(Actions.SEND_TIME_DOWN)
 
         return times, actions, log_probs, sel_probs, values, entropies, h
 

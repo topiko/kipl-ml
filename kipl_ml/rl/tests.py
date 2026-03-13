@@ -205,11 +205,11 @@ class TestTraceExecState(unittest.TestCase):
 
         act_bins = torch.tensor([[1]])
         actions = {
-            Actions.DELAY: torch.tensor([[1]]),
+            Actions.DELAY_BINS: torch.tensor([[1]]),
             Actions.SEND_COUNT_UP: torch.tensor([[0]]),
             Actions.SEND_COUNT_DOWN: torch.tensor([[0]]),
-            Actions.SEND_UP_AFTER_TIME: torch.tensor([[0]]),
-            Actions.SEND_DOWN_AFTER_TIME: torch.tensor([[0]]),
+            Actions.SEND_UP_AFTER_BINS: torch.tensor([[0]]),
+            Actions.SEND_DOWN_AFTER_BINS: torch.tensor([[0]]),
         }
 
         exec_state.step(trace_idx=torch.tensor([0]), times=act_bins, actions=actions)
@@ -232,9 +232,9 @@ class TestTraceExecState(unittest.TestCase):
         act_bins = torch.tensor([[1]])
         actions = {
             Actions.SEND_COUNT_UP: torch.tensor([[2]]),
-            Actions.SEND_UP_AFTER_TIME: torch.tensor([[1]]),
+            Actions.SEND_UP_AFTER_BINS: torch.tensor([[1]]),
             Actions.SEND_COUNT_DOWN: torch.tensor([[0]]),
-            Actions.SEND_DOWN_AFTER_TIME: torch.tensor([[0]]),
+            Actions.SEND_DOWN_AFTER_BINS: torch.tensor([[0]]),
         }
 
         exec_state.step(trace_idx=torch.tensor([0]), times=act_bins, actions=actions)
@@ -259,8 +259,8 @@ class TestExecuteActionsFromSequence(unittest.TestCase):
         actions = {
             Actions.SEND_COUNT_UP: torch.zeros((1, 5), dtype=torch.long),
             Actions.SEND_COUNT_DOWN: torch.zeros((1, 5), dtype=torch.long),
-            Actions.SEND_UP_AFTER_TIME: torch.zeros((1, 5), dtype=torch.long),
-            Actions.SEND_DOWN_AFTER_TIME: torch.zeros((1, 5), dtype=torch.long),
+            Actions.SEND_UP_AFTER_BINS: torch.zeros((1, 5), dtype=torch.long),
+            Actions.SEND_DOWN_AFTER_BINS: torch.zeros((1, 5), dtype=torch.long),
         }
 
         X_obs = execute_actions_from_sequence(X, act_times, actions, self.DT)
@@ -277,11 +277,11 @@ class TestExecuteActionsFromSequence(unittest.TestCase):
 
         act_times = torch.tensor([[0, 1, 2, 3, 4]], dtype=torch.long)
         actions = {
-            Actions.DELAY: torch.tensor([[1, 0, 0, 0, 0]], dtype=torch.long),
+            Actions.DELAY_BINS: torch.tensor([[1, 0, 0, 0, 0]], dtype=torch.long),
             Actions.SEND_COUNT_UP: torch.zeros((1, 5), dtype=torch.long),
             Actions.SEND_COUNT_DOWN: torch.zeros((1, 5), dtype=torch.long),
-            Actions.SEND_UP_AFTER_TIME: torch.zeros((1, 5), dtype=torch.long),
-            Actions.SEND_DOWN_AFTER_TIME: torch.zeros((1, 5), dtype=torch.long),
+            Actions.SEND_UP_AFTER_BINS: torch.zeros((1, 5), dtype=torch.long),
+            Actions.SEND_DOWN_AFTER_BINS: torch.zeros((1, 5), dtype=torch.long),
         }
 
         X_obs = execute_actions_from_sequence(X, act_times, actions, self.DT)

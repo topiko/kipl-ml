@@ -31,13 +31,13 @@ def test_delay_right_edge_clamps_next_window() -> None:
         Feats.PADDING: torch.tensor([[0.0, 0.0]], dtype=torch.float32),
     }
 
-    act_times = torch.tensor([[0.02]], dtype=torch.float32)
+    act_times = torch.tensor([[1]], dtype=torch.long)  # bin 1 = 0.02s
     actions = {
         Actions.SEND_COUNT_UP: torch.zeros_like(act_times),
         Actions.SEND_COUNT_DOWN: torch.zeros_like(act_times),
-        Actions.SEND_UP_AFTER_TIME: torch.zeros_like(act_times),
-        Actions.SEND_DOWN_AFTER_TIME: torch.zeros_like(act_times),
-        Actions.DELAY: torch.full_like(act_times, 0.02),
+        Actions.SEND_UP_AFTER_BINS: torch.zeros_like(act_times),
+        Actions.SEND_DOWN_AFTER_BINS: torch.zeros_like(act_times),
+        Actions.DELAY_BINS: torch.full_like(act_times, 1),  # 1 bin
     }
 
     X_obs = execute_actions_from_sequence(X, act_times, actions, time_step_s=DT)
@@ -57,13 +57,13 @@ def test_delay_clamps_padding_packets_too() -> None:
         Feats.PADDING: torch.tensor([[0.0]], dtype=torch.float32),
     }
 
-    act_times = torch.tensor([[0.02, 0.04]], dtype=torch.float32)
+    act_times = torch.tensor([[1, 2]], dtype=torch.long)  # bins
     actions = {
-        Actions.SEND_COUNT_UP: torch.tensor([[1.0, 0.0]], dtype=torch.float32),
-        Actions.SEND_COUNT_DOWN: torch.tensor([[0.0, 0.0]], dtype=torch.float32),
-        Actions.SEND_UP_AFTER_TIME: torch.tensor([[0.02, 0.0]], dtype=torch.float32),
-        Actions.SEND_DOWN_AFTER_TIME: torch.zeros_like(act_times),
-        Actions.DELAY: torch.tensor([[0.0, 0.02]], dtype=torch.float32),
+        Actions.SEND_COUNT_UP: torch.tensor([[1, 0]], dtype=torch.long),
+        Actions.SEND_COUNT_DOWN: torch.tensor([[0, 0]], dtype=torch.long),
+        Actions.SEND_UP_AFTER_BINS: torch.tensor([[1, 0]], dtype=torch.long),  # 1 bin after
+        Actions.SEND_DOWN_AFTER_BINS: torch.zeros_like(act_times),
+        Actions.DELAY_BINS: torch.tensor([[0, 1]], dtype=torch.long),  # 1 bin delay
     }
 
     X_obs = execute_actions_from_sequence(X, act_times, actions, time_step_s=DT)

@@ -325,10 +325,10 @@ def _policy_rollout_streaming_impl(
             actions=actions_a,
         )
 
-        if Actions.DELAY in actions_a and (actions_a[Actions.DELAY] > 0).any():
+        if Actions.DELAY_BINS in actions_a and (actions_a[Actions.DELAY_BINS] > 0).any():
             delay_idx = torch.where(active_cpu)[0]
             shift_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
-            shift_full[delay_idx] = actions_a[Actions.DELAY].squeeze(1).to(stream_device).long()
+            shift_full[delay_idx] = actions_a[Actions.DELAY_BINS].squeeze(1).to(stream_device).long()
 
             start_bins_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
             start_bins_full[delay_idx] = (

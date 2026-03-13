@@ -79,13 +79,13 @@ def main() -> None:
     # Actions/times.
     act_times = fd[Feats.TIMES] + fd[Feats.Dt]  # (B,T)
     actions = {
-        Actions.DELAY: torch.zeros((B, T)),
+        Actions.DELAY_BINS: torch.zeros((B, T), dtype=torch.long),
         Actions.DO_NOTHING: torch.zeros((B, T)),
         Actions.SELECTOR: torch.zeros((B, T)),
         Actions.SEND_COUNT_UP: torch.zeros((B, T)),
         Actions.SEND_COUNT_DOWN: torch.zeros((B, T)),
-        Actions.SEND_UP_AFTER_TIME: torch.zeros((B, T)),
-        Actions.SEND_DOWN_AFTER_TIME: torch.zeros((B, T)),
+        Actions.SEND_TIME_UP: torch.zeros((B, T), dtype=torch.long),
+        Actions.SEND_TIME_DOWN: torch.zeros((B, T), dtype=torch.long),
     }
 
     sel_probs = torch.full((B, T, 5), 1.0 / 5.0)
