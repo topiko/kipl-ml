@@ -414,8 +414,8 @@ class AGENT1(nn.Module):
             Actions.SELECTOR,
             Actions.SEND_COUNT_UP,
             Actions.SEND_COUNT_DOWN,
-            Actions.SEND_TIME_UP,
-            Actions.SEND_TIME_DOWN,
+            Actions.SEND_UP_AFTER_BINS,
+            Actions.SEND_DOWN_AFTER_BINS,
         ]
         # No extra control head for delay.
         if prob_eps is not None:
@@ -547,9 +547,9 @@ class AGENT1(nn.Module):
         return {
             Actions.SELECTOR: action_selector,
             Actions.SEND_COUNT_UP: send_count_u,
-            Actions.SEND_TIME_UP: send_time_u,
+            Actions.SEND_UP_AFTER_BINS: send_time_u,
             Actions.SEND_COUNT_DOWN: send_count_d,
-            Actions.SEND_TIME_DOWN: send_time_d,
+            Actions.SEND_DOWN_AFTER_BINS: send_time_d,
             Feats.STATE_VALUE: state_values,
         }, h
 
@@ -600,7 +600,7 @@ class AGENT1(nn.Module):
             action_outputs[Actions.SEND_COUNT_UP], self.prob_eps[Actions.SEND_COUNT_UP]
         )
         send_time_u_idx, send_time_u_logp, sudt_entropy, _ = _select_from_logits(
-            action_outputs[Actions.SEND_TIME_UP], self.prob_eps[Actions.SEND_TIME_UP]
+            action_outputs[Actions.SEND_UP_AFTER_BINS], self.prob_eps[Actions.SEND_UP_AFTER_BINS]
         )
 
         send_count_d_idx, send_count_d_logp, sdc_entropy, _ = _select_from_logits(
@@ -608,8 +608,8 @@ class AGENT1(nn.Module):
             self.prob_eps[Actions.SEND_COUNT_DOWN],
         )
         send_time_d_idx, send_time_d_logp, sddt_entropy, _ = _select_from_logits(
-            action_outputs[Actions.SEND_TIME_DOWN],
-            self.prob_eps[Actions.SEND_TIME_DOWN],
+            action_outputs[Actions.SEND_DOWN_AFTER_BINS],
+            self.prob_eps[Actions.SEND_DOWN_AFTER_BINS],
         )
 
         send_count_u = self.send_count_bins[send_count_u_idx]
@@ -636,8 +636,8 @@ class AGENT1(nn.Module):
             Actions.DO_NOTHING: torch.zeros_like(selections),
             Actions.SEND_COUNT_DOWN: send_count_d.detach().clone(),
             Actions.SEND_COUNT_UP: send_count_u.detach().clone(),
-            Actions.SEND_TIME_DOWN: send_time_d.detach().clone(),
-            Actions.SEND_TIME_UP: send_time_u.detach().clone(),
+            Actions.SEND_DOWN_AFTER_BINS: send_time_d.detach().clone(),
+            Actions.SEND_UP_AFTER_BINS: send_time_u.detach().clone(),
         }
         if self.enable_delay and sel_probs.shape[-1] >= 5:
             actions[Actions.DELAY_BINS] = torch.zeros_like(x[Feats.Dt]).detach().clone()
@@ -647,8 +647,8 @@ class AGENT1(nn.Module):
         actions[Actions.DO_NOTHING][mask] = 1
         actions[Actions.SEND_COUNT_UP][mask] = 0
         actions[Actions.SEND_COUNT_DOWN][mask] = 0
-        actions[Actions.SEND_TIME_UP][mask] = 0
-        actions[Actions.SEND_TIME_DOWN][mask] = 0
+        actions[Actions.SEND_UP_AFTER_BINS][mask] = 0
+        actions[Actions.SEND_DOWN_AFTER_BINS][mask] = 0
 
         if self.enable_delay and sel_probs.shape[-1] >= 5:
             mask = selections == 4
@@ -657,22 +657,22 @@ class AGENT1(nn.Module):
             actions[Actions.DO_NOTHING][mask] = 0
             actions[Actions.SEND_COUNT_UP][mask] = 0
             actions[Actions.SEND_COUNT_DOWN][mask] = 0
-            actions[Actions.SEND_TIME_UP][mask] = 0
-            actions[Actions.SEND_TIME_DOWN][mask] = 0
+            actions[Actions.SEND_UP_AFTER_BINS][mask] = 0
+            actions[Actions.SEND_DOWN_AFTER_BINS][mask] = 0
 
         mask = selections == 1
         log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
             send_count_u_logp[mask] + send_time_u_logp[mask]
         )
         actions[Actions.SEND_COUNT_DOWN][mask] = 0
-        actions[Actions.SEND_TIME_DOWN][mask] = 0
+        actions[Actions.SEND_DOWN_AFTER_BINS][mask] = 0
 
         mask = selections == 2
         log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
             send_count_d_logp[mask] + send_time_d_logp[mask]
         )
         actions[Actions.SEND_COUNT_UP][mask] = 0
-        actions[Actions.SEND_TIME_UP][mask] = 0
+        actions[Actions.SEND_UP_AFTER_BINS][mask] = 0
 
         mask = selections == 3
         log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
@@ -691,9 +691,6 @@ class AGENT1(nn.Module):
             raise NotImplementedError(
                 "send_mode='spread' is deprecated; use send_mode='fixed'"
             )
-
-        actions[Actions.SEND_UP_AFTER_BINS] = actions.pop(Actions.SEND_TIME_UP)
-        actions[Actions.SEND_DOWN_AFTER_BINS] = actions.pop(Actions.SEND_TIME_DOWN)
 
         return times, actions, log_probs, sel_probs, values, entropies, h
 

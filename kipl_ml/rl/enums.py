@@ -8,10 +8,6 @@ class Actions(StrEnum):
     SEND_COUNT_UP = "send_up"
     SEND_COUNT_DOWN = "send_down"
 
-    # Internal keys used during forward pass (renamed to *_BINS after).
-    SEND_TIME_UP = "send_time_up"
-    SEND_TIME_DOWN = "send_time_down"
-
     # Exclusive action: block all packets for a duration (in bins).
     DELAY_BINS = "delay_bins"
 

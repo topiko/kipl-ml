@@ -262,9 +262,9 @@ def main() -> None:
         prob_eps={
             Actions.SELECTOR: 0.0,
             Actions.SEND_COUNT_UP: 0.0,
-            Actions.SEND_TIME_UP: 0.0,
+            Actions.SEND_UP_AFTER_BINS: 0.0,
             Actions.SEND_COUNT_DOWN: 0.0,
-            Actions.SEND_TIME_DOWN: 0.0,
+            Actions.SEND_DOWN_AFTER_BINS: 0.0,
         },
     ).to(device)
     obs.eval()
