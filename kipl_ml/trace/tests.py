@@ -321,6 +321,30 @@ class TestTR(unittest.TestCase):
 
         self.assertTrue(torch.allclose(tr(trace)[Feats.SIZE_DIRS], size_dirs))
 
+    def test_time_clamp_sorted(self):
+        times = torch.tensor([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+        dirs = torch.tensor([UPLOAD] * 10)
+        sizes = torch.ones(10)
+        padding = torch.zeros(10)
+        trace = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.SIZES: sizes, Feats.PADDING: padding}
+
+        tr = PadOrCutTrace(n_packets=10, time_clamp=(2.0, 8.0, False))
+        result = tr(trace)
+        self.assertEqual(result[Feats.TIMES].shape[0], 10)
+        self.assertTrue(torch.allclose(result[Feats.TIMES][:6], torch.tensor([2., 3., 4., 5., 6., 7.])))
+        self.assertTrue((result[Feats.TIMES][6:] == 8.0).all())
+
+    def test_time_clamp_relative(self):
+        times = torch.tensor([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+        dirs = torch.tensor([UPLOAD] * 10)
+        sizes = torch.ones(10)
+        padding = torch.zeros(10)
+        trace = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.SIZES: sizes, Feats.PADDING: padding}
+
+        tr = PadOrCutTrace(n_packets=10, time_clamp=(2.0, 5.0, True))
+        result = tr(trace)
+        self.assertTrue(torch.allclose(result[Feats.TIMES][:3], torch.tensor([0., 1., 2.])))
+
 
 if __name__ == "__main__":
     unittest.main()

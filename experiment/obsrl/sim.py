@@ -83,7 +83,7 @@ def get_rewards(
     # (B, N)
     m = target_logits - rest_lse
 
-    boundaries = action_times_f
+    boundaries = action_times_f.contiguous()
 
     # Padding penalty: count actual padding packets per action interval.
     pkt_idx = torch.searchsorted(boundaries, times, right=True) - 1
