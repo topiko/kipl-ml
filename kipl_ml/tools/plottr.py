@@ -478,10 +478,10 @@ def plot_obs_features(
 
     fd_ = {k: _squeeze_batched(v, idx) for k, v in fd.items()}
 
-    times = fd_[Feats.TIMES]
+    times = fd_[Feats.TIME_BINS]
     up_count = fd_[Feats.UP_COUNT]
     down_count = fd_[Feats.DOWN_COUNT]
-    Dt = fd_[Feats.Dt]
+    Dt = fd_[Feats.Dt_BINS]
 
     # fd is padded with -1 sentinel after seq end (int bins).
     # Filter those out so plotting and limits stay finite.

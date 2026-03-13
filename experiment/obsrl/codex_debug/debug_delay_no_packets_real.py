@@ -120,7 +120,7 @@ def main() -> None:
             )
 
     # 2) Verify obs features observe no packets during same interval.
-    w_t = fd[Feats.TIMES][0]
+    w_t = fd[Feats.TIME_BINS][0]
     w_m_valid = w_t >= 0
     w_bins = w_t[w_m_valid]
     up_w = fd[Feats.UP_COUNT][0][w_m_valid]

@@ -123,7 +123,7 @@ def _tam_from_trace(
 
 
 def _tam_from_fd(fd: dict[Feats, torch.Tensor], *, idx: int = 0) -> dict[Feats, torch.Tensor]:
-    t = fd[Feats.TIMES][idx]
+    t = fd[Feats.TIME_BINS][idx]
     m = torch.isfinite(t)
     if not bool(m.any().item()):
         z = torch.zeros((1,), device=t.device, dtype=t.dtype)

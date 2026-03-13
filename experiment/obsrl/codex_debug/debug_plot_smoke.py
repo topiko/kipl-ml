@@ -72,12 +72,12 @@ def main() -> None:
         X_obs,
         dt=dt,
         max_silence_s=max_silence_s,
-        features=[Feats.TIMES, Feats.Dt, Feats.UP_COUNT, Feats.DOWN_COUNT],
+        features=[Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT],
     )
-    T = int(fd[Feats.TIMES].shape[1])
+    T = int(fd[Feats.TIME_BINS].shape[1])
 
     # Actions/times.
-    act_times = fd[Feats.TIMES] + fd[Feats.Dt]  # (B,T)
+    act_times = fd[Feats.TIME_BINS] + fd[Feats.Dt_BINS]  # (B,T)
     actions = {
         Actions.DELAY_BINS: torch.zeros((B, T), dtype=torch.long),
         Actions.DO_NOTHING: torch.zeros((B, T)),

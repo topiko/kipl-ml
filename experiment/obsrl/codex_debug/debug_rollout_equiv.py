@@ -383,7 +383,7 @@ def main() -> None:
         fd_b,
     ) = out_b
 
-    seq_lens = (fd_a[Feats.TIMES] >= 0).sum(dim=1)
+    seq_lens = (fd_a[Feats.TIME_BINS] >= 0).sum(dim=1)
     T = act_times_a.shape[1]
     mask = torch.arange(T, device=device)[None, :] < seq_lens[:, None]
 
