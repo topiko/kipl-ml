@@ -274,11 +274,11 @@ def count_packets_inside_delay_windows(
     idx: int = 0,
     max_report: int = 25,
 ) -> DelayLeakReport:
-    if Actions.DELAY not in actions:
+    if Actions.DELAY_BINS not in actions:
         return DelayLeakReport(n_delay_steps=0, bad_all=0, bad_nonpadding=0, bad_windows_sample=[])
 
     t_act = act_times[idx]
-    d_act = actions[Actions.DELAY][idx]
+    d_act = actions[Actions.DELAY_BINS][idx]
     # act_times and DELAY are int bins; -1 = invalid.
     m = (t_act >= 0) & (d_act > 0)
     if not bool(m.any().item()):
