@@ -291,13 +291,17 @@ def _plot_single(
     times_i = times_s[batch_i]
     times_np = times_i.squeeze()
 
+    # Filter out invalid times (negative bins -> negative seconds).
+    valid_mask = times_np >= 0
+    times_valid = times_np[valid_mask]
+
     # Plot entropy
     ax_entropy = ax_a.twinx()
     ax_entropy.axes.spines["right"].set_visible(True)
     for entropy, entropy_values in entropies.items():
-        values_i = entropy_values[batch_i]
+        values_i = entropy_values[batch_i][valid_mask]
         ax_entropy.plot(
-            times_np,
+            times_valid,
             values_i.squeeze().cpu().numpy(),
             "--",
             lw=2,
@@ -313,8 +317,8 @@ def _plot_single(
     ax_probs.set_ylabel("Selection probs.")
 
     ax_probs.plot(
-        times_np,
-        sel_probs[batch_i].squeeze().cpu().numpy(),
+        times_valid,
+        sel_probs[batch_i][valid_mask].squeeze().cpu().numpy(),
         "-",
         lw=1,
     )
@@ -348,24 +352,24 @@ def _plot_single(
     G_mean = (weights[:, None, None] * G).sum(dim=0)[batch_i, :]
     # Mean
     ax_ret.plot(
-        times_np,
-        G_mean.squeeze().cpu().numpy(),
+        times_valid,
+        G_mean[valid_mask].squeeze().cpu().numpy(),
         "k-",
         label="Return",
         lw=2,
     )
     # League cloud
     ax_ret.plot(
-        times_np,
-        G[:, batch_i, :].permute(1, 0).cpu().numpy(),
+        times_valid,
+        G[:, batch_i, :][:, valid_mask].permute(1, 0).cpu().numpy(),
         "k-",
         alpha=0.5,
         lw=0.2,
     )
     # Current active
     ax_ret.plot(
-        times_np,
-        G[-1, batch_i, :].squeeze().cpu().numpy(),
+        times_valid,
+        G[-1, batch_i, :][valid_mask].squeeze().cpu().numpy(),
         "k-",
         alpha=1.0,
         lw=0.5,
@@ -374,8 +378,8 @@ def _plot_single(
     # Values
     values_i = values[batch_i, :]
     ax_ret.plot(
-        times_np,
-        values_i.squeeze().cpu().numpy(),
+        times_valid,
+        values_i[valid_mask].squeeze().cpu().numpy(),
         "--",
         label="Values estim.",
         color="black",
@@ -392,23 +396,23 @@ def _plot_single(
 
     # Mean
     ax_adv.plot(
-        times_np,
-        advantages_mean.cpu().numpy(),
+        times_valid,
+        advantages_mean[valid_mask].cpu().numpy(),
         label="advantage_w_mean",
         color="green",
         lw=2,
     )
     # Cloud
     ax_adv.plot(
-        times_np,
-        advantages_i.permute(1, 0).cpu().numpy(),
+        times_valid,
+        advantages_i[:, valid_mask].permute(1, 0).cpu().numpy(),
         lw=0.5,
         alpha=0.2,
         color="green",
     )
     ax_adv.plot(
-        times_np,
-        advantages_i[-1, :].squeeze().cpu().numpy(),
+        times_valid,
+        advantages_i[-1, :][valid_mask].squeeze().cpu().numpy(),
         lw=0.5,
         alpha=1.0,
         color="green",
