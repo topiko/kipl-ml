@@ -283,8 +283,13 @@ def _plot_single(
     # Plot actions
     plot_actions(times, actions, idx=batch_i, ax=ax_a, dt_s=obs_dt_s)
 
-    times_i = times[batch_i]
-    times_np = times_i.squeeze().cpu().numpy()
+    # Convert action times (int bins) to seconds for line plots.
+    if obs_dt_s is not None and obs_dt_s > 0:
+        times_s = (times * obs_dt_s).cpu().numpy()
+    else:
+        times_s = times.cpu().numpy()
+    times_i = times_s[batch_i]
+    times_np = times_i.squeeze()
 
     # Plot entropy
     ax_entropy = ax_a.twinx()
@@ -336,7 +341,7 @@ def _plot_single(
         raise ValueError("league_rewards is None; plotting requires reward_scales")
     # The current disc rewards are at latest idx.
     rewards = {k: v[-1] for k, v in league_rewards.items()}
-    plot_rewards(times, rewards, idx=batch_i, ax=ax_b)
+    plot_rewards(times, rewards, idx=batch_i, ax=ax_b, dt_s=obs_dt_s)
     ax_b.legend(frameon=False, loc=2)
 
     # Plot returns

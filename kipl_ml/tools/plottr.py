@@ -357,6 +357,13 @@ def plot_actions(
     # Convert int bins to seconds.
     if dt_s is not None and dt_s > 0:
         times = times.astype(np.float64) * dt_s
+        # DELAY and SEND_*_AFTER_TIME are also in bins.
+        if Actions.DELAY in actions:
+            actions[Actions.DELAY] = actions[Actions.DELAY].astype(np.float64) * dt_s
+        if Actions.SEND_UP_AFTER_TIME in actions:
+            actions[Actions.SEND_UP_AFTER_TIME] = actions[Actions.SEND_UP_AFTER_TIME].astype(np.float64) * dt_s
+        if Actions.SEND_DOWN_AFTER_TIME in actions:
+            actions[Actions.SEND_DOWN_AFTER_TIME] = actions[Actions.SEND_DOWN_AFTER_TIME].astype(np.float64) * dt_s
 
     max_c = 0
     for ackt in (
@@ -546,11 +553,16 @@ def plot_rewards(
     rewards: dict[str, torch.Tensor],
     idx: int | None = None,
     ax: plt.Axes | None = None,
+    dt_s: float | None = None,
 ) -> plt.Axes:
     if ax is None:
         _, ax = plt.subplots(figsize=(12, 3))
 
     times = _squeeze_batched(times, idx)
+    # Convert int bins to seconds.
+    if dt_s is not None and dt_s > 0:
+        times = times.astype(np.float64) * dt_s
+
     rewards["sum"] = sum(rewards.values())
 
     for k, r in rewards.items():
