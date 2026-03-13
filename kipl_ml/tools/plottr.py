@@ -346,12 +346,17 @@ def plot_actions(
     actions: dict[Actions, torch.Tensor],
     idx: int | None = None,
     ax: plt.Axes | None = None,
+    dt_s: float | None = None,
 ) -> plt.Axes:
     if ax is None:
         _, ax = plt.subplots(figsize=(12, 3))
 
     times = _squeeze_batched(times, idx)
     actions = {k: _squeeze_batched(v, idx) for k, v in actions.items()}
+
+    # Convert int bins to seconds.
+    if dt_s is not None and dt_s > 0:
+        times = times.astype(np.float64) * dt_s
 
     max_c = 0
     for ackt in (

@@ -281,7 +281,7 @@ def _plot_single(
         logger.warning("Invariant check failed for idx=%s: %s", ds_idx, err)
 
     # Plot actions
-    plot_actions(times, actions, idx=batch_i, ax=ax_a)
+    plot_actions(times, actions, idx=batch_i, ax=ax_a, dt_s=obs_dt_s)
 
     times_i = times[batch_i]
     times_np = times_i.squeeze().cpu().numpy()
