@@ -83,10 +83,11 @@ def get_rewards(
     # (B, N)
     m = target_logits - rest_lse
 
-    boundaries = action_times_f.contiguous()
-
     # Padding penalty: count actual padding packets per action interval.
-    pkt_idx = torch.searchsorted(boundaries, times, right=True) - 1
+    # Make contiguous to avoid searchsorted warning.
+    pkt_idx = torch.searchsorted(
+        action_times_f.contiguous(), times.contiguous(), right=True
+    ) - 1
     pkt_valid_idx = (pkt_idx >= 0) & (pkt_idx < T)
     pkt_in_seq = (
         torch.arange(N, device=times.device)[None, :]
