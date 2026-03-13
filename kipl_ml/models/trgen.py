@@ -683,16 +683,16 @@ class AGENT1(nn.Module):
         )
 
         values = action_outputs[Feats.STATE_VALUE]
-        # x[TIMES] and x[Dt] are int bins; action time = current bin + dt bins.
+        # x[TIME_BINS] and x[Dt_BINS] are int bins; action time = current bin + dt bins.
         # Invalid entries have -1; result will be negative for those.
-        times = x[Feats.TIME_BINS] + x[Feats.Dt_BINS]
+        time_bins = x[Feats.TIME_BINS] + x[Feats.Dt_BINS]
 
         if self.send_mode != "fixed":
             raise NotImplementedError(
                 "send_mode='spread' is deprecated; use send_mode='fixed'"
             )
 
-        return times, actions, log_probs, sel_probs, values, entropies, h
+        return time_bins, actions, log_probs, sel_probs, values, entropies, h
 
     def act_step(
         self,

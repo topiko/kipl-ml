@@ -79,7 +79,7 @@ def policy_rollout_single_pass(
     )
     action_seq_lens = fd.pop(Feats.SEQ_LENS)
 
-    act_times, actions, log_ps, sel_probs, values_actor, entropies, h = obs_.act(
+    act_time_bins, actions, log_ps, sel_probs, values_actor, entropies, h = obs_.act(
         fd,
         None,
         h_detach_period=detach_period,
@@ -88,11 +88,11 @@ def policy_rollout_single_pass(
     )
 
     X_obs = execute_actions_from_sequence(
-        Xb, act_times, actions, time_step_s=float(obs_.time_step)
+        Xb, act_time_bins, actions, time_step_s=float(obs_.time_step)
     )
 
     fd[Feats.SEQ_LENS] = action_seq_lens
-    return fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, X_obs
+    return fd, act_time_bins, actions, log_ps, sel_probs, values_actor, entropies, X_obs
 
 
 def policy_rollout_streaming(
@@ -225,7 +225,7 @@ def _policy_rollout_streaming_impl(
     """Internal streaming rollout implementation.
 
     When record_policy=False, returns only X_obs. Otherwise returns the full
-    (fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, X_obs)
+    (fd, act_time_bins, actions, log_ps, sel_probs, values_actor, entropies, X_obs)
     tuple.
     """
 
@@ -279,7 +279,7 @@ def _policy_rollout_streaming_impl(
     values_actor_l: list[torch.Tensor] = []
     ent_sel_l: list[torch.Tensor] = []
     ent_cond_l: list[torch.Tensor] = []
-    act_times_l: list[torch.Tensor] = []
+    act_time_bins_l: list[torch.Tensor] = []
     actions_l: dict[Actions, list[torch.Tensor]] | None = None
     fd_steps: dict[Feats, list[torch.Tensor]] | None = (
         {f: [] for f in obs_.features} if record_policy else None
@@ -313,7 +313,7 @@ def _policy_rollout_streaming_impl(
         }
 
         h_active = _hidden_w_mask(hobs, active_gpu)
-        act_times_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
+        act_time_bins_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
             obs_.act_step(fd_t_active, h_active, sample=sample)
         )
 
@@ -321,7 +321,7 @@ def _policy_rollout_streaming_impl(
 
         exec_state.step(
             trace_idx=torch.where(active_gpu)[0],
-            times=act_times_a,
+            times=act_time_bins_a,
             actions=actions_a,
         )
 
@@ -339,8 +339,8 @@ def _policy_rollout_streaming_impl(
 
         if record_policy:
             # Scatter back to full batch. -1 = inactive.
-            act_times_t = torch.full((bs, 1), -1, device=device, dtype=torch.long)
-            act_times_t[active_gpu] = act_times_a
+            act_time_bins_t = torch.full((bs, 1), -1, device=device, dtype=torch.long)
+            act_time_bins_t[active_gpu] = act_time_bins_a
 
             log_ps_t = torch.zeros((bs, 1), device=device)
             log_ps_t[active_gpu] = log_ps_a
@@ -365,7 +365,7 @@ def _policy_rollout_streaming_impl(
                 a_full[active_gpu] = actions_a[k]
                 actions_l[k].append(a_full)
 
-            act_times_l.append(act_times_t)
+            act_time_bins_l.append(act_time_bins_t)
             log_ps_l.append(log_ps_t)
             sel_probs_l.append(sel_probs_t)
             values_actor_l.append(values_t)
@@ -396,7 +396,7 @@ def _policy_rollout_streaming_impl(
 
     assert fd_steps is not None
 
-    act_times = torch.cat(act_times_l, dim=1)
+    act_time_bins = torch.cat(act_time_bins_l, dim=1)
     log_ps = torch.cat(log_ps_l, dim=1)
     sel_probs = torch.cat(sel_probs_l, dim=1)
     values_actor = torch.cat(values_actor_l, dim=1)
@@ -407,6 +407,6 @@ def _policy_rollout_streaming_impl(
     actions = {k: torch.cat(vs, dim=1) for k, vs in actions_l.items()}
 
     fd = {f: torch.cat(vs, dim=1) for f, vs in fd_steps.items()}
-    fd[Feats.SEQ_LENS] = (act_times >= 0).sum(dim=1).long()
+    fd[Feats.SEQ_LENS] = (act_time_bins >= 0).sum(dim=1).long()
 
-    return fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, X_obs
+    return fd, act_time_bins, actions, log_ps, sel_probs, values_actor, entropies, X_obs

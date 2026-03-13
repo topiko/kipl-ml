@@ -186,19 +186,19 @@ def get_window_feature_dict(
 
     seq_lens = mask.sum(dim=1)
     # Compute Dt as bin differences (int bins).
-    t = feature_dict[Feats.TIME_BINS]
-    dts = torch.zeros_like(t)
-    dts[:, :-1] = torch.where(
+    time_bins = feature_dict[Feats.TIME_BINS]
+    dt_bins = torch.zeros_like(time_bins)
+    dt_bins[:, :-1] = torch.where(
         mask[:, :-1] & mask[:, 1:],
-        t[:, 1:] - t[:, :-1],
-        torch.ones_like(t[:, :-1]),  # default 1 bin
+        time_bins[:, 1:] - time_bins[:, :-1],
+        torch.ones_like(time_bins[:, :-1]),  # default 1 bin
     )
     # Last valid window gets 1 bin.
-    dts[torch.arange(bs), seq_lens - 1] = 1
+    dt_bins[torch.arange(bs), seq_lens - 1] = 1
 
-    feature_dict[Feats.Dt_BINS] = dts
+    feature_dict[Feats.Dt_BINS] = dt_bins
     # Also provide Dt (duration in seconds) for convenience.
-    feature_dict[Feats.Dt] = dts.to(torch.float64) * dt
+    feature_dict[Feats.Dt] = dt_bins.to(torch.float64) * dt
     max_l = mask.sum(dim=1).max()
     # Flush left with -1 sentinel for int-bin features, 0 for counts.
     out: dict[Feats, torch.Tensor] = {}
@@ -474,40 +474,40 @@ class WindowFeatureStreamer:
         if emit_bins:
             bins = torch.zeros((bs, 1), device=device, dtype=torch.long)
         # Emit int bins (not float times)
-        times = torch.full((bs, 1), -1, device=device, dtype=torch.long)  # -1 = invalid
+        time_bins = torch.full((bs, 1), -1, device=device, dtype=torch.long)  # -1 = invalid
         up = torch.zeros((bs, 1), device=device, dtype=torch.long)
         down = torch.zeros((bs, 1), device=device, dtype=torch.long)
-        dts = torch.full((bs, 1), -1, device=device, dtype=torch.long)  # bin count
+        dt_bins = torch.full((bs, 1), -1, device=device, dtype=torch.long)  # bin count
 
         for i in range(bs):
             if self.done[i]:
                 continue
 
             try:
-                b, u, d, b_next = self._cursors[i].step()
+                bin_idx, u, d, bin_next = self._cursors[i].step()
             except StopIteration:
                 self.done[i] = True
                 continue
 
             if emit_bins:
                 assert bins is not None
-                bins[i, 0] = int(b)
-            times[i, 0] = b  # int bin index
+                bins[i, 0] = int(bin_idx)
+            time_bins[i, 0] = bin_idx  # int bin index
             up[i, 0] = u
             down[i, 0] = d
 
-            if b_next is None:
-                dts[i, 0] = 1  # 1 bin default
+            if bin_next is None:
+                dt_bins[i, 0] = 1  # 1 bin default
                 self.done[i] = True
             else:
-                dts[i, 0] = b_next - b  # bin difference
+                dt_bins[i, 0] = bin_next - bin_idx  # bin difference
 
         fd: dict[Feats, torch.Tensor] = {
             Feats.UP_COUNT: up,
             Feats.DOWN_COUNT: down,
-            Feats.Dt_BINS: dts,
-            Feats.Dt: dts.to(torch.float64) * self.dt,
-            Feats.TIME_BINS: times,
+            Feats.Dt_BINS: dt_bins,
+            Feats.Dt: dt_bins.to(torch.float64) * self.dt,
+            Feats.TIME_BINS: time_bins,
         }
 
         if emit_bins:
