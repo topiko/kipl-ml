@@ -461,7 +461,10 @@ def plot_actions(
 
 
 def plot_obs_features(
-    fd: dict[Feats, torch.Tensor], idx: int | None = None, ax: plt.Axes | None = None
+    fd: dict[Feats, torch.Tensor],
+    idx: int | None = None,
+    ax: plt.Axes | None = None,
+    dt_s: float | None = None,
 ) -> plt.Axes:
     if ax is None:
         _, ax = plt.subplots(figsize=(12, 3))
@@ -473,13 +476,18 @@ def plot_obs_features(
     down_count = fd_[Feats.DOWN_COUNT]
     Dt = fd_[Feats.Dt]
 
-    # fd is padded with NaNs after seq end.
+    # fd is padded with -1 sentinel after seq end (int bins).
     # Filter those out so plotting and limits stay finite.
-    mask = np.isfinite(times)
+    mask = times >= 0
     times = times[mask]
     up_count = up_count[mask]
     down_count = down_count[mask]
     Dt = Dt[mask]
+
+    # Convert int bins to seconds for plotting.
+    if dt_s is not None and dt_s > 0:
+        times = times.astype(np.float64) * dt_s
+        Dt = Dt.astype(np.float64) * dt_s
 
     _plot_boxes(times, Dt, up_count, color=UP_COLOR, alpha=0.5, ax=ax)
     _plot_boxes(times, Dt, -down_count, color=DOWN_COLOR, alpha=0.5, ax=ax)

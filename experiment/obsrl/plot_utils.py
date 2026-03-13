@@ -208,7 +208,8 @@ def _plot_single(
     # Obsfuscator features and actions:
     # ========================================
     # Plot obs inputs
-    plot_obs_features(fd, idx=batch_i, ax=ax_fd)
+    # dt_s is needed to convert int bins back to seconds for plotting.
+    plot_obs_features(fd, idx=batch_i, ax=ax_fd, dt_s=obs_dt_s)
     ax_fd.set_title("Obs. features")
 
     # Quick invariants for debugging.
