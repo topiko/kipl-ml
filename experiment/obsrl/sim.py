@@ -84,21 +84,27 @@ def get_rewards(
     m = target_logits - rest_lse
 
     # Padding penalty: count actual padding packets per action interval.
+    # Use ALL packets (packet_seq_lens), not just first N (which is TAM bins).
+    # N is the number of TAM bins, not packets!
+    n_packets = int(packet_seq_lens.max().item())
+    times_all = X_obs[Feats.TIMES][:, :n_packets]
+    padding_all = X_obs[Feats.PADDING][:, :n_packets].bool()
+
     # Make contiguous to avoid searchsorted warning.
     pkt_idx = torch.searchsorted(
-        action_times_f.contiguous(), times.contiguous(), right=True
+        action_times_f.contiguous(), times_all.contiguous(), right=True
     ) - 1
     pkt_valid_idx = (pkt_idx >= 0) & (pkt_idx < T)
     pkt_in_seq = (
-        torch.arange(N, device=times.device)[None, :]
-        < packet_seq_lens.to(times.device)[:, None]
+        torch.arange(n_packets, device=times_all.device)[None, :]
+        < packet_seq_lens.to(times_all.device)[:, None]
     )
     pkt_valid = pkt_valid_idx & pkt_in_seq
     pkt_idx_clamped = pkt_idx.clamp(0, T - 1)
 
-    pad_w = (padding & pkt_valid).to(times.dtype)
+    pad_w = (padding_all & pkt_valid).to(times_all.dtype)
     npad = torch.zeros(
-        (bs, T), device=times.device, dtype=times.dtype
+        (bs, T), device=times_all.device, dtype=times_all.dtype
     ).scatter_add_(1, pkt_idx_clamped, pad_w)
     rewards["padding"] -= npad * reward_scales["padding_scale"]
 

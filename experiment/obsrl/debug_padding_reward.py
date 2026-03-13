@@ -132,81 +132,41 @@ def main():
     print(f"Last action bin: {action_bins_computed[-1].item()}")
     print(f"Expected last action bin: {valid_time_bins[-1].item() + 1} (TIME_BINS[last] + 1)")
     
-    # Convert to seconds
-    act_time_s = act_time_bins.float() * dt
-    act_time_s = torch.where(act_time_bins >= 0, act_time_s, torch.tensor(float("inf")))
-    
     # Check X_obs
     print(f"\nX_obs TIMES shape: {X_obs[Feats.TIMES].shape}")
     n_pad_obs = X_obs[Feats.PADDING].sum().item()
     print(f"Padding packets in X_obs: {n_pad_obs}")
     
-    # Now simulate the padding reward computation with different N values
-    print("\n=== Simulating padding reward with different N ===")
+    # === KEY ISSUE: N from disc_logits vs packet count ===
+    print(f"\n=== KEY ISSUE: N from disc_logits vs packet count ===")
     
-    for N in [100, 500, 1000, 2000]:
-        print(f"\n--- N = {N} ---")
-        
-        # Get packet times
-        times = X_obs[Feats.TIMES][:, :N]
-        padding = X_obs[Feats.PADDING][:, :N].bool()
-        
-        # Packet sequence lengths
-        packet_seq_lens = (X_obs[Feats.DIRS] != 0).sum(dim=1).long()
-        
-        # Compute packet-to-action mapping
-        pkt_idx = torch.searchsorted(
-            act_time_s.contiguous(), times.contiguous(), right=True
-        ) - 1
-        
-        pkt_valid_idx = (pkt_idx >= 0) & (pkt_idx < T)
-        pkt_in_seq = (
-            torch.arange(N, device=device)[None, :]
-            < packet_seq_lens.to(device)[:, None]
-        )
-        pkt_valid = pkt_valid_idx & pkt_in_seq
-        
-        pkt_idx_clamped = pkt_idx.clamp(0, T - 1)
-        
-        pad_w = (padding & pkt_valid).to(times.dtype)
-        
-        # Count padding per action step
-        npad = torch.zeros((1, T), device=device, dtype=torch.float32).scatter_add_(
-            1, pkt_idx_clamped, pad_w
-        )
-        
-        # Check padding distribution over time
-        # Convert action indices to time bins
-        action_time_bins_valid = act_time_bins[0, valid_mask]
-        
-        # Sum padding per second (50 bins = 1 second)
-        bins_per_second = int(1.0 / dt)
-        n_seconds = int(action_time_bins_valid.max().item() / bins_per_second) + 1
-        
-        padding_per_second = []
-        for s in range(n_seconds):
-            start_bin = s * bins_per_second
-            end_bin = (s + 1) * bins_per_second
-            # Find action indices in this time range
-            action_mask = (action_time_bins_valid >= start_bin) & (action_time_bins_valid < end_bin)
-            if action_mask.any():
-                # Get the action indices
-                action_indices = torch.where(valid_mask)[0][action_mask]
-                # Sum padding for these actions
-                pad_count = npad[0, action_indices].sum().item()
-                padding_per_second.append(pad_count)
-            else:
-                padding_per_second.append(0)
-        
-        print(f"Padding per second (first 10s): {padding_per_second[:10]}")
-        print(f"Total padding counted: {npad.sum().item()}")
-        
-        # Check if padding is concentrated in early actions
-        early_actions = min(50, T)  # First 50 actions = 1 second
-        early_padding = npad[0, :early_actions].sum().item()
-        late_padding = npad[0, early_actions:].sum().item()
-        print(f"Padding in first 50 actions (1s): {early_padding}")
-        print(f"Padding in remaining actions: {late_padding}")
+    # Simulate what N would be for different discriminator configs
+    # N = disc_logits.shape[1] is the number of TAM bins, not packets!
+    
+    # If discriminator has 100 TAM bins (2 seconds with dt=0.02s)
+    N_tam_bins = 100
+    print(f"\nIf N (disc_logits.shape[1]) = {N_tam_bins} TAM bins:")
+    print(f"  - This covers {N_tam_bins * dt:.2f} seconds")
+    print(f"  - But we slice X_obs[:, :{N_tam_bins}] which is only {N_tam_bins} packets!")
+    print(f"  - First {N_tam_bins} packets cover ~{X_obs[Feats.TIMES][0, :N_tam_bins].max().item():.3f} seconds")
+    
+    # If discriminator has 500 TAM bins (10 seconds)
+    N_tam_bins = 500
+    print(f"\nIf N (disc_logits.shape[1]) = {N_tam_bins} TAM bins:")
+    print(f"  - This covers {N_tam_bins * dt:.2f} seconds")
+    print(f"  - But we slice X_obs[:, :{N_tam_bins}] which is only {N_tam_bins} packets!")
+    print(f"  - First {N_tam_bins} packets cover ~{X_obs[Feats.TIMES][0, :N_tam_bins].max().item():.3f} seconds")
+    
+    # The fix: use packet_seq_lens instead of N for padding computation
+    print(f"\n=== THE BUG ===")
+    print(f"Padding penalty uses N = disc_logits.shape[1] = number of TAM bins")
+    print(f"But it slices X_obs[:, :N] which treats N as number of packets!")
+    print(f"This causes us to only look at the first N packets, not all packets in the first N TAM bins.")
+    
+    # Show the correct approach
+    print(f"\n=== CORRECT APPROACH ===")
+    print(f"Should use packet_seq_lens to determine how many packets to consider.")
+    print(f"Or compute which packets fall within the first N TAM bins.")
 
 
 if __name__ == "__main__":
