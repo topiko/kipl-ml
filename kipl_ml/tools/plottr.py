@@ -481,7 +481,13 @@ def plot_obs_features(
     times = fd_[Feats.TIME_BINS]
     up_count = fd_[Feats.UP_COUNT]
     down_count = fd_[Feats.DOWN_COUNT]
-    Dt = fd_[Feats.Dt_BINS]
+    # Use Dt (seconds) if available, otherwise convert Dt_BINS.
+    if Feats.Dt in fd_:
+        Dt = fd_[Feats.Dt]
+    else:
+        Dt = fd_[Feats.Dt_BINS]
+        if dt_s is not None and dt_s > 0:
+            Dt = Dt.astype(np.float64) * dt_s
 
     # fd is padded with -1 sentinel after seq end (int bins).
     # Filter those out so plotting and limits stay finite.
@@ -494,7 +500,6 @@ def plot_obs_features(
     # Convert int bins to seconds for plotting.
     if dt_s is not None and dt_s > 0:
         times = times.astype(np.float64) * dt_s
-        Dt = Dt.astype(np.float64) * dt_s
 
     _plot_boxes(times, Dt, up_count, color=UP_COLOR, alpha=0.5, ax=ax)
     _plot_boxes(times, Dt, -down_count, color=DOWN_COLOR, alpha=0.5, ax=ax)

@@ -64,12 +64,10 @@ class Feats(StrEnum):
     STATE_VALUE = "state_value"
     SEQ_LENS = "seq_lens"
     Dt_BINS = "dt_bins"  # Bin duration (int)
+    Dt = "dt_s"  # Duration in seconds (float)
     WINDOW_BINS = "window-bins"
     SILENCE_FLAG = "silence_flag"
     DISC_ID = "disc_id"
-
-    # Backward compat
-    Dt = Dt_BINS
 
     def __str__(self) -> str:
         return self.value

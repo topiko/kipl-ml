@@ -197,12 +197,16 @@ def get_window_feature_dict(
     dts[torch.arange(bs), seq_lens - 1] = 1
 
     feature_dict[Feats.Dt_BINS] = dts
+    # Also provide Dt (duration in seconds) for convenience.
+    feature_dict[Feats.Dt] = dts.to(torch.float64) * dt
     max_l = mask.sum(dim=1).max()
     # Flush left with -1 sentinel for int-bin features, 0 for counts.
     out: dict[Feats, torch.Tensor] = {}
     for k, v in feature_dict.items():
         if k in (Feats.TIME_BINS, Feats.Dt_BINS):
             out[k] = _flush_left(v.float(), mask, pad_val=-1).to(torch.long)[:, :max_l]
+        elif k == Feats.Dt:
+            out[k] = _flush_left(v, mask, pad_val=-1.0)[:, :max_l]
         else:
             out[k] = _flush_left(v, mask, pad_val=0)[:, :max_l]
     feature_dict = out
@@ -502,6 +506,7 @@ class WindowFeatureStreamer:
             Feats.UP_COUNT: up,
             Feats.DOWN_COUNT: down,
             Feats.Dt_BINS: dts,
+            Feats.Dt: dts.to(torch.float64) * self.dt,
             Feats.TIME_BINS: times,
         }
 
