@@ -210,7 +210,7 @@ def compute_values(
     fd_critic = fd
     if hasattr(critic, "features") and Feats.LABEL in critic.features:
         fd_critic = dict(fd)
-        fd_critic[Feats.LABEL] = y.unsqueeze(1).repeat(1, int(fd[Feats.TIMES].shape[1]))
+        fd_critic[Feats.LABEL] = y.unsqueeze(1).repeat(1, int(fd[Feats.TIME_BINS].shape[1]))
 
     return critic(
         fd_critic,

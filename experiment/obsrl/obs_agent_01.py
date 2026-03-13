@@ -314,7 +314,7 @@ def main(cfg: DictConfig):
                         action_seq_lens = fd[Feats.SEQ_LENS]
 
                         time_mask = make_time_mask(
-                            action_seq_lens, fd[Feats.TIMES].shape[1], device=device
+                            action_seq_lens, fd[Feats.TIME_BINS].shape[1], device=device
                         )
 
                         # The G, and advanages (nleague, bs, T)

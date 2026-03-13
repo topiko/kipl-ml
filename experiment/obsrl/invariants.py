@@ -52,8 +52,8 @@ class DelayLeakReport:
 def _get_fd_bins_and_counts(
     fd: dict[Feats, torch.Tensor], idx: int, dt_s: float
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    w_t = fd[Feats.TIMES][idx]
-    # fd TIMES are int bins; -1 = invalid sentinel.
+    w_t = fd[Feats.TIME_BINS][idx]
+    # fd TIME_BINS are int bins; -1 = invalid sentinel.
     m_w = w_t >= 0
     w_bins = w_t[m_w].to(torch.long)
 
@@ -228,7 +228,7 @@ def check_fd_matches_recomputed_nonpadding(
         X_np,
         dt_s,
         max_silence_s,
-        features=[Feats.TIMES, Feats.UP_COUNT, Feats.DOWN_COUNT, Feats.Dt],
+        features=[Feats.TIME_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT, Feats.Dt_BINS],
     )
 
     w_t_a, w_b_a, up_a, down_a = _get_fd_bins_and_counts(fd, idx=idx, dt_s=dt_s)
