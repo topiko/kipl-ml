@@ -48,6 +48,16 @@ def get_rewards(
     if tam_dt_s is None or tam_dt_s <= 0:
         raise ValueError("tam_dt_s must be provided for TAM reward mapping")
 
+    # Enforce that TAM bins and obs action times use the same binning scheme.
+    # This is critical for correct reward computation: action_times are in
+    # obs_dt_s bins, and TAM bins are in tam_dt_s bins. If they differ,
+    # the searchsorted logic would map to wrong intervals.
+    if obs_dt_s is not None and abs(obs_dt_s - tam_dt_s) > 1e-9:
+        raise ValueError(
+            f"obs_dt_s ({obs_dt_s}) must equal tam_dt_s ({tam_dt_s}) for reward computation. "
+            f"Action times are binned with dt={obs_dt_s}, but TAM bins use dt={tam_dt_s}."
+        )
+
     N = disc_logits.shape[1]
     bs, T = action_times.shape
 
