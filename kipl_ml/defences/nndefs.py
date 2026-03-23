@@ -147,8 +147,7 @@ class RNNDef(_NNDef):
     ) -> dict[Feats, torch.Tensor]:
         # Implement RNN specific logic
 
-        sample = bool(self.simul_kwargs.get("sample", True))
-        extend_end_s = float(self.simul_kwargs.get("extend_end_s", 0.0))
+        extend_end_s = 0.0
         max_packets = self._n_packets
 
         trace_d = {
@@ -166,7 +165,7 @@ class RNNDef(_NNDef):
                 trace_d = policy_obfuscate_trace_streaming(
                     defense_model,
                     trace_d,
-                    sample=sample,
+                    sample=True,
                     extend_end_s=extend_end_s,
                     max_packets=max_packets,
                 )
@@ -180,7 +179,7 @@ class RNNDef(_NNDef):
             trace_d = policy_obfuscate_trace_single_pass(
                 defense_model,
                 trace_d,
-                sample=sample,
+                sample=True,
                 extend_end_s=extend_end_s,
             )
         if max_packets is not None:
