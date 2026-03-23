@@ -43,16 +43,16 @@ obs:
   lr: 0.0007
   critic_lr: 0.0005
   send_mode: "fixed"
-  enable_delay: False
+  enable_delay: True
   # Number of packets to send when selector chooses send actions.
-  send_count_bins: [5, 20, 50, 100, 200]
+  send_count_bins: [5, 20, 50] #, 100, 200]
   # Delay (in action bins) before scheduled send actions.
-  send_after_bins: [0, 1, 3, 5, 7, 9]
+  send_after_bins: [0, 1, 3, 5] #, 7, 9]
   # Delay action duration choices (in bins).
   delay_duration_bins: [1, 2, 4, 8]
 
-  hsize: 256
-  nhidden: 3
+  hsize: 64 #256
+  nhidden: 1 # 3
   #
   # When going up the ret needs to be higher than this
   # against the curent disc league.
