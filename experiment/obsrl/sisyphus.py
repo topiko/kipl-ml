@@ -89,6 +89,12 @@ def train_obs_one_epoch(
         "sel vs. cond std ratio": [],
         "train_disc": [],
         "grad_norm": [],
+        "selector_wait_frac": [],
+        "selector_send_up_frac": [],
+        "selector_send_down_frac": [],
+        "selector_send_both_frac": [],
+        "selector_delay_frac": [],
+        "delay_active_frac": [],
     }
     losses_metrics_d.update(
         {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
@@ -258,6 +264,33 @@ def train_obs_one_epoch(
             losses_metrics_d["entropy_loss"].append(entropy_loss.item())
             losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
             losses_metrics_d["avg_return"].append(cur_ret)
+
+            tm = time_mask.bool()
+            denom = max(int(tm.sum().item()), 1)
+            sel = actions[Actions.SELECTOR].to(torch.long)
+            losses_metrics_d["selector_wait_frac"].append(
+                float(((sel == 0) & tm).sum().item()) / float(denom)
+            )
+            losses_metrics_d["selector_send_up_frac"].append(
+                float(((sel == 1) & tm).sum().item()) / float(denom)
+            )
+            losses_metrics_d["selector_send_down_frac"].append(
+                float(((sel == 2) & tm).sum().item()) / float(denom)
+            )
+            losses_metrics_d["selector_send_both_frac"].append(
+                float(((sel == 3) & tm).sum().item()) / float(denom)
+            )
+            losses_metrics_d["selector_delay_frac"].append(
+                float(((sel == 4) & tm).sum().item()) / float(denom)
+            )
+            if Actions.DELAY_BINS in actions:
+                losses_metrics_d["delay_active_frac"].append(
+                    float((((actions[Actions.DELAY_BINS] > 0) & tm).sum().item()))
+                    / float(denom)
+                )
+            else:
+                losses_metrics_d["delay_active_frac"].append(0.0)
+
             for k, v in league_rewards.items():
                 losses_metrics_d[f"mean_reward_{k}"].append(
                     masked_mean(
@@ -298,6 +331,7 @@ def train_obs_one_epoch(
                 "ret": ema_ret,
                 "Hs": ema_sel_entropy,
                 "Hc": ema_cond_entropy,
+                "a4": np.mean(losses_metrics_d["selector_delay_frac"]),
             }
 
             pbar.set_postfix({k: f"{v:.03f}" for k, v in postfix.items()})
@@ -495,21 +529,30 @@ def train_obs_on_league(
 def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
     eps = cfg.obs.prob_eps
     f_ = 0.5
+
+    send_count_bins = [int(v) for v in cfg.obs.send_count_bins]
+    send_after_bins = [int(v) for v in cfg.obs.send_after_bins]
+    delay_duration_bins = [int(v) for v in cfg.obs.delay_duration_bins]
+
     obs = AGENT1(
         time_step=cfg.obs.time_step_s,
         max_silence_s=cfg.obs.max_silence_s,
         hsize=cfg.obs.hsize,
         nlayers=cfg.obs.nhidden,
+        send_count_bins=send_count_bins,
+        send_after_bins=send_after_bins,
         prob_eps={
             Actions.SELECTOR: eps,
             Actions.SEND_COUNT_UP: f_ * eps,
             Actions.SEND_UP_AFTER_BINS: f_ * eps,
             Actions.SEND_COUNT_DOWN: f_ * eps,
             Actions.SEND_DOWN_AFTER_BINS: f_ * eps,
+            Actions.DELAY_BINS: f_ * eps,
         },
+        delay_duration_bins=delay_duration_bins,
         prefer_wait_bias=6.0 if cfg.obs.init_for_wait else 0.0,
         send_mode=cfg.obs.send_mode,
-        enable_delay=getattr(cfg.obs, "enable_delay", False),
+        enable_delay=cfg.obs.enable_delay,
         train_env={"trim_beginning": cfg.trace.trim_beginning},
     )
 

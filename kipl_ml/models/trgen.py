@@ -1,6 +1,5 @@
 from typing import Any
 
-import numpy as np
 import torch
 from torch import nn
 from torch.distributions import Categorical
@@ -58,7 +57,11 @@ def _feature_map(
     def _map_one(fi: Feats) -> torch.Tensor:
         v = x[fi]
         # Convert int bins to seconds; skip if already float.
-        if fi in (Feats.TIME_BINS, Feats.Dt_BINS) and dt is not None and not v.is_floating_point():
+        if (
+            fi in (Feats.TIME_BINS, Feats.Dt_BINS)
+            and dt is not None
+            and not v.is_floating_point()
+        ):
             v = v.float() * dt
         else:
             v = v.float()
@@ -340,7 +343,8 @@ class AGENT1(nn.Module):
         hsize: int = 256,
         nlayers: int = 3,
         send_count_bins: list[int] | None = None,
-        send_time_bins: list[float] | None = None,
+        send_after_bins: list[int] | None = None,
+        delay_duration_bins: list[int] | None = None,
         dropout: float = 0.0,
         prob_eps: dict[Actions, float] | float | None = None,
         send_mode: str = "fixed",
@@ -356,6 +360,8 @@ class AGENT1(nn.Module):
             Actions.SELECTOR,
             Actions.SEND_COUNT_UP,
             Actions.SEND_COUNT_DOWN,
+            Actions.SEND_UP_AFTER_BINS,
+            Actions.SEND_DOWN_AFTER_BINS,
         ]
         send_count_bins = send_count_bins or [5, 20, 50, 100, 200]
 
@@ -364,13 +370,6 @@ class AGENT1(nn.Module):
             raise NotImplementedError(
                 "send_mode='spread' is deprecated; use send_mode='fixed'"
             )
-
-        self.ACTIONS += [Actions.SEND_UP_AFTER_BINS, Actions.SEND_DOWN_AFTER_BINS]
-        if send_time_bins is None:
-            send_time_bins = [
-                float(k) * float(time_step) for k in (0, 1, 3, 5, 7, 9)
-            ]
-
         ratio = float(max_silence_s) / float(time_step)
         if abs(ratio - round(ratio)) > 1e-8:
             raise ValueError(
@@ -378,32 +377,30 @@ class AGENT1(nn.Module):
                 + f" Got max_silence_s={max_silence_s}, time_step={time_step}."
             )
 
-        send_time_bins_t = torch.tensor(send_time_bins, dtype=torch.float)
-        send_after_bins = torch.round(send_time_bins_t / float(time_step)).to(torch.long)
-        send_time_bins_q = send_after_bins.to(torch.float) * float(time_step)
-        if not torch.allclose(send_time_bins_t, send_time_bins_q, atol=1e-6, rtol=0.0):
-            raise ValueError(
-                "send_time_bins must be multiples of time_step. "
-                + f"Got send_time_bins={send_time_bins} and time_step={time_step}."
-            )
+        if self.enable_delay:
+            self.ACTIONS.append(Actions.DELAY_BINS)
+
+        send_after_bins = send_after_bins or [0, 1, 3, 5, 7, 9]
+        delay_duration_bins = delay_duration_bins or [1, 2, 4, 8]
 
         n_send_counts = len(send_count_bins)
-        n_decay_times = int(send_after_bins.numel())
+        n_decay_times = len(send_after_bins)
+        n_delay_durations = len(delay_duration_bins)
 
         self.register_buffer(
             "send_count_bins", torch.tensor(send_count_bins, dtype=torch.long)
         )
-        self.register_buffer("send_after_bins", send_after_bins)
         self.register_buffer(
-            "send_time_bins", send_time_bins_q
+            "send_after_bins", torch.tensor(send_after_bins, dtype=torch.long)
+        )
+        self.register_buffer(
+            "delay_duration_bins", torch.tensor(delay_duration_bins, dtype=torch.long)
         )
 
         # Time step between feature extractions.
         self.time_step = time_step
         # Maximum silence the model tolerates before acting.
         self.max_silence_s = max_silence_s
-
-        # Delay duration is currently fixed to the current window Dt.
 
         # Exploration prob eps for each action:
         control_actions = [
@@ -413,20 +410,30 @@ class AGENT1(nn.Module):
             Actions.SEND_UP_AFTER_BINS,
             Actions.SEND_DOWN_AFTER_BINS,
         ]
-        # No extra control head for delay.
+        required_actions = control_actions.copy()
         if prob_eps is not None:
             if isinstance(prob_eps, float):
                 self.prob_eps = {a: prob_eps for a in control_actions}
             else:
-                if not set(prob_eps.keys()).issuperset(set(control_actions)):
+                if not set(prob_eps.keys()).issuperset(set(required_actions)):
                     raise ValueError("prob_eps keys must cover all actions.")
-                for a in control_actions:
+                for a in required_actions:
                     eps = float(prob_eps[a])
                     if eps < 0 or eps > 1:
                         raise ValueError(f"prob_eps[{a}] must be in [0, 1], got {eps}")
                 self.prob_eps = {a: float(prob_eps[a]) for a in control_actions}
         else:
             self.prob_eps = {a: 0.0 for a in control_actions}
+
+        if self.enable_delay:
+            delay_eps = float(self.prob_eps[Actions.SELECTOR])
+            if isinstance(prob_eps, dict) and Actions.DELAY_BINS in prob_eps:
+                delay_eps = float(prob_eps[Actions.DELAY_BINS])
+            if delay_eps < 0 or delay_eps > 1:
+                raise ValueError(
+                    f"prob_eps[{Actions.DELAY_BINS}] must be in [0, 1], got {delay_eps}"
+                )
+            self.prob_eps[Actions.DELAY_BINS] = delay_eps
 
         self.features = [
             Feats.UP_COUNT,
@@ -446,25 +453,29 @@ class AGENT1(nn.Module):
 
         self.out_norm = nn.LayerNorm(hsize)
 
-        self.actor = nn.ModuleDict(
-            {
-                "action_selection": nn.Sequential(
-                    nn.Dropout(dropout), nn.Linear(hsize, 5 if self.enable_delay else 4)
-                ),
-                "send_count_u": nn.Sequential(
-                    nn.Dropout(dropout), nn.Linear(hsize, n_send_counts)
-                ),
-                "send_count_d": nn.Sequential(
-                    nn.Dropout(dropout), nn.Linear(hsize, n_send_counts)
-                ),
-                "send_time_u": nn.Sequential(
-                    nn.Dropout(dropout), nn.Linear(hsize, n_decay_times)
-                ),
-                "send_time_d": nn.Sequential(
-                    nn.Dropout(dropout), nn.Linear(hsize, n_decay_times)
-                ),
-            }
-        )
+        actor_heads = {
+            "action_selection": nn.Sequential(
+                nn.Dropout(dropout), nn.Linear(hsize, 5 if self.enable_delay else 4)
+            ),
+            "send_count_u": nn.Sequential(
+                nn.Dropout(dropout), nn.Linear(hsize, n_send_counts)
+            ),
+            "send_count_d": nn.Sequential(
+                nn.Dropout(dropout), nn.Linear(hsize, n_send_counts)
+            ),
+            "send_time_u": nn.Sequential(
+                nn.Dropout(dropout), nn.Linear(hsize, n_decay_times)
+            ),
+            "send_time_d": nn.Sequential(
+                nn.Dropout(dropout), nn.Linear(hsize, n_decay_times)
+            ),
+        }
+        if self.enable_delay:
+            actor_heads["delay_dur"] = nn.Sequential(
+                nn.Dropout(dropout), nn.Linear(hsize, n_delay_durations)
+            )
+
+        self.actor = nn.ModuleDict(actor_heads)
 
         self.critic = nn.Sequential(
             nn.Linear(hsize, hsize), nn.ReLU(), nn.Linear(hsize, 1)
@@ -540,14 +551,20 @@ class AGENT1(nn.Module):
         # (N, L)
         state_values = self.critic(output).squeeze(-1)
 
-        return {
+        out = {
             Actions.SELECTOR: action_selector,
             Actions.SEND_COUNT_UP: send_count_u,
             Actions.SEND_UP_AFTER_BINS: send_time_u,
             Actions.SEND_COUNT_DOWN: send_count_d,
             Actions.SEND_DOWN_AFTER_BINS: send_time_d,
             Feats.STATE_VALUE: state_values,
-        }, h
+        }
+
+        if self.enable_delay:
+            # (N, L, DELAY_DURATION_BINS)
+            out[Actions.DELAY_BINS] = self.actor["delay_dur"](output)
+
+        return out, h
 
     def _get_probs(self, logits: torch.Tensor, eps: float) -> torch.Tensor:
         probs = nn.functional.softmax(logits, dim=-1)
@@ -596,7 +613,8 @@ class AGENT1(nn.Module):
             action_outputs[Actions.SEND_COUNT_UP], self.prob_eps[Actions.SEND_COUNT_UP]
         )
         send_time_u_idx, send_time_u_logp, sudt_entropy, _ = _select_from_logits(
-            action_outputs[Actions.SEND_UP_AFTER_BINS], self.prob_eps[Actions.SEND_UP_AFTER_BINS]
+            action_outputs[Actions.SEND_UP_AFTER_BINS],
+            self.prob_eps[Actions.SEND_UP_AFTER_BINS],
         )
 
         send_count_d_idx, send_count_d_logp, sdc_entropy, _ = _select_from_logits(
@@ -607,6 +625,20 @@ class AGENT1(nn.Module):
             action_outputs[Actions.SEND_DOWN_AFTER_BINS],
             self.prob_eps[Actions.SEND_DOWN_AFTER_BINS],
         )
+
+        delay_dur_logp = torch.zeros_like(sel_log_probs)
+        delay_entropy = torch.zeros_like(sel_entropy)
+        delay_bins = torch.zeros_like(x[Feats.Dt_BINS]).to(torch.long)
+        if self.enable_delay and sel_probs.shape[-1] >= 5:
+            delay_idx, delay_dur_logp, delay_entropy, _ = _select_from_logits(
+                action_outputs[Actions.DELAY_BINS],
+                self.prob_eps[Actions.DELAY_BINS],
+            )
+            delay_bins = self.delay_duration_bins[delay_idx]
+        elif self.enable_delay:
+            raise ValueError(
+                "enable_delay is True but action selector has < 5 outputs."
+            )
 
         send_count_u = self.send_count_bins[send_count_u_idx]
         send_count_d = self.send_count_bins[send_count_d_idx]
@@ -619,6 +651,10 @@ class AGENT1(nn.Module):
         cond_entropy = self.cond_beta * (
             up_p * (sudt_entropy + suc_entropy) + down_p * (sddt_entropy + sdc_entropy)
         )
+        if self.enable_delay and sel_probs.shape[-1] >= 5:
+            cond_entropy = (
+                cond_entropy + self.cond_beta * sel_probs[..., 4] * delay_entropy
+            )
 
         entropies = {
             "selection_entropy": sel_entropy,
@@ -636,7 +672,7 @@ class AGENT1(nn.Module):
             Actions.SEND_UP_AFTER_BINS: send_time_u.detach().clone(),
         }
         if self.enable_delay and sel_probs.shape[-1] >= 5:
-            actions[Actions.DELAY_BINS] = torch.zeros_like(x[Feats.Dt_BINS]).detach().clone()
+            actions[Actions.DELAY_BINS] = torch.zeros_like(delay_bins).detach().clone()
 
         mask = selections == 0
         log_probs[mask] = sel_log_probs[mask]
@@ -648,8 +684,12 @@ class AGENT1(nn.Module):
 
         if self.enable_delay and sel_probs.shape[-1] >= 5:
             mask = selections == 4
-            log_probs[mask] = sel_log_probs[mask]
-            actions[Actions.DELAY_BINS][mask] = 1  # 1 bin of delay
+            log_probs[mask] = (
+                sel_log_probs[mask] + self.cond_beta * delay_dur_logp[mask]
+            )
+            actions[Actions.DELAY_BINS][mask] = (
+                delay_bins[mask].to(torch.long).clamp(min=1)
+            )
             actions[Actions.DO_NOTHING][mask] = 0
             actions[Actions.SEND_COUNT_UP][mask] = 0
             actions[Actions.SEND_COUNT_DOWN][mask] = 0

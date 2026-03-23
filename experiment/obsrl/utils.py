@@ -742,6 +742,25 @@ def load_leagues_from_children(
         )
         return model
 
+    def _load_state_dict_strict(module: nn.Module, state_dict: dict, what: str) -> None:
+        cur = module.state_dict()
+        missing = [k for k in cur.keys() if k not in state_dict]
+        unexpected = [k for k in state_dict.keys() if k not in cur]
+        shape_mismatch = []
+
+        for k, v in state_dict.items():
+            if k in cur and cur[k].shape != v.shape:
+                shape_mismatch.append((k, tuple(v.shape), tuple(cur[k].shape)))
+
+        if missing or unexpected or shape_mismatch:
+            raise ValueError(
+                f"Incompatible {what} state_dict: "
+                + f"missing={missing}, unexpected={unexpected}, "
+                + f"shape_mismatch={shape_mismatch}"
+            )
+
+        module.load_state_dict(state_dict, strict=True)
+
     for run in sorted(child_runs, key=_child_sort_key):
         df = list_logged_models_for_run(run.info.run_id)
         if len(df) == 0:
@@ -763,9 +782,9 @@ def load_leagues_from_children(
             ).state_dict()
 
     if obs_league:
-        current_obs.load_state_dict(obs_league[-1][1])
+        _load_state_dict_strict(current_obs, obs_league[-1][1], what="obs")
 
     if disc_league:
-        current_disc.load_state_dict(disc_league[-1][1])
+        _load_state_dict_strict(current_disc, disc_league[-1][1], what="disc")
 
     return obs_league, disc_league, current_obs, current_disc, latest_critic_state

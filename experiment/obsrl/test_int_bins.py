@@ -17,7 +17,9 @@ class TestObsrlIntBinsConsistency(TestCase):
         padding = torch.tensor([[0, 0, 0, 0, 0]], dtype=torch.bool)
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
 
-        fd = get_window_feature_dict(X, dt=0.5, max_silence_s=1.0, features=[Feats.TIME_BINS])
+        fd = get_window_feature_dict(
+            X, dt=0.5, max_silence_s=1.0, features=[Feats.TIME_BINS]
+        )
 
         self.assertIn(Feats.TIME_BINS, fd)
         self.assertNotIn(Feats.TIMES, fd)
@@ -51,6 +53,80 @@ class TestObsrlIntBinsConsistency(TestCase):
         self.assertIn(Feats.TIME_BINS, fd)
         self.assertNotIn(Feats.TIMES, fd)
 
+    def test_delay_uses_dedicated_duration_head(self):
+        """Delay duration should come from delay head, not Dt_BINS."""
+        from kipl_ml.models.trgen import AGENT1
+
+        obs = AGENT1(
+            time_step=0.02,
+            max_silence_s=0.02,
+            hsize=16,
+            nlayers=1,
+            prob_eps=0.0,
+            enable_delay=True,
+            delay_duration_bins=[1, 2, 4, 8],
+        )
+        obs.eval()
+
+        # Force selector -> DELAY (index 4).
+        sel_lin = obs.actor["action_selection"][-1]
+        with torch.no_grad():
+            sel_lin.weight.zero_()
+            sel_lin.bias.zero_()
+            sel_lin.bias[4] = 10.0
+
+        # Force delay duration head -> index 2 => 4 bins.
+        delay_lin = obs.actor["delay_dur"][-1]
+        with torch.no_grad():
+            delay_lin.weight.zero_()
+            delay_lin.bias.zero_()
+            delay_lin.bias[2] = 10.0
+
+        x = {
+            Feats.UP_COUNT: torch.tensor([[0]]),
+            Feats.DOWN_COUNT: torch.tensor([[0]]),
+            Feats.Dt_BINS: torch.tensor([[7]]),
+            Feats.TIME_BINS: torch.tensor([[10]]),
+            Feats.SILENCE_FLAG: torch.tensor([[1.0]]),
+        }
+
+        _, actions, *_ = obs.act_step(x, sample=False)
+
+        self.assertEqual(int(actions[Actions.DELAY_BINS][0, 0].item()), 4)
+        self.assertNotEqual(int(actions[Actions.DELAY_BINS][0, 0].item()), 7)
+
+    def test_get_agent_uses_configurable_send_bins(self):
+        """Sisyphus agent builder should honor send bins from config."""
+        from omegaconf import OmegaConf
+
+        from experiment.obsrl.sisyphus import get_agent_and_critic
+
+        cfg = OmegaConf.create(
+            {
+                "obs": {
+                    "prob_eps": 0.0,
+                    "time_step_s": 0.02,
+                    "max_silence_s": 0.02,
+                    "hsize": 16,
+                    "nhidden": 1,
+                    "init_for_wait": False,
+                    "send_mode": "fixed",
+                    "enable_delay": True,
+                    "delay_duration_bins": [1, 2, 4],
+                    "send_count_bins": [3, 7, 11],
+                    "send_after_bins": [0, 2, 5],
+                    "separate_critic": False,
+                },
+                "trace": {"trim_beginning": 0},
+            }
+        )
+
+        obs, critic = get_agent_and_critic(cfg)
+
+        self.assertIsNone(critic)
+        self.assertEqual(obs.send_count_bins.tolist(), [3, 7, 11])
+        self.assertEqual(obs.send_after_bins.tolist(), [0, 2, 5])
+
 
 class TestInvariants(TestCase):
     """Verify invariants code uses correct feature names."""
@@ -77,4 +153,5 @@ class TestInvariants(TestCase):
 
 if __name__ == "__main__":
     import unittest
+
     unittest.main()
