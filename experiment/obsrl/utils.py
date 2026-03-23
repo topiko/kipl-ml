@@ -44,12 +44,20 @@ def dl_(
     if nworkers is None:
         nworkers = multiprocessing.cpu_count() // 8 * 7
 
+    def _worker_init_fn(_worker_id: int):
+        torch.set_num_threads(1)
+        try:
+            torch.set_num_interop_threads(1)
+        except RuntimeError:
+            pass
+
     return DataLoader(
         ds,
         batch_size=bs,
         shuffle=shuffle,
         num_workers=nworkers,
         collate_fn=collate_fn,
+        worker_init_fn=_worker_init_fn,
         **kwargs,
     )
 
