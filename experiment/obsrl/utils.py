@@ -632,7 +632,6 @@ def train_disc_one_batch(
             logits, h = disc.pack_and_forward(X_chunk, h, chunk_seq_lens.cpu())
 
             if logits is None:
-                breakpoint()
                 raise ValueError("None logits...")
 
             h = tuple(h_.detach() for h_ in h)
@@ -670,7 +669,6 @@ def train_disc_one_batch(
                     )
                 except RuntimeError:
                     print("Nan in grads")
-                    breakpoint()
                     return loss_mean, None
 
                 disc_opm.step()

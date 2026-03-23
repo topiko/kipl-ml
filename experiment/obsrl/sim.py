@@ -100,9 +100,12 @@ def get_rewards(
     padding_all = X_obs[Feats.PADDING][:, :n_packets].bool()
 
     # Make contiguous to avoid searchsorted warning.
-    pkt_idx = torch.searchsorted(
-        action_times_f.contiguous(), times_all.contiguous(), right=True
-    ) - 1
+    pkt_idx = (
+        torch.searchsorted(
+            action_times_f.contiguous(), times_all.contiguous(), right=True
+        )
+        - 1
+    )
     pkt_valid_idx = (pkt_idx >= 0) & (pkt_idx < T)
     pkt_in_seq = (
         torch.arange(n_packets, device=times_all.device)[None, :]
@@ -150,9 +153,9 @@ def get_rewards(
     )[:, 1:].float()
 
     # (bs, T)
-    sum_ = torch.zeros(
-        (bs, T), device=times.device, dtype=times.dtype
-    ).scatter_add_(1, idxs, torch.ones_like(m) * disc_seq_len_mask)
+    sum_ = torch.zeros((bs, T), device=times.device, dtype=times.dtype).scatter_add_(
+        1, idxs, torch.ones_like(m) * disc_seq_len_mask
+    )
 
     # (bs, N)
     r_pkt = torch.clamp(-m, min=-10, max=10.0)
@@ -225,7 +228,9 @@ def compute_values(
     fd_critic = fd
     if hasattr(critic, "features") and Feats.LABEL in critic.features:
         fd_critic = dict(fd)
-        fd_critic[Feats.LABEL] = y.unsqueeze(1).repeat(1, int(fd[Feats.TIME_BINS].shape[1]))
+        fd_critic[Feats.LABEL] = y.unsqueeze(1).repeat(
+            1, int(fd[Feats.TIME_BINS].shape[1])
+        )
 
     return critic(
         fd_critic,

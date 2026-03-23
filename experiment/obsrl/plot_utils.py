@@ -276,7 +276,9 @@ def _plot_single(
                     color="#b91c1c",
                 )
         else:
-            logger.warning("Could not infer positive dt for invariant checks (idx=%s)", ds_idx)
+            logger.warning(
+                "Could not infer positive dt for invariant checks (idx=%s)", ds_idx
+            )
     except Exception as err:
         logger.warning("Invariant check failed for idx=%s: %s", ds_idx, err)
 
@@ -291,6 +293,11 @@ def _plot_single(
     times_i = times_s[batch_i]
     times_np = times_i.squeeze()
 
+    # Cut sequence at policy sequence length first, then drop invalid bins.
+    seq_len_i = int(fd[Feats.SEQ_LENS][batch_i].item())
+    seq_len_i = max(0, min(seq_len_i, int(times_np.shape[0])))
+    times_np = times_np[:seq_len_i]
+
     # Filter out invalid times (negative bins -> negative seconds).
     valid_mask = times_np >= 0
     times_valid = times_np[valid_mask]
@@ -299,7 +306,7 @@ def _plot_single(
     ax_entropy = ax_a.twinx()
     ax_entropy.axes.spines["right"].set_visible(True)
     for entropy, entropy_values in entropies.items():
-        values_i = entropy_values[batch_i][valid_mask]
+        values_i = entropy_values[batch_i, :seq_len_i][valid_mask]
         ax_entropy.plot(
             times_valid,
             values_i.squeeze().cpu().numpy(),
@@ -318,7 +325,7 @@ def _plot_single(
 
     ax_probs.plot(
         times_valid,
-        sel_probs[batch_i][valid_mask].squeeze().cpu().numpy(),
+        sel_probs[batch_i, :seq_len_i][valid_mask].squeeze().cpu().numpy(),
         "-",
         lw=1,
     )
@@ -349,7 +356,7 @@ def _plot_single(
     ax_b.legend(frameon=False, loc=2)
 
     # Plot returns
-    G_mean = (weights[:, None, None] * G).sum(dim=0)[batch_i, :]
+    G_mean = (weights[:, None, None] * G).sum(dim=0)[batch_i, :seq_len_i]
     # Mean
     ax_ret.plot(
         times_valid,
@@ -361,7 +368,7 @@ def _plot_single(
     # League cloud
     ax_ret.plot(
         times_valid,
-        G[:, batch_i, :][:, valid_mask].permute(1, 0).cpu().numpy(),
+        G[:, batch_i, :seq_len_i][:, valid_mask].permute(1, 0).cpu().numpy(),
         "k-",
         alpha=0.5,
         lw=0.2,
@@ -369,14 +376,14 @@ def _plot_single(
     # Current active
     ax_ret.plot(
         times_valid,
-        G[-1, batch_i, :][valid_mask].squeeze().cpu().numpy(),
+        G[-1, batch_i, :seq_len_i][valid_mask].squeeze().cpu().numpy(),
         "k-",
         alpha=1.0,
         lw=0.5,
     )
 
     # Values
-    values_i = values[batch_i, :]
+    values_i = values[batch_i, :seq_len_i]
     ax_ret.plot(
         times_valid,
         values_i[valid_mask].squeeze().cpu().numpy(),
@@ -391,8 +398,10 @@ def _plot_single(
     ax_ret.axes.spines["bottom"].set_visible(False)
 
     # Advantages (league, T)
-    advantages_i = advantages[:, batch_i, :]
-    advantages_mean = (weights[:, None, None] * advantages).sum(dim=0)[batch_i, :]
+    advantages_i = advantages[:, batch_i, :seq_len_i]
+    advantages_mean = (weights[:, None, None] * advantages).sum(dim=0)[
+        batch_i, :seq_len_i
+    ]
 
     # Mean
     ax_adv.plot(
