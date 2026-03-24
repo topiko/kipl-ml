@@ -9,6 +9,7 @@ from torch import nn
 from kipl_ml.data import assets
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt, log_multiline
+from kipl_ml.rl.utils import _time_to_bin_idx
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.params import DOWNLOAD, UPLOAD
 from kipl_ml.trace.transforms import _TR
@@ -702,26 +703,56 @@ class _TAM(_TR):
         self._output_sizes = {self.name: len_}
         return self
 
+    def _count_by_bin_idx(
+        self, times: torch.Tensor, packet_mask: torch.Tensor
+    ) -> torch.Tensor:
+        """Count packets per TAM bin using the same integer binning as row2."""
+
+        n_bins = len(self.bins) - 1
+        if n_bins <= 0:
+            return torch.zeros((0,), device=times.device, dtype=torch.long)
+        counts = torch.zeros((n_bins,), device=times.device, dtype=torch.long)
+
+        packet_times = times[packet_mask]
+        if packet_times.numel() == 0:
+            return counts
+
+        # Match histc range behavior: include [0, max], ignore outside.
+        tmax = float(self.bins[-1].item())
+        packet_times = packet_times[(packet_times >= 0.0) & (packet_times <= tmax)]
+        if packet_times.numel() == 0:
+            return counts
+
+        packet_bins = _time_to_bin_idx(packet_times, float(self.window_width_s))
+        # Right edge (t == max) maps to n_bins; clamp into the final bin.
+        packet_bins = packet_bins.clamp(min=0, max=n_bins - 1).to(torch.long)
+        return torch.bincount(packet_bins, minlength=n_bins)
+
+    def _get_keep_mask(self, counts: torch.Tensor) -> torch.Tensor:
+        if self.prune_empty:
+            return counts > 0
+        return torch.ones_like(counts, dtype=torch.bool)
+
     def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         times = trace[assets.TIMES]
         dirs = trace[assets.DIRS]
 
         match self.DIR:
             case "upload":
-                mask = dirs == UPLOAD
+                packet_mask = dirs == UPLOAD
             case "download":
-                mask = dirs == DOWNLOAD
+                packet_mask = dirs == DOWNLOAD
             case "up/download":
-                mask = (dirs == DOWNLOAD) | (dirs == UPLOAD)
+                packet_mask = (dirs == DOWNLOAD) | (dirs == UPLOAD)
             case _:
                 raise KeyError(f"Invalid dir {self.DIR}")
 
         if self.TIMES:
-            mask = dirs != 0
+            packet_mask = dirs != 0
 
         if self.PADDING:
             try:
-                mask = mask & (trace[Feats.PADDING] == 1)
+                packet_mask = packet_mask & (trace[Feats.PADDING] == 1)
             except KeyError:
                 if not self.padding_warned:
                     logger.warning(
@@ -729,28 +760,18 @@ class _TAM(_TR):
                         + "Proceeding without padding mask."
                     )
                     self.padding_warned = True
-                mask = torch.zeros_like(mask, dtype=torch.bool)
+                packet_mask = torch.zeros_like(packet_mask, dtype=torch.bool)
 
-        # NOTE: we expect the time to be in "s"!
-        # counts2, edges = torch.histogram(
-        #     times[mask], bins=len(self.bins) - 1, range=(0, self.bins[-1].item())
-        # )
-        counts = torch.histc(
-            times[mask], bins=len(self.bins) - 1, min=0.0, max=self.bins[-1]
-        )
-
-        mask = torch.ones_like(counts, dtype=torch.bool)
-        if self.prune_empty:
-            mask = counts > 0
+        counts = self._count_by_bin_idx(times, packet_mask)
+        keep_mask = self._get_keep_mask(counts)
 
         if self.TIMES:
             # We can also return the time of each bin
-            bin_times = self.bins[:-1].to(times.device)[mask]
+            bin_times = self.bins[:-1].to(times.device)[keep_mask]
 
             return {self.name: bin_times}
 
-        counts = counts[mask]
-        return {self.name: counts}
+        return {self.name: counts[keep_mask].to(torch.float32)}
 
 
 class TAM_UP(_TAM):
@@ -797,18 +818,13 @@ class TAM_BINS(_TAM):
         times = trace[assets.TIMES]
         dirs = trace[assets.DIRS]
 
-        mask = dirs != 0
+        packet_mask = dirs != 0
 
-        counts = torch.histc(
-            times[mask], bins=len(self.bins) - 1, min=0.0, max=self.bins[-1]
-        )
-
-        keep = torch.ones_like(counts, dtype=torch.bool)
-        if self.prune_empty:
-            keep = counts > 0
+        counts = self._count_by_bin_idx(times, packet_mask)
+        keep_mask = self._get_keep_mask(counts)
 
         bin_idx = self.bin_idx[:-1].to(device=times.device)
-        return {self.name: bin_idx[keep]}
+        return {self.name: bin_idx[keep_mask]}
 
 
 class Compose(_TR):

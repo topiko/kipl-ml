@@ -127,6 +127,48 @@ class TestObsrlIntBinsConsistency(TestCase):
         self.assertEqual(obs.send_count_bins.tolist(), [3, 7, 11])
         self.assertEqual(obs.send_after_bins.tolist(), [0, 2, 5])
 
+    def test_tam_counts_follow_integer_bin_mapping(self):
+        """TAM bin counts should match _time_to_bin_idx on boundary-ish values."""
+        from kipl_ml.rl.utils import _time_to_bin_idx
+        from kipl_ml.trace.features import TAM_BINS, TAM_UP
+
+        dt = 0.02
+        times = torch.tensor(
+            [
+                6.21999979019165,
+                6.21999979019165,
+                6.239999771118164,
+                6.239999771118164,
+                6.239999771118164,
+                6.239999771118164,
+                6.259999752044678,
+            ],
+            dtype=torch.float32,
+        )
+        dirs = torch.ones_like(times, dtype=torch.int8)
+        trace = {
+            Feats.TIMES: times,
+            Feats.DIRS: dirs,
+            Feats.PADDING: torch.zeros_like(times, dtype=torch.bool),
+        }
+
+        tam_up = TAM_UP(max_load_time_s=10.0, window_width_s=dt)
+        got = tam_up(trace)[Feats.TAM_UP_COUNTS].round().to(torch.long)
+
+        b = _time_to_bin_idx(times, dt)
+        exp = torch.zeros_like(got, dtype=torch.long)
+        exp.scatter_add_(0, b, torch.ones_like(b, dtype=torch.long))
+
+        self.assertTrue(torch.equal(got, exp))
+
+        tam_bins = TAM_BINS(
+            max_load_time_s=10.0,
+            window_width_s=dt,
+            prune_empty_bins=True,
+        )
+        got_bins = tam_bins(trace)[Feats.TAM_BINS].to(torch.long)
+        self.assertEqual(got_bins.tolist(), sorted(set(int(v) for v in b.tolist())))
+
 
 class TestInvariants(TestCase):
     """Verify invariants code uses correct feature names."""
