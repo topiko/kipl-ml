@@ -328,10 +328,10 @@ def train_obs_one_epoch(
             postfix = {
                 "pfu": np.mean(losses_metrics_d["mean_padding_frac_up"]),
                 "pfd": np.mean(losses_metrics_d["mean_padding_frac_down"]),
+                "dly": np.mean(losses_metrics_d["selector_delay_frac"]),
                 "ret": ema_ret,
                 "Hs": ema_sel_entropy,
                 "Hc": ema_cond_entropy,
-                "a4": np.mean(losses_metrics_d["selector_delay_frac"]),
             }
 
             pbar.set_postfix({k: f"{v:.03f}" for k, v in postfix.items()})
@@ -550,7 +550,7 @@ def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
             Actions.DELAY_BINS: f_ * eps,
         },
         delay_duration_bins=delay_duration_bins,
-        prefer_wait_bias=6.0 if cfg.obs.init_for_wait else 0.0,
+        prefer_wait_bias=4.0 if cfg.obs.init_for_wait else 0.0,
         send_mode=cfg.obs.send_mode,
         enable_delay=cfg.obs.enable_delay,
         train_env={"trim_beginning": cfg.trace.trim_beginning},

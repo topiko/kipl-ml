@@ -30,12 +30,12 @@ advantages:
 
 rewards:
   d_clf: 0.001
-  padding_scale: 0.01
-  delay_scale: 0.0001 # 0.0000001
+  padding_scale: 0.02
+  delay_scale: 0.00001 # 0.0000001
 
 obs:
   # Floor for action prob:
-  prob_eps: 0.04
+  prob_eps: 0.10 # 0.04 <- working prev.
   time_step_s: 0.02
   max_silence_s: 0.06
   detach_period: 300
@@ -49,7 +49,7 @@ obs:
   # Delay (in action bins) before scheduled send actions.
   send_after_bins: [0, 1, 3, 5] #, 7, 9]
   # Delay action duration choices (in bins).
-  delay_duration_bins: [1, 2, 4, 8]
+  delay_duration_bins: [1, 2, 3]
 
   hsize: 64 #256
   nhidden: 1 # 3
