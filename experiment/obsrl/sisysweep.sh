@@ -6,7 +6,7 @@ set -e
 
 adv=mc
 trace_len=5000
-parent_prefix="audacious-imp6-$trace_len" #"advanced-smolin" # audacious-imp
+parent_prefix="audacious-imp7-$trace_len" #"advanced-smolin" # audacious-imp
 
 
 for sep_critic in false true; do

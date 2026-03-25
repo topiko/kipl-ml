@@ -286,12 +286,10 @@ def _plot_single(
     }
     nleague = len(weights)
     for i in range(nleague):
-        d = {k: disc_rewards[k][i].squeeze(0) for k, v in disc_rewards.items()}
-
         plot_rewards(
             times[batch_i, :seq_len_i],
             {
-                k: disc_rewards[k][i, :seq_len_i].squeeze(0)
+                k: disc_rewards[k][i, :seq_len_i].squeeze(0).cpu()
                 for k, v in disc_rewards.items()
             },
             idx=None,
@@ -308,8 +306,8 @@ def _plot_single(
         :seq_len_i
     ]
     ax_mean_rew.plot(
-        times[batch_i, :seq_len_i] * obs_dt_s,
-        mean_disc_rewards,
+        times[batch_i, :seq_len_i].cpu().numpy() * obs_dt_s,
+        mean_disc_rewards.cpu().numpy(),
         "-|",
         color="black",
         lw=2.0,

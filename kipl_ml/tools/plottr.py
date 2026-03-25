@@ -584,6 +584,7 @@ def plot_rewards(
 
     plot_kwargs.setdefault("lw", 0.7)
     plot_kwargs.setdefault("alpha", 1.0)
+    plot_kwargs.setdefault("ls", "-|")
 
     for k, r in rewards.items():
         if only_sum and k != "sum":
@@ -592,7 +593,7 @@ def plot_rewards(
         if k == "sum":
             label = None
         r_ = _squeeze_batched(r, idx)[valid_mask]
-        ax.plot(times, r_, "-|", **plot_kwargs, label=label)
+        ax.plot(times, r_, **plot_kwargs, label=label)
 
     return ax
 
