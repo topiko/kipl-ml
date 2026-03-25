@@ -566,6 +566,7 @@ def plot_rewards(
     ax: plt.Axes | None = None,
     dt_s: float | None = None,
     only_sum: bool = False,
+    **plot_kwargs,
 ) -> plt.Axes:
     if ax is None:
         _, ax = plt.subplots(figsize=(12, 3))
@@ -581,11 +582,17 @@ def plot_rewards(
 
     rewards["sum"] = sum(rewards.values())
 
+    plot_kwargs.setdefault("lw", 0.7)
+    plot_kwargs.setdefault("alpha", 1.0)
+
     for k, r in rewards.items():
         if only_sum and k != "sum":
             continue
+        label = f"reward, {k}"
+        if k == "sum":
+            label = None
         r_ = _squeeze_batched(r, idx)[valid_mask]
-        ax.plot(times, r_, "-|", lw=1, ms=3, label=f"rewards, {k}")
+        ax.plot(times, r_, "-|", **plot_kwargs, label=label)
 
     return ax
 

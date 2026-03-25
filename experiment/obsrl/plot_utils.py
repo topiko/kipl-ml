@@ -284,19 +284,36 @@ def _plot_single(
         k: (weights[:, None, None] * v)[:, batch_i, :]
         for k, v in league_rewards.items()
     }
-    for i in range(disc_rewards["disc"].shape[0]):
+    nleague = len(weights)
+    for i in range(nleague):
+        d = {k: disc_rewards[k][i].squeeze(0) for k, v in disc_rewards.items()}
+
         plot_rewards(
-            times,
-            {k: disc_rewards[k][i] for k, v in disc_rewards.items()},
+            times[batch_i, :seq_len_i],
+            {
+                k: disc_rewards[k][i, :seq_len_i].squeeze(0)
+                for k, v in disc_rewards.items()
+            },
             idx=None,
             ax=ax_mean_rew,
             dt_s=obs_dt_s,
             only_sum=True,
+            ls="-",
+            lw=0.5,
+            alpha=0.5,
+            color="black",
         )
 
-    mean_disc_rewards = (weights[:, None] * sum(disc_rewards.values())).sum(dim=0)
+    mean_disc_rewards = (weights[:, None] * sum(disc_rewards.values())).sum(dim=0)[
+        :seq_len_i
+    ]
     ax_mean_rew.plot(
-        times, mean_disc_rewards, "-", color="black", lw=2, label="Mean disc rew."
+        times[batch_i, :seq_len_i] * obs_dt_s,
+        mean_disc_rewards,
+        "-|",
+        color="black",
+        lw=2.0,
+        label="Mean disc rew.",
     )
 
     # Plot returns

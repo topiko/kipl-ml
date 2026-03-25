@@ -484,6 +484,8 @@ def get_advantages(
     if isinstance(rewards, dict):
         rewards = sum(rewards.values())
 
+    assert isinstance(rewards, torch.Tensor), f"Invalid rewards type: {type(rewards)}!"
+
     # In case of "league rewards"
     if rewards.ndim == 3:
         if cfg.advantages.standardize and cfg.league_size > 1:
@@ -498,6 +500,9 @@ def get_advantages(
 
         # (League, B, T)
         return torch.stack(G_l, dim=0), torch.stack(advantages_l, dim=0)
+
+    if rewards.ndim != 2:
+        raise ValueError(f"Invalid rewards shape: {rewards.shape}!")
 
     values_detached = values.detach()
 
@@ -543,6 +548,9 @@ def get_advantages(
         if abs(gamma - 1.0) < 1e-8:
             Z = to_seq_end
         else:
+            # The returns are a sum of discounted rewards, effectively(?)
+            # a geometric series with length to_seq_end and factor gamma.
+            # TODO: this is very experimental...
             Z = (1 - gamma**to_seq_end) / (1 - gamma)
 
         advantages /= Z + 1e-8
