@@ -584,7 +584,8 @@ def plot_rewards(
 
     plot_kwargs.setdefault("lw", 0.7)
     plot_kwargs.setdefault("alpha", 1.0)
-    plot_kwargs.setdefault("ls", "-|")
+    plot_kwargs.setdefault("ls", "-")
+    plot_kwargs.setdefault("marker", "|")
 
     for k, r in rewards.items():
         if only_sum and k != "sum":

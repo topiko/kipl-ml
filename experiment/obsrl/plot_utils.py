@@ -297,6 +297,7 @@ def _plot_single(
             dt_s=obs_dt_s,
             only_sum=True,
             ls="-",
+            marker="",
             lw=0.5,
             alpha=0.5,
             color="black",
