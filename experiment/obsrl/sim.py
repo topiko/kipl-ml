@@ -294,6 +294,7 @@ def compute_rewards_league(
         )
         rewards_l.append(rewards_)
 
+    # (League, B, T)
     rewards = {
         k: torch.stack([r[k] for r in rewards_l], dim=0) for k in rewards_l[0].keys()
     }

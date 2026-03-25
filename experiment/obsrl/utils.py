@@ -496,6 +496,7 @@ def get_advantages(
             G_l.append(G_)
             advantages_l.append(advantages_)
 
+        # (League, B, T)
         return torch.stack(G_l, dim=0), torch.stack(advantages_l, dim=0)
 
     values_detached = values.detach()
@@ -507,9 +508,11 @@ def get_advantages(
         elif cfg.advantages.type == "mc_w_bootstrap":
             # Time-limit truncation bootstrap: treat end-of-trace as non-terminal.
             bootstrap = values_detached.gather(1, seq_lens[:, None] - 1).squeeze(1)
+            raise NotImplementedError("Time-limit truncation not confirmed yet!")
         else:
             raise KeyError()
 
+        # (B, T)
         G = get_returns(
             rewards,
             seq_lens,

@@ -53,6 +53,28 @@ TARGET = assets.PAGE_LABEL
 DATASET = Datasets.BIGENOUGH
 
 
+def _avg_leaguescore(
+    weights: torch.Tensor,
+    scores: torch.Tensor,
+    time_mask: torch.Tensor,
+    per_trace: bool = False,
+) -> torch.Tensor:
+    # scores: (nleague, bs, T)
+    # weights: (nleague, )
+    # time_mask: (bs, T)
+    # returns: scalar
+
+    return (
+        masked_mean(
+            (weights[:, None, None] * scores).sum(dim=0),
+            time_mask,
+            per_trace=per_trace,
+        )
+        .mean()
+        .item()
+    )
+
+
 def train_obs_one_epoch(
     dl_train: torch.utils.data.DataLoader,
     obs: AGENT1,
@@ -71,9 +93,10 @@ def train_obs_one_epoch(
     ema_sel_entropy = None
     ema_cond_entropy = None
     ema_ret = None
+    ema_rew = None
     ema_decay = cfg.ema_decay
 
-    losses_metrics_d: dict[str, list[float] | float] = {
+    losses_metrics_d: dict[str, list[float]] = {
         "loss": [],
         "policy_loss": [],
         "value_loss": [],
@@ -99,6 +122,7 @@ def train_obs_one_epoch(
     losses_metrics_d.update(
         {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
     )
+    losses_metrics_d["mean_reward_total"] = []
 
     with tqdm(
         dl_train,
@@ -239,15 +263,8 @@ def train_obs_one_epoch(
             cond_term = (advantages * (log_ps - sel_log_p)).std()
             ratio = cond_term / (sel_term + 1e-8)
 
-            cur_ret = (
-                masked_mean(
-                    (weights[:, None, None] * G).sum(dim=0),
-                    time_mask,
-                    per_trace=True,
-                )
-                .mean()
-                .item()
-            )
+            cur_ret = _avg_leaguescore(weights, G, time_mask, per_trace=True)
+
             ema_ret = ema_update(ema_ret, cur_ret, ema_decay)
 
             # Logging:
@@ -266,41 +283,47 @@ def train_obs_one_epoch(
             losses_metrics_d["avg_return"].append(cur_ret)
 
             tm = time_mask.bool()
-            denom = max(int(tm.sum().item()), 1)
+            denom = tm.sum().item()
             sel = actions[Actions.SELECTOR].to(torch.long)
             losses_metrics_d["selector_wait_frac"].append(
-                float(((sel == 0) & tm).sum().item()) / float(denom)
+                ((sel == 0) & tm).sum().item() / denom
             )
             losses_metrics_d["selector_send_up_frac"].append(
-                float(((sel == 1) & tm).sum().item()) / float(denom)
+                ((sel == 1) & tm).sum().item() / denom
             )
             losses_metrics_d["selector_send_down_frac"].append(
-                float(((sel == 2) & tm).sum().item()) / float(denom)
+                ((sel == 2) & tm).sum().item() / denom
             )
             losses_metrics_d["selector_send_both_frac"].append(
-                float(((sel == 3) & tm).sum().item()) / float(denom)
+                ((sel == 3) & tm).sum().item() / denom
             )
             losses_metrics_d["selector_delay_frac"].append(
-                float(((sel == 4) & tm).sum().item()) / float(denom)
+                ((sel == 4) & tm).sum().item() / denom
             )
             if Actions.DELAY_BINS in actions:
                 losses_metrics_d["delay_active_frac"].append(
-                    float((((actions[Actions.DELAY_BINS] > 0) & tm).sum().item()))
-                    / float(denom)
+                    (((actions[Actions.DELAY_BINS] > 0) & tm).sum().item()) / denom
                 )
             else:
                 losses_metrics_d["delay_active_frac"].append(0.0)
 
             for k, v in league_rewards.items():
                 losses_metrics_d[f"mean_reward_{k}"].append(
-                    masked_mean(
-                        (weights[:, None, None] * v).sum(dim=0),
-                        time_mask,
-                        per_trace=True,
-                    )
-                    .mean()
-                    .item()
+                    _avg_leaguescore(weights, v, time_mask, per_trace=True)
                 )
+
+            losses_metrics_d["mean_reward_total"].append(
+                _avg_leaguescore(
+                    weights,
+                    sum(league_rewards.values()).sum(dim=0),
+                    time_mask,
+                    per_trace=True,
+                )
+            )
+
+            ema_rew = ema_update(
+                ema_rew, losses_metrics_d["mean_reward_total"][-1], ema_decay
+            )
 
             # (B, )
             normal_packets = (
@@ -330,6 +353,7 @@ def train_obs_one_epoch(
                 "pfd": np.mean(losses_metrics_d["mean_padding_frac_down"]),
                 "dly": np.mean(losses_metrics_d["selector_delay_frac"]),
                 "ret": ema_ret,
+                "rew": ema_rew,
                 "Hs": ema_sel_entropy,
                 "Hc": ema_cond_entropy,
             }
@@ -456,7 +480,7 @@ def train_obs_on_league(
             patience=cfg.obs.lr_scheduler_patience,
         )
 
-    ret_thres = cfg.obs.ret_thres_push
+    stop_metric, stop_thres = cfg.obs.stop_metric, cfg.obs.stop_metric_thres
 
     eo = 1
     while True:
@@ -475,17 +499,24 @@ def train_obs_on_league(
             e=eo,
             cfg=cfg,
         )
-        logger.info("Current ret: %.02f", metrics_d["avg_return"])
+        if stop_metric not in metrics_d:
+            raise KeyError(
+                f"cfg.obs.stop_metric={stop_metric!r} not found in epoch metrics"
+            )
+        stop_score = metrics_d[stop_metric]
+        logger.info("Current %s: %.04f", stop_metric, stop_score)
 
         # Log per-epoch metrics within this push run.
         for k, v in metrics_d.items():
             mlflow.log_metric(keymap(k), float(v), step=eo)
+
         mlflow.log_metric(
             "padding_scale", float(reward_scales_["padding_scale"]), step=eo
         )
 
         if obs_lr_scheduler is not None:
-            obs_lr_scheduler.step(-metrics_d["avg_return"])
+            # TODO: this here is very questionable.
+            obs_lr_scheduler.step(-stop_score)
             logger.info("Obs lrs:")
             log_lrs(obs_lr_scheduler)
 
@@ -494,10 +525,10 @@ def train_obs_on_league(
             logger.info("Critic lrs:")
             log_lrs(critic_lr_scheduler)
 
-        if (ret := metrics_d["avg_return"]) > ret_thres:
+        if stop_score > stop_thres:
             logger.info(
-                f"Achieved return {ret:.03f} > {ret_thres:.03f}, "
-                + "stopping obs training!"
+                f"Achieved {stop_metric} {stop_score:.04f} > {stop_thres:.04f}, "
+                "stopping obs training!"
             )
 
             obs_league = _append_to_league(obs_league, obs.state_dict())
@@ -640,8 +671,6 @@ def main(cfg: DictConfig):
         ),
         defence_aug_valid=0,
         n_min_packets=cfg.trace.min_packets,
-        exclude_time_to_packets_n=cfg.trace.len,
-        exclude_time_to_packets_s=cfg.trace.exclude_longer_than_s,
         trim_raw=cfg.trace.trim_beginning,
         **defence_builder.get_defence(cfg),
     )

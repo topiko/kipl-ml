@@ -359,11 +359,17 @@ def plot_actions(
         times = times.astype(np.float64) * dt_s
         # DELAY and SEND_*_AFTER_TIME are also in bins.
         if Actions.DELAY_BINS in actions:
-            actions[Actions.DELAY_BINS] = actions[Actions.DELAY_BINS].astype(np.float64) * dt_s
+            actions[Actions.DELAY_BINS] = (
+                actions[Actions.DELAY_BINS].astype(np.float64) * dt_s
+            )
         if Actions.SEND_UP_AFTER_BINS in actions:
-            actions[Actions.SEND_UP_AFTER_BINS] = actions[Actions.SEND_UP_AFTER_BINS].astype(np.float64) * dt_s
+            actions[Actions.SEND_UP_AFTER_BINS] = (
+                actions[Actions.SEND_UP_AFTER_BINS].astype(np.float64) * dt_s
+            )
         if Actions.SEND_DOWN_AFTER_BINS in actions:
-            actions[Actions.SEND_DOWN_AFTER_BINS] = actions[Actions.SEND_DOWN_AFTER_BINS].astype(np.float64) * dt_s
+            actions[Actions.SEND_DOWN_AFTER_BINS] = (
+                actions[Actions.SEND_DOWN_AFTER_BINS].astype(np.float64) * dt_s
+            )
 
     # Filter out invalid times (negative bins -> negative seconds).
     valid_mask = times >= 0
@@ -559,6 +565,7 @@ def plot_rewards(
     idx: int | None = None,
     ax: plt.Axes | None = None,
     dt_s: float | None = None,
+    only_sum: bool = False,
 ) -> plt.Axes:
     if ax is None:
         _, ax = plt.subplots(figsize=(12, 3))
@@ -575,6 +582,8 @@ def plot_rewards(
     rewards["sum"] = sum(rewards.values())
 
     for k, r in rewards.items():
+        if only_sum and k != "sum":
+            continue
         r_ = _squeeze_batched(r, idx)[valid_mask]
         ax.plot(times, r_, "-|", lw=1, ms=3, label=f"rewards, {k}")
 

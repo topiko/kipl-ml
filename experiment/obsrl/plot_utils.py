@@ -8,12 +8,6 @@ from omegaconf import DictConfig
 from torch import nn
 from tqdm import tqdm
 
-from experiment.obsrl.invariants import (
-    check_row2_equals_row4_minus_padding,
-    count_packets_inside_delay_windows,
-    format_delay_leak_report,
-    format_row24_report,
-)
 from experiment.obsrl.sim import rollout
 from experiment.obsrl.utils import (
     get_advantages,
@@ -26,7 +20,6 @@ from kipl_ml.tools.plottr import (
     plot_obs_features,
     plot_rewards,
     plot_tam,
-    plot_trace,
 )
 from kipl_ml.trace.features import Feats, FeatureTrs
 
@@ -179,8 +172,8 @@ def _plot_single(
     weights: torch.Tensor,
     obs_dt_s: float | None = None,
 ):
-    fig, (ax, ax_fd, ax_a, ax_o, ax_b, ax_ret, ax_adv) = plt.subplots(
-        7, 1, figsize=(20, 15.0), sharex=True
+    fig, (ax, ax_fd, ax_a, ax_o, ax_rew, ax_mean_rew, ax_ret, ax_adv) = plt.subplots(
+        8, 1, figsize=(20, 15.0), sharex=True
     )
 
     # Make rows 1, 2, and 4 easier to visually compare.
@@ -211,76 +204,6 @@ def _plot_single(
     # dt_s is needed to convert int bins back to seconds for plotting.
     plot_obs_features(fd, idx=batch_i, ax=ax_fd, dt_s=obs_dt_s)
     ax_fd.set_title("Obs. features")
-
-    # Quick invariants for debugging.
-    try:
-        # dt_s: either passed explicitly, or inferred from fd[Dt].
-        # fd[Dt] is now int bins, so we need obs_dt_s to convert.
-        dt_s = obs_dt_s if obs_dt_s is not None else 0.0
-
-        if dt_s > 0:
-            row24 = check_row2_equals_row4_minus_padding(
-                fd,
-                X_obs,
-                dt_s=dt_s,
-                idx=batch_i,
-                max_report=8,
-            )
-            if not row24.ok:
-                logger.warning(
-                    "row2(fd) != row4(X_obs)-padding (idx=%s): %s",
-                    ds_idx,
-                    format_row24_report(row24).replace("\n", " | "),
-                )
-                ax_fd.text(
-                    0.01,
-                    0.95,
-                    (
-                        "WARNING: row2!=row4-padding "
-                        + f"(w={row24.n_windows}, p={row24.n_nonpadding_packets}, "
-                        + "issues="
-                        + f"{row24.per_window_mismatches_total}/"
-                        + f"{row24.per_bin_mismatches_total}/"
-                        + f"{row24.missing_packet_bins_total})"
-                    ),
-                    transform=ax_fd.transAxes,
-                    ha="left",
-                    va="top",
-                    fontsize=9,
-                    color="#b91c1c",
-                )
-
-            delay_rep = count_packets_inside_delay_windows(
-                times,
-                actions,
-                X_obs,
-                dt_s=dt_s,
-                idx=batch_i,
-                max_report=8,
-            )
-            if delay_rep.bad_all > 0:
-                logger.warning(
-                    "Found packets inside delay windows (idx=%s): %s",
-                    ds_idx,
-                    format_delay_leak_report(delay_rep).replace("\n", " | "),
-                )
-                ax_o.text(
-                    0.01,
-                    0.95,
-                    "WARNING: packets inside delay windows "
-                    + f"all={delay_rep.bad_all} nonpad={delay_rep.bad_nonpadding}",
-                    transform=ax_o.transAxes,
-                    ha="left",
-                    va="top",
-                    fontsize=9,
-                    color="#b91c1c",
-                )
-        else:
-            logger.warning(
-                "Could not infer positive dt for invariant checks (idx=%s)", ds_idx
-            )
-    except Exception as err:
-        logger.warning("Invariant check failed for idx=%s: %s", ds_idx, err)
 
     # Plot actions
     plot_actions(times, actions, idx=batch_i, ax=ax_a, dt_s=obs_dt_s)
@@ -352,10 +275,32 @@ def _plot_single(
         raise ValueError("league_rewards is None; plotting requires reward_scales")
     # The current disc rewards are at latest idx.
     rewards = {k: v[-1] for k, v in league_rewards.items()}
-    plot_rewards(times, rewards, idx=batch_i, ax=ax_b, dt_s=obs_dt_s)
-    ax_b.legend(frameon=False, loc=2)
+    plot_rewards(times, rewards, idx=batch_i, ax=ax_rew, dt_s=obs_dt_s)
+    ax_rew.legend(frameon=False, loc=2)
+
+    # Plot the mean of all league rewards for reference.
+    # v.shape = (league, B, T) -> (league, T)
+    disc_rewards = {
+        k: (weights[:, None, None] * v)[:, batch_i, :]
+        for k, v in league_rewards.items()
+    }
+    for i in range(disc_rewards["disc"].shape[0]):
+        plot_rewards(
+            times,
+            {k: disc_rewards[k][i] for k, v in disc_rewards.items()},
+            idx=None,
+            ax=ax_mean_rew,
+            dt_s=obs_dt_s,
+            only_sum=True,
+        )
+
+    mean_disc_rewards = (weights[:, None] * sum(disc_rewards.values())).sum(dim=0)
+    ax_mean_rew.plot(
+        times, mean_disc_rewards, "-", color="black", lw=2, label="Mean disc rew."
+    )
 
     # Plot returns
+    # (league, B, T) -> (B, T) -> (T, )
     G_mean = (weights[:, None, None] * G).sum(dim=0)[batch_i, :seq_len_i]
     # Mean
     ax_ret.plot(
@@ -427,7 +372,7 @@ def _plot_single(
         color="green",
     )
 
-    ax_b.set_title("Rewards, returns... ")
+    ax_rew.set_title("Rewards, returns... ")
     ax_adv.set_ylabel("Advantages", color="k")
     ax_adv.legend(frameon=False, loc=3)
     ax_adv.axhline(color="black", lw=0.5)
