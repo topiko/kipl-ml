@@ -26,6 +26,7 @@ advantages:
   divide_by_Z: False
 
 rewards:
+  cfl: 0.1
   d_clf: 0.001
   padding_scale: 0.02
   delay_scale: 0.00001 # 0.0000001

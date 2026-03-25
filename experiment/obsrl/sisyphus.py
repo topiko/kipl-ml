@@ -731,7 +731,7 @@ def main(cfg: DictConfig):
     active_league_idx = None
 
     reward_scales = {
-        "clf_scale": 0.1,
+        "clf_scale": cfg.rewards.clf,
         "d_clf_scale": cfg.rewards.d_clf,
         "padding_scale": cfg.rewards.padding_scale,
         "delay_scale": cfg.rewards.delay_scale,

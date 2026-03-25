@@ -158,14 +158,17 @@ def get_rewards(
     )
 
     # (bs, N)
-    r_pkt = torch.clamp(-m, min=-10, max=10.0)
+
+    clf_scale = reward_scales["clf_scale"]
+    # We make the clf reward live between -1, 1...
+    r_pkt = torch.clamp(-m, min=-1 / clf_scale, max=1 / clf_scale)
     # (bs, T)
     mp = torch.zeros((bs, T), device=times.device, dtype=times.dtype).scatter_add_(
         1, idxs, r_pkt * disc_seq_len_mask
     )
 
     mean_p = torch.where(sum_ > 0, mp / sum_, 0.0)
-    rewards["clf"] += mean_p * reward_scales["clf_scale"]
+    rewards["clf"] += mean_p * clf_scale
 
     # Delay penalty: charge only for packets that actually get delayed.
     if (
