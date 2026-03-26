@@ -205,20 +205,18 @@ def _plot_single(
     plot_obs_features(fd, idx=batch_i, ax=ax_fd, dt_s=obs_dt_s)
     ax_fd.set_title("Obs. features")
 
-    # Plot actions
-    plot_actions(times, actions, idx=batch_i, ax=ax_a, dt_s=obs_dt_s)
-
     # Convert action times (int bins) to seconds for line plots.
-    if obs_dt_s is not None and obs_dt_s > 0:
-        times_s = (times * obs_dt_s).cpu().numpy()
-    else:
-        times_s = times.cpu().numpy()
-    times_i = times_s[batch_i]
-    times_np = times_i.squeeze()
+    if obs_dt_s is None:
+        raise ValueError(
+            "obs_dt_s is None; plotting requires obs_dt_s to convert bins to seconds"
+        )
 
     # Cut sequence at policy sequence length first, then drop invalid bins.
     seq_len_i = fd[Feats.SEQ_LENS][batch_i].item()
-    times_np = times_np[:seq_len_i]
+    times_np = (times[batch_i, :seq_len_i] * obs_dt_s).cpu().numpy()
+
+    # Plot actions
+    plot_actions(times_np, actions, idx=batch_i, ax=ax_a, dt_s=obs_dt_s)
 
     # Plot entropy
     ax_entropy = ax_a.twinx()
