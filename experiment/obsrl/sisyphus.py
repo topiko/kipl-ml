@@ -504,7 +504,27 @@ def train_obs_on_league(
                 f"cfg.obs.stop_metric={stop_metric!r} not found in epoch metrics"
             )
         stop_score = metrics_d[stop_metric]
-        logger.info("Current %s: %.04f", stop_metric, stop_score)
+
+        if stop_score > stop_thres:
+            logger.info(
+                f"Achieved {stop_metric} {stop_score:.04f} > {stop_thres:.04f}, "
+                "stopping obs training!"
+            )
+
+            obs_league = _append_to_league(obs_league, obs.state_dict())
+            logger.info(f"Obs league len: {len(obs_league)}")
+
+            for k, v in metrics_d.items():
+                k = keymap(k)
+                logger.info(f"\t{k:<40} : {v:.03f}")
+            break
+        else:
+            logger.info(
+                "Current %s: %.04f < %.04% (=thres for stopping)",
+                stop_metric,
+                stop_score,
+                stop_thres,
+            )
 
         # Log per-epoch metrics within this push run.
         for k, v in metrics_d.items():
@@ -524,20 +544,6 @@ def train_obs_on_league(
             critic_lr_scheduler.step(metrics_d["value_loss"])
             logger.info("Critic lrs:")
             log_lrs(critic_lr_scheduler)
-
-        if stop_score > stop_thres:
-            logger.info(
-                f"Achieved {stop_metric} {stop_score:.04f} > {stop_thres:.04f}, "
-                "stopping obs training!"
-            )
-
-            obs_league = _append_to_league(obs_league, obs.state_dict())
-            logger.info(f"Obs league len: {len(obs_league)}")
-
-            for k, v in metrics_d.items():
-                k = keymap(k)
-                logger.info(f"\t{k:<40} : {v:.03f}")
-            break
 
         if eo % cfg.obs.rewards_rescale_epochs == 0:
             reward_scales_["padding_scale"] *= cfg.obs.padding_scale_reduction
