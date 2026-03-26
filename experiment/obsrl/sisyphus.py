@@ -315,7 +315,7 @@ def train_obs_one_epoch(
             losses_metrics_d["mean_reward_total"].append(
                 _avg_leaguescore(
                     weights,
-                    sum(league_rewards.values()).sum(dim=0),
+                    sum(league_rewards.values()),
                     time_mask,
                     per_trace=True,
                 )
