@@ -217,21 +217,16 @@ def _plot_single(
     times_np = times_i.squeeze()
 
     # Cut sequence at policy sequence length first, then drop invalid bins.
-    seq_len_i = int(fd[Feats.SEQ_LENS][batch_i].item())
-    seq_len_i = max(0, min(seq_len_i, int(times_np.shape[0])))
+    seq_len_i = fd[Feats.SEQ_LENS][batch_i].item()
     times_np = times_np[:seq_len_i]
-
-    # Filter out invalid times (negative bins -> negative seconds).
-    valid_mask = times_np >= 0
-    times_valid = times_np[valid_mask]
 
     # Plot entropy
     ax_entropy = ax_a.twinx()
     ax_entropy.axes.spines["right"].set_visible(True)
     for entropy, entropy_values in entropies.items():
-        values_i = entropy_values[batch_i, :seq_len_i][valid_mask]
+        values_i = entropy_values[batch_i, :seq_len_i]
         ax_entropy.plot(
-            times_valid,
+            times_np,
             values_i.squeeze().cpu().numpy(),
             "--",
             lw=2,
@@ -247,8 +242,8 @@ def _plot_single(
     ax_probs.set_ylabel("Selection probs.")
 
     ax_probs.plot(
-        times_valid,
-        sel_probs[batch_i, :seq_len_i][valid_mask].squeeze().cpu().numpy(),
+        times_np,
+        sel_probs[batch_i, :seq_len_i].squeeze().cpu().numpy(),
         "-",
         lw=1,
     )
@@ -275,7 +270,7 @@ def _plot_single(
         raise ValueError("league_rewards is None; plotting requires reward_scales")
     # The current disc rewards are at latest idx.
     rewards = {k: v[-1] for k, v in league_rewards.items()}
-    plot_rewards(times, rewards, idx=batch_i, ax=ax_rew, dt_s=obs_dt_s)
+    plot_rewards(times_np, rewards, idx=batch_i, ax=ax_rew)
     ax_rew.legend(frameon=False, loc=2)
 
     # Plot the mean of all league rewards for reference.
@@ -283,11 +278,13 @@ def _plot_single(
     nleague = len(weights)
     for i in range(nleague):
         plot_rewards(
-            times[batch_i, :seq_len_i],
-            {k: v[i, batch_i, :seq_len_i].squeeze(0).cpu() for k, v in rewards.items()},
+            times_np,
+            {
+                k: v[i, batch_i, :seq_len_i].squeeze(0).cpu()
+                for k, v in league_rewards.items()
+            },
             idx=None,
             ax=ax_mean_rew,
-            dt_s=obs_dt_s,
             only_sum=True,
             ls="-",
             marker="",
@@ -296,9 +293,9 @@ def _plot_single(
             color="black",
         )
 
-    mean_disc_rewards = sum(rewards.values())[:, batch_i, :seq_len_i].sum(dim=0)
+    mean_disc_rewards = sum(league_rewards.values())[:, batch_i, :seq_len_i].sum(dim=0)
     ax_mean_rew.plot(
-        times[batch_i, :seq_len_i].cpu().numpy() * obs_dt_s,
+        times_np,
         mean_disc_rewards.cpu().numpy(),
         "-|",
         color="black",
@@ -311,24 +308,24 @@ def _plot_single(
     G_mean = (weights[:, None, None] * G).sum(dim=0)[batch_i, :seq_len_i]
     # Mean
     ax_ret.plot(
-        times_valid,
-        G_mean[valid_mask].squeeze().cpu().numpy(),
+        times_np,
+        G_mean.squeeze().cpu().numpy(),
         "k-",
         label="Return",
         lw=2,
     )
     # League cloud
     ax_ret.plot(
-        times_valid,
-        G[:, batch_i, :seq_len_i][:, valid_mask].permute(1, 0).cpu().numpy(),
+        times_np,
+        G[:, batch_i, :seq_len_i].permute(1, 0).cpu().numpy(),
         "k-",
         alpha=0.5,
         lw=0.2,
     )
     # Current active
     ax_ret.plot(
-        times_valid,
-        G[-1, batch_i, :seq_len_i][valid_mask].squeeze().cpu().numpy(),
+        times_np,
+        G[-1, batch_i, :seq_len_i].squeeze().cpu().numpy(),
         "k-",
         alpha=1.0,
         lw=0.5,
@@ -337,8 +334,8 @@ def _plot_single(
     # Values
     values_i = values[batch_i, :seq_len_i]
     ax_ret.plot(
-        times_valid,
-        values_i[valid_mask].squeeze().cpu().numpy(),
+        times_np,
+        values_i.squeeze().cpu().numpy(),
         "--",
         label="Values estim.",
         color="black",
@@ -357,23 +354,23 @@ def _plot_single(
 
     # Mean
     ax_adv.plot(
-        times_valid,
-        advantages_mean[valid_mask].cpu().numpy(),
+        times_np,
+        advantages_mean.cpu().numpy(),
         label="advantage_w_mean",
         color="green",
         lw=2,
     )
     # Cloud
     ax_adv.plot(
-        times_valid,
-        advantages_i[:, valid_mask].permute(1, 0).cpu().numpy(),
+        times_np,
+        advantages_i.permute(1, 0).cpu().numpy(),
         lw=0.5,
         alpha=0.2,
         color="green",
     )
     ax_adv.plot(
-        times_valid,
-        advantages_i[-1, :][valid_mask].squeeze().cpu().numpy(),
+        times_np,
+        advantages_i[-1, :].squeeze().cpu().numpy(),
         lw=0.5,
         alpha=1.0,
         color="green",
