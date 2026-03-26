@@ -520,10 +520,8 @@ def train_obs_on_league(
             break
         else:
             logger.info(
-                "Current %s: %.04f < %.04% (=thres for stopping)",
-                stop_metric,
-                stop_score,
-                stop_thres,
+                f"Current {stop_metric}: {stop_score:.04f} "
+                f"< {stop_thres:.04f} (=thres for stopping)"
             )
 
         # Log per-epoch metrics within this push run.
