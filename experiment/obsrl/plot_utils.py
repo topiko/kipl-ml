@@ -280,18 +280,11 @@ def _plot_single(
 
     # Plot the mean of all league rewards for reference.
     # v.shape = (league, B, T) -> (league, T)
-    disc_rewards = {
-        k: (weights[:, None, None] * v)[:, batch_i, :]
-        for k, v in league_rewards.items()
-    }
     nleague = len(weights)
     for i in range(nleague):
         plot_rewards(
             times[batch_i, :seq_len_i],
-            {
-                k: disc_rewards[k][i, :seq_len_i].squeeze(0).cpu()
-                for k, v in disc_rewards.items()
-            },
+            {k: v[i, batch_i, :seq_len_i].squeeze(0).cpu() for k, v in rewards.items()},
             idx=None,
             ax=ax_mean_rew,
             dt_s=obs_dt_s,
@@ -303,9 +296,7 @@ def _plot_single(
             color="black",
         )
 
-    mean_disc_rewards = (weights[:, None] * sum(disc_rewards.values())).sum(dim=0)[
-        :seq_len_i
-    ]
+    mean_disc_rewards = sum(rewards.values())[:, batch_i, :seq_len_i].sum(dim=0)
     ax_mean_rew.plot(
         times[batch_i, :seq_len_i].cpu().numpy() * obs_dt_s,
         mean_disc_rewards.cpu().numpy(),
