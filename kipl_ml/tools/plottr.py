@@ -438,7 +438,6 @@ def plot_actions(
                 print("Rendering DO_NOTHING spans:")
                 durs = np.diff(times, append=np.array([times[-1]]), axis=0)
                 for t0, d in zip(times[mask], durs[mask]):
-                    print(t0, t0 + d)
                     ax.axvspan(t0, t0 + d, color="gray", alpha=0.12, lw=0, zorder=0)
 
         elif ackt == Actions.DELAY_BINS:

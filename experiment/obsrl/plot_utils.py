@@ -216,7 +216,12 @@ def _plot_single(
     times_np = (times[batch_i, :seq_len_i] * obs_dt_s).cpu().numpy()
 
     # Plot actions
-    plot_actions(times_np, actions, idx=batch_i, ax=ax_a, dt_s=obs_dt_s)
+    plot_actions(
+        times[batch_i, :seq_len_i],
+        {k: a[batch_i, :seq_len_i] for k, a in actions.items()},
+        ax=ax_a,
+        dt_s=obs_dt_s,
+    )
 
     # Plot entropy
     ax_entropy = ax_a.twinx()
