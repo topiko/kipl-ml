@@ -435,7 +435,6 @@ def plot_actions(
             # Render as a background span (duration effect) rather than a bar.
             mask = actions[ackt] == 1
             if mask.any():
-                print("Rendering DO_NOTHING spans:")
                 durs = np.diff(times, append=np.array([times[-1]]), axis=0)
                 for t0, d in zip(times[mask], durs[mask]):
                     ax.axvspan(t0, t0 + d, color="gray", alpha=0.12, lw=0, zorder=0)
