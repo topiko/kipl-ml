@@ -269,7 +269,7 @@ def _plot_single(
     if league_rewards is None:
         raise ValueError("league_rewards is None; plotting requires reward_scales")
     # The current disc rewards are at latest idx.
-    rewards = {k: v[-1] for k, v in league_rewards.items()}
+    rewards = {k: v[-1, batch_i, :seq_len_i] for k, v in league_rewards.items()}
     plot_rewards(times_np, rewards, idx=batch_i, ax=ax_rew)
     ax_rew.legend(frameon=False, loc=2)
 
@@ -293,7 +293,9 @@ def _plot_single(
             color="black",
         )
 
-    mean_disc_rewards = sum(league_rewards.values())[:, batch_i, :seq_len_i].sum(dim=0)
+    mean_disc_rewards = (
+        weights[:, None] * sum(league_rewards.values())[:, batch_i, :seq_len_i]
+    ).sum(dim=0)
     ax_mean_rew.plot(
         times_np,
         mean_disc_rewards.cpu().numpy(),
