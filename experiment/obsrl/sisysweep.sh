@@ -7,7 +7,7 @@ set -e
 parent_prefix="audacious-imp-08" #"advanced-smolin" # audacious-imp
 
 
-for div_z in true false; do
+for div_z in false true; do
 	for i in $(seq 1 100); do
 		parent_name="$parent_prefix|divz-$div_z"
 		echo "=== $parent_name ==="
