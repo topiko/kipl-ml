@@ -55,7 +55,7 @@ obs:
   stop_metric: mean_reward_total
   stop_metric_thres: 0.65
 
-  init_for_wait: True
+  init_for_wait: False
   enable_entropy_loss: True
   selection_entropy_scale: 0.005
   conditional_entropy_scale: 0.0005
