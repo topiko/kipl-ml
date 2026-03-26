@@ -435,16 +435,11 @@ def plot_actions(
             # Render as a background span (duration effect) rather than a bar.
             mask = actions[ackt] == 1
             if mask.any():
+                print("Rendering DO_NOTHING spans:")
                 durs = np.diff(times, append=np.array([times[-1]]), axis=0)
                 for t0, d in zip(times[mask], durs[mask]):
-                    ax.axvspan(
-                        float(t0),
-                        float(t0 + d),
-                        color="gray",
-                        alpha=0.12,
-                        lw=0,
-                        zorder=0,
-                    )
+                    print(t0, t0 + d)
+                    ax.axvspan(t0, t0 + d, color="gray", alpha=0.12, lw=0, zorder=0)
 
         elif ackt == Actions.DELAY_BINS:
             # Render delay as a background span (duration effect), not as a
@@ -457,14 +452,7 @@ def plot_actions(
             mask = delay_s > 0
             if mask.any():
                 for t0, d in zip(times[mask], delay_s[mask]):
-                    ax.axvspan(
-                        float(t0),
-                        float(t0 + d),
-                        color="#d97706",
-                        alpha=0.18,
-                        lw=0,
-                        zorder=0,
-                    )
+                    ax.axvspan(t0, t0 + d, color="#d97706", alpha=0.18, lw=0, zorder=0)
 
         ax.vlines(times, -1, 1, color="black", lw=0.7)
 
