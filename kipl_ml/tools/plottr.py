@@ -371,11 +371,6 @@ def plot_actions(
                 actions[Actions.SEND_DOWN_AFTER_BINS].astype(np.float64) * dt_s
             )
 
-    # Filter out invalid times (negative bins -> negative seconds).
-    valid_mask = times >= 0
-    times = times[valid_mask]
-    actions = {k: v[valid_mask] for k, v in actions.items()}
-
     max_c = 0
     for ackt in (
         Actions.DO_NOTHING,
@@ -576,10 +571,6 @@ def plot_rewards(
     if dt_s is not None and dt_s > 0:
         times = times.astype(np.float64) * dt_s
 
-    # Filter out invalid times (negative bins -> negative seconds).
-    valid_mask = times >= 0
-    times = times[valid_mask]
-
     rewards["sum"] = sum(rewards.values())
 
     plot_kwargs.setdefault("lw", 0.7)
@@ -593,7 +584,7 @@ def plot_rewards(
         label = f"reward, {k}"
         if k == "sum":
             label = None
-        r_ = _squeeze_batched(r, idx)[valid_mask]
+        r_ = _squeeze_batched(r, idx)
         ax.plot(times, r_, **plot_kwargs, label=label)
 
     return ax
