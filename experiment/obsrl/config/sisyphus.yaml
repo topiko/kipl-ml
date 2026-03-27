@@ -63,7 +63,7 @@ obs:
 
   # When starting a new push; use the obs and critic from the last push.
   # If false, the obs and critic will be randomly initialized at the start of each push.
-  reuse_obs_and_critic: True
+  reuse_obs_and_critic: False
 
   # How many epochs to iterate before lowering padding scale.
   rewards_rescale_epochs: 7

@@ -176,6 +176,9 @@ def get_league_scores(
     score_type: str = "acc",
     n_packets: int | None = None,
 ) -> torch.Tensor:
+    if not league:
+        raise ValueError("Empty league provided!")
+
     # Set the defence and features:
     orig_features = ds.feature_trs
     obs.eval()

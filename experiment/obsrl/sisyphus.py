@@ -758,17 +758,6 @@ def main(cfg: DictConfig):
 
             e = child_idx
             logger.info(f"Push {e:03d} - Training discriminator on obs league...")
-            disc_league = train_disc_on_league(
-                discriminator=discriminator,
-                ds_train=ds_train,
-                disc_feats=disc_feats,
-                obs=obs,
-                disc_league=disc_league,
-                obs_league=obs_league,
-                device=device,
-                e=e,
-                cfg=cfg,
-            )
 
             logger.info(f"Push {e:03d} - Getting active league and weights...")
             with torch.no_grad():
@@ -837,6 +826,19 @@ def main(cfg: DictConfig):
                 mlflow.pytorch.log_model(
                     critic, name=f"critic-{child_run_name}", step=child_idx
                 )
+
+            # Update the league
+            disc_league = train_disc_on_league(
+                discriminator=discriminator,
+                ds_train=ds_train,
+                disc_feats=disc_feats,
+                obs=obs,
+                disc_league=disc_league,
+                obs_league=obs_league,
+                device=device,
+                e=e,
+                cfg=cfg,
+            )
 
 
 if __name__ == "__main__":
