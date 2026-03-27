@@ -196,10 +196,16 @@ def get_rewards(
         # Count occurrences per step via searchsorted on sorted pkt_bins.
         lo = torch.searchsorted(pkt_bins, start_bins, right=False)
         hi = torch.searchsorted(pkt_bins, start_bins, right=True)
-        delayed_cnt = (hi - lo).float()
+        # Packets under action bins.
+        pkt_cnt = (hi - lo).float()
 
+        # TODO: make this accept longer delays.
+        if (delay > 1).any():
+            raise ValueError(
+                "This dly reward is only implemented for single step delay"
+            )
         rewards["delay"] -= (
-            delayed_cnt * delay_mask.float() * reward_scales["delay_scale"]
+            pkt_cnt * (delay * obs_dt_s * 1000) * reward_scales["delay_scale"]
         )
 
     # change in prob reward
