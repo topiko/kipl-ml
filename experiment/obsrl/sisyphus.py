@@ -545,6 +545,7 @@ def train_obs_on_league(
 
         if eo % cfg.obs.rewards_rescale_epochs == 0:
             reward_scales_["padding_scale"] *= cfg.obs.padding_scale_reduction
+            reward_scales_["delay_scale"] *= cfg.obs.delay_scale_reduction
             logger.info(f"At obs epoch {eo} re-scaled rewards -> ")
             for k, v in reward_scales_.items():
                 logger.info(f"\t{k:>30} : {v:.04f}")
@@ -759,6 +760,19 @@ def main(cfg: DictConfig):
             e = child_idx
             logger.info(f"Push {e:03d} - Training discriminator on obs league...")
 
+            # Update disc league
+            disc_league = train_disc_on_league(
+                discriminator=discriminator,
+                ds_train=ds_train,
+                disc_feats=disc_feats,
+                obs=obs,
+                disc_league=disc_league,
+                obs_league=obs_league,
+                device=device,
+                e=e,
+                cfg=cfg,
+            )
+
             logger.info(f"Push {e:03d} - Getting active league and weights...")
             with torch.no_grad():
                 disc_league, active_league_idx, active_disc_league, weights = (
@@ -819,25 +833,12 @@ def main(cfg: DictConfig):
 
             # Persist the current push endpoints for reconstruction on next invocation.
             mlflow.pytorch.log_model(obs, name=f"obs-{child_run_name}", step=child_idx)
-            mlflow.pytorch.log_model(
-                discriminator, name=f"disc-{child_run_name}", step=child_idx
-            )
             if critic is not None:
                 mlflow.pytorch.log_model(
                     critic, name=f"critic-{child_run_name}", step=child_idx
                 )
-
-            # Update the league
-            disc_league = train_disc_on_league(
-                discriminator=discriminator,
-                ds_train=ds_train,
-                disc_feats=disc_feats,
-                obs=obs,
-                disc_league=disc_league,
-                obs_league=obs_league,
-                device=device,
-                e=e,
-                cfg=cfg,
+            mlflow.pytorch.log_model(
+                discriminator, name=f"disc-{child_run_name}", step=child_idx
             )
 
 

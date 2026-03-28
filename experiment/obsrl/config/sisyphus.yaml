@@ -31,7 +31,7 @@ rewards:
   # The cost of adding one packet.
   padding_scale: 0.02
   # The cost of delaying one packet for one ms
-  delay_scale: 0.002 # 0.0000001
+  delay_scale: 0.0001 # 0.0000001
 
 obs:
   # Floor for action prob:
@@ -73,11 +73,12 @@ obs:
   # After this you reset the obs and critic and return...
   max_epochs_per_push: 91
 
-  # How much we decrease padding scale when hitting max epochs.
+  # How much we decrease padding/delay scale when hitting max epochs.
   padding_scale_reduction: 0.7
+  delay_scale_reduction: 0.7
 
   lr_scheduler_patience: 7
-  # The obs lr scheduling is weird; 1 disables it.
+  # The obs lr scheduling is awkward; 1 disables it.
   lr_scheduler_factor: 0.99
 
   # Critic
