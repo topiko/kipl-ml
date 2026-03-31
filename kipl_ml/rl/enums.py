@@ -31,13 +31,18 @@ class ActionHeadKeys(StrEnum):
     DELAY_REPLACE_D = "delay_replace_d"
 
 
+class EntropyKeys(StrEnum):
+    SELECTION_ENTROPY = "entropy_selection"
+    COND_ENTROPY = "cond_entropy"
+
+
 AHKs = ActionHeadKeys
 
 
 @dataclass
 class ActSend:
     count: int
-    after_bins: int
+    after_steps: int
     bypass: bool = False
     replace: bool = False
 
@@ -54,8 +59,7 @@ class ActSendDown(ActSend):
 
 @dataclass
 class ActDelay:
-    bins: int
-    delay_time: float
+    steps: int
     bypass: bool = False
     replace: bool = False
 

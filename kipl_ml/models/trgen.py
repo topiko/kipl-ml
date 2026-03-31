@@ -1,12 +1,23 @@
 from typing import Any
 
+import numpy as np
 import torch
 from torch import nn
 from torch.distributions import Categorical
 from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence, pad_packed_sequence
 
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.rl.enums import AHKs, Actions
+from kipl_ml.rl.enums import (
+    ActDelayDown,
+    ActDelayUp,
+    ActDoNothing,
+    Actions,
+    ActSendDown,
+    ActSendUp,
+    AHKs,
+    EntropyKeys,
+    StepAction,
+)
 from kipl_ml.trace.features import Feats
 
 logger = get_logger(__name__)
@@ -19,21 +30,35 @@ def _get_probs(logits: torch.Tensor, eps: float) -> torch.Tensor:
 
 
 def _select_cat_from_logits(
-    logits: torch.Tensor, eps: float, sample: bool = True
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    logits: torch.Tensor, bins: torch.Tensor, eps: float, sample: bool = True
+) -> tuple[np.ndarray, torch.Tensor, torch.Tensor, torch.Tensor]:
+    # logits: (bs, L, selector_dim)
     probs = _get_probs(logits, eps)
     if sample:
+        # (bs, L, selector_dim)
         dist = Categorical(probs=probs)
+        # (bs, L)
         idx = dist.sample()
+        # (bs, L)
+        value = bins[idx] if bins is not None else idx
+        # (bs, L)
         logp = dist.log_prob(idx)
+        # (bs, L)
         entropy = dist.entropy()
     else:
+        # (bs, L, selector_dim) -> (bs, L)
         idx = logits.argmax(dim=-1)
+        # (bs, L)
+        value = bins[idx] if bins is not None else idx
+        # (bs, L)
         logp = torch.log(
             probs.gather(-1, idx.unsqueeze(-1)).squeeze(-1).clamp(min=1e-12)
         )
+        # (bs, L)
         entropy = -(probs * torch.log(probs.clamp(min=1e-12))).sum(dim=-1)
-    return idx, logp, entropy, probs
+
+    value = value.detach().cpu().numpy().squeeze(1)  # (bs, )
+    return value, logp, entropy, probs
 
 
 def _hidden_w_mask(
@@ -369,7 +394,7 @@ class AGENT1(nn.Module):
         send_count_bins: list[int] | None = None,
         send_after_bins: list[int] | None = None,
         delay_duration_bins: list[int] | None = None,
-        prob_eps: dict[Actions, float] | float | None = None,
+        prob_eps: dict[AHKs, float] | float | None = None,
         prefer_wait_bias: float = 0.0,
         enable_delay: bool = False,
         train_env: dict[str, Any] | None = None,
@@ -382,13 +407,48 @@ class AGENT1(nn.Module):
         # Action space:
         self.ACTIONS: list[Actions] = [Actions.SEND_UP, Actions.SEND_DOWN]
         send_count_bins = send_count_bins or [5, 20, 50, 100, 200]
+        self.register_buffer(
+            "send_count_bins", torch.tensor(send_count_bins, dtype=torch.long)
+        )
         send_after_bins = send_after_bins or [0, 1, 3, 5, 7, 9]
+        self.register_buffer(
+            "send_after_bins", torch.tensor(send_after_bins, dtype=torch.long)
+        )
+
+        self.ackt_bin_d = {
+            AHKs.SEND_COUNT_U: self.send_count_bins,
+            AHKs.SEND_TIME_U: self.send_after_bins,
+            AHKs.SEND_COUNT_D: self.send_count_bins,
+            AHKs.SEND_TIME_D: self.send_after_bins,
+            AHKs.SEND_BYPASS_D: None,
+            AHKs.SEND_REPLACE_D: None,
+            AHKs.SEND_BYPASS_U: None,
+            AHKs.SEND_REPLACE_U: None,
+            AHKs.ACTION_SELECTION: None,
+        }
+
+        delay_duration_bins = delay_duration_bins or [1, 2, 4, 8]
 
         # Delay actions:
         if self.enable_delay:
             self.ACTIONS += [Actions.DELAY_UP, Actions.DELAY_DOWN]
-
-        delay_duration_bins = delay_duration_bins or [1, 2, 4, 8]
+            self.register_buffer(
+                "delay_duration_bins",
+                torch.tensor(delay_duration_bins, dtype=torch.long),
+            )
+            self.ackt_bin_d.update(
+                {
+                    AHKs.DELAY_BINS_U: self.delay_duration_bins,
+                    AHKs.DELAY_BINS_D: self.delay_duration_bins,
+                    AHKs.DELAY_BYPASS_U: None,
+                    AHKs.DELAY_BYPASS_D: None,
+                    AHKs.DELAY_REPLACE_U: None,
+                    AHKs.DELAY_REPLACE_D: None,
+                }
+            )
+            n_delay_durations = len(self.delay_duration_bins)
+        else:
+            n_delay_durations = 0
 
         ratio = float(max_silence_s) / float(time_step)
         if abs(ratio - round(ratio)) > 1e-8:
@@ -397,20 +457,8 @@ class AGENT1(nn.Module):
                 + f" Got max_silence_s={max_silence_s}, time_step={time_step}."
             )
 
-        n_send_counts = len(send_count_bins)
-        n_decay_times = len(send_after_bins)
-        n_delay_durations = len(delay_duration_bins)
-
-        # Buffers obey device...
-        self.register_buffer(
-            "send_count_bins", torch.tensor(send_count_bins, dtype=torch.long)
-        )
-        self.register_buffer(
-            "send_after_bins", torch.tensor(send_after_bins, dtype=torch.long)
-        )
-        self.register_buffer(
-            "delay_duration_bins", torch.tensor(delay_duration_bins, dtype=torch.long)
-        )
+        n_send_counts = len(self.send_count_bins)
+        n_decay_times = len(self.send_after_bins)
 
         # Time step between feature extractions.
         self.time_step = time_step
@@ -418,15 +466,18 @@ class AGENT1(nn.Module):
         self.max_silence_s = max_silence_s
 
         # Exploration prob eps for each action:
-        control_actions = self.ACTIONS
+        # Initialize prob_eps for all AHKs (will be set in the block below)
+        self.prob_eps: dict[AHKs, float] = {a: 0.0 for a in AHKs}
         if prob_eps is not None:
-            if isinstance(prob_eps, float):
-                prob_eps = {a: prob_eps for a in control_actions}
-            elif not set(prob_eps.keys()).issuperset(set(control_actions)):
-                raise ValueError("prob_eps keys must cover all actions.")
-            self.prob_eps = {a: prob_eps[a] for a in control_actions}
-        else:
-            self.prob_eps = {a: 0.0 for a in control_actions}
+            for a in AHKs:
+                if a not in self.ackt_bin_d:
+                    continue
+                prob = prob_eps[a] if isinstance(prob_eps, dict) else prob_eps
+                if not (0.0 <= prob <= 1.0):
+                    raise ValueError(
+                        f"Invalid prob_eps for action {a}: {prob}. Must be in [0, 1]."
+                    )
+                self.prob_eps[a] = prob
 
         # Input features:
         self.features = [
@@ -475,7 +526,6 @@ class AGENT1(nn.Module):
         self.critic = nn.Sequential(
             nn.Linear(hsize, hsize), nn.ReLU(), nn.Linear(hsize, 1)
         )
-        self.cond_beta = 1.0
 
         if prefer_wait_bias != 0.0:
             self._init_action_selection_prefer_wait(prefer_wait_bias=prefer_wait_bias)
@@ -495,24 +545,13 @@ class AGENT1(nn.Module):
             lin.weight *= 0.1
             lin.bias[0] = float(prefer_wait_bias)
 
-    @property
-    def cond_beta(self) -> float:
-        return self._cond_beta
-
-    @cond_beta.setter
-    def cond_beta(self, cond_beta: float):
-        # This param is to steer the importance of the cond part
-        # of the prop distr (for actions). High, beta, learn cond part.
-
-        self._cond_beta = cond_beta
-
     def forward(
         self,
         x: dict[Feats, torch.Tensor],
         h: torch.Tensor | None = None,
         h_detach_period: int | None = None,
         seq_lens: torch.Tensor | None = None,
-    ) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
+    ) -> tuple[dict[AHKs | Feats, torch.Tensor], torch.Tensor]:
         if h_detach_period is not None:
             return _forward_w_detach(x, h, h_detach_period, seq_lens, self.forward)
 
@@ -549,7 +588,7 @@ class AGENT1(nn.Module):
         sample: bool = True,
     ) -> tuple[
         torch.Tensor,
-        dict[Actions, torch.Tensor],
+        list[StepAction],
         torch.Tensor,
         torch.Tensor,
         dict[str, torch.Tensor],
@@ -557,131 +596,196 @@ class AGENT1(nn.Module):
     ]:
         action_outputs, h = self(x, h, h_detach_period, seq_lens)
 
-        selections, sel_log_probs, sel_entropy, sel_probs = _select_cat_from_logits(
-            action_outputs[Actions.SELECTOR], self.prob_eps[Actions.SELECTOR], sample
-        )
+        values = action_outputs.pop(Feats.STATE_VALUE)  # type: ignore
 
-        send_count_u_idx, send_count_u_logp, suc_entropy, _ = _select_cat_from_logits(
-            action_outputs[Actions.SEND_COUNT_UP],
-            self.prob_eps[Actions.SEND_COUNT_UP],
-            sample,
-        )
-        send_time_u_idx, send_time_u_logp, sudt_entropy, _ = _select_cat_from_logits(
-            action_outputs[Actions.SEND_UP_AFTER_BINS],
-            self.prob_eps[Actions.SEND_UP_AFTER_BINS],
-            sample,
-        )
+        if values.shape[1] != 1:
+            raise ValueError(f"act expects L=1, got L={values.shape[1]}")
 
-        send_count_d_idx, send_count_d_logp, sdc_entropy, _ = _select_cat_from_logits(
-            action_outputs[Actions.SEND_COUNT_DOWN],
-            self.prob_eps[Actions.SEND_COUNT_DOWN],
-            sample,
-        )
-        send_time_d_idx, send_time_d_logp, sddt_entropy, _ = _select_cat_from_logits(
-            action_outputs[Actions.SEND_DOWN_AFTER_BINS],
-            self.prob_eps[Actions.SEND_DOWN_AFTER_BINS],
-            sample,
-        )
+        # dict[AHKs, tuple[value (np.arr), logp, entropy, probs]],
+        # where the shapes are (B, L (==1 !))
+        act_tup_d = {
+            k: _select_cat_from_logits(v, self.ackt_bin_d[k], self.prob_eps[k], sample)
+            for k, v in action_outputs.items()
+        }
 
-        delay_dur_logp = torch.zeros_like(sel_log_probs)
-        delay_entropy = torch.zeros_like(sel_entropy)
-        delay_bins = torch.zeros_like(x[Feats.Dt_BINS]).to(torch.long)
-        if self.enable_delay and sel_probs.shape[-1] >= 5:
-            delay_idx, delay_dur_logp, delay_entropy, _ = _select_cat_from_logits(
-                action_outputs[Actions.DELAY_BINS],
-                self.prob_eps[Actions.DELAY_BINS],
-                sample,
-            )
-            delay_bins = self.delay_duration_bins[delay_idx]
-        elif self.enable_delay:
-            raise ValueError(
-                "enable_delay is True but action selector has < 5 outputs."
-            )
-
-        send_count_u = self.send_count_bins[send_count_u_idx]
-        send_count_d = self.send_count_bins[send_count_d_idx]
-        send_time_u = self.send_after_bins[send_time_u_idx]  # int bins
-        send_time_d = self.send_after_bins[send_time_d_idx]  # int bins
+        # Entropy work, be careful w. this one.
+        sel_probs = act_tup_d[AHKs.ACTION_SELECTION][3]
 
         up_p = sel_probs[..., 1] + sel_probs[..., 3]
         down_p = sel_probs[..., 2] + sel_probs[..., 3]
 
-        cond_entropy = self.cond_beta * (
-            up_p * (sudt_entropy + suc_entropy) + down_p * (sddt_entropy + sdc_entropy)
+        # Entropy H(A) = H(selector, action_params) = H(selector)
+        # + H(action_params | selector) <===
+        # NOTE: This computes E[H(params) * P(selector)] which is an approximation of
+        # the true conditional entropy H(params | selector). The true conditional
+        # entropy would require computing p(params, selector) from the shared trunk
+        # output. We hope this approximation is sufficient for exploration as we
+        # already have a floor on action probabilities via prob_eps in _get_probs.
+        cond_entropy = up_p * (
+            act_tup_d[AHKs.SEND_COUNT_U][2]
+            + act_tup_d[AHKs.SEND_TIME_U][2]
+            + act_tup_d[AHKs.SEND_BYPASS_U][2]
+            + act_tup_d[AHKs.SEND_REPLACE_U][2]
+        ) + down_p * (
+            act_tup_d[AHKs.SEND_COUNT_D][2]
+            + act_tup_d[AHKs.SEND_TIME_D][2]
+            + act_tup_d[AHKs.SEND_BYPASS_D][2]
+            + act_tup_d[AHKs.SEND_REPLACE_D][2]
         )
-        if self.enable_delay and sel_probs.shape[-1] >= 5:
-            cond_entropy = (
-                cond_entropy + self.cond_beta * sel_probs[..., 4] * delay_entropy
+        if self.enable_delay:
+            up_delay_p = sel_probs[..., 4]
+            down_delay_p = sel_probs[..., 5]
+            cond_entropy = cond_entropy + (
+                down_delay_p
+                * (
+                    act_tup_d[AHKs.DELAY_BINS_D][2]
+                    + act_tup_d[AHKs.DELAY_BYPASS_D][2]
+                    + act_tup_d[AHKs.DELAY_REPLACE_D][2]
+                )
+                + up_delay_p
+                * (
+                    act_tup_d[AHKs.DELAY_BINS_U][2]
+                    + act_tup_d[AHKs.DELAY_BYPASS_U][2]
+                    + act_tup_d[AHKs.DELAY_REPLACE_U][2]
+                )
             )
+
+        selection_entropy = act_tup_d[AHKs.ACTION_SELECTION][2]
 
         entropies = {
-            "selection_entropy": sel_entropy,
-            "conditional_entropy": cond_entropy,
+            EntropyKeys.SELECTION_ENTROPY: selection_entropy,
+            EntropyKeys.COND_ENTROPY: cond_entropy,
         }
 
+        # (B, )
+        selector_idx = act_tup_d[AHKs.ACTION_SELECTION][0]
+
+        # Get log probs
+        sel_log_probs = act_tup_d[AHKs.ACTION_SELECTION][1]
         log_probs = torch.zeros_like(sel_log_probs)
-
-        actions: dict[Actions, torch.Tensor] = {
-            Actions.SELECTOR: selections.detach().clone(),
-            Actions.DO_NOTHING: torch.zeros_like(selections),
-            Actions.SEND_COUNT_DOWN: send_count_d.detach().clone(),
-            Actions.SEND_COUNT_UP: send_count_u.detach().clone(),
-            Actions.SEND_DOWN_AFTER_BINS: send_time_d.detach().clone(),
-            Actions.SEND_UP_AFTER_BINS: send_time_u.detach().clone(),
-        }
-        if self.enable_delay and sel_probs.shape[-1] >= 5:
-            actions[Actions.DELAY_BINS] = torch.zeros_like(delay_bins).detach().clone()
-
-        mask = selections == 0
-        log_probs[mask] = sel_log_probs[mask]
-        actions[Actions.DO_NOTHING][mask] = 1
-        actions[Actions.SEND_COUNT_UP][mask] = 0
-        actions[Actions.SEND_COUNT_DOWN][mask] = 0
-        actions[Actions.SEND_UP_AFTER_BINS][mask] = 0
-        actions[Actions.SEND_DOWN_AFTER_BINS][mask] = 0
-
-        if self.enable_delay and sel_probs.shape[-1] >= 5:
-            mask = selections == 4
-            log_probs[mask] = (
-                sel_log_probs[mask] + self.cond_beta * delay_dur_logp[mask]
-            )
-            actions[Actions.DELAY_BINS][mask] = (
-                delay_bins[mask].to(torch.long).clamp(min=1)
-            )
-            actions[Actions.DO_NOTHING][mask] = 0
-            actions[Actions.SEND_COUNT_UP][mask] = 0
-            actions[Actions.SEND_COUNT_DOWN][mask] = 0
-            actions[Actions.SEND_UP_AFTER_BINS][mask] = 0
-            actions[Actions.SEND_DOWN_AFTER_BINS][mask] = 0
-
-        mask = selections == 1
-        log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
-            send_count_u_logp[mask] + send_time_u_logp[mask]
-        )
-        actions[Actions.SEND_COUNT_DOWN][mask] = 0
-        actions[Actions.SEND_DOWN_AFTER_BINS][mask] = 0
-
-        mask = selections == 2
-        log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
-            send_count_d_logp[mask] + send_time_d_logp[mask]
-        )
-        actions[Actions.SEND_COUNT_UP][mask] = 0
-        actions[Actions.SEND_UP_AFTER_BINS][mask] = 0
-
-        mask = selections == 3
-        log_probs[mask] = sel_log_probs[mask] + self.cond_beta * (
-            send_count_u_logp[mask]
-            + send_time_u_logp[mask]
-            + send_count_d_logp[mask]
-            + send_time_d_logp[mask]
-        )
-
-        values = action_outputs[Feats.STATE_VALUE]
-        # x[TIME_BINS] and x[Dt_BINS] are int bins; action time = current bin + dt bins.
-        # Invalid entries have -1; result will be negative for those.
         time_bins = x[Feats.TIME_BINS] + x[Feats.Dt_BINS]
+        bs = time_bins.shape[0]
 
-        return time_bins, actions, log_probs, sel_probs, values, entropies, h
+        # Build sparse StepActions per batch item
+        step_actions: list[StepAction] = []
+        for b in range(bs):
+            sel = selector_idx[b]
+            t = time_bins[b, 0].item()
+            if sel == 0:
+                sa = StepAction(time=t, _actions={Actions.DO_NOTHING: ActDoNothing()})
+                log_probs[b, 0] = sel_log_probs[b, 0]
+            if sel == 1:
+                sa = StepAction(
+                    time=t,
+                    _actions={
+                        Actions.SEND_UP: ActSendUp(
+                            count=act_tup_d[AHKs.SEND_COUNT_U][0][b],
+                            after_steps=act_tup_d[AHKs.SEND_TIME_U][0][b],
+                            bypass=bool(act_tup_d[AHKs.SEND_BYPASS_U][0][b]),
+                            replace=bool(act_tup_d[AHKs.SEND_REPLACE_U][0][b]),
+                        )
+                    },
+                )
+                log_probs[b, 0] = (
+                    sel_log_probs[b, 0]
+                    + act_tup_d[AHKs.SEND_COUNT_U][1][b]
+                    + act_tup_d[AHKs.SEND_TIME_U][1][b]
+                    + act_tup_d[AHKs.SEND_BYPASS_U][1][b]
+                    + act_tup_d[AHKs.SEND_REPLACE_U][1][b]
+                )
+            elif sel == 2:
+                sa = StepAction(
+                    time=t,
+                    _actions={
+                        Actions.SEND_DOWN: ActSendDown(
+                            count=act_tup_d[AHKs.SEND_COUNT_D][0][b],
+                            after_steps=act_tup_d[AHKs.SEND_TIME_D][0][b],
+                            bypass=bool(act_tup_d[AHKs.SEND_BYPASS_D][0][b]),
+                            replace=bool(act_tup_d[AHKs.SEND_REPLACE_D][0][b]),
+                        )
+                    },
+                )
+                log_probs[b, 0] = (
+                    sel_log_probs[b, 0]
+                    + act_tup_d[AHKs.SEND_COUNT_D][1][b]
+                    + act_tup_d[AHKs.SEND_TIME_D][1][b]
+                    + act_tup_d[AHKs.SEND_BYPASS_D][1][b]
+                    + act_tup_d[AHKs.SEND_REPLACE_D][1][b]
+                )
+            elif sel == 3:
+                sa = StepAction(
+                    time=t,
+                    _actions={
+                        Actions.SEND_UP: ActSendUp(
+                            count=act_tup_d[AHKs.SEND_COUNT_U][0][b],
+                            after_steps=act_tup_d[AHKs.SEND_TIME_U][0][b],
+                            bypass=bool(act_tup_d[AHKs.SEND_BYPASS_U][0][b]),
+                            replace=bool(act_tup_d[AHKs.SEND_REPLACE_U][0][b]),
+                        ),
+                        Actions.SEND_DOWN: ActSendDown(
+                            count=act_tup_d[AHKs.SEND_COUNT_D][0][b],
+                            after_steps=act_tup_d[AHKs.SEND_TIME_D][0][b],
+                            bypass=bool(act_tup_d[AHKs.SEND_BYPASS_D][0][b]),
+                            replace=bool(act_tup_d[AHKs.SEND_REPLACE_D][0][b]),
+                        ),
+                    },
+                )
+                log_probs[b, 0] = (
+                    sel_log_probs[b, 0]
+                    + act_tup_d[AHKs.SEND_COUNT_U][1][b]
+                    + act_tup_d[AHKs.SEND_TIME_U][1][b]
+                    + act_tup_d[AHKs.SEND_BYPASS_U][1][b]
+                    + act_tup_d[AHKs.SEND_REPLACE_U][1][b]
+                    + act_tup_d[AHKs.SEND_COUNT_D][1][b]
+                    + act_tup_d[AHKs.SEND_TIME_D][1][b]
+                    + act_tup_d[AHKs.SEND_BYPASS_D][1][b]
+                    + act_tup_d[AHKs.SEND_REPLACE_D][1][b]
+                )
+            elif sel >= 4:
+                if not self.enable_delay:
+                    raise ValueError(
+                        f"Invalid selector index {sel} for non-delay model."
+                    )
+                if sel == 4:
+                    sa = StepAction(
+                        time=t,
+                        _actions={
+                            Actions.DELAY_UP: ActDelayUp(
+                                steps=act_tup_d[AHKs.DELAY_BINS_U][0][b],
+                                bypass=bool(act_tup_d[AHKs.DELAY_BYPASS_U][0][b]),
+                                replace=bool(act_tup_d[AHKs.DELAY_REPLACE_U][0][b]),
+                            )
+                        },
+                    )
+                    log_probs[b, 0] = (
+                        sel_log_probs[b, 0]
+                        + act_tup_d[AHKs.DELAY_BINS_U][1][b]
+                        + act_tup_d[AHKs.DELAY_BYPASS_U][1][b]
+                        + act_tup_d[AHKs.DELAY_REPLACE_U][1][b]
+                    )
+                elif sel == 5:
+                    sa = StepAction(
+                        time=t,
+                        _actions={
+                            Actions.DELAY_DOWN: ActDelayDown(
+                                steps=act_tup_d[AHKs.DELAY_BINS_D][0][b],
+                                bypass=bool(act_tup_d[AHKs.DELAY_BYPASS_D][0][b]),
+                                replace=bool(act_tup_d[AHKs.DELAY_REPLACE_D][0][b]),
+                            )
+                        },
+                    )
+                    log_probs[b, 0] = (
+                        sel_log_probs[b, 0]
+                        + act_tup_d[AHKs.DELAY_BINS_D][1][b]
+                        + act_tup_d[AHKs.DELAY_BYPASS_D][1][b]
+                        + act_tup_d[AHKs.DELAY_REPLACE_D][1][b]
+                    )
+                else:
+                    raise ValueError(f"Invalid selector index {sel} for delay model.")
+
+            step_actions.append(sa)
+
+        return time_bins, step_actions, log_probs, sel_probs, values, entropies, h
 
     def act_step(
         self,
@@ -690,7 +794,7 @@ class AGENT1(nn.Module):
         sample: bool = True,
     ) -> tuple[
         torch.Tensor,
-        dict[Actions, torch.Tensor],
+        list[StepAction],
         torch.Tensor,
         torch.Tensor,
         dict[str, torch.Tensor],
