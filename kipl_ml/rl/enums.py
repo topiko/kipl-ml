@@ -13,6 +13,27 @@ class Actions(StrEnum):
     SELECTOR = "selector"
 
 
+class ActionHeadKeys(StrEnum):
+    ACTION_SELECTION = "action_selection"
+    SEND_COUNT_U = "send_count_u"
+    SEND_BYPASS_U = "send_bypass_u"
+    SEND_REPLACE_U = "send_replace_u"
+    SEND_COUNT_D = "send_count_d"
+    SEND_BYPASS_D = "send_bypass_d"
+    SEND_REPLACE_D = "send_replace_d"
+    SEND_TIME_U = "send_time_u"
+    SEND_TIME_D = "send_time_d"
+    DELAY_BINS_U = "delay_bins_u"
+    DELAY_BYPASS_U = "delay_bypass_u"
+    DELAY_REPLACE_U = "delay_replace_u"
+    DELAY_BINS_D = "delay_bins_d"
+    DELAY_BYPASS_D = "delay_bypass_d"
+    DELAY_REPLACE_D = "delay_replace_d"
+
+
+AHKs = ActionHeadKeys
+
+
 @dataclass
 class ActSend:
     count: int
