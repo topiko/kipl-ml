@@ -9,8 +9,6 @@ from kipl_ml.rl.enums import Actions, StepAction, StepActions
 from kipl_ml.rl.utils import _flush_left
 from kipl_ml.trace.enums import Feats
 from kipl_ml.utils.time import (
-    _boundary_time_to_bin_idx,
-    _duration_to_bin_offsets,
     _time_to_bin_idx,
 )
 
@@ -292,33 +290,40 @@ class TraceStateCursor:
         self.times = times
         self.dirs = dirs
         self.buffer: Buffer = Buffer()
-        self.cursor_time: float = 0.0
-        self.prev_time: float = 0.0
+        self.cursor_time_bin: int = 0
+        self.prev_time_bin: int = 0
         self.max_silence_bins = max_silence_bins
-        self.terminate_after_s = terminate_after_s or times.max().item() + dt
+        self.terminate_after_bin = (
+            int(round(float(terminate_after_s) / float(dt)))
+            if terminate_after_s is not None
+            else int(_time_to_bin_idx(times.max().unsqueeze(0), dt).item()) + 1
+        )
 
     def step(
         self, actions: StepAction
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int, int]:
-        if self.prev_time >= self.terminate_after_s:
+        if self.prev_time_bin >= self.terminate_after_bin:
             raise StopIteration
 
         # Action logic here.
         if Actions.DO_NOTHING in actions:
             times, dirs = _get_from_interval(
-                self.times, self.dirs, self.cursor_time, self.cursor_time + self.dt
+                self.times,
+                self.dirs,
+                float(self.cursor_time_bin) * self.dt,
+                float(self.cursor_time_bin + 1) * self.dt,
             )
             self.buffer.add(times, dirs)
-            dt_bins = int(round((self.cursor_time - self.prev_time) / self.dt))
+            dt_bins = self.cursor_time_bin - self.prev_time_bin
         else:
             raise NotImplementedError(f"Unsupported action set: {actions.keys()}")
 
-        self.prev_time = self.cursor_time
-        self.cursor_time += self.dt
+        self.prev_time_bin = self.cursor_time_bin
+        self.cursor_time_bin += 1
 
         times, dirs, pad = self.buffer.flush()
 
-        return times, dirs, pad, int(round(self.cursor_time / self.dt)), dt_bins
+        return times, dirs, pad, self.cursor_time_bin, dt_bins
 
 
 class WindowFeatureStreamer:
@@ -456,48 +461,3 @@ class WindowFeatureStreamer:
             {Feats.TIMES: times_l, Feats.DIRS: dirs_l, Feats.PADDING: padding_l},
             ~terminated,
         )
-
-    def apply_delay(self, start_s: torch.Tensor, delay_s: torch.Tensor) -> None:
-        """Apply a delay window [start_s, start_s+delay_s) per trace.
-
-        Packets that would occur within the delay window are clamped to the right
-        edge (start_s+delay_s). Values must be multiples of dt.
-        """
-        # Normalize (B,) or (B,1) to (B,)
-        if start_s.ndim == 2:
-            start_s = start_s.squeeze(1)
-        if delay_s.ndim == 2:
-            delay_s = delay_s.squeeze(1)
-
-        if start_s.shape[0] != self.bs or delay_s.shape[0] != self.bs:
-            raise ValueError("start_s/delay_s batch mismatch")
-
-        if ((delay_s > 0) & ~start_s.isfinite()).any():
-            raise ValueError("start_s must be finite when delay_s > 0")
-
-        start_bins = _boundary_time_to_bin_idx(start_s, self.dt)
-        shift_bins = _duration_to_bin_offsets(delay_s, self.dt)
-
-        self.apply_delay_bins(start_bins, shift_bins)
-
-    def apply_delay_bins(
-        self, start_bins: torch.Tensor, shift_bins: torch.Tensor
-    ) -> None:
-        """Apply a delay window [start_bin, start_bin+shift_bins) per trace."""
-        # Normalize (B,) or (B,1) to (B,)
-        if start_bins.ndim == 2:
-            start_bins = start_bins.squeeze(1)
-        if shift_bins.ndim == 2:
-            shift_bins = shift_bins.squeeze(1)
-
-        if start_bins.shape[0] != self.bs or shift_bins.shape[0] != self.bs:
-            raise ValueError("start_bins/shift_bins batch mismatch")
-
-        for i in range(self.bs):
-            if self.done[i]:
-                continue
-            sb = int(start_bins[i].item())
-            sh = int(shift_bins[i].item())
-            if sh <= 0:
-                continue
-            self._cursors[i].apply_delay_bins(sb, sh)
