@@ -3,13 +3,10 @@ from torch import nn
 
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.simulate import policy_rollout_single_pass, policy_rollout_streaming
-from kipl_ml.rl.utils import (
-    _boundary_time_to_bin_idx,
-    _time_to_bin_idx,
-    fill_after_seq_end,
-)
+from kipl_ml.rl.utils import fill_after_seq_end
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import FeatureTrs
+from kipl_ml.utils.time import _boundary_time_to_bin_idx, _time_to_bin_idx
 
 
 def get_rewards(

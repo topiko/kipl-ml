@@ -7,8 +7,8 @@ import torch
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import get_window_feature_dict
-from kipl_ml.rl.utils import _time_to_bin_idx
 from kipl_ml.trace.enums import Feats
+from kipl_ml.utils.time import _time_to_bin_idx
 
 
 @dataclass
@@ -275,14 +275,18 @@ def count_packets_inside_delay_windows(
     max_report: int = 25,
 ) -> DelayLeakReport:
     if Actions.DELAY_BINS not in actions:
-        return DelayLeakReport(n_delay_steps=0, bad_all=0, bad_nonpadding=0, bad_windows_sample=[])
+        return DelayLeakReport(
+            n_delay_steps=0, bad_all=0, bad_nonpadding=0, bad_windows_sample=[]
+        )
 
     t_act = act_times[idx]
     d_act = actions[Actions.DELAY_BINS][idx]
     # act_times and DELAY are int bins; -1 = invalid.
     m = (t_act >= 0) & (d_act > 0)
     if not bool(m.any().item()):
-        return DelayLeakReport(n_delay_steps=0, bad_all=0, bad_nonpadding=0, bad_windows_sample=[])
+        return DelayLeakReport(
+            n_delay_steps=0, bad_all=0, bad_nonpadding=0, bad_windows_sample=[]
+        )
 
     # Already int bins - no conversion needed.
     delay_bins = d_act[m].to(torch.long)
@@ -341,13 +345,17 @@ def format_row24_report(rep: Row24Report) -> str:
     if rep.duplicate_bins_sample:
         lines.append(f"- duplicate bins sample: {rep.duplicate_bins_sample}")
     if rep.per_window_mismatches_sample:
-        lines.append(f"- per-window mismatch sample: {rep.per_window_mismatches_sample}")
+        lines.append(
+            f"- per-window mismatch sample: {rep.per_window_mismatches_sample}"
+        )
     if rep.per_bin_mismatches_sample:
         lines.append(f"- per-bin mismatch sample: {rep.per_bin_mismatches_sample}")
     if rep.missing_packet_bins_sample:
         lines.append(f"- missing packet bins sample: {rep.missing_packet_bins_sample}")
     if rep.extra_nonzero_fd_bins_sample:
-        lines.append(f"- extra nonzero fd bins sample: {rep.extra_nonzero_fd_bins_sample}")
+        lines.append(
+            f"- extra nonzero fd bins sample: {rep.extra_nonzero_fd_bins_sample}"
+        )
     return "\n".join(lines)
 
 

@@ -9,10 +9,10 @@ from torch import nn
 from kipl_ml.data import assets
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt, log_multiline
-from kipl_ml.rl.utils import _time_to_bin_idx
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.params import DOWNLOAD, UPLOAD
 from kipl_ml.trace.transforms import _TR
+from kipl_ml.utils.time import _time_to_bin_idx
 
 logger = get_logger(__name__)
 

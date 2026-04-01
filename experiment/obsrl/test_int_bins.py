@@ -129,8 +129,8 @@ class TestObsrlIntBinsConsistency(TestCase):
 
     def test_tam_counts_follow_integer_bin_mapping(self):
         """TAM bin counts should match _time_to_bin_idx on boundary-ish values."""
-        from kipl_ml.rl.utils import _time_to_bin_idx
         from kipl_ml.trace.features import TAM_BINS, TAM_UP
+        from kipl_ml.utils.time import _time_to_bin_idx
 
         dt = 0.02
         times = torch.tensor(

@@ -28,9 +28,9 @@ from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.rl.enums import Actions
-from kipl_ml.rl.utils import _time_to_bin_idx
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import FeatureTrs, get_feature_tr
+from kipl_ml.utils.time import _time_to_bin_idx
 
 logger = get_logger(__name__)
 

@@ -7,14 +7,13 @@ import torch
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.enums import Actions
-from kipl_ml.rl.utils import (
+from kipl_ml.rl.utils import _flush_left, fill_after_seq_end
+from kipl_ml.trace.enums import Feats
+from kipl_ml.utils.time import (
     _boundary_time_to_bin_idx,
     _duration_to_bin_offsets,
-    _flush_left,
     _time_to_bin_idx,
-    fill_after_seq_end,
 )
-from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
 
@@ -388,7 +387,11 @@ def execute_actions_from_sequence(
             act_times.isfinite(), times_bin, torch.full_like(times_bin, -1)
         )
         actions = dict(actions)
-        for k in (Actions.DELAY_BINS, Actions.SEND_UP_AFTER_BINS, Actions.SEND_DOWN_AFTER_BINS):
+        for k in (
+            Actions.DELAY_BINS,
+            Actions.SEND_UP_AFTER_BINS,
+            Actions.SEND_DOWN_AFTER_BINS,
+        ):
             if k in actions and actions[k].is_floating_point():
                 actions[k] = _duration_to_bin_offsets(actions[k], time_step_s)
     else:

@@ -6,13 +6,13 @@ from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.rl.action import TraceExecState, execute_actions_from_sequence
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
-from kipl_ml.rl.utils import (
+from kipl_ml.rl.utils import fill_after_seq_end
+from kipl_ml.trace.enums import Feats
+from kipl_ml.utils.time import (
     _boundary_time_to_bin_idx,
     _duration_to_bin_offsets,
     _time_to_bin_idx,
-    fill_after_seq_end,
 )
-from kipl_ml.trace.enums import Feats
 
 
 class TestBinConversion(unittest.TestCase):
@@ -52,7 +52,9 @@ class TestBinConversion(unittest.TestCase):
 class TestFillAfterSeqEnd(unittest.TestCase):
     def test_fill_nan(self):
         values = torch.tensor([[1.0, 2.0, 0.0, 0.0], [3.0, 0.0, 0.0, 0.0]])
-        keep_mask = torch.tensor([[True, True, False, False], [True, False, False, False]])
+        keep_mask = torch.tensor(
+            [[True, True, False, False], [True, False, False, False]]
+        )
         result = fill_after_seq_end(values.clone(), keep_mask, fill_val="nan")
         self.assertTrue(torch.isnan(result[0, 2:]).all())
         self.assertTrue(torch.isnan(result[1, 1:]).all())
@@ -350,7 +352,9 @@ class TestSinglePassRollout(unittest.TestCase):
             X_obs2 = execute_actions_from_sequence(
                 X, act_times, actions, time_step_s=self.DT
             )
-            self.assertTrue(torch.allclose(X_obs[Feats.TIMES], X_obs2[Feats.TIMES], atol=1e-6))
+            self.assertTrue(
+                torch.allclose(X_obs[Feats.TIMES], X_obs2[Feats.TIMES], atol=1e-6)
+            )
 
 
 class TestVaryingSeqLens(unittest.TestCase):
@@ -484,18 +488,27 @@ class TestVaryingSeqLens(unittest.TestCase):
         for i in range(3):
             T = seq_lens_full[i].item()
             self.assertTrue(
-                torch.equal(fd_full[Feats.TIME_BINS][i, :T], fd_stream[Feats.TIME_BINS][i, :T])
+                torch.equal(
+                    fd_full[Feats.TIME_BINS][i, :T], fd_stream[Feats.TIME_BINS][i, :T]
+                )
             )
             self.assertTrue(
-                torch.equal(fd_full[Feats.UP_COUNT][i, :T], fd_stream[Feats.UP_COUNT][i, :T])
+                torch.equal(
+                    fd_full[Feats.UP_COUNT][i, :T], fd_stream[Feats.UP_COUNT][i, :T]
+                )
             )
             self.assertTrue(
-                torch.equal(fd_full[Feats.DOWN_COUNT][i, :T], fd_stream[Feats.DOWN_COUNT][i, :T])
+                torch.equal(
+                    fd_full[Feats.DOWN_COUNT][i, :T], fd_stream[Feats.DOWN_COUNT][i, :T]
+                )
             )
 
     def test_policy_rollout_varying_seq_lens(self):
         from kipl_ml.models.trgen import AGENT1
-        from kipl_ml.rl.simulate import policy_rollout_single_pass, policy_rollout_streaming
+        from kipl_ml.rl.simulate import (
+            policy_rollout_single_pass,
+            policy_rollout_streaming,
+        )
 
         times = torch.tensor(
             [

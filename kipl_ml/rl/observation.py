@@ -4,13 +4,13 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.rl.utils import (
+from kipl_ml.rl.utils import _flush_left
+from kipl_ml.trace.enums import Feats
+from kipl_ml.utils.time import (
     _boundary_time_to_bin_idx,
     _duration_to_bin_offsets,
-    _flush_left,
     _time_to_bin_idx,
 )
-from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
 
@@ -398,6 +398,7 @@ class WindowFeatureStreamer:
         max_silence_s: float,
         features: list[Feats],
         extend_end_s: float = 0,
+        cut_off_time_s: float | torch.Tensor | None = None,
     ):
         if dt <= 0:
             raise ValueError(f"dt must be > 0, got {dt}")
@@ -414,23 +415,13 @@ class WindowFeatureStreamer:
         self.dt = float(dt)
         self.max_silence_s = float(max_silence_s)
         self.features = features
+        _ = extend_end_s  # kept for API compatibility; no longer used.
 
         self.X = {k: v.clone() for k, v in X.items()}
         device = self.X[Feats.TIMES].device
 
         # Convert float times to int bins (bin space throughout)
         self.X[Feats.TIMES] = _time_to_bin_idx(self.X[Feats.TIMES], self.dt)
-
-        if extend_end_s > 0:
-            bs, L = self.X[Feats.DIRS].shape
-            mask = self.X[Feats.DIRS] == 0
-            seq_lens = (~mask).sum(dim=1)
-            col_idx = seq_lens[seq_lens != L]
-            row_idx = torch.arange(bs, device=device)[seq_lens != L]
-            self.X[Feats.DIRS][row_idx, col_idx] = UPLOAD
-            # Extend end in bin space
-            extend_end_bins = int(round(extend_end_s / self.dt))
-            self.X[Feats.TIMES][mask] += extend_end_bins
 
         # K in bin index space.
         K = int(self.max_silence_s / self.dt) if self.dt > 0 else 1
@@ -460,6 +451,26 @@ class WindowFeatureStreamer:
                 )
             )
 
+        # Per-trace cutoff in bin space. None means "last packet bin + 1".
+        if cut_off_time_s is None:
+            self.cut_off_bins = torch.tensor(
+                [int(c._pkt_bins[-1].item()) + 1 for c in self._cursors],
+                device=device,
+                dtype=torch.long,
+            )
+        else:
+            cut_off = torch.as_tensor(cut_off_time_s, device=device)
+            if cut_off.ndim == 0:
+                cut_off = cut_off.repeat(self.bs)
+            elif cut_off.ndim == 2 and cut_off.shape[1] == 1:
+                cut_off = cut_off.squeeze(1)
+            if cut_off.shape[0] != self.bs:
+                raise ValueError("cut_off_time_s batch mismatch")
+            if cut_off.is_floating_point():
+                self.cut_off_bins = torch.floor(cut_off / self.dt).to(torch.long)
+            else:
+                self.cut_off_bins = cut_off.to(torch.long)
+
         self.done = torch.zeros((self.bs,), device=device, dtype=torch.bool)
 
     def active_mask(self) -> torch.Tensor:
@@ -474,13 +485,20 @@ class WindowFeatureStreamer:
         if emit_bins:
             bins = torch.zeros((bs, 1), device=device, dtype=torch.long)
         # Emit int bins (not float times)
-        time_bins = torch.full((bs, 1), -1, device=device, dtype=torch.long)  # -1 = invalid
+        time_bins = torch.full(
+            (bs, 1), -1, device=device, dtype=torch.long
+        )  # -1 = invalid
         up = torch.zeros((bs, 1), device=device, dtype=torch.long)
         down = torch.zeros((bs, 1), device=device, dtype=torch.long)
         dt_bins = torch.full((bs, 1), -1, device=device, dtype=torch.long)  # bin count
 
         for i in range(bs):
             if self.done[i]:
+                continue
+
+            next_bin = self._cursors[i]._peek_next_bin()
+            if next_bin is not None and next_bin > int(self.cut_off_bins[i].item()):
+                self.done[i] = True
                 continue
 
             try:

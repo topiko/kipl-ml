@@ -100,7 +100,8 @@ def policy_rollout_streaming(
     X: dict[Feats, torch.Tensor],
     *,
     sample: bool = True,
-    extend_end_s: float = 2.0,
+    extend_end_s: float | None = None,
+    cut_off_time_s: float | None = None,
     max_packets: int | None = None,
 ) -> tuple[
     dict[Feats, torch.Tensor],
@@ -124,6 +125,7 @@ def policy_rollout_streaming(
             X,
             sample=sample,
             extend_end_s=extend_end_s,
+            cut_off_time_s=cut_off_time_s,
             max_packets=max_packets,
             record_policy=True,
         ),
@@ -155,7 +157,8 @@ def policy_obfuscate_trace_streaming(
     X: dict[Feats, torch.Tensor],
     *,
     sample: bool = True,
-    extend_end_s: float = 2.0,
+    extend_end_s: float | None = None,
+    cut_off_time_s: float | None = None,
     max_packets: int | None = None,
 ) -> dict[Feats, torch.Tensor]:
     """Obfuscate a trace stepwise using WindowFeatureStreamer.
@@ -173,6 +176,7 @@ def policy_obfuscate_trace_streaming(
             X,
             sample=sample,
             extend_end_s=extend_end_s,
+            cut_off_time_s=cut_off_time_s,
             max_packets=max_packets,
             record_policy=False,
         ),
@@ -186,7 +190,8 @@ def _policy_rollout_streaming_impl(
     X: dict[Feats, torch.Tensor],
     *,
     sample: bool,
-    extend_end_s: float,
+    extend_end_s: float | None,
+    cut_off_time_s: float | None,
     max_packets: int | None,
     record_policy: Literal[True],
 ) -> tuple[
@@ -207,7 +212,8 @@ def _policy_rollout_streaming_impl(
     X: dict[Feats, torch.Tensor],
     *,
     sample: bool,
-    extend_end_s: float,
+    extend_end_s: float | None,
+    cut_off_time_s: float | None,
     max_packets: int | None,
     record_policy: Literal[False],
 ) -> dict[Feats, torch.Tensor]: ...
@@ -218,7 +224,8 @@ def _policy_rollout_streaming_impl(
     X: dict[Feats, torch.Tensor],
     *,
     sample: bool,
-    extend_end_s: float,
+    extend_end_s: float | None,
+    cut_off_time_s: float | None,
     max_packets: int | None,
     record_policy: bool,
 ) -> dict[Feats, torch.Tensor] | _StreamingRollout:
@@ -234,9 +241,11 @@ def _policy_rollout_streaming_impl(
     Xb = {k: v.clone() for k, v in X.items()}
     if Feats.PADDING not in Xb:
         Xb[Feats.PADDING] = torch.zeros_like(Xb[Feats.TIMES])
-    _apply_extend_end_inplace(Xb, extend_end_s)
 
     obs_ = cast(Any, obs)
+
+    if cut_off_time_s is None:
+        cut_off_time_s = extend_end_s
 
     device = Xb[Feats.TIMES].device
     bs = int(Xb[Feats.TIMES].shape[0])
@@ -250,14 +259,12 @@ def _policy_rollout_streaming_impl(
         Feats.PADDING: Xb[Feats.PADDING].detach().to(stream_device),
     }
 
-    streamer_features = list(obs_.features)
-
     streamer = WindowFeatureStreamer(
         Xs,
-        dt=float(obs_.time_step),
-        max_silence_s=float(obs_.max_silence_s),
-        features=streamer_features,
-        extend_end_s=0,
+        dt=obs_.time_step,
+        max_silence_s=obs_.max_silence_s,
+        features=obs_.features,
+        cut_off_time_s=cut_off_time_s,
     )
 
     exec_state = TraceExecState(
@@ -266,7 +273,7 @@ def _policy_rollout_streaming_impl(
             Feats.DIRS: Xb[Feats.DIRS].clone(),
             Feats.PADDING: Xb[Feats.PADDING].clone(),
         },
-        time_step_s=float(obs_.time_step),
+        time_step_s=obs_.time_step,
     )
 
     base_n = (Xb[Feats.DIRS] != 0).sum(dim=1).long()
@@ -307,7 +314,7 @@ def _policy_rollout_streaming_impl(
             k: torch.where(
                 fd_t_full[k][active_cpu] >= 0,
                 fd_t_full[k][active_cpu],
-                torch.zeros_like(fd_t_full[k][active_cpu])
+                torch.zeros_like(fd_t_full[k][active_cpu]),
             ).to(device)
             for k in obs_.features
         }
@@ -325,16 +332,20 @@ def _policy_rollout_streaming_impl(
             actions=actions_a,
         )
 
-        if Actions.DELAY_BINS in actions_a and (actions_a[Actions.DELAY_BINS] > 0).any():
+        if (
+            Actions.DELAY_BINS in actions_a
+            and (actions_a[Actions.DELAY_BINS] > 0).any()
+        ):
             delay_idx = torch.where(active_cpu)[0]
             shift_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
-            shift_full[delay_idx] = actions_a[Actions.DELAY_BINS].squeeze(1).to(stream_device).long()
+            shift_full[delay_idx] = (
+                actions_a[Actions.DELAY_BINS].squeeze(1).to(stream_device).long()
+            )
 
             start_bins_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
-            start_bins_full[delay_idx] = (
-                fd_t_full[Feats.TIME_BINS][active_cpu].squeeze(1)
-                + fd_t_full[Feats.Dt_BINS][active_cpu].squeeze(1)
-            )
+            start_bins_full[delay_idx] = fd_t_full[Feats.TIME_BINS][active_cpu].squeeze(
+                1
+            ) + fd_t_full[Feats.Dt_BINS][active_cpu].squeeze(1)
             streamer.apply_delay_bins(start_bins_full, shift_full)
 
         if record_policy:
