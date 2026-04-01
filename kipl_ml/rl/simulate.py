@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Literal, cast, overload
 
-import numpy as np
 import torch
 
 from kipl_ml.models.trgen import _hidden_w_mask
@@ -229,7 +228,8 @@ def _policy_rollout_streaming_impl(
         if active.sum() == 0:
             break
 
-        for i, aidx in enumerate(np.arange(bs)[active]):
+        active_idxs = torch.nonzero(active, as_tuple=False).flatten().tolist()
+        for i, aidx in enumerate(active_idxs):
             for k in (Feats.TIMES, Feats.DIRS, Feats.PADDING):
                 fd_packet_level[aidx][k].append(fd_packet_level_[k][i])
 

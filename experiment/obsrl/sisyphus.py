@@ -32,7 +32,7 @@ from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.trgen import AGENT1, CRITIC01
-from kipl_ml.rl.enums import Actions
+from kipl_ml.rl.enums import AHKs, Actions
 from kipl_ml.tools.mlflow_utils import (
     find_parent_run_id,
     get_mlflow_expr,
@@ -300,12 +300,14 @@ def train_obs_one_epoch(
             losses_metrics_d["selector_delay_frac"].append(
                 ((sel == 4) & tm).sum().item() / denom
             )
-            if Actions.DELAY_BINS in actions:
-                losses_metrics_d["delay_active_frac"].append(
-                    (((actions[Actions.DELAY_BINS] > 0) & tm).sum().item()) / denom
-                )
-            else:
-                losses_metrics_d["delay_active_frac"].append(0.0)
+            delay_active = torch.zeros_like(tm, dtype=torch.bool)
+            if Actions.DELAY_UP in actions:
+                delay_active |= actions[Actions.DELAY_UP] > 0
+            if Actions.DELAY_DOWN in actions:
+                delay_active |= actions[Actions.DELAY_DOWN] > 0
+            losses_metrics_d["delay_active_frac"].append(
+                ((delay_active & tm).sum().item()) / denom
+            )
 
             for k, v in league_rewards.items():
                 losses_metrics_d[f"mean_reward_{k}"].append(
@@ -577,16 +579,17 @@ def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
         send_count_bins=send_count_bins,
         send_after_bins=send_after_bins,
         prob_eps={
-            Actions.SELECTOR: eps,
-            Actions.SEND_COUNT_UP: f_ * eps,
-            Actions.SEND_UP_AFTER_BINS: f_ * eps,
-            Actions.SEND_COUNT_DOWN: f_ * eps,
-            Actions.SEND_DOWN_AFTER_BINS: f_ * eps,
-            Actions.DELAY_BINS: f_ * eps,
+            **{a: 0.0 for a in AHKs},
+            AHKs.ACTION_SELECTION: eps,
+            AHKs.SEND_COUNT_U: f_ * eps,
+            AHKs.SEND_TIME_U: f_ * eps,
+            AHKs.SEND_COUNT_D: f_ * eps,
+            AHKs.SEND_TIME_D: f_ * eps,
+            AHKs.DELAY_BINS_U: f_ * eps,
+            AHKs.DELAY_BINS_D: f_ * eps,
         },
         delay_duration_bins=delay_duration_bins,
         prefer_wait_bias=4.0 if cfg.obs.init_for_wait else 0.0,
-        send_mode=cfg.obs.send_mode,
         enable_delay=cfg.obs.enable_delay,
         train_env={"trim_beginning": cfg.trace.trim_beginning},
     )

@@ -168,18 +168,28 @@ def get_rewards(
     rewards["clf"] += mean_p * clf_scale
 
     # Delay penalty: charge only for packets that actually get delayed.
+    delay_mask = None
     if (
         X_raw is not None
         and obs_dt_s is not None
         and obs_dt_s > 0
         and "delay_scale" in reward_scales
-        and Actions.DELAY_BINS in actions
     ):
-        delay = actions[Actions.DELAY_BINS]
-        if delay.ndim == 3 and delay.shape[-1] == 1:
-            delay = delay.squeeze(-1)
-        delay_mask = (delay > 0) & (action_times >= 0)
+        delay_mask = torch.zeros_like(action_times, dtype=torch.bool)
+        if Actions.DELAY_UP in actions:
+            delay = actions[Actions.DELAY_UP]
+            if delay.ndim == 3 and delay.shape[-1] == 1:
+                delay = delay.squeeze(-1)
+            delay_mask |= (delay > 0) & (action_times >= 0)
+        if Actions.DELAY_DOWN in actions:
+            delay = actions[Actions.DELAY_DOWN]
+            if delay.ndim == 3 and delay.shape[-1] == 1:
+                delay = delay.squeeze(-1)
+            delay_mask |= (delay > 0) & (action_times >= 0)
+        if not delay_mask.any():
+            delay_mask = None
 
+    if delay_mask is not None:
         # (B, L) original packet bins; fill padding with +inf bin to preserve sort.
         dirs0 = X_raw[Feats.DIRS]
         m0 = dirs0 != 0

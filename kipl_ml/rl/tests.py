@@ -1,10 +1,10 @@
 import unittest
+import warnings
 
 import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
-from kipl_ml.rl.action import TraceExecState, execute_actions_from_sequence
-from kipl_ml.rl.enums import Actions, NoAction
+from kipl_ml.rl.enums import Actions, ActSendDown, ActSendUp, NoAction, StepAction
 from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
 from kipl_ml.rl.utils import fill_after_seq_end
 from kipl_ml.trace.enums import Feats
@@ -76,11 +76,11 @@ class TestFillAfterSeqEnd(unittest.TestCase):
         self.assertTrue(torch.equal(result, expected))
 
 
-class TestWindowFeatureDict(unittest.TestCase):
+class TestDeprecatedWindowFeatureDict(unittest.TestCase):
     DT = 0.02
     MAX_SILENCE_S = 0.1
 
-    def test_basic_trace(self):
+    def test_deprecated_helper_warns_and_returns_bins(self):
         times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
         dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
         padding = torch.zeros_like(dirs)
@@ -88,31 +88,17 @@ class TestWindowFeatureDict(unittest.TestCase):
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
         features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
-        fd = get_window_feature_dict(X, self.DT, self.MAX_SILENCE_S, features)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            fd = get_window_feature_dict(X, self.DT, self.MAX_SILENCE_S, features)
 
+        self.assertTrue(any(issubclass(w.category, DeprecationWarning) for w in caught))
         self.assertEqual(fd[Feats.TIME_BINS].dtype, torch.long)
         self.assertEqual(fd[Feats.Dt_BINS].dtype, torch.long)
         self.assertEqual(fd[Feats.UP_COUNT].dtype, torch.long)
         self.assertEqual(fd[Feats.DOWN_COUNT].dtype, torch.long)
-
         self.assertTrue((fd[Feats.TIME_BINS] >= 0).any())
         self.assertTrue((fd[Feats.Dt_BINS] >= 0).any())
-
-    def test_int_bins_sentinel(self):
-        times = torch.tensor([[0.0, 0.02, 0.04]])
-        dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD]])
-        padding = torch.zeros_like(dirs)
-
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
-        features = [Feats.TIME_BINS, Feats.Dt_BINS]
-
-        fd = get_window_feature_dict(X, self.DT, self.MAX_SILENCE_S, features)
-
-        valid_mask = fd[Feats.TIME_BINS] >= 0
-        self.assertTrue(valid_mask.any())
-        invalid_mask = fd[Feats.TIME_BINS] < 0
-        if invalid_mask.any():
-            self.assertTrue((fd[Feats.TIME_BINS][invalid_mask] == -1).all())
 
 
 class TestWindowFeatureStreamer(unittest.TestCase):
@@ -130,10 +116,11 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         streamer = WindowFeatureStreamer(X, self.DT, self.MAX_SILENCE_S, features)
 
         steps = []
+        actions = [NoAction(time=0)]
         for _ in range(100):
-            fd_t = streamer.step()
+            fd_t, _, active = streamer.step(actions)
             steps.append(fd_t)
-            if streamer.done.all():
+            if active.sum() == 0:
                 break
 
         self.assertTrue(streamer.done.all())
@@ -145,7 +132,7 @@ class TestWindowFeatureStreamer(unittest.TestCase):
             self.assertEqual(fd_t[Feats.UP_COUNT].dtype, torch.long)
             self.assertEqual(fd_t[Feats.DOWN_COUNT].dtype, torch.long)
 
-    def test_matches_single_pass(self):
+    def test_matches_streaming(self):
         times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
         dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
         padding = torch.zeros_like(dirs)
@@ -153,25 +140,25 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
         features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
-        fd_full = get_window_feature_dict(
-            {k: v.clone() for k, v in X.items()}, self.DT, self.MAX_SILENCE_S, features
-        )
-
         streamer = WindowFeatureStreamer(X, self.DT, self.MAX_SILENCE_S, features)
 
         steps = {f: [] for f in features}
+        actions = [NoAction(time=0)]
         for _ in range(100):
-            fd_t = streamer.step()
+            fd_t, _, active = streamer.step(actions)
             for f in features:
                 steps[f].append(fd_t[f])
-            if streamer.done.all():
+            if active.sum() == 0:
                 break
 
         fd_stream = {f: torch.cat(steps[f], dim=1) for f in features}
 
-        seq_lens_full = fd_full[Feats.SEQ_LENS]
         seq_lens_stream = (fd_stream[Feats.TIME_BINS] >= 0).sum(dim=1)
-        self.assertTrue(torch.equal(seq_lens_stream, seq_lens_full))
+        self.assertEqual(seq_lens_stream.shape, (1,))
+        self.assertTrue((seq_lens_stream > 0).all())
+        self.assertTrue(
+            torch.equal(seq_lens_stream, (fd_stream[Feats.Dt_BINS] >= 0).sum(dim=1))
+        )
 
     def test_noaction_recovers_original_trace(self):
         times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
@@ -206,122 +193,145 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         self.assertTrue(torch.equal(recovered[Feats.DIRS], dirs))
         self.assertTrue(torch.equal(recovered[Feats.PADDING], padding))
 
-
-class TestTraceExecState(unittest.TestCase):
-    DT = 0.02
-
-    def test_basic_execution(self):
-        times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
-        dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
+    def test_send_down_adds_packet(self):
+        times = torch.tensor([[0.0]])
+        dirs = torch.tensor([[UPLOAD]])
         padding = torch.zeros_like(dirs)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
-        exec_state = TraceExecState(
-            {k: v.clone() for k, v in X.items()}, time_step_s=self.DT
+        streamer = WindowFeatureStreamer(X, self.DT, self.MAX_SILENCE_S, features)
+
+        send_action = [
+            StepAction(
+                time=0,
+                _actions={Actions.SEND_DOWN: ActSendDown(count=1, after_steps=2)},
+            )
+        ]
+
+        fd_t0, fd_packet_level0, active0 = streamer.step(send_action)
+        self.assertTrue(active0.any())
+        self.assertEqual(int(fd_t0[Feats.UP_COUNT][0, 0].item()), 1)
+        self.assertEqual(int(fd_t0[Feats.DOWN_COUNT][0, 0].item()), 0)
+        self.assertTrue(
+            torch.equal(fd_packet_level0[Feats.TIMES][0], torch.tensor([0.0]))
+        )
+        self.assertTrue(
+            torch.equal(fd_packet_level0[Feats.DIRS][0], torch.tensor([UPLOAD]))
+        )
+        self.assertTrue(
+            torch.equal(fd_packet_level0[Feats.PADDING][0], torch.tensor([0.0]))
         )
 
-        X_obs = exec_state.finalize()
-
-        self.assertEqual(X_obs[Feats.TIMES].shape, times.shape)
-        self.assertEqual(X_obs[Feats.DIRS].shape, dirs.shape)
-        self.assertTrue(torch.isfinite(X_obs[Feats.TIMES]).all())
-
-    def test_delay_execution(self):
-        times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
-        dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
-        padding = torch.zeros_like(dirs)
-
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
-
-        exec_state = TraceExecState(
-            {k: v.clone() for k, v in X.items()}, time_step_s=self.DT
+        fd_t1, fd_packet_level1, active1 = streamer.step(
+            [NoAction(time=int(fd_t0[Feats.TIME_BINS][0, 0].item()))]
+        )
+        self.assertTrue(active1.any())
+        self.assertEqual(int(fd_t1[Feats.UP_COUNT][0, 0].item()), 0)
+        self.assertEqual(int(fd_t1[Feats.DOWN_COUNT][0, 0].item()), 1)
+        self.assertTrue(
+            torch.equal(fd_packet_level1[Feats.TIMES][0], torch.tensor([0.05]))
+        )
+        self.assertTrue(
+            torch.equal(fd_packet_level1[Feats.DIRS][0], torch.tensor([DOWNLOAD]))
+        )
+        self.assertTrue(
+            torch.equal(fd_packet_level1[Feats.PADDING][0], torch.tensor([1.0]))
         )
 
-        act_bins = torch.tensor([[1]])
-        actions = {
-            Actions.DELAY_BINS: torch.tensor([[1]]),
-            Actions.SEND_COUNT_UP: torch.tensor([[0]]),
-            Actions.SEND_COUNT_DOWN: torch.tensor([[0]]),
-            Actions.SEND_UP_AFTER_BINS: torch.tensor([[0]]),
-            Actions.SEND_DOWN_AFTER_BINS: torch.tensor([[0]]),
-        }
-
-        exec_state.step(trace_idx=torch.tensor([0]), times=act_bins, actions=actions)
-
-        X_obs = exec_state.finalize()
-
-        self.assertTrue(torch.isfinite(X_obs[Feats.TIMES]).all())
-
-    def test_send_padding(self):
-        times = torch.tensor([[0.0, 0.02, 0.04]])
-        dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD]])
+    def test_send_up_adds_packet(self):
+        times = torch.tensor([[0.0]])
+        dirs = torch.tensor([[DOWNLOAD]])
         padding = torch.zeros_like(dirs)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
-        exec_state = TraceExecState(
-            {k: v.clone() for k, v in X.items()}, time_step_s=self.DT
+        streamer = WindowFeatureStreamer(X, self.DT, self.MAX_SILENCE_S, features)
+
+        send_action = [
+            StepAction(
+                time=0,
+                _actions={Actions.SEND_UP: ActSendUp(count=1, after_steps=2)},
+            )
+        ]
+
+        fd_t0, fd_packet_level0, active0 = streamer.step(send_action)
+        self.assertTrue(active0.any())
+        self.assertEqual(int(fd_t0[Feats.UP_COUNT][0, 0].item()), 0)
+        self.assertEqual(int(fd_t0[Feats.DOWN_COUNT][0, 0].item()), 1)
+        self.assertTrue(
+            torch.equal(fd_packet_level0[Feats.TIMES][0], torch.tensor([0.0]))
+        )
+        self.assertTrue(
+            torch.equal(fd_packet_level0[Feats.DIRS][0], torch.tensor([DOWNLOAD]))
+        )
+        self.assertTrue(
+            torch.equal(fd_packet_level0[Feats.PADDING][0], torch.tensor([0.0]))
         )
 
-        act_bins = torch.tensor([[1]])
-        actions = {
-            Actions.SEND_COUNT_UP: torch.tensor([[2]]),
-            Actions.SEND_UP_AFTER_BINS: torch.tensor([[1]]),
-            Actions.SEND_COUNT_DOWN: torch.tensor([[0]]),
-            Actions.SEND_DOWN_AFTER_BINS: torch.tensor([[0]]),
-        }
+        fd_t1, fd_packet_level1, active1 = streamer.step(
+            [NoAction(time=int(fd_t0[Feats.TIME_BINS][0, 0].item()))]
+        )
+        self.assertTrue(active1.any())
+        self.assertEqual(int(fd_t1[Feats.UP_COUNT][0, 0].item()), 1)
+        self.assertEqual(int(fd_t1[Feats.DOWN_COUNT][0, 0].item()), 0)
+        self.assertTrue(
+            torch.equal(fd_packet_level1[Feats.TIMES][0], torch.tensor([0.05]))
+        )
+        self.assertTrue(
+            torch.equal(fd_packet_level1[Feats.DIRS][0], torch.tensor([UPLOAD]))
+        )
+        self.assertTrue(
+            torch.equal(fd_packet_level1[Feats.PADDING][0], torch.tensor([1.0]))
+        )
 
-        exec_state.step(trace_idx=torch.tensor([0]), times=act_bins, actions=actions)
-
-        X_obs = exec_state.finalize()
-
-        n_padding = X_obs[Feats.PADDING].sum().item()
-        self.assertEqual(n_padding, 2)
-
-
-class TestExecuteActionsFromSequence(unittest.TestCase):
-    DT = 0.02
-
-    def test_no_actions(self):
-        times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
-        dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
+    def test_send_up_and_down_adds_both_packets(self):
+        times = torch.tensor([[0.0]])
+        dirs = torch.tensor([[UPLOAD]])
         padding = torch.zeros_like(dirs)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
-        act_times = torch.tensor([[0, 1, 2, 3, 4]], dtype=torch.long)
-        actions = {
-            Actions.SEND_COUNT_UP: torch.zeros((1, 5), dtype=torch.long),
-            Actions.SEND_COUNT_DOWN: torch.zeros((1, 5), dtype=torch.long),
-            Actions.SEND_UP_AFTER_BINS: torch.zeros((1, 5), dtype=torch.long),
-            Actions.SEND_DOWN_AFTER_BINS: torch.zeros((1, 5), dtype=torch.long),
-        }
+        streamer = WindowFeatureStreamer(X, self.DT, self.MAX_SILENCE_S, features)
 
-        X_obs = execute_actions_from_sequence(X, act_times, actions, self.DT)
+        send_action = [
+            StepAction(
+                time=0,
+                _actions={
+                    Actions.SEND_UP: ActSendUp(count=1, after_steps=2),
+                    Actions.SEND_DOWN: ActSendDown(count=1, after_steps=2),
+                },
+            )
+        ]
 
-        self.assertTrue(torch.allclose(X_obs[Feats.TIMES], times, atol=1e-6))
-        self.assertTrue(torch.equal(X_obs[Feats.DIRS], dirs))
+        fd_t0, fd_packet_level0, active0 = streamer.step(send_action)
+        self.assertTrue(active0.any())
+        self.assertEqual(int(fd_t0[Feats.UP_COUNT][0, 0].item()), 1)
+        self.assertEqual(int(fd_t0[Feats.DOWN_COUNT][0, 0].item()), 0)
+        self.assertTrue(
+            torch.equal(fd_packet_level0[Feats.TIMES][0], torch.tensor([0.0]))
+        )
 
-    def test_delay_actions(self):
-        times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
-        dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
-        padding = torch.zeros_like(dirs)
-
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
-
-        act_times = torch.tensor([[0, 1, 2, 3, 4]], dtype=torch.long)
-        actions = {
-            Actions.DELAY_BINS: torch.tensor([[1, 0, 0, 0, 0]], dtype=torch.long),
-            Actions.SEND_COUNT_UP: torch.zeros((1, 5), dtype=torch.long),
-            Actions.SEND_COUNT_DOWN: torch.zeros((1, 5), dtype=torch.long),
-            Actions.SEND_UP_AFTER_BINS: torch.zeros((1, 5), dtype=torch.long),
-            Actions.SEND_DOWN_AFTER_BINS: torch.zeros((1, 5), dtype=torch.long),
-        }
-
-        X_obs = execute_actions_from_sequence(X, act_times, actions, self.DT)
-
-        self.assertTrue(torch.isfinite(X_obs[Feats.TIMES]).all())
+        fd_t1, fd_packet_level1, active1 = streamer.step(
+            [NoAction(time=int(fd_t0[Feats.TIME_BINS][0, 0].item()))]
+        )
+        self.assertTrue(active1.any())
+        self.assertEqual(int(fd_t1[Feats.UP_COUNT][0, 0].item()), 1)
+        self.assertEqual(int(fd_t1[Feats.DOWN_COUNT][0, 0].item()), 1)
+        self.assertTrue(
+            torch.equal(fd_packet_level1[Feats.TIMES][0], torch.tensor([0.05, 0.05]))
+        )
+        self.assertTrue(
+            torch.equal(
+                fd_packet_level1[Feats.DIRS][0], torch.tensor([DOWNLOAD, UPLOAD])
+            )
+        )
+        self.assertTrue(
+            torch.equal(fd_packet_level1[Feats.PADDING][0], torch.tensor([1.0, 1.0]))
+        )
 
 
 class TestVaryingSeqLens(unittest.TestCase):
@@ -349,20 +359,35 @@ class TestVaryingSeqLens(unittest.TestCase):
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
         features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
-        fd = get_window_feature_dict(X, self.DT, self.MAX_SILENCE_S, features)
+        streamer = WindowFeatureStreamer(X, self.DT, self.MAX_SILENCE_S, features)
 
-        seq_lens = fd[Feats.SEQ_LENS]
+        steps = {f: [] for f in features}
+        actions = [NoAction(time=0) for _ in range(X[Feats.TIMES].shape[0])]
+        for _ in range(100):
+            fd_t, _, active = streamer.step(actions)
+            for f in features:
+                steps[f].append(fd_t[f])
+            if active.sum() == 0:
+                break
+
+        fd_stream = {f: torch.cat(steps[f], dim=1) for f in features}
+
+        seq_lens = (fd_stream[Feats.TIME_BINS] >= 0).sum(dim=1)
         self.assertEqual(seq_lens.shape[0], 3)
         self.assertTrue((seq_lens > 0).all())
 
         for i in range(3):
-            valid_count = (fd[Feats.TIME_BINS][i] >= 0).sum().item()
+            valid_count = (fd_stream[Feats.TIME_BINS][i] >= 0).sum().item()
             self.assertEqual(valid_count, seq_lens[i].item())
 
-            if seq_lens[i].item() < fd[Feats.TIME_BINS].shape[1]:
+            if seq_lens[i].item() < fd_stream[Feats.TIME_BINS].shape[1]:
                 invalid_start = seq_lens[i].item()
-                self.assertTrue((fd[Feats.TIME_BINS][i, invalid_start:] == -1).all())
-                self.assertTrue((fd[Feats.Dt_BINS][i, invalid_start:] == -1).all())
+                self.assertTrue(
+                    (fd_stream[Feats.TIME_BINS][i, invalid_start:] == -1).all()
+                )
+                self.assertTrue(
+                    (fd_stream[Feats.Dt_BINS][i, invalid_start:] == -1).all()
+                )
 
     def test_streaming_varying_seq_lens(self):
         times = torch.tensor(
@@ -408,69 +433,6 @@ class TestVaryingSeqLens(unittest.TestCase):
         for i in range(3):
             valid_count = (fd_stream[Feats.TIME_BINS][i] >= 0).sum().item()
             self.assertEqual(valid_count, seq_lens_stream[i].item())
-
-    def test_single_pass_matches_streaming_varying_lens(self):
-        times = torch.tensor(
-            [
-                [0.0, 0.02, 0.04, 0.06, 0.08, 0.10],
-                [0.0, 0.02, 0.04, 0.0, 0.0, 0.0],
-                [0.0, 0.02, 0.0, 0.0, 0.0, 0.0],
-            ]
-        )
-        dirs = torch.tensor(
-            [
-                [UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD],
-                [UPLOAD, DOWNLOAD, UPLOAD, 0, 0, 0],
-                [UPLOAD, DOWNLOAD, 0, 0, 0, 0],
-            ],
-            dtype=torch.float32,
-        )
-        padding = torch.zeros_like(dirs)
-
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
-        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
-
-        fd_full = get_window_feature_dict(
-            {k: v.clone() for k, v in X.items()}, self.DT, self.MAX_SILENCE_S, features
-        )
-
-        streamer = WindowFeatureStreamer(
-            {k: v.clone() for k, v in X.items()}, self.DT, self.MAX_SILENCE_S, features
-        )
-
-        steps = {f: [] for f in features}
-        actions = [NoAction(time=0) for _ in range(X[Feats.TIMES].shape[0])]
-        for _ in range(100):
-            fd_t, _, active = streamer.step(actions)
-            for f in features:
-                steps[f].append(fd_t[f])
-            if active.sum() == 0:
-                break
-
-        fd_stream = {f: torch.cat(steps[f], dim=1) for f in features}
-
-        seq_lens_full = fd_full[Feats.SEQ_LENS]
-        seq_lens_stream = (fd_stream[Feats.TIME_BINS] >= 0).sum(dim=1)
-
-        self.assertTrue(torch.equal(seq_lens_stream, seq_lens_full))
-
-        for i in range(3):
-            T = seq_lens_full[i].item()
-            self.assertTrue(
-                torch.equal(
-                    fd_full[Feats.TIME_BINS][i, :T], fd_stream[Feats.TIME_BINS][i, :T]
-                )
-            )
-            self.assertTrue(
-                torch.equal(
-                    fd_full[Feats.UP_COUNT][i, :T], fd_stream[Feats.UP_COUNT][i, :T]
-                )
-            )
-            self.assertTrue(
-                torch.equal(
-                    fd_full[Feats.DOWN_COUNT][i, :T], fd_stream[Feats.DOWN_COUNT][i, :T]
-                )
-            )
 
 
 if __name__ == "__main__":

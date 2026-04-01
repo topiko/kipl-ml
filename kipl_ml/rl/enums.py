@@ -122,6 +122,9 @@ class StepAction:
     def __setitem__(self, key: Actions, value: ActionType) -> None:
         self._actions[key] = value
 
+    def __pop__(self, key: Actions) -> ActionType:
+        return self._actions.pop(key)
+
     def __contains__(self, key: Actions) -> bool:
         return key in self._actions
 

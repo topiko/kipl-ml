@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import torch
 
@@ -116,6 +118,11 @@ def get_window_feature_dict(
     max_silence_s: float,
     features: list[Feats],
 ) -> dict[Feats, torch.Tensor]:
+    warnings.warn(
+        "get_window_feature_dict is deprecated; use WindowFeatureStreamer instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if dt <= 0:
         raise ValueError(f"dt must be > 0, got {dt}")
 
@@ -227,48 +234,61 @@ def get_window_feature_dict(
     return feature_dict
 
 
-class Buffer:
-    def __init__(self):
-        self.times = torch.Tensor([])
-        self.dirs = torch.Tensor([])
-        self.pad = torch.Tensor([])
+class SendBuffer:
+    def __init__(
+        self,
+        flush_bin: int,
+        dt: float,
+        times: torch.Tensor | None = None,
+        dirs: torch.Tensor | None = None,
+        pad: torch.Tensor | None = None,
+        replace: bool = False,
+        bypass: bool = False,
+    ):
+        self.times = torch.Tensor([]) if times is None else times
+        self.dirs = torch.Tensor([]) if dirs is None else dirs
+        self.pad = torch.Tensor([]) if pad is None else pad
+        self._flush_bin = flush_bin
+        self.dt = dt
+        self.replace = replace
+        self.bypass = bypass
+        self.flushed = False
 
-    def add(
-        self, times: torch.Tensor, dirs: torch.Tensor, pad: torch.Tensor | None = None
-    ) -> None:
-        self.times = torch.cat([self.times, times], dim=0)
-        self.dirs = torch.cat([self.dirs, dirs], dim=0)
-        pad = torch.zeros_like(times) if pad is None else pad
-        self.pad = torch.cat([self.pad, pad], dim=0)
+    @property
+    def flush_bin(self) -> int:
+        return self._flush_bin
 
-    def _delay(self, direction: int, duration_s: float) -> None:
+    def _delay(self, direction: int, time_bin: int, steps: int) -> None:
         """Delay packets in the given direction by duration_s seconds."""
         mask = self.dirs == direction
-        self.times[mask] += duration_s
+        self.times[mask] += steps * self.dt
 
-    def delay_up(self, duration_s: float) -> None:
-        self._delay(UPLOAD, duration_s)
+        self._flush_bin = max(self._flush_bin, time_bin + steps)
 
-    def delay_down(self, duration_s: float) -> None:
-        self._delay(DOWNLOAD, duration_s)
+    def delay_up(self, time_bin: int, steps: int) -> None:
+        self._delay(UPLOAD, time_bin, steps)
+
+    def delay_down(self, time_bin: int, steps: int) -> None:
+        self._delay(DOWNLOAD, time_bin, steps)
 
     def flush(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Flush the buffer and return (times, dirs, pad)."""
-        times = self.times
-        dirs = self.dirs
-        pad = self.pad
-        self.times = torch.Tensor([])
-        self.dirs = torch.Tensor([])
-        self.pad = torch.Tensor([])
-        return times, dirs, pad
+        if self.flushed:
+            raise RuntimeError("Buffer already flushed")
+        self.flushed = True
+        return self.times, self.dirs, self.pad
 
 
 def _get_from_interval(
-    times: torch.Tensor, dirs: torch.Tensor, start_s: float, end_s: float
-) -> tuple[torch.Tensor, torch.Tensor]:
+    times: torch.Tensor,
+    dirs: torch.Tensor,
+    pad: torch.Tensor,
+    start_s: float,
+    end_s: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Get packets in the interval [start_s, end_s)."""
     mask = (times >= start_s) & (times < end_s)
-    return times[mask], dirs[mask]
+    return times[mask], dirs[mask], pad[mask]
 
 
 class TraceStateCursor:
@@ -282,6 +302,7 @@ class TraceStateCursor:
         self,
         times: torch.Tensor,
         dirs: torch.Tensor,
+        pad: torch.Tensor,
         dt: float,
         terminate_after_s: float | None = None,
         max_silence_bins: int | None = None,
@@ -289,7 +310,8 @@ class TraceStateCursor:
         self.dt = dt
         self.times = times
         self.dirs = dirs
-        self.buffer: Buffer = Buffer()
+        self.pad = pad
+        self.send_buffers: list[SendBuffer] = []
         self.cursor_time_bin: int = 0
         self.prev_time_bin: int = 0
         self.max_silence_bins = max_silence_bins
@@ -298,6 +320,7 @@ class TraceStateCursor:
             if terminate_after_s is not None
             else int(_time_to_bin_idx(times.max().unsqueeze(0), dt).item()) + 1
         )
+        self.device = times.device
 
     def step(
         self, actions: StepAction
@@ -305,23 +328,88 @@ class TraceStateCursor:
         if self.prev_time_bin >= self.terminate_after_bin:
             raise StopIteration
 
-        # Action logic here.
-        if Actions.DO_NOTHING in actions:
-            times, dirs = _get_from_interval(
-                self.times,
-                self.dirs,
-                float(self.cursor_time_bin) * self.dt,
-                float(self.cursor_time_bin + 1) * self.dt,
+        times, dirs, pad = _get_from_interval(
+            self.times,
+            self.dirs,
+            self.pad,
+            float(self.cursor_time_bin) * self.dt,
+            float(self.cursor_time_bin + 1) * self.dt,
+        )
+        self.send_buffers.append(
+            SendBuffer(
+                flush_bin=self.cursor_time_bin,
+                dt=self.dt,
+                times=times,
+                dirs=dirs,
+                pad=pad,
             )
-            self.buffer.add(times, dirs)
-            dt_bins = self.cursor_time_bin - self.prev_time_bin
-        else:
-            raise NotImplementedError(f"Unsupported action set: {actions.keys()}")
+        )
+        # Action logic here.
+        act_time_bin = actions.time
+        dt_bins = self.cursor_time_bin - self.prev_time_bin
+
+        # Send down actions:
+        if Actions.SEND_DOWN in actions:
+            act_ = actions[Actions.SEND_DOWN]
+            times = torch.full(
+                (act_.count,),
+                (act_time_bin + act_.after_steps + 0.5) * self.dt,
+                device=self.device,
+            )
+            dirs = torch.ones_like(times) * DOWNLOAD
+            padding = torch.ones_like(times)
+            sdb = SendBuffer(
+                act_time_bin + act_.after_steps,
+                self.dt,
+                times,
+                dirs,
+                padding,
+                replace=act_.replace,
+                bypass=act_.bypass,
+            )
+
+            self.send_buffers.append(sdb)
+
+        # Send up actions:
+        if Actions.SEND_UP in actions:
+            act_ = actions[Actions.SEND_UP]
+            times = torch.full(
+                (act_.count,),
+                (act_time_bin + act_.after_steps + 0.5) * self.dt,
+                device=self.device,
+            )
+            dirs = torch.ones_like(times) * UPLOAD
+            padding = torch.ones_like(times)
+            sdb = SendBuffer(
+                act_time_bin + act_.after_steps,
+                self.dt,
+                times,
+                dirs,
+                padding,
+                replace=act_.replace,
+                bypass=act_.bypass,
+            )
+
+            self.send_buffers.append(sdb)
 
         self.prev_time_bin = self.cursor_time_bin
         self.cursor_time_bin += 1
 
-        times, dirs, pad = self.buffer.flush()
+        times_l: list[torch.Tensor] = []
+        dirs_l: list[torch.Tensor] = []
+        pad_l: list[torch.Tensor] = []
+        for buf in self.send_buffers:
+            if buf.flush_bin <= self.cursor_time_bin:
+                times, dirs, pad = buf.flush()
+                times_l.append(times)
+                dirs_l.append(dirs)
+                pad_l.append(pad)
+
+        self.send_buffers = [buf for buf in self.send_buffers if not buf.flushed]
+
+        times = torch.cat(times_l) if times_l else torch.Tensor([])
+        dirs = torch.cat(dirs_l) if dirs_l else torch.Tensor([])
+        pad = torch.cat(pad_l) if pad_l else torch.Tensor([])
 
         return times, dirs, pad, self.cursor_time_bin, dt_bins
 
@@ -369,6 +457,7 @@ class WindowFeatureStreamer:
                 TraceStateCursor(
                     times=self.X[Feats.TIMES][i],
                     dirs=self.X[Feats.DIRS][i],
+                    pad=self.X[Feats.PADDING][i],
                     dt=dt,
                     max_silence_bins=self.K,
                 )
@@ -427,17 +516,17 @@ class WindowFeatureStreamer:
                     aidx
                 ].step(actions[i])
             except StopIteration:
-                self.done[i] = True
+                self.done[aidx] = True
                 continue
 
             times_l.append(w_times)
             dirs_l.append(w_dirs)
             padding_l.append(w_padding)
 
-            up[i, 0] = (w_dirs == UPLOAD).sum()
-            down[i, 0] = (w_dirs == DOWNLOAD).sum()
-            dt_bins[i, 0] = dt_bins_
-            time_bins[i, 0] = time_bin_
+            up[aidx, 0] = (w_dirs == UPLOAD).sum()
+            down[aidx, 0] = (w_dirs == DOWNLOAD).sum()
+            dt_bins[aidx, 0] = dt_bins_
+            time_bins[aidx, 0] = time_bin_
 
         fd: dict[Feats, torch.Tensor] = {
             Feats.UP_COUNT: up,

@@ -5,8 +5,8 @@ from dataclasses import dataclass
 import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
-from kipl_ml.rl.enums import Actions
-from kipl_ml.rl.observation import get_window_feature_dict
+from kipl_ml.rl.enums import Actions, NoAction
+from kipl_ml.rl.observation import WindowFeatureStreamer
 from kipl_ml.trace.enums import Feats
 from kipl_ml.utils.time import _time_to_bin_idx
 
@@ -224,12 +224,17 @@ def check_fd_matches_recomputed_nonpadding(
     }
     X_np[Feats.DIRS][X_obs[Feats.PADDING] != 0] = 0
 
-    fd_ref = get_window_feature_dict(
-        X_np,
-        dt_s,
-        max_silence_s,
-        features=[Feats.TIME_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT, Feats.Dt_BINS],
-    )
+    ref_features = [Feats.TIME_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT, Feats.Dt_BINS]
+    ref_streamer = WindowFeatureStreamer(X_np, dt_s, max_silence_s, ref_features)
+    ref_steps = {f: [] for f in ref_features}
+    ref_actions = [NoAction(time=0) for _ in range(X_np[Feats.TIMES].shape[0])]
+    for _ in range(10000):
+        fd_t, _, active = ref_streamer.step(ref_actions)
+        for f in ref_features:
+            ref_steps[f].append(fd_t[f])
+        if active.sum() == 0:
+            break
+    fd_ref = {f: torch.cat(ref_steps[f], dim=1) for f in ref_features}
 
     w_t_a, w_b_a, up_a, down_a = _get_fd_bins_and_counts(fd, idx=idx, dt_s=dt_s)
     w_t_b, w_b_b, up_b, down_b = _get_fd_bins_and_counts(fd_ref, idx=idx, dt_s=dt_s)
