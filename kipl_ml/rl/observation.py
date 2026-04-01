@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import warnings
 
 import numpy as np
@@ -7,7 +8,7 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.rl.enums import Actions, StepAction, StepActions
+from kipl_ml.rl.enums import ActDelay, Actions, StepAction, StepActions
 from kipl_ml.rl.utils import _flush_left
 from kipl_ml.trace.enums import Feats
 from kipl_ml.utils.time import (
@@ -258,18 +259,18 @@ class SendBuffer:
     def flush_bin(self) -> int:
         return self._flush_bin
 
-    def _delay(self, direction: int, time_bin: int, steps: int) -> None:
+    def _delay(self, direction: int, time_bin: int) -> None:
         """Delay packets in the given direction by duration_s seconds."""
         mask = self.dirs == direction
-        self.times[mask] += steps * self.dt
+        self.times[mask] += self.dt
 
-        self._flush_bin = max(self._flush_bin, time_bin + steps)
+        self._flush_bin = max(self._flush_bin, time_bin + 1)
 
-    def delay_up(self, time_bin: int, steps: int) -> None:
-        self._delay(UPLOAD, time_bin, steps)
+    def delay_up(self, time_bin: int) -> None:
+        self._delay(UPLOAD, time_bin)
 
-    def delay_down(self, time_bin: int, steps: int) -> None:
-        self._delay(DOWNLOAD, time_bin, steps)
+    def delay_down(self, time_bin: int) -> None:
+        self._delay(DOWNLOAD, time_bin)
 
     def flush(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Flush the buffer and return (times, dirs, pad)."""
@@ -277,6 +278,51 @@ class SendBuffer:
             raise RuntimeError("Buffer already flushed")
         self.flushed = True
         return self.times, self.dirs, self.pad
+
+
+@dataclass
+class DelayState:
+    """Active delay window for one direction."""
+
+    steps_left: int = 0
+    bypass: bool = False
+    replace: bool = False
+
+    @property
+    def active(self) -> bool:
+        return self.steps_left > 0
+
+    def update(self, action: ActDelay) -> None:
+        """Start or extend the active delay window.
+
+        `replace=True` overwrites the current state. If a delay is already
+        active and `replace=False`, the active delay must remain unchanged.
+        """
+
+        if self.active and not action.replace:
+            return
+
+        self.steps_left = max(0, int(action.steps))
+        self.bypass = action.bypass
+        self.replace = action.replace
+
+    def step(self, buffers: list[SendBuffer], time_bin: int, direction: int) -> None:
+        """Apply one delay step to eligible send buffers."""
+
+        if not self.active:
+            return
+
+        for buf in buffers:
+            # If both the active delay and the buffer are bypass-enabled, leave it
+            # untouched. If self.bypass is False, the delay applies to everything.
+            if buf.bypass and self.bypass:
+                continue
+            if direction == UPLOAD:
+                buf.delay_up(time_bin)
+            else:
+                buf.delay_down(time_bin)
+
+        self.steps_left -= 1
 
 
 def _get_from_interval(
@@ -311,7 +357,12 @@ class TraceStateCursor:
         self.times = times
         self.dirs = dirs
         self.pad = pad
+        # `send_buffers` collect packets scheduled during the current cursor walk.
+        # They hold both original packets from the active window and decoy packets
+        # injected by the current action, then flush once their target bin is reached.
         self.send_buffers: list[SendBuffer] = []
+        self.delay_up = DelayState()
+        self.delay_down = DelayState()
         self.cursor_time_bin: int = 0
         self.prev_time_bin: int = 0
         self.max_silence_bins = max_silence_bins
@@ -345,52 +396,74 @@ class TraceStateCursor:
             )
         )
         # Action logic here.
+        # DelayTraffic semantics to mirror later implementation:
+        # - delay is framework-scoped and affects all outgoing traffic
+        # - bypass=True means only bypass-enabled decoy traffic may skip the delay
+        # - replace=True replaces the active delay; otherwise keep the strongest
+        #   active delay (max duration and max packet count independently)
+        # - when a delay is started or adjusted, its bypassable status is replaced too
+        # PADDING follows the packet through the buffers so the final reconstructed
+        # trace can distinguish original packets from injected decoys.
         act_time_bin = actions.time
         dt_bins = self.cursor_time_bin - self.prev_time_bin
 
         # Send down actions:
         if Actions.SEND_DOWN in actions:
-            act_ = actions[Actions.SEND_DOWN]
+            act_s_d = actions[Actions.SEND_DOWN]
             times = torch.full(
-                (act_.count,),
-                (act_time_bin + act_.after_steps + 0.5) * self.dt,
+                (act_s_d.count,),
+                (act_time_bin + act_s_d.after_steps + 0.5) * self.dt,
                 device=self.device,
             )
             dirs = torch.ones_like(times) * DOWNLOAD
             padding = torch.ones_like(times)
             sdb = SendBuffer(
-                act_time_bin + act_.after_steps,
+                act_time_bin + act_s_d.after_steps,
                 self.dt,
                 times,
                 dirs,
                 padding,
-                replace=act_.replace,
-                bypass=act_.bypass,
+                replace=act_s_d.replace,
+                bypass=act_s_d.bypass,
             )
 
             self.send_buffers.append(sdb)
+            if act_s_d.replace:
+                raise NotImplementedError("replace=True is not implemented yet")
 
         # Send up actions:
         if Actions.SEND_UP in actions:
-            act_ = actions[Actions.SEND_UP]
+            act_s_u = actions[Actions.SEND_UP]
             times = torch.full(
-                (act_.count,),
-                (act_time_bin + act_.after_steps + 0.5) * self.dt,
+                (act_s_u.count,),
+                (act_time_bin + act_s_u.after_steps + 0.5) * self.dt,
                 device=self.device,
             )
             dirs = torch.ones_like(times) * UPLOAD
             padding = torch.ones_like(times)
             sdb = SendBuffer(
-                act_time_bin + act_.after_steps,
+                act_time_bin + act_s_u.after_steps,
                 self.dt,
                 times,
                 dirs,
                 padding,
-                replace=act_.replace,
-                bypass=act_.bypass,
+                replace=act_s_u.replace,
+                bypass=act_s_u.bypass,
             )
 
             self.send_buffers.append(sdb)
+            if act_s_u.replace:
+                raise NotImplementedError("replace=True is not implemented yet")
+
+        if Actions.DELAY_DOWN in actions:
+            self.delay_down.update(actions[Actions.DELAY_DOWN])
+
+        if Actions.DELAY_UP in actions:
+            self.delay_up.update(actions[Actions.DELAY_UP])
+
+        # Apply delays:
+        self.delay_down.step(self.send_buffers, act_time_bin, DOWNLOAD)
+        self.delay_up.step(self.send_buffers, act_time_bin, UPLOAD)
 
         self.prev_time_bin = self.cursor_time_bin
         self.cursor_time_bin += 1
