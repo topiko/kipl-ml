@@ -324,77 +324,11 @@ class TestExecuteActionsFromSequence(unittest.TestCase):
         self.assertTrue(torch.isfinite(X_obs[Feats.TIMES]).all())
 
 
-class TestSinglePassRollout(unittest.TestCase):
-    DT = 0.02
-
-    def test_single_pass_no_delay(self):
-        from kipl_ml.models.trgen import AGENT1
-        from kipl_ml.rl.simulate import policy_rollout_single_pass
-
-        times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
-        dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
-        padding = torch.zeros_like(dirs)
-
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
-
-        obs = AGENT1(
-            time_step=self.DT,
-            max_silence_s=0.1,
-            enable_delay=False,
-            send_mode="fixed",
-            prob_eps=0.0,
-        )
-        obs.eval()
-
-        with torch.no_grad():
-            fd, act_times, actions, _, _, _, _, X_obs = policy_rollout_single_pass(
-                obs, X, sample=False
-            )
-
-        self.assertTrue(torch.isfinite(X_obs[Feats.TIMES]).all())
-        self.assertEqual(fd[Feats.TIME_BINS].dtype, torch.long)
-        self.assertEqual(fd[Feats.Dt_BINS].dtype, torch.long)
-        self.assertTrue((fd[Feats.TIME_BINS] >= 0).any())
-
-    def test_single_pass_matches_execute_actions(self):
-        from kipl_ml.models.trgen import AGENT1
-        from kipl_ml.rl.simulate import policy_rollout_single_pass
-
-        times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
-        dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
-        padding = torch.zeros_like(dirs)
-
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
-
-        obs = AGENT1(
-            time_step=self.DT,
-            max_silence_s=0.1,
-            enable_delay=False,
-            send_mode="fixed",
-            prob_eps=0.0,
-        )
-        obs.eval()
-
-        with torch.no_grad():
-            fd, act_times, actions, _, _, _, _, X_obs = policy_rollout_single_pass(
-                obs, X, sample=False
-            )
-
-        valid_mask = act_times >= 0
-        if valid_mask.any():
-            X_obs2 = execute_actions_from_sequence(
-                X, act_times, actions, time_step_s=self.DT
-            )
-            self.assertTrue(
-                torch.allclose(X_obs[Feats.TIMES], X_obs2[Feats.TIMES], atol=1e-6)
-            )
-
-
 class TestVaryingSeqLens(unittest.TestCase):
     DT = 0.02
     MAX_SILENCE_S = 0.1
 
-    def test_single_pass_varying_seq_lens(self):
+    def test_streaming_varying_seq_lens(self):
         times = torch.tensor(
             [
                 [0.0, 0.02, 0.04, 0.06, 0.08],
@@ -455,11 +389,12 @@ class TestVaryingSeqLens(unittest.TestCase):
 
         steps = {f: [] for f in features}
         max_steps = 100
+        actions = [NoAction(time=0) for _ in range(X[Feats.TIMES].shape[0])]
         for _ in range(max_steps):
-            fd_t = streamer.step()
+            fd_t, _, active = streamer.step(actions)
             for f in features:
                 steps[f].append(fd_t[f])
-            if streamer.done.all():
+            if active.sum() == 0:
                 break
 
         self.assertTrue(streamer.done.all(), "All traces should be done")
@@ -504,11 +439,12 @@ class TestVaryingSeqLens(unittest.TestCase):
         )
 
         steps = {f: [] for f in features}
+        actions = [NoAction(time=0) for _ in range(X[Feats.TIMES].shape[0])]
         for _ in range(100):
-            fd_t = streamer.step()
+            fd_t, _, active = streamer.step(actions)
             for f in features:
                 steps[f].append(fd_t[f])
-            if streamer.done.all():
+            if active.sum() == 0:
                 break
 
         fd_stream = {f: torch.cat(steps[f], dim=1) for f in features}
@@ -535,66 +471,6 @@ class TestVaryingSeqLens(unittest.TestCase):
                     fd_full[Feats.DOWN_COUNT][i, :T], fd_stream[Feats.DOWN_COUNT][i, :T]
                 )
             )
-
-    def test_policy_rollout_varying_seq_lens(self):
-        from kipl_ml.models.trgen import AGENT1
-        from kipl_ml.rl.simulate import (
-            policy_rollout_single_pass,
-            policy_rollout_streaming,
-        )
-
-        times = torch.tensor(
-            [
-                [0.0, 0.02, 0.04, 0.06, 0.08],
-                [0.0, 0.02, 0.04, 0.0, 0.0],
-                [0.0, 0.02, 0.0, 0.0, 0.0],
-            ]
-        )
-        dirs = torch.tensor(
-            [
-                [UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD],
-                [UPLOAD, DOWNLOAD, UPLOAD, 0, 0],
-                [UPLOAD, DOWNLOAD, 0, 0, 0],
-            ],
-            dtype=torch.float32,
-        )
-        padding = torch.zeros_like(dirs)
-
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
-
-        obs = AGENT1(
-            time_step=self.DT,
-            max_silence_s=self.MAX_SILENCE_S,
-            enable_delay=False,
-            send_mode="fixed",
-            prob_eps=0.0,
-        )
-        obs.eval()
-
-        with torch.no_grad():
-            fd_sp, act_times_sp, actions_sp, _, _, _, _, X_obs_sp = (
-                policy_rollout_single_pass(obs, X, sample=False)
-            )
-
-            fd_st, act_times_st, actions_st, _, _, _, _, X_obs_st = (
-                policy_rollout_streaming(obs, X, sample=False)
-            )
-
-        seq_lens_sp = fd_sp[Feats.SEQ_LENS]
-        seq_lens_st = (act_times_st >= 0).sum(dim=1)
-
-        self.assertTrue(torch.equal(seq_lens_sp, seq_lens_st))
-
-        for i in range(3):
-            valid_sp = (act_times_sp[i] >= 0).sum().item()
-            valid_st = (act_times_st[i] >= 0).sum().item()
-            self.assertEqual(valid_sp, seq_lens_sp[i].item())
-            self.assertEqual(valid_st, seq_lens_st[i].item())
-
-            if seq_lens_sp[i].item() < act_times_sp.shape[1]:
-                invalid_start = seq_lens_sp[i].item()
-                self.assertTrue((act_times_sp[i, invalid_start:] < 0).all())
-                self.assertTrue((act_times_st[i, invalid_start:] < 0).all())
 
 
 if __name__ == "__main__":

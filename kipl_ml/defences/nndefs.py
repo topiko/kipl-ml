@@ -15,7 +15,6 @@ from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
 from kipl_ml.rl.simulate import (
-    policy_obfuscate_trace_single_pass,
     policy_obfuscate_trace_streaming,
 )
 from kipl_ml.trace.enums import Feats
@@ -172,15 +171,13 @@ class RNNDef(_NNDef):
             trace_d[Feats.SIZES] = torch.ones_like(trace_d[Feats.TIMES])
             return trace_d
 
-        # Non-delay policy can be run in one pass.
         with torch.inference_mode():
-            trace_d = policy_obfuscate_trace_single_pass(
+            trace_d = policy_obfuscate_trace_streaming(
                 defense_model,
                 trace_d,
                 sample=True,
+                max_packets=max_packets,
             )
-        if max_packets is not None:
-            trace_d = {k: v[:, :max_packets] for k, v in trace_d.items()}
 
         trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
 

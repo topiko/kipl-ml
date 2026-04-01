@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from kipl_ml.rl.enums import Actions
-from kipl_ml.rl.simulate import policy_rollout_single_pass, policy_rollout_streaming
+from kipl_ml.rl.simulate import policy_rollout_streaming
 from kipl_ml.rl.utils import fill_after_seq_end
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import FeatureTrs
@@ -302,80 +302,6 @@ def compute_rewards_league(
     return rewards
 
 
-def _rollout_single_pass(
-    obs: nn.Module,
-    critic: nn.Module | None,
-    disc: nn.Module,
-    X: dict[Feats, torch.Tensor],
-    y: torch.Tensor,
-    disc_league: list[tuple[int, nn.Module.state_dict]],
-    disc_features: FeatureTrs | None = None,
-    detach_period: int = 20,
-    critic_detach_period: int | None = None,
-    reward_scales: dict[str, float] | None = None,
-    sample: bool = True,
-) -> tuple[
-    torch.Tensor,
-    torch.Tensor,
-    torch.Tensor,
-    dict[str, torch.Tensor] | None,
-    dict[str, torch.Tensor],
-    torch.Tensor,
-    dict[Actions, torch.Tensor],
-    dict[Feats, torch.Tensor],
-    dict[Feats, torch.Tensor],
-]:
-    critic_detach_period = critic_detach_period or detach_period
-
-    fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, X_obs = (
-        policy_rollout_single_pass(
-            obs,
-            X,
-            detach_period=detach_period,
-            sample=sample,
-        )
-    )
-
-    action_seq_lens = fd[Feats.SEQ_LENS]
-
-    values = values_actor
-    if critic is not None:
-        values = compute_values(
-            critic=critic,
-            critic_detach_period=critic_detach_period,
-            fd=fd,
-            action_seq_lens=action_seq_lens,
-            y=y,
-        )
-
-    rewards = None
-    if reward_scales is not None:
-        rewards = compute_rewards_league(
-            disc=disc,
-            disc_league=disc_league,
-            disc_features=disc_features,
-            reward_scales=reward_scales,
-            X_obs=X_obs,
-            X_raw=X,
-            obs_dt_s=float(obs.time_step),
-            y=y,
-            act_times=act_times,
-            actions=actions,
-        )
-
-    return (
-        log_ps,
-        sel_probs,
-        values,
-        rewards,
-        entropies,
-        act_times,
-        actions,
-        X_obs,
-        fd,
-    )
-
-
 def rollout(
     obs: nn.Module,
     critic: nn.Module | None,
@@ -389,27 +315,9 @@ def rollout(
     reward_scales: dict[str, float] | None = None,
     sample: bool = True,
 ):
-    """Rollout entrypoint.
+    """Rollout entrypoint using the streaming rollout path."""
 
-    Uses streaming rollout when delay is enabled on the agent.
-    """
-
-    if getattr(obs, "enable_delay", False):
-        return _rollout_streaming(
-            obs=obs,
-            critic=critic,
-            disc=disc,
-            X=X,
-            y=y,
-            disc_league=disc_league,
-            disc_features=disc_features,
-            detach_period=detach_period,
-            critic_detach_period=critic_detach_period,
-            reward_scales=reward_scales,
-            sample=sample,
-        )
-
-    return _rollout_single_pass(
+    return _rollout_streaming(
         obs=obs,
         critic=critic,
         disc=disc,

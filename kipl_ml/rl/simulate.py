@@ -6,9 +6,8 @@ import numpy as np
 import torch
 
 from kipl_ml.models.trgen import _hidden_w_mask
-from kipl_ml.rl.action import execute_actions_from_sequence
 from kipl_ml.rl.enums import Actions, NoAction, StepActions
-from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
+from kipl_ml.rl.observation import WindowFeatureStreamer
 from kipl_ml.trace.enums import Feats
 
 _StreamingRollout = tuple[
@@ -65,56 +64,6 @@ def _batch_packet_level_features(
     return out
 
 
-def policy_rollout_single_pass(
-    obs: Any,
-    X: dict[Feats, torch.Tensor],
-    *,
-    detach_period: int = 20,
-    sample: bool = True,
-) -> tuple[
-    dict[Feats, torch.Tensor],
-    torch.Tensor,
-    dict[Actions, torch.Tensor],
-    torch.Tensor,
-    torch.Tensor,
-    torch.Tensor,
-    dict[str, torch.Tensor],
-    dict[Feats, torch.Tensor],
-]:
-    """Run policy in one pass on precomputed windows and execute actions."""
-
-    obs_ = cast(Any, obs)
-
-    if Feats.TIMES not in X or Feats.DIRS not in X:
-        raise ValueError("X must contain TIMES and DIRS")
-    Xb = {k: v.clone() for k, v in X.items()}
-    if Feats.PADDING not in Xb:
-        Xb[Feats.PADDING] = torch.zeros_like(Xb[Feats.TIMES])
-
-    fd = get_window_feature_dict(
-        Xb,
-        float(cast(Any, obs_.time_step)),
-        float(cast(Any, obs_.max_silence_s)),
-        features=list(cast(Any, obs_.features)),
-    )
-    action_seq_lens = fd.pop(Feats.SEQ_LENS)
-
-    act_time_bins, actions, log_ps, sel_probs, values_actor, entropies, h = obs_.act(
-        fd,
-        None,
-        h_detach_period=detach_period,
-        seq_lens=action_seq_lens,
-        sample=sample,
-    )
-
-    X_obs = execute_actions_from_sequence(
-        Xb, act_time_bins, actions, time_step_s=float(obs_.time_step)
-    )
-
-    fd[Feats.SEQ_LENS] = action_seq_lens
-    return fd, act_time_bins, actions, log_ps, sel_probs, values_actor, entropies, X_obs
-
-
 def policy_rollout_streaming(
     obs: Any,
     X: dict[Feats, torch.Tensor],
@@ -149,23 +98,6 @@ def policy_rollout_streaming(
         ),
     )
     return res
-
-
-def policy_obfuscate_trace_single_pass(
-    obs: Any,
-    X: dict[Feats, torch.Tensor],
-    *,
-    sample: bool = True,
-) -> dict[Feats, torch.Tensor]:
-    """Obfuscate a trace in one pass; return only the executed trace."""
-
-    _, _, _, _, _, _, _, X_obs = policy_rollout_single_pass(
-        obs,
-        X,
-        detach_period=100,
-        sample=sample,
-    )
-    return X_obs
 
 
 def policy_obfuscate_trace_streaming(
