@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import warnings
+from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -242,17 +242,17 @@ class SendBuffer:
         dt: float,
         times: torch.Tensor | None = None,
         dirs: torch.Tensor | None = None,
-        pad: torch.Tensor | None = None,
+        pad: bool = False,
         replace: bool = False,
         bypass: bool = False,
     ):
         self.times = torch.Tensor([]) if times is None else times
         self.dirs = torch.Tensor([]) if dirs is None else dirs
-        self.pad = torch.Tensor([]) if pad is None else pad
         self._flush_bin = flush_bin
         self.dt = dt
         self.replace = replace
         self.bypass = bypass
+        self.pad = pad
         self.flushed = False
 
     @property
@@ -277,7 +277,7 @@ class SendBuffer:
         if self.flushed:
             raise RuntimeError("Buffer already flushed")
         self.flushed = True
-        return self.times, self.dirs, self.pad
+        return self.times, self.dirs
 
 
 @dataclass
@@ -328,13 +328,12 @@ class DelayState:
 def _get_from_interval(
     times: torch.Tensor,
     dirs: torch.Tensor,
-    pad: torch.Tensor,
     start_s: float,
     end_s: float,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Get packets in the interval [start_s, end_s)."""
     mask = (times >= start_s) & (times < end_s)
-    return times[mask], dirs[mask], pad[mask]
+    return times[mask], dirs[mask]
 
 
 class TraceStateCursor:
@@ -379,10 +378,9 @@ class TraceStateCursor:
         if self.prev_time_bin >= self.terminate_after_bin:
             raise StopIteration
 
-        times, dirs, pad = _get_from_interval(
+        times, dirs = _get_from_interval(
             self.times,
             self.dirs,
-            self.pad,
             float(self.cursor_time_bin) * self.dt,
             float(self.cursor_time_bin + 1) * self.dt,
         )
@@ -392,7 +390,7 @@ class TraceStateCursor:
                 dt=self.dt,
                 times=times,
                 dirs=dirs,
-                pad=pad,
+                pad=False,
             )
         )
         # Action logic here.
@@ -416,13 +414,12 @@ class TraceStateCursor:
                 device=self.device,
             )
             dirs = torch.ones_like(times) * DOWNLOAD
-            padding = torch.ones_like(times)
             sdb = SendBuffer(
                 act_time_bin + act_s_d.after_steps,
                 self.dt,
                 times,
                 dirs,
-                padding,
+                True,
                 replace=act_s_d.replace,
                 bypass=act_s_d.bypass,
             )
@@ -440,13 +437,12 @@ class TraceStateCursor:
                 device=self.device,
             )
             dirs = torch.ones_like(times) * UPLOAD
-            padding = torch.ones_like(times)
             sdb = SendBuffer(
                 act_time_bin + act_s_u.after_steps,
                 self.dt,
                 times,
                 dirs,
-                padding,
+                True,
                 replace=act_s_u.replace,
                 bypass=act_s_u.bypass,
             )
@@ -471,12 +467,21 @@ class TraceStateCursor:
         times_l: list[torch.Tensor] = []
         dirs_l: list[torch.Tensor] = []
         pad_l: list[torch.Tensor] = []
+        # First apply the normal packets
         for buf in self.send_buffers:
+            if buf.pad:
+                continue
+
             if buf.flush_bin <= self.cursor_time_bin:
                 times, dirs, pad = buf.flush()
                 times_l.append(times)
                 dirs_l.append(dirs)
                 pad_l.append(pad)
+
+        # Then the padding ones:
+        for buf in self.send_buffers:
+            if not buf.pad:
+                continue
 
         self.send_buffers = [buf for buf in self.send_buffers if not buf.flushed]
 
