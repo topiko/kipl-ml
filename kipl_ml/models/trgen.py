@@ -633,8 +633,8 @@ class AGENT1(nn.Module):
             + act_tup_d[AHKs.SEND_REPLACE_D][2]
         )
         if self.enable_delay:
-            up_delay_p = sel_probs[..., 4]
-            down_delay_p = sel_probs[..., 5]
+            up_delay_p = sel_probs[..., 4] + sel_probs[..., 6]
+            down_delay_p = sel_probs[..., 5] + sel_probs[..., 6]
             cond_entropy = cond_entropy + (
                 down_delay_p
                 * (
@@ -776,6 +776,31 @@ class AGENT1(nn.Module):
                     )
                     log_probs[b, 0] = (
                         sel_log_probs[b, 0]
+                        + act_tup_d[AHKs.DELAY_BINS_D][1][b]
+                        + act_tup_d[AHKs.DELAY_BYPASS_D][1][b]
+                        + act_tup_d[AHKs.DELAY_REPLACE_D][1][b]
+                    )
+                elif sel == 6:
+                    sa = StepAction(
+                        time=t,
+                        _actions={
+                            Actions.DELAY_UP: ActDelayUp(
+                                steps=act_tup_d[AHKs.DELAY_BINS_U][0][b],
+                                bypass=bool(act_tup_d[AHKs.DELAY_BYPASS_U][0][b]),
+                                replace=bool(act_tup_d[AHKs.DELAY_REPLACE_U][0][b]),
+                            ),
+                            Actions.DELAY_DOWN: ActDelayDown(
+                                steps=act_tup_d[AHKs.DELAY_BINS_D][0][b],
+                                bypass=bool(act_tup_d[AHKs.DELAY_BYPASS_D][0][b]),
+                                replace=bool(act_tup_d[AHKs.DELAY_REPLACE_D][0][b]),
+                            ),
+                        },
+                    )
+                    log_probs[b, 0] = (
+                        sel_log_probs[b, 0]
+                        + act_tup_d[AHKs.DELAY_BINS_U][1][b]
+                        + act_tup_d[AHKs.DELAY_BYPASS_U][1][b]
+                        + act_tup_d[AHKs.DELAY_REPLACE_U][1][b]
                         + act_tup_d[AHKs.DELAY_BINS_D][1][b]
                         + act_tup_d[AHKs.DELAY_BYPASS_D][1][b]
                         + act_tup_d[AHKs.DELAY_REPLACE_D][1][b]
