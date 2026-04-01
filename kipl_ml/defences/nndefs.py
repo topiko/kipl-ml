@@ -147,7 +147,6 @@ class RNNDef(_NNDef):
     ) -> dict[Feats, torch.Tensor]:
         # Implement RNN specific logic
 
-        extend_end_s = 0.0
         max_packets = self._n_packets
 
         trace_d = {
@@ -166,7 +165,6 @@ class RNNDef(_NNDef):
                     defense_model,
                     trace_d,
                     sample=True,
-                    extend_end_s=extend_end_s,
                     max_packets=max_packets,
                 )
 
@@ -180,7 +178,6 @@ class RNNDef(_NNDef):
                 defense_model,
                 trace_d,
                 sample=True,
-                extend_end_s=extend_end_s,
             )
         if max_packets is not None:
             trace_d = {k: v[:, :max_packets] for k, v in trace_d.items()}

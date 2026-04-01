@@ -333,7 +333,6 @@ def _rollout_single_pass(
             X,
             detach_period=detach_period,
             sample=sample,
-            extend_end_s=2.0,
         )
     )
 
@@ -456,7 +455,6 @@ def _rollout_streaming(
             obs,
             X,
             sample=sample,
-            extend_end_s=2.0,
             max_packets=None,
         )
     )

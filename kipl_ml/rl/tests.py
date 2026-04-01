@@ -315,7 +315,7 @@ class TestSinglePassRollout(unittest.TestCase):
 
         with torch.no_grad():
             fd, act_times, actions, _, _, _, _, X_obs = policy_rollout_single_pass(
-                obs, X, sample=False, extend_end_s=0.0
+                obs, X, sample=False
             )
 
         self.assertTrue(torch.isfinite(X_obs[Feats.TIMES]).all())
@@ -344,7 +344,7 @@ class TestSinglePassRollout(unittest.TestCase):
 
         with torch.no_grad():
             fd, act_times, actions, _, _, _, _, X_obs = policy_rollout_single_pass(
-                obs, X, sample=False, extend_end_s=0.0
+                obs, X, sample=False
             )
 
         valid_mask = act_times >= 0
@@ -540,11 +540,11 @@ class TestVaryingSeqLens(unittest.TestCase):
 
         with torch.no_grad():
             fd_sp, act_times_sp, actions_sp, _, _, _, _, X_obs_sp = (
-                policy_rollout_single_pass(obs, X, sample=False, extend_end_s=0.0)
+                policy_rollout_single_pass(obs, X, sample=False)
             )
 
             fd_st, act_times_st, actions_st, _, _, _, _, X_obs_st = (
-                policy_rollout_streaming(obs, X, sample=False, extend_end_s=0.0)
+                policy_rollout_streaming(obs, X, sample=False)
             )
 
         seq_lens_sp = fd_sp[Feats.SEQ_LENS]

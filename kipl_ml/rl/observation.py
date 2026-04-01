@@ -115,7 +115,6 @@ def get_window_feature_dict(
     dt: float,
     max_silence_s: float,
     features: list[Feats],
-    extend_end_s: float = 0,
 ) -> dict[Feats, torch.Tensor]:
     if dt <= 0:
         raise ValueError(f"dt must be > 0, got {dt}")
@@ -129,18 +128,6 @@ def get_window_feature_dict(
 
     if set(X.keys()) > {Feats.PADDING, Feats.DIRS, Feats.TIMES}:
         raise ValueError("Invalid set of feats")
-
-    if extend_end_s > 0:
-        bs, L = X[Feats.DIRS].shape
-        mask = X[Feats.DIRS] == 0
-        seq_lens = (~mask).sum(dim=1)
-        col_idx = seq_lens[seq_lens != L]
-        row_idx = torch.arange(bs, device=seq_lens.device)[seq_lens != L]
-        # Here we add artificial packet to end.
-        X[Feats.DIRS][row_idx, col_idx] = UPLOAD
-
-        # Here we add the time extension.
-        X[Feats.TIMES][mask] += extend_end_s
 
     # (B, L)
     times = X[Feats.TIMES]
@@ -397,7 +384,6 @@ class WindowFeatureStreamer:
         dt: float,
         max_silence_s: float,
         features: list[Feats],
-        extend_end_s: float = 0,
         cut_off_time_s: float | torch.Tensor | None = None,
     ):
         if dt <= 0:
@@ -415,7 +401,6 @@ class WindowFeatureStreamer:
         self.dt = float(dt)
         self.max_silence_s = float(max_silence_s)
         self.features = features
-        _ = extend_end_s  # kept for API compatibility; no longer used.
 
         self.X = {k: v.clone() for k, v in X.items()}
         device = self.X[Feats.TIMES].device

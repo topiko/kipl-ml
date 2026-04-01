@@ -4,7 +4,6 @@ from typing import Any, Literal, cast, overload
 
 import torch
 
-from kipl_ml.data.utils import UPLOAD
 from kipl_ml.models.trgen import _hidden_w_mask
 from kipl_ml.rl.action import TraceExecState, execute_actions_from_sequence
 from kipl_ml.rl.enums import Actions
@@ -23,32 +22,12 @@ _StreamingRollout = tuple[
 ]
 
 
-def _apply_extend_end_inplace(
-    X: dict[Feats, torch.Tensor], extend_end_s: float
-) -> None:
-    if extend_end_s <= 0:
-        return
-
-    bs, L = X[Feats.DIRS].shape
-    device = X[Feats.DIRS].device
-    mask = X[Feats.DIRS] == 0
-    seq_lens = (~mask).sum(dim=1)
-    col_idx = seq_lens[seq_lens != L]
-    row_idx = torch.arange(bs, device=device)[seq_lens != L]
-
-    # Insert a final UP packet so the silence extension becomes visible to the
-    # window generator.
-    X[Feats.DIRS][row_idx, col_idx] = UPLOAD
-    X[Feats.TIMES][mask] += extend_end_s
-
-
 def policy_rollout_single_pass(
     obs: Any,
     X: dict[Feats, torch.Tensor],
     *,
     detach_period: int = 20,
     sample: bool = True,
-    extend_end_s: float = 2.0,
 ) -> tuple[
     dict[Feats, torch.Tensor],
     torch.Tensor,
@@ -68,14 +47,12 @@ def policy_rollout_single_pass(
     Xb = {k: v.clone() for k, v in X.items()}
     if Feats.PADDING not in Xb:
         Xb[Feats.PADDING] = torch.zeros_like(Xb[Feats.TIMES])
-    _apply_extend_end_inplace(Xb, extend_end_s)
 
     fd = get_window_feature_dict(
         Xb,
         float(cast(Any, obs_.time_step)),
         float(cast(Any, obs_.max_silence_s)),
         features=list(cast(Any, obs_.features)),
-        extend_end_s=0,
     )
     action_seq_lens = fd.pop(Feats.SEQ_LENS)
 
@@ -100,8 +77,7 @@ def policy_rollout_streaming(
     X: dict[Feats, torch.Tensor],
     *,
     sample: bool = True,
-    extend_end_s: float | None = None,
-    cut_off_time_s: float | None = None,
+    cut_off_time_s: float | torch.Tensor | None = None,
     max_packets: int | None = None,
 ) -> tuple[
     dict[Feats, torch.Tensor],
@@ -124,7 +100,6 @@ def policy_rollout_streaming(
             obs,
             X,
             sample=sample,
-            extend_end_s=extend_end_s,
             cut_off_time_s=cut_off_time_s,
             max_packets=max_packets,
             record_policy=True,
@@ -138,7 +113,6 @@ def policy_obfuscate_trace_single_pass(
     X: dict[Feats, torch.Tensor],
     *,
     sample: bool = True,
-    extend_end_s: float = 2.0,
 ) -> dict[Feats, torch.Tensor]:
     """Obfuscate a trace in one pass; return only the executed trace."""
 
@@ -147,7 +121,6 @@ def policy_obfuscate_trace_single_pass(
         X,
         detach_period=100,
         sample=sample,
-        extend_end_s=extend_end_s,
     )
     return X_obs
 
@@ -157,8 +130,7 @@ def policy_obfuscate_trace_streaming(
     X: dict[Feats, torch.Tensor],
     *,
     sample: bool = True,
-    extend_end_s: float | None = None,
-    cut_off_time_s: float | None = None,
+    cut_off_time_s: float | torch.Tensor | None = None,
     max_packets: int | None = None,
 ) -> dict[Feats, torch.Tensor]:
     """Obfuscate a trace stepwise using WindowFeatureStreamer.
@@ -175,7 +147,6 @@ def policy_obfuscate_trace_streaming(
             obs,
             X,
             sample=sample,
-            extend_end_s=extend_end_s,
             cut_off_time_s=cut_off_time_s,
             max_packets=max_packets,
             record_policy=False,
@@ -190,8 +161,7 @@ def _policy_rollout_streaming_impl(
     X: dict[Feats, torch.Tensor],
     *,
     sample: bool,
-    extend_end_s: float | None,
-    cut_off_time_s: float | None,
+    cut_off_time_s: float | torch.Tensor | None,
     max_packets: int | None,
     record_policy: Literal[True],
 ) -> tuple[
@@ -212,8 +182,7 @@ def _policy_rollout_streaming_impl(
     X: dict[Feats, torch.Tensor],
     *,
     sample: bool,
-    extend_end_s: float | None,
-    cut_off_time_s: float | None,
+    cut_off_time_s: float | torch.Tensor | None,
     max_packets: int | None,
     record_policy: Literal[False],
 ) -> dict[Feats, torch.Tensor]: ...
@@ -224,8 +193,7 @@ def _policy_rollout_streaming_impl(
     X: dict[Feats, torch.Tensor],
     *,
     sample: bool,
-    extend_end_s: float | None,
-    cut_off_time_s: float | None,
+    cut_off_time_s: float | torch.Tensor | None,
     max_packets: int | None,
     record_policy: bool,
 ) -> dict[Feats, torch.Tensor] | _StreamingRollout:
@@ -243,9 +211,6 @@ def _policy_rollout_streaming_impl(
         Xb[Feats.PADDING] = torch.zeros_like(Xb[Feats.TIMES])
 
     obs_ = cast(Any, obs)
-
-    if cut_off_time_s is None:
-        cut_off_time_s = extend_end_s
 
     device = Xb[Feats.TIMES].device
     bs = int(Xb[Feats.TIMES].shape[0])
