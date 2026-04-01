@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import numpy as np
 import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.rl.enums import Actions, StepAction, StepActions
 from kipl_ml.rl.utils import _flush_left
 from kipl_ml.trace.enums import Feats
 from kipl_ml.utils.time import (
@@ -227,7 +229,51 @@ def get_window_feature_dict(
     return feature_dict
 
 
-class _TraceWindowCursor:
+class Buffer:
+    def __init__(self):
+        self.times = torch.Tensor([])
+        self.dirs = torch.Tensor([])
+        self.pad = torch.Tensor([])
+
+    def add(
+        self, times: torch.Tensor, dirs: torch.Tensor, pad: torch.Tensor | None = None
+    ) -> None:
+        self.times = torch.cat([self.times, times], dim=0)
+        self.dirs = torch.cat([self.dirs, dirs], dim=0)
+        pad = torch.zeros_like(times) if pad is None else pad
+        self.pad = torch.cat([self.pad, pad], dim=0)
+
+    def _delay(self, direction: int, duration_s: float) -> None:
+        """Delay packets in the given direction by duration_s seconds."""
+        mask = self.dirs == direction
+        self.times[mask] += duration_s
+
+    def delay_up(self, duration_s: float) -> None:
+        self._delay(UPLOAD, duration_s)
+
+    def delay_down(self, duration_s: float) -> None:
+        self._delay(DOWNLOAD, duration_s)
+
+    def flush(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Flush the buffer and return (times, dirs, pad)."""
+        times = self.times
+        dirs = self.dirs
+        pad = self.pad
+        self.times = torch.Tensor([])
+        self.dirs = torch.Tensor([])
+        self.pad = torch.Tensor([])
+        return times, dirs, pad
+
+
+def _get_from_interval(
+    times: torch.Tensor, dirs: torch.Tensor, start_s: float, end_s: float
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Get packets in the interval [start_s, end_s)."""
+    mask = (times >= start_s) & (times < end_s)
+    return times[mask], dirs[mask]
+
+
+class TraceStateCursor:
     """Per-trace cursor producing the same bin sequence as get_window_feature_dict.
 
     It iterates over packet bins and inserts silence bins in gaps using the same
@@ -238,138 +284,41 @@ class _TraceWindowCursor:
         self,
         times: torch.Tensor,
         dirs: torch.Tensor,
-        seq_len: int,
         dt: float,
-        K: int,
-        times_are_bins: bool = False,
+        terminate_after_s: float | None = None,
+        max_silence_bins: int | None = None,
     ):
-        self.seq_len = int(seq_len)
-        if self.seq_len <= 0:
-            raise ValueError(f"seq_len must be > 0, got {self.seq_len}")
-        self.dt = float(dt)
-        self.K = int(K)
+        self.dt = dt
+        self.times = times
+        self.dirs = dirs
+        self.buffer: Buffer = Buffer()
+        self.cursor_time: float = 0.0
+        self.prev_time: float = 0.0
+        self.max_silence_bins = max_silence_bins
+        self.terminate_after_s = terminate_after_s or times.max().item() + dt
 
-        # Times are already bins if passed from WindowFeatureStreamer.
-        if times_are_bins:
-            bins = times[: self.seq_len]
-        else:
-            bins = _time_to_bin_idx(times[: self.seq_len], self.dt)
-        dirs_ = dirs[: self.seq_len].to(dtype=torch.long)
-
-        # Unique consecutive bins and inverse indices for scatter_add.
-        uniq, inv = torch.unique_consecutive(bins, return_inverse=True)
-        nseg = int(uniq.numel())
-        up_counts = torch.zeros((nseg,), device=times.device, dtype=torch.long)
-        down_counts = torch.zeros((nseg,), device=times.device, dtype=torch.long)
-        up_counts.scatter_add_(0, inv, (dirs_ == UPLOAD).long())
-        down_counts.scatter_add_(0, inv, (dirs_ == DOWNLOAD).long())
-
-        self._pkt_bins = uniq
-        self._up_counts = up_counts
-        self._down_counts = down_counts
-
-        self.p = 0
-        self.last_bin: int | None = None
-        self.last_was_silence = False
-        # Maps start_bin -> end_bin (end_bin > start_bin). Used to clamp packets
-        # that would occur during a delay window to the window's right edge.
-        self._block_map: dict[int, int] = {}
-        self.next_pkt_bin: int | None = self._peek_pkt_bin()
-        self.silence_next: int | None = None
-
-    def apply_delay_bins(self, start_bin: int, shift_bins: int) -> None:
-        """Block packets in [start_bin, start_bin+shift_bins) and clamp to end."""
-        if shift_bins <= 0:
-            return
-
-        start_bin = int(start_bin)
-        end_bin = start_bin + int(shift_bins)
-
-        # Populate mapping for all bins in the interval.
-        for b in range(start_bin, end_bin):
-            if b in self._block_map:
-                end_bin = max(end_bin, self._block_map[b])
-            self._block_map[b] = end_bin
-
-        # Refresh cached next bin and silence schedule.
-        self.next_pkt_bin = self._peek_pkt_bin()
-        if self.last_bin is None or self.next_pkt_bin is None:
-            self.silence_next = None
-            return
-
-        # Preserve silence cadence after delay updates.
-        cand = self.last_bin + (self.K if self.last_was_silence else 1)
-        self.silence_next = cand if cand < self.next_pkt_bin else None
-
-    def _map_bin(self, b: int) -> int:
-        # Follow block map chains (e.g. consecutive delays).
-        b2 = int(b)
-        while b2 in self._block_map:
-            b2 = self._block_map[b2]
-        return b2
-
-    def _peek_pkt_bin(self) -> int | None:
-        if self.p >= int(self._pkt_bins.numel()):
-            return None
-        return self._map_bin(int(self._pkt_bins[self.p].item()))
-
-    def _consume_pkt_bin(self, b: int) -> tuple[int, int]:
-        # Consume one or more original bins that map to the same output bin b.
-        if self.p >= int(self._pkt_bins.numel()):
+    def step(
+        self, actions: StepAction
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int, int]:
+        if self.prev_time >= self.terminate_after_s:
             raise StopIteration
 
-        up = 0
-        down = 0
-        while self.p < int(self._pkt_bins.numel()):
-            bb = self._map_bin(int(self._pkt_bins[self.p].item()))
-            if bb != b:
-                break
-            up += int(self._up_counts[self.p].item())
-            down += int(self._down_counts[self.p].item())
-            self.p += 1
-
-        self.next_pkt_bin = self._peek_pkt_bin()
-
-        # If there is a gap to the next packet bin, schedule silence windows.
-        if self.next_pkt_bin is None:
-            self.silence_next = None
+        # Action logic here.
+        if Actions.DO_NOTHING in actions:
+            times, dirs = _get_from_interval(
+                self.times, self.dirs, self.cursor_time, self.cursor_time + self.dt
+            )
+            self.buffer.add(times, dirs)
+            dt_bins = int(round((self.cursor_time - self.prev_time) / self.dt))
         else:
-            gap = self.next_pkt_bin - b - 1
-            if gap >= 1:
-                self.silence_next = b + 1
-            else:
-                self.silence_next = None
+            raise NotImplementedError(f"Unsupported action set: {actions.keys()}")
 
-        return up, down
+        self.prev_time = self.cursor_time
+        self.cursor_time += self.dt
 
-    def _peek_next_bin(self) -> int | None:
-        if self.next_pkt_bin is None:
-            return None
-        if self.silence_next is not None and self.silence_next < self.next_pkt_bin:
-            return self.silence_next
-        return self.next_pkt_bin
+        times, dirs, pad = self.buffer.flush()
 
-    def step(self) -> tuple[int, int, int, int | None]:
-        """Return (bin, up_count, down_count, next_bin_or_none) and advance."""
-        if (b := self._peek_next_bin()) is None:
-            raise StopIteration
-
-        # Silence window.
-        if self.silence_next is not None and self.next_pkt_bin is not None:
-            if b == self.silence_next and b < self.next_pkt_bin:
-                # Schedule next silence step at +K, but stop before next packet bin.
-                self.silence_next = b + self.K
-                if self.silence_next >= self.next_pkt_bin:
-                    self.silence_next = None
-                self.last_bin = b
-                self.last_was_silence = True
-                return b, 0, 0, self._peek_next_bin()
-
-        # Packet bin.
-        up, down = self._consume_pkt_bin(b)
-        self.last_bin = b
-        self.last_was_silence = False
-        return b, up, down, self._peek_next_bin()
+        return times, dirs, pad, int(round(self.cursor_time / self.dt)), dt_bins
 
 
 class WindowFeatureStreamer:
@@ -392,83 +341,68 @@ class WindowFeatureStreamer:
         ratio = max_silence_s / dt
         if abs(ratio - round(ratio)) > 1e-8:
             raise ValueError(
-                f"max_silence_s must be divisible by dt (max_silence_s={max_silence_s}, dt={dt})."
+                f"max_silence_s must be divisible by dt "
+                f"(max_silence_s={max_silence_s}, dt={dt})."
             )
 
         if set(X.keys()) > {Feats.PADDING, Feats.DIRS, Feats.TIMES}:
             raise ValueError("Invalid set of feats")
 
-        self.dt = float(dt)
-        self.max_silence_s = float(max_silence_s)
         self.features = features
-
+        self.device = X[Feats.TIMES].device
+        self.bs = X[Feats.TIMES].shape[0]
+        self.dt = float(dt)
         self.X = {k: v.clone() for k, v in X.items()}
-        device = self.X[Feats.TIMES].device
-
-        # Convert float times to int bins (bin space throughout)
-        self.X[Feats.TIMES] = _time_to_bin_idx(self.X[Feats.TIMES], self.dt)
 
         # K in bin index space.
-        K = int(self.max_silence_s / self.dt) if self.dt > 0 else 1
+        K = int(max_silence_s / dt) if dt > 0 else 1
         self.K = max(K, 1)
 
-        dirs = self.X[Feats.DIRS]
-        self.pkt_seq_lens = (dirs != 0).sum(dim=1).long()
-        if (self.pkt_seq_lens <= 0).any():
-            bad = torch.where(self.pkt_seq_lens <= 0)[0]
-            raise ValueError(
-                f"Found empty traces (seq_len=0) in WindowFeatureStreamer: n={int(bad.numel())}."
-            )
-        self.bs = int(dirs.shape[0])
-        # Store as int bins (not float)
-        self.dtype = torch.long
-
-        self._cursors: list[_TraceWindowCursor] = []
+        self._cursors: list[TraceStateCursor] = []
         for i in range(self.bs):
             self._cursors.append(
-                _TraceWindowCursor(
+                TraceStateCursor(
                     times=self.X[Feats.TIMES][i],
                     dirs=self.X[Feats.DIRS][i],
-                    seq_len=int(self.pkt_seq_lens[i].item()),
-                    dt=self.dt,
-                    K=self.K,
-                    times_are_bins=True,
+                    dt=dt,
+                    max_silence_bins=self.K,
                 )
             )
 
         # Per-trace cutoff in bin space. None means "last packet bin + 1".
         if cut_off_time_s is None:
             self.cut_off_bins = torch.tensor(
-                [int(c._pkt_bins[-1].item()) + 1 for c in self._cursors],
-                device=device,
+                [
+                    int(
+                        _time_to_bin_idx(
+                            self.X[Feats.TIMES][i][self.X[Feats.DIRS][i] != 0], dt
+                        )
+                        .max()
+                        .item()
+                    )
+                    + 1
+                    for i in range(self.bs)
+                ],
+                device=self.device,
                 dtype=torch.long,
             )
         else:
-            cut_off = torch.as_tensor(cut_off_time_s, device=device)
-            if cut_off.ndim == 0:
-                cut_off = cut_off.repeat(self.bs)
-            elif cut_off.ndim == 2 and cut_off.shape[1] == 1:
-                cut_off = cut_off.squeeze(1)
-            if cut_off.shape[0] != self.bs:
-                raise ValueError("cut_off_time_s batch mismatch")
-            if cut_off.is_floating_point():
-                self.cut_off_bins = torch.floor(cut_off / self.dt).to(torch.long)
-            else:
-                self.cut_off_bins = cut_off.to(torch.long)
+            # cut_off = torch.as_tensor(cut_off_time_s, device=self.device)
+            raise NotImplementedError("cut_off_time_s is not implemented yet")
 
-        self.done = torch.zeros((self.bs,), device=device, dtype=torch.bool)
+        self.done = np.zeros(self.bs, dtype=bool)
 
     def active_mask(self) -> torch.Tensor:
         return ~self.done
 
-    def step(self) -> dict[Feats, torch.Tensor]:
-        device = self.done.device
+    def step(
+        self, actions: StepActions
+    ) -> tuple[
+        dict[Feats, torch.Tensor], dict[Feats, list[torch.Tensor]], torch.Tensor
+    ]:
         bs = self.bs
+        device = self.device
 
-        emit_bins = Feats.WINDOW_BINS in self.features
-        bins = None
-        if emit_bins:
-            bins = torch.zeros((bs, 1), device=device, dtype=torch.long)
         # Emit int bins (not float times)
         time_bins = torch.full(
             (bs, 1), -1, device=device, dtype=torch.long
@@ -477,33 +411,28 @@ class WindowFeatureStreamer:
         down = torch.zeros((bs, 1), device=device, dtype=torch.long)
         dt_bins = torch.full((bs, 1), -1, device=device, dtype=torch.long)  # bin count
 
-        for i in range(bs):
-            if self.done[i]:
-                continue
+        times_l: list[torch.Tensor] = []
+        dirs_l: list[torch.Tensor] = []
+        padding_l: list[torch.Tensor] = []
 
-            next_bin = self._cursors[i]._peek_next_bin()
-            if next_bin is not None and next_bin > int(self.cut_off_bins[i].item()):
-                self.done[i] = True
-                continue
-
+        active_idxs = np.arange(bs)[self.active_mask()]
+        for i, aidx in enumerate(active_idxs):
             try:
-                bin_idx, u, d, bin_next = self._cursors[i].step()
+                w_times, w_dirs, w_padding, time_bin_, dt_bins_ = self._cursors[
+                    aidx
+                ].step(actions[i])
             except StopIteration:
                 self.done[i] = True
                 continue
 
-            if emit_bins:
-                assert bins is not None
-                bins[i, 0] = int(bin_idx)
-            time_bins[i, 0] = bin_idx  # int bin index
-            up[i, 0] = u
-            down[i, 0] = d
+            times_l.append(w_times)
+            dirs_l.append(w_dirs)
+            padding_l.append(w_padding)
 
-            if bin_next is None:
-                dt_bins[i, 0] = 1  # 1 bin default
-                self.done[i] = True
-            else:
-                dt_bins[i, 0] = bin_next - bin_idx  # bin difference
+            up[i, 0] = (w_dirs == UPLOAD).sum()
+            down[i, 0] = (w_dirs == DOWNLOAD).sum()
+            dt_bins[i, 0] = dt_bins_
+            time_bins[i, 0] = time_bin_
 
         fd: dict[Feats, torch.Tensor] = {
             Feats.UP_COUNT: up,
@@ -513,19 +442,20 @@ class WindowFeatureStreamer:
             Feats.TIME_BINS: time_bins,
         }
 
-        if emit_bins:
-            assert bins is not None
-            fd[Feats.WINDOW_BINS] = bins
-
         if Feats.SILENCE_FLAG in self.features:
-            # Match get_window_feature_dict(): SILENCE_FLAG is computed after the
-            # final flush-left, so NaN UP/DOWN in padded positions become 0.0.
             fd[Feats.SILENCE_FLAG] = ((up == 0) & (down == 0)).float()
 
         if not all(f in fd for f in self.features):
             raise ValueError("Some requested features are missing!")
 
-        return {f: fd[f] for f in self.features}
+        # If time_bins < 0, this row is done and the values are invalid.
+        # Mask out just in case.
+        terminated = (time_bins < 0).squeeze(1)
+        return (
+            {f: fd[f] for f in self.features},
+            {Feats.TIMES: times_l, Feats.DIRS: dirs_l, Feats.PADDING: padding_l},
+            ~terminated,
+        )
 
     def apply_delay(self, start_s: torch.Tensor, delay_s: torch.Tensor) -> None:
         """Apply a delay window [start_s, start_s+delay_s) per trace.

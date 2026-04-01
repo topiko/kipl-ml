@@ -4,7 +4,7 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.rl.action import TraceExecState, execute_actions_from_sequence
-from kipl_ml.rl.enums import Actions
+from kipl_ml.rl.enums import Actions, NoAction
 from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
 from kipl_ml.rl.utils import fill_after_seq_end
 from kipl_ml.trace.enums import Feats
@@ -172,6 +172,39 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         seq_lens_full = fd_full[Feats.SEQ_LENS]
         seq_lens_stream = (fd_stream[Feats.TIME_BINS] >= 0).sum(dim=1)
         self.assertTrue(torch.equal(seq_lens_stream, seq_lens_full))
+
+    def test_noaction_recovers_original_trace(self):
+        times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
+        dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
+        padding = torch.zeros_like(dirs)
+
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
+
+        streamer = WindowFeatureStreamer(X, self.DT, self.MAX_SILENCE_S, features)
+
+        pkt_hist = {f: [] for f in (Feats.TIMES, Feats.DIRS, Feats.PADDING)}
+        actions = [NoAction(time=0)]
+
+        for _ in range(100):
+            fd_t, fd_packet_level, active = streamer.step(actions)
+            if active.sum() == 0:
+                break
+
+            for f in pkt_hist:
+                pkt_hist[f].append(fd_packet_level[f][0])
+
+            actions = [NoAction(time=int(fd_t[Feats.TIME_BINS][0, 0].item()))]
+
+        recovered = {
+            f: torch.cat(pkt_hist[f], dim=0).unsqueeze(0)
+            for f in pkt_hist
+            if pkt_hist[f]
+        }
+
+        self.assertTrue(torch.equal(recovered[Feats.TIMES], times))
+        self.assertTrue(torch.equal(recovered[Feats.DIRS], dirs))
+        self.assertTrue(torch.equal(recovered[Feats.PADDING], padding))
 
 
 class TestTraceExecState(unittest.TestCase):

@@ -17,6 +17,7 @@ from kipl_ml.rl.enums import (
     AHKs,
     EntropyKeys,
     StepAction,
+    StepActions,
 )
 from kipl_ml.trace.features import Feats
 
@@ -588,7 +589,7 @@ class AGENT1(nn.Module):
         sample: bool = True,
     ) -> tuple[
         torch.Tensor,
-        list[StepAction],
+        StepActions,
         torch.Tensor,
         torch.Tensor,
         dict[str, torch.Tensor],

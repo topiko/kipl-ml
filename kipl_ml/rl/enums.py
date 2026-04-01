@@ -132,4 +132,10 @@ class StepAction:
         return key in self._actions
 
 
-StepActions: TypeAlias = list[StepAction]
+class NoAction(StepAction):
+    def __init__(self, time: int):
+        super().__init__(time)
+        self._actions = {Actions.DO_NOTHING: ActDoNothing()}
+
+
+StepActions: TypeAlias = list[StepAction | NoAction]

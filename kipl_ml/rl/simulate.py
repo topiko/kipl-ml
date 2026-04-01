@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Any, Literal, cast, overload
 
+import numpy as np
 import torch
 
 from kipl_ml.models.trgen import _hidden_w_mask
-from kipl_ml.rl.action import TraceExecState, execute_actions_from_sequence
-from kipl_ml.rl.enums import Actions
+from kipl_ml.rl.action import execute_actions_from_sequence
+from kipl_ml.rl.enums import Actions, NoAction, StepActions
 from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
 from kipl_ml.trace.enums import Feats
 
@@ -20,6 +21,48 @@ _StreamingRollout = tuple[
     dict[str, torch.Tensor],
     dict[Feats, torch.Tensor],
 ]
+
+
+def _batch_packet_level_features(
+    fd_packet_level: list[dict[Feats, list[torch.Tensor]]],
+) -> dict[Feats, torch.Tensor]:
+    """Materialize per-trace packet-level histories into a padded batch."""
+
+    if not fd_packet_level:
+        raise ValueError("fd_packet_level must not be empty")
+
+    bs = len(fd_packet_level)
+    feats = list(fd_packet_level[0].keys())
+    per_trace: dict[Feats, list[torch.Tensor]] = {f: [] for f in feats}
+
+    max_len = 0
+    for trace_i in range(bs):
+        for f in feats:
+            if fd_packet_level[trace_i][f]:
+                t = torch.cat(fd_packet_level[trace_i][f], dim=0)
+            else:
+                t = torch.zeros((0,), dtype=torch.long)
+            per_trace[f].append(t)
+            max_len = max(max_len, int(t.numel()))
+
+    if max_len == 0:
+        max_len = 1
+
+    out: dict[Feats, torch.Tensor] = {}
+    for f in feats:
+        sample = per_trace[f][0]
+        pad_val = -1 if f == Feats.TIMES else 0
+        batched = torch.full(
+            (bs, max_len), pad_val, device=sample.device, dtype=sample.dtype
+        )
+        for i in range(bs):
+            t = per_trace[f][i]
+            if t.numel() == 0:
+                continue
+            batched[i, : t.numel()] = t
+        out[f] = batched
+
+    return out
 
 
 def policy_rollout_single_pass(
@@ -232,20 +275,6 @@ def _policy_rollout_streaming_impl(
         cut_off_time_s=cut_off_time_s,
     )
 
-    exec_state = TraceExecState(
-        {
-            Feats.TIMES: Xb[Feats.TIMES].clone(),
-            Feats.DIRS: Xb[Feats.DIRS].clone(),
-            Feats.PADDING: Xb[Feats.PADDING].clone(),
-        },
-        time_step_s=obs_.time_step,
-    )
-
-    base_n = (Xb[Feats.DIRS] != 0).sum(dim=1).long()
-    pad_n = torch.zeros((bs,), device=device, dtype=torch.long)
-
-    hobs = None
-
     log_ps_l: list[torch.Tensor] = []
     sel_probs_l: list[torch.Tensor] = []
     values_actor_l: list[torch.Tensor] = []
@@ -253,116 +282,39 @@ def _policy_rollout_streaming_impl(
     ent_cond_l: list[torch.Tensor] = []
     act_time_bins_l: list[torch.Tensor] = []
     actions_l: dict[Actions, list[torch.Tensor]] | None = None
-    fd_steps: dict[Feats, list[torch.Tensor]] | None = (
-        {f: [] for f in obs_.features} if record_policy else None
-    )
+    fd_steps: dict[Feats, list[torch.Tensor]] = {f: [] for f in obs_.features}
 
+    actions_a: StepActions = [NoAction(time=0) for _ in range(bs)]
+    fd_packet_level: list[dict[Feats, list[torch.Tensor]]] = [
+        {Feats.TIMES: [], Feats.DIRS: [], Feats.PADDING: []} for _ in range(bs)
+    ]
+
+    hobs = None
     while True:
-        fd_t_full = streamer.step()
+        # We make refactor to streamer where it keep track of the active mask.
+        fd_t, fd_packet_level_, active = streamer.step(actions_a)
 
-        # TIME_BINS are int bins; -1 means invalid.
-        # active_cpu is on stream_device (CPU when X is on GPU to avoid syncs).
-        active_cpu = (fd_t_full[Feats.TIME_BINS] >= 0).squeeze(1)
-        if int(active_cpu.sum().item()) == 0:
+        if active.sum() == 0:
             break
 
-        # active_gpu is on device (GPU when X is on GPU).
-        active_gpu = active_cpu.to(device)
+        for i, aidx in enumerate(np.arange(bs)[active]):
+            for k in (Feats.TIMES, Feats.DIRS, Feats.PADDING):
+                fd_packet_level[aidx][k].append(fd_packet_level_[k][i])
 
         if record_policy:
-            assert fd_steps is not None
             for f in obs_.features:
-                fd_steps[f].append(fd_t_full[f].to(device))
+                fd_steps[f].append(fd_t[f].to("cpu"))
 
-        # Replace -1 with 0 for invalid entries (agent expects 0 for padding)
-        fd_t_active = {
-            k: torch.where(
-                fd_t_full[k][active_cpu] >= 0,
-                fd_t_full[k][active_cpu],
-                torch.zeros_like(fd_t_full[k][active_cpu]),
-            ).to(device)
-            for k in obs_.features
-        }
-
-        h_active = _hidden_w_mask(hobs, active_gpu)
+        h_active = _hidden_w_mask(hobs, active)
         act_time_bins_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
-            obs_.act_step(fd_t_active, h_active, sample=sample)
+            obs_.act_step(fd_t, h_active, sample=sample)
         )
 
-        hobs = _hidden_w_mask(hobs, active_gpu, h_active)
+        hobs = _hidden_w_mask(hobs, active, h_active)
 
-        exec_state.step(
-            trace_idx=torch.where(active_gpu)[0],
-            times=act_time_bins_a,
-            actions=actions_a,
-        )
+        # STOP HERE
 
-        if (
-            Actions.DELAY_BINS in actions_a
-            and (actions_a[Actions.DELAY_BINS] > 0).any()
-        ):
-            delay_idx = torch.where(active_cpu)[0]
-            shift_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
-            shift_full[delay_idx] = (
-                actions_a[Actions.DELAY_BINS].squeeze(1).to(stream_device).long()
-            )
-
-            start_bins_full = torch.zeros((bs,), device=stream_device, dtype=torch.long)
-            start_bins_full[delay_idx] = fd_t_full[Feats.TIME_BINS][active_cpu].squeeze(
-                1
-            ) + fd_t_full[Feats.Dt_BINS][active_cpu].squeeze(1)
-            streamer.apply_delay_bins(start_bins_full, shift_full)
-
-        if record_policy:
-            # Scatter back to full batch. -1 = inactive.
-            act_time_bins_t = torch.full((bs, 1), -1, device=device, dtype=torch.long)
-            act_time_bins_t[active_gpu] = act_time_bins_a
-
-            log_ps_t = torch.zeros((bs, 1), device=device)
-            log_ps_t[active_gpu] = log_ps_a
-
-            values_t = torch.zeros((bs, 1), device=device)
-            values_t[active_gpu] = values_a
-
-            sel_probs_t = torch.zeros((bs, 1, sel_probs_a.shape[-1]), device=device)
-            sel_probs_t[active_gpu] = sel_probs_a
-
-            ent_sel_t = torch.zeros((bs, 1), device=device)
-            ent_sel_t[active_gpu] = ent_a["selection_entropy"]
-
-            ent_cond_t = torch.zeros((bs, 1), device=device)
-            ent_cond_t[active_gpu] = ent_a["conditional_entropy"]
-
-            if actions_l is None:
-                actions_l = {k: [] for k in actions_a.keys()}
-
-            for k in actions_l.keys():
-                a_full = torch.zeros((bs, 1), device=device, dtype=actions_a[k].dtype)
-                a_full[active_gpu] = actions_a[k]
-                actions_l[k].append(a_full)
-
-            act_time_bins_l.append(act_time_bins_t)
-            log_ps_l.append(log_ps_t)
-            sel_probs_l.append(sel_probs_t)
-            values_actor_l.append(values_t)
-            ent_sel_l.append(ent_sel_t)
-            ent_cond_l.append(ent_cond_t)
-
-        if max_packets is not None:
-            dev_idx = torch.where(active_gpu)[0]
-            active_n = dev_idx.shape[0]
-            inc = torch.zeros((active_n,), device=device, dtype=torch.long)
-            if Actions.SEND_COUNT_UP in actions_a:
-                inc = inc + actions_a[Actions.SEND_COUNT_UP].squeeze(1)
-            if Actions.SEND_COUNT_DOWN in actions_a:
-                inc = inc + actions_a[Actions.SEND_COUNT_DOWN].squeeze(1)
-            pad_n[dev_idx] = pad_n[dev_idx] + inc
-            if ((base_n + pad_n) >= int(max_packets)).all():
-                break
-
-    X_obs = exec_state.finalize()
-    if max_packets is not None:
-        X_obs = {k: v[:, : int(max_packets)] for k, v in X_obs.items()}
+    X_obs = _batch_packet_level_features(fd_packet_level)
 
     if record_policy is False:
         return X_obs
