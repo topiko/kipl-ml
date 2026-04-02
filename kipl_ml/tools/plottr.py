@@ -6,7 +6,7 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.rl.enums import Actions, StepAction, StepActions
+from kipl_ml.rl.enums import Actions, StepActions
 from kipl_ml.trace.features import Feats
 
 logger = get_logger(__name__)
@@ -183,45 +183,32 @@ def plot_tam(
     ax.set_title(f"TAM counts ww={window_width:.02f} s")
     ax.set_ylabel("TAM count")
 
-    if tam_u_pad.sum() > 0:
+    def _plot_stacked_counts(
+        signed_counts: np.ndarray, pad_signed: np.ndarray, color: str
+    ) -> None:
+        visible = signed_counts - pad_signed
         _plot_boxes(
             tam_times,
             np.ones_like(tam_times) * window_width,
-            tam_u_pad,
+            visible,
             ax,
             start_heights=0.0,
-            color=PAD_COLOR,
+            color=color,
             alpha=0.5,
         )
-    if tam_d_pad.sum() > 0:
-        _plot_boxes(
-            tam_times,
-            np.ones_like(tam_times) * window_width,
-            -tam_d_pad,
-            ax,
-            start_heights=0.0,
-            color=PAD_COLOR,
-            alpha=0.5,
-        )
+        if pad_signed.sum() > 0:
+            _plot_boxes(
+                tam_times,
+                np.ones_like(tam_times) * window_width,
+                pad_signed,
+                ax,
+                start_heights=visible,
+                color=PAD_COLOR,
+                alpha=0.5,
+            )
 
-    _plot_boxes(
-        tam_times,
-        np.ones_like(tam_times) * window_width,
-        tam_u_c - tam_u_pad,
-        ax,
-        start_heights=tam_u_pad,
-        color=UP_COLOR,
-        alpha=0.5,
-    )
-    _plot_boxes(
-        tam_times,
-        np.ones_like(tam_times) * window_width,
-        -tam_d_c + tam_d_pad,
-        ax,
-        start_heights=-tam_d_pad,
-        color=DOWN_COLOR,
-        alpha=0.5,
-    )
+    _plot_stacked_counts(tam_u_c, tam_u_pad, UP_COLOR)
+    _plot_stacked_counts(-tam_d_c, -tam_d_pad, DOWN_COLOR)
 
     info_d = {
         "nup": tam_u_c.sum(),
@@ -356,15 +343,12 @@ def plot_actions(
     if dt_s is not None and dt_s > 0:
         action_times *= dt_s
 
-    max_c = 1.0
-
     def _next_time(i: int) -> float:
         if i + 1 < len(action_times):
             return float(action_times[i + 1])
         return float(action_times[i] + (dt_s if dt_s is not None and dt_s > 0 else 1.0))
 
     def _plot_send(key: Actions, color: str, sign: int) -> None:
-        nonlocal max_c
         xs: list[float] = []
         hs: list[float] = []
         for i, sa in enumerate(actions):
@@ -384,7 +368,6 @@ def plot_actions(
         _plot_boxes(
             np.asarray(xs), widths, np.asarray(hs), color=color, alpha=0.2, ax=ax
         )
-        max_c = max(max_c, float(np.max(np.abs(hs))))
 
     _plot_send(Actions.SEND_UP, UP_COLOR, +1)
     _plot_send(Actions.SEND_DOWN, DOWN_COLOR, -1)
@@ -424,9 +407,8 @@ def plot_actions(
         t1 = _next_time(i)
         ax.axvspan(t0, t1, color="gray", alpha=0.12, lw=0, zorder=0)
 
-    ax.vlines(action_times, -1, 1, color="black", lw=0.7)
+    ax.vlines(action_times, -5, 5, color="black", lw=2.0)
 
-    ax.set_ylim(-max_c * 1.1, max_c * 1.1)
     return ax
 
 
@@ -466,12 +448,15 @@ def plot_obs_features(
 
     _plot_boxes(times, Dt, up_count, color=UP_COLOR, alpha=0.5, ax=ax)
     _plot_boxes(times, Dt, -down_count, color=DOWN_COLOR, alpha=0.5, ax=ax)
+
+    ax.vlines(times, -10, 10, color="black", lw=1.0)
+
     _plot_boxes(
         times,
         Dt,
         (up_count == 0) & (down_count == 0),
         color="gray",
-        alpha=0.5,
+        alpha=1.0,
         ax=ax,
     )
 

@@ -35,7 +35,7 @@ obs:
   # Floor for action prob:
   prob_eps: 0.10 # 0.04 <- working prev.
   time_step_s: 0.02
-  max_silence_s: 0.06
+  max_silence_s: 0.04
   detach_period: 300
   lr: 0.0007
   send_mode: "fixed"

@@ -310,8 +310,6 @@ class DelayState:
     steps_left: int = 0
     bypass: bool = False
     replace: bool = False
-    # TODO: REMOVE this after the proper direction semantics are implemented.
-    force_both: bool = True
 
     @property
     def active(self) -> bool:
@@ -342,11 +340,6 @@ class DelayState:
             # untouched. If self.bypass is False, the delay applies to everything.
             if buf.bypass and self.bypass:
                 continue
-            if self.force_both:
-                buf.delay_up(time_bin)
-                buf.delay_down(time_bin)
-                continue
-
             if direction == UPLOAD:
                 buf.delay_up(time_bin)
             elif direction == DOWNLOAD:
@@ -641,8 +634,8 @@ class WindowFeatureStreamer:
             dirs_l.append(w_dirs)
             decoy_l.append(w_decoy)
 
-            up[aidx, 0] = (w_dirs == UPLOAD).sum()
-            down[aidx, 0] = (w_dirs == DOWNLOAD).sum()
+            up[aidx, 0] = ((w_dirs == UPLOAD) & (w_decoy == 0)).sum()
+            down[aidx, 0] = ((w_dirs == DOWNLOAD) & (w_decoy == 0)).sum()
             time_bins[aidx, 0] = current_bin
             dt_bins[aidx, 0] = stepped_bins
 

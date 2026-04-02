@@ -24,10 +24,17 @@ from experiment.obsrl.sisyphus import (
 )
 from experiment.obsrl.utils import get_advantages
 from experiment.utils import defence_builder
-from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
+from kipl_ml.data.utils import DOWNLOAD, UPLOAD, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
-from kipl_ml.rl.enums import Actions
+from kipl_ml.rl.enums import (
+    ActDelayDown,
+    ActDelayUp,
+    Actions,
+    ActSendUp,
+    NoAction,
+    StepAction,
+)
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import FeatureTrs, get_feature_tr
 from kipl_ml.utils.time import _time_to_bin_idx
@@ -102,6 +109,21 @@ def _parse_args() -> argparse.Namespace:
             "Force DELAY_UP/DELAY_DOWN=1 for action times in [START_S, END_S). "
             "Accepted forms: '--delay_between 0 2' or '--delay_between [0,2]'. "
             "This is applied on top of the model outputs."
+        ),
+    )
+    ap.add_argument(
+        "--action-policy",
+        choices=(
+            "model",
+            "do-nothing",
+            "occasional-send-up",
+            "occasional-send-up-delay",
+        ),
+        default="occasional-send-up",
+        help=(
+            "Select the plot-only action override policy. 'model' keeps the agent"
+            " outputs, 'do-nothing' forces NoAction, and 'occasional-send-up'"
+            " keeps mostly NoAction with periodic SEND_UP actions."
         ),
     )
     ap.add_argument(
@@ -303,6 +325,126 @@ def _install_delay_between_override(obs, start_s: float, end_s: float) -> None:
         return action_times, actions, log_probs, sel_probs, values, entropies, h_out
 
     obs.act = _act_override
+
+
+def _install_do_nothing_override(obs) -> None:
+    original_act = obs.act
+
+    def _act_override(
+        x: dict[Feats, torch.Tensor],
+        h: torch.Tensor | None = None,
+        h_detach_period: int | None = None,
+        seq_lens: torch.Tensor | None = None,
+        sample: bool = True,
+    ):
+        action_times, actions, log_probs, sel_probs, values, entropies, h_out = (
+            original_act(
+                x,
+                h=h,
+                h_detach_period=h_detach_period,
+                seq_lens=seq_lens,
+                sample=sample,
+            )
+        )
+
+        times = action_times.reshape(-1)
+        send_up_mask = (times >= 0) & ((times % 4) == 0)
+        actions = [
+            NoAction(time=int(t.item()))
+            if not bool(send_up_mask[i].item())
+            else StepAction(
+                time=int(t.item()),
+                _actions={Actions.SEND_UP: ActSendUp(count=100, after_steps=0)},
+            )
+            for i, t in enumerate(times)
+        ]
+        return action_times, actions, log_probs, sel_probs, values, entropies, h_out
+
+    obs.act = _act_override
+
+
+def _install_action_policy_override(obs, policy: str) -> None:
+    if policy == "model":
+        logger.info("Action policy override disabled; using model outputs")
+        return
+    if policy == "do-nothing":
+        original_act = obs.act
+
+        def _act_override(
+            x: dict[Feats, torch.Tensor],
+            h: torch.Tensor | None = None,
+            h_detach_period: int | None = None,
+            seq_lens: torch.Tensor | None = None,
+            sample: bool = True,
+        ):
+            action_times, _, log_probs, sel_probs, values, entropies, h_out = (
+                original_act(
+                    x,
+                    h=h,
+                    h_detach_period=h_detach_period,
+                    seq_lens=seq_lens,
+                    sample=sample,
+                )
+            )
+
+            actions = [NoAction(time=int(t.item())) for t in action_times.reshape(-1)]
+            return action_times, actions, log_probs, sel_probs, values, entropies, h_out
+
+        obs.act = _act_override
+        logger.info("Do-nothing override active for all actions")
+        return
+
+    if policy == "occasional-send-up":
+        _install_do_nothing_override(obs)
+        logger.info("Do-nothing override active with occasional SEND_UP actions")
+        return
+
+    if policy == "occasional-send-up-delay":
+        original_act = obs.act
+
+        def _act_override(
+            x: dict[Feats, torch.Tensor],
+            h: torch.Tensor | None = None,
+            h_detach_period: int | None = None,
+            seq_lens: torch.Tensor | None = None,
+            sample: bool = True,
+        ):
+            action_times, _, log_probs, sel_probs, values, entropies, h_out = (
+                original_act(
+                    x,
+                    h=h,
+                    h_detach_period=h_detach_period,
+                    seq_lens=seq_lens,
+                    sample=sample,
+                )
+            )
+
+            times = action_times.reshape(-1)
+            send_up_mask = (times >= 0) & ((times % 4) == 0)
+            delay_mask = (times >= 0) & ((times % 6) == 0)
+            actions = []
+            for i, t in enumerate(times):
+                if not bool(send_up_mask[i].item()) and not bool(delay_mask[i].item()):
+                    actions.append(NoAction(time=int(t.item())))
+                    continue
+
+                action_dict = {}
+                if bool(send_up_mask[i].item()):
+                    action_dict[Actions.SEND_UP] = ActSendUp(count=100, after_steps=0)
+                if bool(delay_mask[i].item()):
+                    action_dict[Actions.DELAY_UP] = ActDelayUp(steps=2)
+                    action_dict[Actions.DELAY_DOWN] = ActDelayDown(steps=2)
+                actions.append(StepAction(time=int(t.item()), _actions=action_dict))
+
+            return action_times, actions, log_probs, sel_probs, values, entropies, h_out
+
+        obs.act = _act_override
+        logger.info(
+            "Do-nothing override active with occasional SEND_UP and DELAY actions"
+        )
+        return
+
+    raise ValueError(f"Unknown action policy: {policy}")
 
 
 def _choose_indices(ds: WFDataset, idxs_s: str, ntraces: int, seed: int) -> list[int]:
@@ -639,6 +781,8 @@ def main() -> None:
             float(delay_between[0]),
             float(delay_between[1]),
         )
+
+    _install_action_policy_override(obs, args.action_policy)
 
     if args.device == "cuda" and not torch.cuda.is_available():
         logger.warning("CUDA requested but unavailable; falling back to CPU")
