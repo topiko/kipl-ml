@@ -215,14 +215,14 @@ class TestWindowFeatureStreamer(unittest.TestCase):
     def test_batched_streaming_round_trip(self):
         times = torch.tensor(
             [
-                [0.0, 0.02, 0.04],
-                [0.01, 0.03, 0.05],
+                [0.0, 0.02, 0.04, -1.0, -1.0],
+                [0.01, 0.03, 0.05, -1.0, -1.0],
             ]
         )
         dirs = torch.tensor(
             [
-                [UPLOAD, DOWNLOAD, UPLOAD],
-                [DOWNLOAD, UPLOAD, DOWNLOAD],
+                [UPLOAD, DOWNLOAD, UPLOAD, 0, 0],
+                [DOWNLOAD, UPLOAD, DOWNLOAD, 0, 0],
             ],
             dtype=torch.float32,
         )
@@ -236,7 +236,15 @@ class TestWindowFeatureStreamer(unittest.TestCase):
             [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT],
         )
 
-        assert_trace_equal(out, X)
+        expected = {
+            Feats.TIMES: torch.tensor([[0.0, 0.02, 0.04], [0.01, 0.03, 0.05]]),
+            Feats.DIRS: torch.tensor(
+                [[UPLOAD, DOWNLOAD, UPLOAD], [DOWNLOAD, UPLOAD, DOWNLOAD]],
+                dtype=torch.float32,
+            ),
+            Feats.DECOY: torch.zeros((2, 3), dtype=torch.bool),
+        }
+        assert_trace_equal(out, expected)
 
     def test_matches_streaming(self):
         times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
@@ -398,10 +406,14 @@ class TestVaryingSeqLens(unittest.TestCase):
             ([0.0, 0.02], [UPLOAD, DOWNLOAD]),
         ]
 
+        max_len = max(len(times_l) for times_l, _ in cases)
+
         for times_l, dirs_l in cases:
-            times = torch.tensor([times_l])
-            dirs = torch.tensor([dirs_l], dtype=torch.float32)
-            decoy = torch.zeros_like(dirs, dtype=torch.bool)
+            times = torch.full((1, max_len), -1.0)
+            dirs = torch.zeros((1, max_len), dtype=torch.float32)
+            decoy = torch.zeros((1, max_len), dtype=torch.bool)
+            times[0, : len(times_l)] = torch.tensor(times_l)
+            dirs[0, : len(dirs_l)] = torch.tensor(dirs_l, dtype=torch.float32)
             X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
 
             out = run_streaming_trace(
@@ -411,7 +423,12 @@ class TestVaryingSeqLens(unittest.TestCase):
                 [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT],
             )
 
-            assert_trace_equal(out, X)
+            expected = {
+                Feats.TIMES: torch.tensor([times_l]),
+                Feats.DIRS: torch.tensor([dirs_l], dtype=torch.float32),
+                Feats.DECOY: torch.zeros((1, len(times_l)), dtype=torch.bool),
+            }
+            assert_trace_equal(out, expected)
 
     def test_streaming_varying_seq_lens_counts(self):
         cases = [
@@ -423,10 +440,14 @@ class TestVaryingSeqLens(unittest.TestCase):
             ([0.0, 0.02], [UPLOAD, DOWNLOAD]),
         ]
 
+        max_len = max(len(times_l) for times_l, _ in cases)
+
         for times_l, dirs_l in cases:
-            times = torch.tensor([times_l])
-            dirs = torch.tensor([dirs_l], dtype=torch.float32)
-            decoy = torch.zeros_like(dirs, dtype=torch.bool)
+            times = torch.full((1, max_len), -1.0)
+            dirs = torch.zeros((1, max_len), dtype=torch.float32)
+            decoy = torch.zeros((1, max_len), dtype=torch.bool)
+            times[0, : len(times_l)] = torch.tensor(times_l)
+            dirs[0, : len(dirs_l)] = torch.tensor(dirs_l, dtype=torch.float32)
             X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
 
             out = run_streaming_trace(
