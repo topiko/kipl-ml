@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
+import warnings
 
 import torch
 from torch import nn
@@ -45,6 +46,12 @@ def _pad_short_trace(
         return trace[:n_packets]
 
     if asset_key == Feats.TIMES:
+        warnings.warn(
+            "Padding Feats.TIMES by repeating the last timestamp is legacy behavior and "
+            "may break once batch padding uses explicit sentinels only.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         pad_val = trace[-1].item()
     elif asset_key in {Feats.DIRS, Feats.SIZES}:
         pad_val = 0.0
@@ -614,6 +621,7 @@ class RunningRate(_TR):
     def __init__(self, asset: Feats, time_asset: Feats):
         self.asset = asset
         self.time_asset = time_asset
+        self._warned_legacy_time_sentinel = False
 
     @property
     def name(self) -> Feats:
@@ -626,6 +634,15 @@ class RunningRate(_TR):
     def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         times = trace[self.time_asset]
         values = trace[self.asset].clone()
+
+        if (times == 0).any() and not self._warned_legacy_time_sentinel:
+            warnings.warn(
+                "RunningRate treats times == 0 as invalid/padded slots; this will "
+                "break if zero timestamps become meaningful in the future.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._warned_legacy_time_sentinel = True
 
         values[times == 0] = 0.0
 
@@ -751,6 +768,14 @@ class _TAM(_TR):
             packet_mask = dirs != 0
 
         if self.PADDING:
+            if not self.padding_warned:
+                warnings.warn(
+                    "TAM padding-specific transforms still rely on the packet-level DECOY "
+                    "flag; this legacy naming will need a cleanup pass if packet padding semantics change.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                self.padding_warned = True
             try:
                 packet_mask = packet_mask & (trace[Feats.DECOY] == 1)
             except KeyError:
