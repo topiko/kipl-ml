@@ -76,7 +76,7 @@ def main(cfg: DictConfig):
     disc_trs = [get_feature_tr(fn, npackets, tam_kwargs=tam_d) for fn in feature_names]
     disc_trs += [
         get_feature_tr(f, npackets, tam_kwargs=tam_d)
-        for f in (Feats.TAM_DOWN_PAD, Feats.TAM_UP_PAD)
+        for f in (Feats.TAM_DOWN_DECOY, Feats.TAM_UP_DECOY)
     ]
     disc_trs.append(get_feature_tr(Feats.TAM_BINS, npackets, tam_kwargs=tam_d))
     disc_feats = FeatureTrs(feature_trs=disc_trs, n_packets=None)

@@ -179,7 +179,7 @@ def _build_disc_features(discriminator_orig: nn.Module, cfg) -> FeatureTrs:
     ]
     disc_trs += [
         get_feature_tr(f, None, time_clamp, tam_kwargs=tam_d)
-        for f in (Feats.TAM_DOWN_PAD, Feats.TAM_UP_PAD)
+        for f in (Feats.TAM_DOWN_DECOY, Feats.TAM_UP_DECOY)
     ]
     disc_trs.append(get_feature_tr(Feats.TAM_BINS, None, time_clamp, tam_kwargs=tam_d))
     return FeatureTrs(feature_trs=disc_trs)

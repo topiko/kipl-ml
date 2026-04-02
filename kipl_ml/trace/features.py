@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import warnings
 from copy import deepcopy
 from typing import Any
-import warnings
 
 import torch
 from torch import nn
@@ -162,7 +162,7 @@ class PadOrCutTrace(_TR):
                     clamped_trace[key] = val[indices].clone()
             else:
                 raise ValueError(
-                    f"time_clamp only supports TIMES, DIRS, SIZES, PADDING, "
+                    f"time_clamp only supports TIMES, DIRS, SIZES, DECOY, "
                     f"but got {key}. Apply time_clamp before adding derived features."
                 )
 
@@ -657,7 +657,7 @@ class _TAM(_TR):
     NAME = "tam"
     DIR: str
     TIMES: bool
-    PADDING: bool
+    DECOY: bool
 
     def __init__(
         self,
@@ -701,12 +701,12 @@ class _TAM(_TR):
         if self.TIMES:
             return Feats.TAM_TIMES
         if self.DIR == "upload" and not self.TIMES:
-            if self.PADDING:
-                return Feats.TAM_UP_PAD
+            if self.DECOY:
+                return Feats.TAM_UP_DECOY
             return Feats.TAM_UP_COUNTS
         if self.DIR == "download" and not self.TIMES:
-            if self.PADDING:
-                return Feats.TAM_DOWN_PAD
+            if self.DECOY:
+                return Feats.TAM_DOWN_DECOY
             return Feats.TAM_DOWN_COUNTS
 
         raise KeyError(f"Invalid dir {self.DIR}")
@@ -767,7 +767,7 @@ class _TAM(_TR):
         if self.TIMES:
             packet_mask = dirs != 0
 
-        if self.PADDING:
+        if self.DECOY:
             if not self.padding_warned:
                 warnings.warn(
                     "TAM padding-specific transforms still rely on the packet-level DECOY "
@@ -781,7 +781,7 @@ class _TAM(_TR):
             except KeyError:
                 if not self.padding_warned:
                     logger.warning(
-                        "PADDING key not found in trace, but PADDING is True. "
+                        "DECOY key not found in trace, but DECOY is True. "
                         + "Proceeding without padding mask."
                     )
                     self.padding_warned = True
@@ -802,37 +802,37 @@ class _TAM(_TR):
 class TAM_UP(_TAM):
     DIR = "upload"
     TIMES = False
-    PADDING = False
+    DECOY = False
 
 
 class TAM_DOWN(_TAM):
     DIR = "download"
     TIMES = False
-    PADDING = False
+    DECOY = False
 
 
-class TAM_UP_PAD(_TAM):
+class TAM_UP_DECOY(_TAM):
     DIR = "upload"
     TIMES = False
-    PADDING = True
+    DECOY = True
 
 
-class TAM_DOWN_PAD(_TAM):
+class TAM_DOWN_DECOY(_TAM):
     DIR = "download"
     TIMES = False
-    PADDING = True
+    DECOY = True
 
 
 class TAM_TIMES(_TAM):
     DIR = "up/download"
     TIMES = True
-    PADDING = False
+    DECOY = False
 
 
 class TAM_BINS(_TAM):
     DIR = "up/download"
     TIMES = True
-    PADDING = False
+    DECOY = False
 
     @property
     def name(self) -> Feats:
@@ -1261,8 +1261,8 @@ def get_feature_tr(
             )
         case Feats.TAM_UP_COUNTS:
             return Compose(_pad(None), TAM_UP(**tam_kwargs))
-        case Feats.TAM_UP_PAD:
-            return Compose(_pad(None), TAM_UP_PAD(**tam_kwargs))
+        case Feats.TAM_UP_DECOY:
+            return Compose(_pad(None), TAM_UP_DECOY(**tam_kwargs))
         case Feats.TAM_UP_COUNTS_MAX_NORMALIZED:
             return Compose(
                 _pad(None),
@@ -1275,8 +1275,8 @@ def get_feature_tr(
             )
         case Feats.TAM_DOWN_COUNTS:
             return Compose(_pad(None), TAM_DOWN(**tam_kwargs))
-        case Feats.TAM_DOWN_PAD:
-            return Compose(_pad(None), TAM_DOWN_PAD(**tam_kwargs))
+        case Feats.TAM_DOWN_DECOY:
+            return Compose(_pad(None), TAM_DOWN_DECOY(**tam_kwargs))
         case Feats.TAM_BINS:
             return TAM_BINS(**tam_kwargs)
         case Feats.TAM_TIMES:

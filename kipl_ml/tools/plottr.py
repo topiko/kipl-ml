@@ -165,10 +165,10 @@ def plot_tam(
 
     try:
         tam_u_pad = _squeeze_batched(
-            trace_dict[Feats.TAM_UP_PAD].detach().cpu().numpy(), idx
+            trace_dict[Feats.TAM_UP_DECOY].detach().cpu().numpy(), idx
         )
         tam_d_pad = _squeeze_batched(
-            trace_dict[Feats.TAM_DOWN_PAD].detach().cpu().numpy(), idx
+            trace_dict[Feats.TAM_DOWN_DECOY].detach().cpu().numpy(), idx
         )
     except KeyError:
         tam_u_pad = np.zeros_like(tam_u_c, dtype=int)
