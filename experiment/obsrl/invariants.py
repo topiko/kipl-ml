@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
-from kipl_ml.rl.enums import Actions, NoAction
+from kipl_ml.rl.enums import Actions, NoAction, StepActions
 from kipl_ml.rl.streaming import WindowFeatureStreamer
 from kipl_ml.trace.enums import Feats
 from kipl_ml.utils.time import _time_to_bin_idx
@@ -272,42 +272,37 @@ def check_fd_matches_recomputed_nonpadding(
 
 def count_packets_inside_delay_windows(
     act_times: torch.Tensor,
-    actions: dict[Actions, torch.Tensor],
+    actions: list[StepActions],
     X_obs: dict[Feats, torch.Tensor],
     dt_s: float,
     *,
     idx: int = 0,
     max_report: int = 25,
 ) -> DelayLeakReport:
-    if Actions.DELAY_UP not in actions and Actions.DELAY_DOWN not in actions:
+    if not any(
+        Actions.DELAY_UP in sa or Actions.DELAY_DOWN in sa for sa in actions[idx]
+    ):
         return DelayLeakReport(
             n_delay_steps=0, bad_all=0, bad_nonpadding=0, bad_windows_sample=[]
         )
 
     t_act = act_times[idx]
-    d_up = actions[Actions.DELAY_UP][idx] if Actions.DELAY_UP in actions else None
-    d_down = actions[Actions.DELAY_DOWN][idx] if Actions.DELAY_DOWN in actions else None
-    # act_times and DELAY are int bins; -1 = invalid.
-    m = t_act >= 0
-    if d_up is not None:
-        m = m & (d_up > 0)
-    if d_down is not None:
-        m = m & (d_down > 0)
-    if not bool(m.any().item()):
+    delay_steps: list[tuple[int, int]] = []
+    for sa, t0 in zip(actions[idx], t_act.tolist()):
+        if t0 < 0:
+            continue
+        steps = 0
+        if Actions.DELAY_UP in sa:
+            steps = max(steps, int(sa[Actions.DELAY_UP].steps))
+        if Actions.DELAY_DOWN in sa:
+            steps = max(steps, int(sa[Actions.DELAY_DOWN].steps))
+        if steps > 0:
+            delay_steps.append((int(t0), steps))
+
+    if not delay_steps:
         return DelayLeakReport(
             n_delay_steps=0, bad_all=0, bad_nonpadding=0, bad_windows_sample=[]
         )
-
-    # Already int bins - no conversion needed.
-    if d_up is not None and d_down is not None:
-        delay_bins = torch.maximum(d_up[m], d_down[m]).to(torch.long)
-    elif d_up is not None:
-        delay_bins = d_up[m].to(torch.long)
-    elif d_down is not None:
-        delay_bins = d_down[m].to(torch.long)
-    else:
-        delay_bins = torch.zeros((0,), dtype=torch.long)
-    t0_bins = t_act[m].to(torch.long)
 
     pkt_t = X_obs[Feats.TIMES][idx]
     pkt_d = X_obs[Feats.DIRS][idx]
@@ -321,7 +316,7 @@ def count_packets_inside_delay_windows(
     bad_all = 0
     bad_nonpadding = 0
     bad_windows_sample: list[tuple[int, int, int, int, int]] = []
-    for j, (sb, sh) in enumerate(zip(t0_bins.tolist(), delay_bins.tolist())):
+    for j, (sb, sh) in enumerate(delay_steps):
         s = int(sb)
         shift = int(sh)
         if shift <= 0:
@@ -335,7 +330,7 @@ def count_packets_inside_delay_windows(
             bad_windows_sample.append((j, s, e, c_all, c_np))
 
     return DelayLeakReport(
-        n_delay_steps=int(t0_bins.numel()),
+        n_delay_steps=len(delay_steps),
         bad_all=bad_all,
         bad_nonpadding=bad_nonpadding,
         bad_windows_sample=bad_windows_sample,

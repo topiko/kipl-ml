@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from kipl_ml.rl.enums import Actions
+from kipl_ml.rl.enums import Actions, StepActions
 from kipl_ml.rl.simulate import policy_rollout_streaming
 from kipl_ml.rl.utils import fill_after_seq_end
 from kipl_ml.trace.enums import Feats
@@ -11,7 +11,7 @@ from kipl_ml.utils.time import _boundary_time_to_bin_idx, _time_to_bin_idx
 
 def get_rewards(
     action_times: torch.Tensor,
-    actions: dict[Actions, torch.Tensor],
+    actions: list[StepActions],
     X_obs: dict[Feats, torch.Tensor],
     X_raw: dict[Feats, torch.Tensor] | None,
     obs_dt_s: float | None,
@@ -27,7 +27,7 @@ def get_rewards(
 
     Args:
         action_times: (B, T) int bins
-        actions: Dict of action tensors
+        actions: Sparse per-step action histories
         X_obs: Executed trace
         X_raw: Original trace (for delay penalty)
         obs_dt_s: Stream observation time step
@@ -176,16 +176,20 @@ def get_rewards(
         and "delay_scale" in reward_scales
     ):
         delay_mask = torch.zeros_like(action_times, dtype=torch.bool)
-        if Actions.DELAY_UP in actions:
-            delay = actions[Actions.DELAY_UP]
-            if delay.ndim == 3 and delay.shape[-1] == 1:
-                delay = delay.squeeze(-1)
-            delay_mask |= (delay > 0) & (action_times >= 0)
-        if Actions.DELAY_DOWN in actions:
-            delay = actions[Actions.DELAY_DOWN]
-            if delay.ndim == 3 and delay.shape[-1] == 1:
-                delay = delay.squeeze(-1)
-            delay_mask |= (delay > 0) & (action_times >= 0)
+        delay_bins = torch.zeros_like(action_times, dtype=torch.long)
+        for b, seq in enumerate(actions):
+            for t, sa in enumerate(seq):
+                if t >= action_times.shape[1]:
+                    break
+                if Actions.DELAY_UP not in sa and Actions.DELAY_DOWN not in sa:
+                    continue
+                delay_mask[b, t] = True
+                steps = 0
+                if Actions.DELAY_UP in sa:
+                    steps = max(steps, int(sa[Actions.DELAY_UP].steps))
+                if Actions.DELAY_DOWN in sa:
+                    steps = max(steps, int(sa[Actions.DELAY_DOWN].steps))
+                delay_bins[b, t] = steps
         if not delay_mask.any():
             delay_mask = None
 
@@ -261,7 +265,7 @@ def compute_rewards_league(
     obs_dt_s: float | None,
     y: torch.Tensor,
     act_times: torch.Tensor,
-    actions: dict[Actions, torch.Tensor],
+    actions: list[StepActions],
 ) -> dict[str, torch.Tensor]:
     device = y.device
     current_disc_state = {k: v.detach().clone() for k, v in disc.state_dict().items()}
@@ -361,7 +365,7 @@ def _rollout_streaming(
     dict[str, torch.Tensor] | None,
     dict[str, torch.Tensor],
     torch.Tensor,
-    dict[Actions, torch.Tensor],
+    list[StepActions],
     dict[Feats, torch.Tensor],
     dict[Feats, torch.Tensor],
 ]:

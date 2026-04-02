@@ -393,9 +393,11 @@ def _verify_delay_effect(
 
     m_d = times_d[0] >= 0
     ts_d = times_d[0][m_d].to(torch.float32) * float(dt_s)
-    dmask = (actions_d[Actions.DELAY_UP][0][m_d] > 0) | (
-        actions_d[Actions.DELAY_DOWN][0][m_d] > 0
-    )
+    dmask = torch.zeros_like(m_d, dtype=torch.bool)
+    for j, sa in enumerate(actions_d[0]):
+        if j >= dmask.shape[0]:
+            break
+        dmask[j] = Actions.DELAY_UP in sa or Actions.DELAY_DOWN in sa
     inwin = (ts_d >= float(delay_between[0])) & (ts_d < float(delay_between[1]))
 
     print("delay verification:")

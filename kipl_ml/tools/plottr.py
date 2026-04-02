@@ -6,7 +6,7 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.rl.enums import Actions
+from kipl_ml.rl.enums import Actions, StepAction, StepActions
 from kipl_ml.trace.features import Feats
 
 logger = get_logger(__name__)
@@ -342,74 +342,64 @@ def plot_packet_buffer(
 
 
 def plot_actions(
-    times: torch.Tensor,
-    actions: dict[Actions, torch.Tensor],
-    idx: int | None = None,
+    actions: StepActions,
     ax: plt.Axes | None = None,
     dt_s: float | None = None,
 ) -> plt.Axes:
     if ax is None:
         _, ax = plt.subplots(figsize=(12, 3))
 
-    times = _squeeze_batched(times, idx)
-    actions = {k: _squeeze_batched(v, idx) for k, v in actions.items()}
+    if not actions:
+        return ax
 
+    action_times = np.asarray([float(a.time) for a in actions], dtype=np.float64)
     if dt_s is not None and dt_s > 0:
-        times = times.astype(np.float64) * dt_s
-
-    def _mask(key: Actions) -> np.ndarray | None:
-        if key not in actions:
-            return None
-        return np.asarray(actions[key])
+        action_times *= dt_s
 
     max_c = 1.0
 
-    # DO_NOTHING as a background span.
-    do_nothing = _mask(Actions.DO_NOTHING)
-    if do_nothing is not None:
-        mask = do_nothing == 1
-        if mask.any():
-            durs = (
-                np.diff(times, append=np.array([times[-1]]), axis=0)
-                if times.size
-                else []
-            )
-            for t0, d in zip(times[mask], durs[mask]):
-                ax.axvspan(t0, t0 + d, color="gray", alpha=0.12, lw=0, zorder=0)
+    def _next_time(i: int) -> float:
+        if i + 1 < len(action_times):
+            return float(action_times[i + 1])
+        return float(action_times[i] + (dt_s if dt_s is not None and dt_s > 0 else 1.0))
 
     def _plot_send(key: Actions, color: str, sign: int) -> None:
         nonlocal max_c
-        vals = _mask(key)
-        if vals is None:
+        xs: list[float] = []
+        hs: list[float] = []
+        for i, sa in enumerate(actions):
+            if key not in sa:
+                continue
+            act = sa[key]
+            if hasattr(act, "count") and int(act.count) != 0:
+                xs.append(
+                    float(action_times[i] + float(act.after_steps) * (dt_s or 1.0))
+                )
+                hs.append(float(act.count) if sign > 0 else -float(act.count))
+        if not xs:
             return
-        mask = vals != 0
-        if not mask.any():
-            return
-        heights = vals.astype(np.float64)
-        if sign < 0:
-            heights = -heights
-        widths = np.ones_like(times[mask], dtype=np.float64)
-        widths *= float(dt_s) if dt_s is not None and dt_s > 0 else 0.005
-        _plot_boxes(times[mask], widths, heights[mask], color=color, alpha=0.2, ax=ax)
-        max_c = max(max_c, float(np.abs(heights[mask]).max()))
+        widths = np.ones(len(xs), dtype=np.float64) * (
+            float(dt_s) if dt_s and dt_s > 0 else 0.005
+        )
+        _plot_boxes(
+            np.asarray(xs), widths, np.asarray(hs), color=color, alpha=0.2, ax=ax
+        )
+        max_c = max(max_c, float(np.max(np.abs(hs))))
 
     _plot_send(Actions.SEND_UP, UP_COLOR, +1)
     _plot_send(Actions.SEND_DOWN, DOWN_COLOR, -1)
 
     def _plot_delay(key: Actions, color: str, ymin: float, ymax: float) -> None:
-        vals = _mask(key)
-        if vals is None:
-            return
-        mask = vals > 0
-        if not mask.any():
-            return
-        delay_s = vals.astype(np.float64)
-        if dt_s is not None and dt_s > 0:
-            delay_s *= dt_s
-        for t0, d in zip(times[mask], delay_s[mask]):
+        for i, sa in enumerate(actions):
+            if key not in sa:
+                continue
+            act = sa[key]
+            if not hasattr(act, "steps") or int(act.steps) <= 0:
+                continue
+            d = float(act.steps) * (dt_s if dt_s is not None and dt_s > 0 else 1.0)
             ax.axvspan(
-                t0,
-                t0 + d,
+                float(action_times[i]),
+                float(action_times[i] + d),
                 ymin=ymin,
                 ymax=ymax,
                 color=color,
@@ -422,7 +412,19 @@ def plot_actions(
     _plot_delay(Actions.DELAY_UP, "#d97706", 0.5, 1.0)
     _plot_delay(Actions.DELAY_DOWN, "#b45309", 0.0, 0.5)
 
-    ax.vlines(times, -1, 1, color="black", lw=0.7)
+    # Do-nothing spans on the remaining steps.
+    for i, sa in enumerate(actions):
+        if Actions.DO_NOTHING not in sa:
+            continue
+        if (
+            int(sa[Actions.DO_NOTHING].bypass) != 0
+        ):  # keep only the presence of the action
+            pass
+        t0 = float(action_times[i])
+        t1 = _next_time(i)
+        ax.axvspan(t0, t1, color="gray", alpha=0.12, lw=0, zorder=0)
+
+    ax.vlines(action_times, -1, 1, color="black", lw=0.7)
 
     ax.set_ylim(-max_c * 1.1, max_c * 1.1)
     return ax

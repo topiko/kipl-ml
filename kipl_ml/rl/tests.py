@@ -88,7 +88,15 @@ def run_streaming_trace(
             next_actions = actions[step_i]
         else:
             next_actions = [
-                NoAction(time=max(0, int(fd_t[Feats.TIME_BINS][aidx, 0].item())))
+                NoAction(
+                    time=max(
+                        0,
+                        int(
+                            fd_t[Feats.TIME_BINS][aidx, 0].item()
+                            + fd_t[Feats.Dt_BINS][aidx, 0].item()
+                        ),
+                    )
+                )
                 for aidx in active_idxs
             ]
 

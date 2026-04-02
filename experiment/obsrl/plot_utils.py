@@ -14,7 +14,7 @@ from experiment.obsrl.utils import (
 )
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.logging.logger import TQDM_W, get_logger
-from kipl_ml.rl.enums import Actions
+from kipl_ml.rl.enums import StepActions
 from kipl_ml.tools.plottr import (
     plot_actions,
     plot_obs_features,
@@ -164,7 +164,7 @@ def _plot_single(
     league_rewards: dict[str, torch.Tensor] | None,
     entropies: dict[str, torch.Tensor],
     times: torch.Tensor,
-    actions: dict[Actions, torch.Tensor],
+    actions: list[StepActions],
     X_obs: dict[Feats, torch.Tensor],
     fd: dict[Feats, torch.Tensor],
     G: torch.Tensor,
@@ -217,8 +217,7 @@ def _plot_single(
 
     # Plot actions
     plot_actions(
-        times[batch_i, :seq_len_i],
-        {k: a[batch_i, :seq_len_i] for k, a in actions.items()},
+        actions[batch_i],
         ax=ax_a,
         dt_s=obs_dt_s,
     )

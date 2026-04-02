@@ -5,14 +5,14 @@ from typing import Any, Literal, cast, overload
 import torch
 
 from kipl_ml.models.trgen import _hidden_w_mask
-from kipl_ml.rl.enums import Actions, NoAction, StepActions
+from kipl_ml.rl.enums import EntropyKeys, NoAction, StepActions
 from kipl_ml.rl.streaming import WindowFeatureStreamer
 from kipl_ml.trace.enums import Feats
 
 _StreamingRollout = tuple[
     dict[Feats, torch.Tensor],
     torch.Tensor,
-    dict[Actions, torch.Tensor],
+    list[StepActions],
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
@@ -73,7 +73,7 @@ def policy_rollout_streaming(
 ) -> tuple[
     dict[Feats, torch.Tensor],
     torch.Tensor,
-    dict[Actions, torch.Tensor],
+    list[StepActions],
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
@@ -141,7 +141,7 @@ def _policy_rollout_streaming_impl(
 ) -> tuple[
     dict[Feats, torch.Tensor],
     torch.Tensor,
-    dict[Actions, torch.Tensor],
+    list[StepActions],
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
@@ -212,13 +212,18 @@ def _policy_rollout_streaming_impl(
     ent_sel_l: list[torch.Tensor] = []
     ent_cond_l: list[torch.Tensor] = []
     act_time_bins_l: list[torch.Tensor] = []
-    actions_l: dict[Actions, list[torch.Tensor]] | None = None
+    actions_l: list[StepActions] = [[] for _ in range(bs)]
     fd_steps: dict[Feats, list[torch.Tensor]] = {f: [] for f in obs_.features}
 
     actions_a: StepActions = [NoAction(time=0) for _ in range(bs)]
     fd_packet_level: list[dict[Feats, list[torch.Tensor]]] = [
         {Feats.TIMES: [], Feats.DIRS: [], Feats.DECOY: []} for _ in range(bs)
     ]
+
+    def _densify(x: torch.Tensor) -> torch.Tensor:
+        full = torch.zeros((bs,) + x.shape[1:], device=x.device, dtype=x.dtype)
+        full[active] = x
+        return full
 
     hobs = None
     while True:
@@ -233,24 +238,31 @@ def _policy_rollout_streaming_impl(
             for k in (Feats.TIMES, Feats.DIRS, Feats.DECOY):
                 fd_packet_level[aidx][k].append(fd_packet_level_[k][i])
 
+            actions_l[aidx].append(actions_a[i])
+
         if record_policy:
             for f in obs_.features:
                 fd_steps[f].append(fd_t[f].to("cpu"))
 
+        fd_active = {f: fd_t[f][active] for f in obs_.features}
         h_active = _hidden_w_mask(hobs, active)
         act_time_bins_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
-            obs_.act_step(fd_t, h_active, sample=sample)
+            obs_.act_step(fd_active, h_active, sample=sample)
         )
 
         hobs = _hidden_w_mask(hobs, active, h_active)
+
+        act_time_bins_l.append(_densify(act_time_bins_a).detach().cpu())
+        log_ps_l.append(_densify(log_ps_a).detach().cpu())
+        sel_probs_l.append(_densify(sel_probs_a).detach().cpu())
+        values_actor_l.append(_densify(values_a).detach().cpu())
+        ent_sel_l.append(_densify(ent_a[EntropyKeys.SELECTION_ENTROPY]).detach().cpu())
+        ent_cond_l.append(_densify(ent_a[EntropyKeys.COND_ENTROPY]).detach().cpu())
 
     X_obs = _batch_packet_level_features(fd_packet_level)
 
     if record_policy is False:
         return X_obs
-
-    if actions_l is None:
-        raise ValueError("No actions produced")
 
     assert fd_steps is not None
 
@@ -262,9 +274,17 @@ def _policy_rollout_streaming_impl(
         "selection_entropy": torch.cat(ent_sel_l, dim=1),
         "conditional_entropy": torch.cat(ent_cond_l, dim=1),
     }
-    actions = {k: torch.cat(vs, dim=1) for k, vs in actions_l.items()}
 
     fd = {f: torch.cat(vs, dim=1) for f, vs in fd_steps.items()}
     fd[Feats.SEQ_LENS] = (act_time_bins >= 0).sum(dim=1).long()
 
-    return fd, act_time_bins, actions, log_ps, sel_probs, values_actor, entropies, X_obs
+    return (
+        fd,
+        act_time_bins,
+        actions_l,
+        log_ps,
+        sel_probs,
+        values_actor,
+        entropies,
+        X_obs,
+    )
