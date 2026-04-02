@@ -5,7 +5,7 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.rl.enums import Actions, ActSendDown, ActSendUp, NoAction, StepAction
-from kipl_ml.rl.observation import (
+from kipl_ml.rl.streaming import (
     WindowFeatureStreamer,
     get_window_feature_dict,
 )

@@ -2,7 +2,7 @@ import torch
 from unittest import TestCase
 
 from kipl_ml.rl.enums import Actions, NoAction
-from kipl_ml.rl.observation import WindowFeatureStreamer
+from kipl_ml.rl.streaming import WindowFeatureStreamer
 from kipl_ml.trace.enums import Feats
 
 

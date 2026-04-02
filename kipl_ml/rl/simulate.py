@@ -6,7 +6,7 @@ import torch
 
 from kipl_ml.models.trgen import _hidden_w_mask
 from kipl_ml.rl.enums import Actions, NoAction, StepActions
-from kipl_ml.rl.observation import WindowFeatureStreamer
+from kipl_ml.rl.streaming import WindowFeatureStreamer
 from kipl_ml.trace.enums import Feats
 
 _StreamingRollout = tuple[

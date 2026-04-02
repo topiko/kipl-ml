@@ -6,7 +6,7 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.rl.enums import Actions, NoAction
-from kipl_ml.rl.observation import WindowFeatureStreamer
+from kipl_ml.rl.streaming import WindowFeatureStreamer
 from kipl_ml.trace.enums import Feats
 from kipl_ml.utils.time import _time_to_bin_idx
 

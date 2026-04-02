@@ -30,7 +30,7 @@ def get_rewards(
         actions: Dict of action tensors
         X_obs: Executed trace
         X_raw: Original trace (for delay penalty)
-        obs_dt_s: Observation time step
+        obs_dt_s: Stream observation time step
         X_disc: Discriminator input features
         y: Target labels
         disc_logits: (B, N, C) discriminator logits
