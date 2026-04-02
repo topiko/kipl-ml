@@ -353,7 +353,7 @@ def _get_from_interval(
     end_s: float,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Get packets in the interval [start_s, end_s)."""
-    mask = (times >= start_s) & (times < end_s)
+    mask = (times >= start_s) & (times < end_s) & (dirs != 0)
     return times[mask], dirs[mask]
 
 

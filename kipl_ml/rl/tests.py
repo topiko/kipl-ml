@@ -259,7 +259,7 @@ class TestWindowFeatureStreamer(unittest.TestCase):
             [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT],
         )
 
-        seq_lens = (out[Feats.TIMES] >= 0).sum(dim=1)
+        seq_lens = (out[Feats.DIRS] != 0).sum(dim=1)
         self.assertEqual(seq_lens.shape, (1,))
         self.assertTrue((seq_lens > 0).all())
         self.assertEqual(seq_lens[0].item(), 5)
@@ -406,12 +406,10 @@ class TestVaryingSeqLens(unittest.TestCase):
             ([0.0, 0.02], [UPLOAD, DOWNLOAD]),
         ]
 
-        max_len = max(len(times_l) for times_l, _ in cases)
-
         for times_l, dirs_l in cases:
-            times = torch.full((1, max_len), -1.0)
-            dirs = torch.zeros((1, max_len), dtype=torch.float32)
-            decoy = torch.zeros((1, max_len), dtype=torch.bool)
+            times = torch.tensor([times_l])
+            dirs = torch.tensor([dirs_l], dtype=torch.float32)
+            decoy = torch.zeros_like(dirs, dtype=torch.bool)
             times[0, : len(times_l)] = torch.tensor(times_l)
             dirs[0, : len(dirs_l)] = torch.tensor(dirs_l, dtype=torch.float32)
             X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
@@ -440,12 +438,10 @@ class TestVaryingSeqLens(unittest.TestCase):
             ([0.0, 0.02], [UPLOAD, DOWNLOAD]),
         ]
 
-        max_len = max(len(times_l) for times_l, _ in cases)
-
         for times_l, dirs_l in cases:
-            times = torch.full((1, max_len), -1.0)
-            dirs = torch.zeros((1, max_len), dtype=torch.float32)
-            decoy = torch.zeros((1, max_len), dtype=torch.bool)
+            times = torch.tensor([times_l])
+            dirs = torch.tensor([dirs_l], dtype=torch.float32)
+            decoy = torch.zeros_like(dirs, dtype=torch.bool)
             times[0, : len(times_l)] = torch.tensor(times_l)
             dirs[0, : len(dirs_l)] = torch.tensor(dirs_l, dtype=torch.float32)
             X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
@@ -457,9 +453,9 @@ class TestVaryingSeqLens(unittest.TestCase):
                 [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT],
             )
 
-            seq_lens = (out[Feats.TIMES] >= 0).sum(dim=1)
+            seq_lens = (out[Feats.DIRS] != 0).sum(dim=1)
             self.assertEqual(seq_lens.shape, (1,))
-            self.assertEqual(seq_lens[0].item(), len(times_l[0:]))
+            self.assertEqual(seq_lens[0].item(), len(times_l))
 
 
 if __name__ == "__main__":
