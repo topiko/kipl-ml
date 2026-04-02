@@ -393,6 +393,10 @@ class TraceStateCursor:
         if self.prev_time_bin * self.dt >= self.terminate_after_s:
             raise StopIteration
 
+        assert actions.time == self.cursor_time_bin, (
+            f"Expected action time {self.cursor_time_bin}, got {actions.time}"
+        )
+
         times, dirs = _get_from_interval(
             self.times,
             self.dirs,
