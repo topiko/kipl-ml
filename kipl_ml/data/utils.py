@@ -119,7 +119,7 @@ def parse_trace_to_tensor_dict(
         Feats.TIMES: torch.tensor(times, dtype=torch.float64),
         Feats.DIRS: torch.tensor(dirs, dtype=torch.int8),
         Feats.SIZES: torch.tensor(sizes, dtype=torch.int16),
-        Feats.PADDING: torch.tensor(paddings, dtype=torch.bool),
+        Feats.DECOY: torch.tensor(paddings, dtype=torch.bool),
     }
 
     return trace_dict
@@ -149,7 +149,7 @@ def tensor_dict_to_str(trace_d: dict[Feats, torch.Tensor]) -> str:
 
     dirs_ = np.empty_like(dirs, dtype="<U2")
 
-    paddings = trace_d[Feats.PADDING].detach().numpy().astype(bool)
+    paddings = trace_d[Feats.DECOY].detach().numpy().astype(bool)
 
     dirs_[(dirs == UPLOAD) & ~paddings] = "sn"  # send normal
     dirs_[(dirs == UPLOAD) & paddings] = "sp"  # send padding

@@ -288,8 +288,8 @@ def plot_trace(
     colors[dirs == UPLOAD] = UP_COLOR
     colors[dirs == DOWNLOAD] = DOWN_COLOR
 
-    if Feats.PADDING in trace_dict:
-        pad = _squeeze_batched(trace_dict[Feats.PADDING].bool(), idx)
+    if Feats.DECOY in trace_dict:
+        pad = _squeeze_batched(trace_dict[Feats.DECOY].bool(), idx)
 
         info_d["pad nup"] = (pad & (dirs == 1)).sum()
         info_d["pad ndown"] = (pad & (dirs == -1)).sum()

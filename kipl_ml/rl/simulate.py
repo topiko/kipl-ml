@@ -181,8 +181,8 @@ def _policy_rollout_streaming_impl(
     if Feats.TIMES not in X or Feats.DIRS not in X:
         raise ValueError("X must contain TIMES and DIRS")
     Xb = {k: v.clone() for k, v in X.items()}
-    if Feats.PADDING not in Xb:
-        Xb[Feats.PADDING] = torch.zeros_like(Xb[Feats.TIMES])
+    if Feats.DECOY not in Xb:
+        Xb[Feats.DECOY] = torch.zeros_like(Xb[Feats.TIMES])
 
     obs_ = cast(Any, obs)
 
@@ -195,7 +195,7 @@ def _policy_rollout_streaming_impl(
     Xs = {
         Feats.TIMES: Xb[Feats.TIMES].detach().to(stream_device),
         Feats.DIRS: Xb[Feats.DIRS].detach().to(stream_device),
-        Feats.PADDING: Xb[Feats.PADDING].detach().to(stream_device),
+        Feats.DECOY: Xb[Feats.DECOY].detach().to(stream_device),
     }
 
     streamer = WindowFeatureStreamer(
@@ -217,7 +217,7 @@ def _policy_rollout_streaming_impl(
 
     actions_a: StepActions = [NoAction(time=0) for _ in range(bs)]
     fd_packet_level: list[dict[Feats, list[torch.Tensor]]] = [
-        {Feats.TIMES: [], Feats.DIRS: [], Feats.PADDING: []} for _ in range(bs)
+        {Feats.TIMES: [], Feats.DIRS: [], Feats.DECOY: []} for _ in range(bs)
     ]
 
     hobs = None
@@ -230,7 +230,7 @@ def _policy_rollout_streaming_impl(
 
         active_idxs = torch.nonzero(active, as_tuple=False).flatten().tolist()
         for i, aidx in enumerate(active_idxs):
-            for k in (Feats.TIMES, Feats.DIRS, Feats.PADDING):
+            for k in (Feats.TIMES, Feats.DIRS, Feats.DECOY):
                 fd_packet_level[aidx][k].append(fd_packet_level_[k][i])
 
         if record_policy:

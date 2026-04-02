@@ -7,7 +7,7 @@ class Feats(StrEnum):
     DIRS = assets.DIRS
     SIZES = assets.SIZES
     TIMES = assets.TIMES  # Raw trace times in seconds (float)
-    PADDING = assets.PADDING
+    DECOY = assets.DECOY
     TIME_BINS = "time_bins"  # Observation times in bin indices (int)
     TIMES_NORMALIZED = f"normalized_{TIMES}"
     TIMES_MAX_NORMALIZED = f"max_normalized_{TIMES}"

@@ -55,7 +55,7 @@ def make_synth_trace(
     return {
         Feats.TIMES: times,
         Feats.DIRS: dirs,
-        Feats.PADDING: padding,
+        Feats.DECOY: padding,
     }
 
 
@@ -71,7 +71,7 @@ def main():
     # Create trace
     X = make_synth_trace(n_packets, dt, padding_frac, device)
 
-    n_pad = X[Feats.PADDING].sum().item()
+    n_pad = X[Feats.DECOY].sum().item()
     print(f"Padding packets: {n_pad}")
     print(
         f"Trace duration: {X[Feats.TIMES][0, X[Feats.DIRS][0] != 0].max().item():.2f}s"
@@ -147,7 +147,7 @@ def main():
 
     # Check X_obs
     print(f"\nX_obs TIMES shape: {X_obs[Feats.TIMES].shape}")
-    n_pad_obs = X_obs[Feats.PADDING].sum().item()
+    n_pad_obs = X_obs[Feats.DECOY].sum().item()
     print(f"Padding packets in X_obs: {n_pad_obs}")
 
     # === KEY ISSUE: N from disc_logits vs packet count ===

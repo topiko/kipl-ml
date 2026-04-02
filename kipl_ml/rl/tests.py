@@ -24,7 +24,7 @@ def _batch_packet_history(
 ) -> dict[Feats, torch.Tensor]:
     out: dict[Feats, torch.Tensor] = {}
     bs = len(packet_hist)
-    for feat in (Feats.TIMES, Feats.DIRS, Feats.PADDING):
+    for feat in (Feats.TIMES, Feats.DIRS, Feats.DECOY):
         per_trace: list[torch.Tensor] = []
         max_len = 0
         for trace_hist in packet_hist:
@@ -37,7 +37,7 @@ def _batch_packet_history(
 
         batched = torch.full(
             (bs, max_len),
-            -1 if feat == Feats.TIMES else 0,
+            -1 if feat == Feats.TIMES else False if feat == Feats.DECOY else 0,
             dtype=refs[feat].dtype,
             device=refs[feat].device,
         )
@@ -60,7 +60,7 @@ def run_streaming_trace(
     streamer = WindowFeatureStreamer(X, dt, max_silence_s, features)
     bs = int(X[Feats.TIMES].shape[0])
     packet_hist: list[dict[Feats, list[torch.Tensor]]] = [
-        {Feats.TIMES: [], Feats.DIRS: [], Feats.PADDING: []} for _ in range(bs)
+        {Feats.TIMES: [], Feats.DIRS: [], Feats.DECOY: []} for _ in range(bs)
     ]
 
     next_actions: list[StepAction] = (
@@ -77,7 +77,7 @@ def run_streaming_trace(
 
         active_idxs = torch.nonzero(active, as_tuple=False).flatten().tolist()
         for i, aidx in enumerate(active_idxs):
-            for feat in (Feats.TIMES, Feats.DIRS, Feats.PADDING):
+            for feat in (Feats.TIMES, Feats.DIRS, Feats.DECOY):
                 packet_hist[aidx][feat].append(fd_packet_level[feat][i])
 
         step_i += 1
@@ -98,7 +98,7 @@ def run_streaming_trace(
 def assert_trace_equal(
     actual: dict[Feats, torch.Tensor], expected: dict[Feats, torch.Tensor]
 ) -> None:
-    for feat in (Feats.TIMES, Feats.DIRS, Feats.PADDING):
+    for feat in (Feats.TIMES, Feats.DIRS, Feats.DECOY):
         assert torch.equal(actual[feat], expected[feat]), (
             f"Mismatch for {feat}: actual={actual[feat]} expected={expected[feat]}"
         )
@@ -174,7 +174,7 @@ class TestDeprecatedWindowFeatureDict(unittest.TestCase):
         dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
         padding = torch.zeros_like(dirs)
 
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: padding}
         features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         with warnings.catch_warnings(record=True) as caught:
@@ -197,9 +197,9 @@ class TestWindowFeatureStreamer(unittest.TestCase):
     def test_basic_streaming(self):
         times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
         dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
-        padding = torch.zeros_like(dirs)
+        decoy = torch.zeros_like(dirs, dtype=torch.bool)
 
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
         out = run_streaming_trace(
             X,
             self.DT,
@@ -210,14 +210,40 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         assert_trace_equal(out, X)
         self.assertEqual(out[Feats.TIMES].dtype, torch.float32)
         self.assertEqual(out[Feats.DIRS].dtype, dirs.dtype)
-        self.assertEqual(out[Feats.PADDING].dtype, padding.dtype)
+        self.assertEqual(out[Feats.DECOY].dtype, decoy.dtype)
+
+    def test_batched_streaming_round_trip(self):
+        times = torch.tensor(
+            [
+                [0.0, 0.02, 0.04],
+                [0.01, 0.03, 0.05],
+            ]
+        )
+        dirs = torch.tensor(
+            [
+                [UPLOAD, DOWNLOAD, UPLOAD],
+                [DOWNLOAD, UPLOAD, DOWNLOAD],
+            ],
+            dtype=torch.float32,
+        )
+        decoy = torch.zeros_like(times, dtype=torch.bool)
+
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
+        out = run_streaming_trace(
+            X,
+            self.DT,
+            self.MAX_SILENCE_S,
+            [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT],
+        )
+
+        assert_trace_equal(out, X)
 
     def test_matches_streaming(self):
         times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
         dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
-        padding = torch.zeros_like(dirs)
+        decoy = torch.zeros_like(dirs, dtype=torch.bool)
 
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
         out = run_streaming_trace(
             X,
             self.DT,
@@ -228,14 +254,14 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         seq_lens = (out[Feats.TIMES] >= 0).sum(dim=1)
         self.assertEqual(seq_lens.shape, (1,))
         self.assertTrue((seq_lens > 0).all())
-        self.assertTrue(torch.equal(seq_lens, (out[Feats.PADDING] >= 0).sum(dim=1)))
+        self.assertEqual(seq_lens[0].item(), 5)
 
     def test_noaction_recovers_original_trace(self):
         times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
         dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
-        padding = torch.zeros_like(dirs)
+        decoy = torch.zeros_like(dirs, dtype=torch.bool)
 
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
         features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         out = run_streaming_trace(
@@ -250,9 +276,9 @@ class TestWindowFeatureStreamer(unittest.TestCase):
     def test_send_down_adds_packet(self):
         times = torch.tensor([[0.0, 0.02, 0.04]])
         dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD]])
-        padding = torch.zeros_like(dirs)
+        decoy = torch.zeros_like(dirs, dtype=torch.bool)
 
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
         features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         out = run_streaming_trace(
@@ -275,16 +301,16 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         expected = {
             Feats.TIMES: torch.tensor([[0.0, 0.02, 0.04, 0.05]]),
             Feats.DIRS: torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD]]),
-            Feats.PADDING: torch.tensor([[0, 0, 0, 1]], dtype=padding.dtype),
+            Feats.DECOY: torch.tensor([[False, False, False, True]]),
         }
         assert_trace_equal(out, expected)
 
     def test_send_up_adds_packet(self):
         times = torch.tensor([[0.0, 0.02, 0.04]])
         dirs = torch.tensor([[DOWNLOAD, UPLOAD, DOWNLOAD]])
-        padding = torch.zeros_like(dirs)
+        decoy = torch.zeros_like(dirs, dtype=torch.bool)
 
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
         features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         out = run_streaming_trace(
@@ -305,16 +331,16 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         expected = {
             Feats.TIMES: torch.tensor([[0.0, 0.02, 0.04, 0.05]]),
             Feats.DIRS: torch.tensor([[DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]]),
-            Feats.PADDING: torch.tensor([[0, 0, 0, 1]], dtype=padding.dtype),
+            Feats.DECOY: torch.tensor([[False, False, False, True]]),
         }
         assert_trace_equal(out, expected)
 
     def test_send_up_and_down_adds_both_packets(self):
         times = torch.tensor([[0.0, 0.02, 0.04]])
         dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD]])
-        padding = torch.zeros_like(dirs)
+        decoy = torch.zeros_like(dirs, dtype=torch.bool)
 
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
         features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         out = run_streaming_trace(
@@ -338,16 +364,16 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         expected = {
             Feats.TIMES: torch.tensor([[0.0, 0.02, 0.04, 0.05, 0.05]]),
             Feats.DIRS: torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]]),
-            Feats.PADDING: torch.tensor([[0, 0, 0, 1, 1]], dtype=padding.dtype),
+            Feats.DECOY: torch.tensor([[False, False, False, True, True]]),
         }
         assert_trace_equal(out, expected)
 
     def test_streamer_sleep_until_emit(self):
         times = torch.tensor([[0.06]])
         dirs = torch.tensor([[UPLOAD]])
-        padding = torch.tensor([[0]])
+        decoy = torch.tensor([[False]])
 
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
         out = run_streaming_trace(
             X,
             self.DT,
@@ -375,8 +401,8 @@ class TestVaryingSeqLens(unittest.TestCase):
         for times_l, dirs_l in cases:
             times = torch.tensor([times_l])
             dirs = torch.tensor([dirs_l], dtype=torch.float32)
-            padding = torch.zeros_like(dirs)
-            X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+            decoy = torch.zeros_like(dirs, dtype=torch.bool)
+            X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
 
             out = run_streaming_trace(
                 X,
@@ -400,8 +426,8 @@ class TestVaryingSeqLens(unittest.TestCase):
         for times_l, dirs_l in cases:
             times = torch.tensor([times_l])
             dirs = torch.tensor([dirs_l], dtype=torch.float32)
-            padding = torch.zeros_like(dirs)
-            X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+            decoy = torch.zeros_like(dirs, dtype=torch.bool)
+            X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
 
             out = run_streaming_trace(
                 X,

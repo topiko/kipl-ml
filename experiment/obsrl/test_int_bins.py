@@ -14,7 +14,7 @@ class TestObsrlIntBinsConsistency(TestCase):
         times = torch.tensor([[0.0, 0.5, 1.0, 0.0, 0.0]])
         dirs = torch.tensor([[1, -1, 1, 0, 0]])  # 1=UPLOAD, -1=DOWNLOAD
         padding = torch.tensor([[0, 0, 0, 0, 0]], dtype=torch.bool)
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: padding}
 
         streamer = WindowFeatureStreamer(
             X, dt=0.5, max_silence_s=1.0, features=[Feats.TIME_BINS]
@@ -36,7 +36,7 @@ class TestObsrlIntBinsConsistency(TestCase):
         times = torch.tensor([[0.0, 0.5, 1.0, 1.5, 2.0]])
         dirs = torch.tensor([[1, -1, 1, -1, 1]])
         padding = torch.tensor([[0, 0, 0, 0, 0]], dtype=torch.bool)
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: padding}
 
         streamer = WindowFeatureStreamer(
             X, dt=0.5, max_silence_s=1.0, features=[Feats.TIME_BINS]
@@ -130,7 +130,7 @@ class TestObsrlIntBinsConsistency(TestCase):
         trace = {
             Feats.TIMES: times,
             Feats.DIRS: dirs,
-            Feats.PADDING: torch.zeros_like(times, dtype=torch.bool),
+            Feats.DECOY: torch.zeros_like(times, dtype=torch.bool),
         }
 
         tam_up = TAM_UP(max_load_time_s=10.0, window_width_s=dt)

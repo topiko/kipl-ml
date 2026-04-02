@@ -67,7 +67,7 @@ def _get_nonpadding_packet_bins_and_dirs(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     pkt_t = X_obs[Feats.TIMES][idx]
     pkt_d = X_obs[Feats.DIRS][idx]
-    pkt_p = X_obs[Feats.PADDING][idx] != 0
+    pkt_p = X_obs[Feats.DECOY][idx] != 0
     # X_obs times are float seconds; filter non-padding active packets.
     m = (pkt_d != 0) & (~pkt_p)
     pkt_t = pkt_t[m]
@@ -220,9 +220,9 @@ def check_fd_matches_recomputed_nonpadding(
     X_np = {
         Feats.TIMES: X_obs[Feats.TIMES].clone(),
         Feats.DIRS: X_obs[Feats.DIRS].clone(),
-        Feats.PADDING: torch.zeros_like(X_obs[Feats.PADDING]),
+        Feats.DECOY: torch.zeros_like(X_obs[Feats.DECOY]),
     }
-    X_np[Feats.DIRS][X_obs[Feats.PADDING] != 0] = 0
+    X_np[Feats.DIRS][X_obs[Feats.DECOY] != 0] = 0
 
     ref_features = [Feats.TIME_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT, Feats.Dt_BINS]
     ref_streamer = WindowFeatureStreamer(X_np, dt_s, max_silence_s, ref_features)
@@ -299,7 +299,7 @@ def count_packets_inside_delay_windows(
 
     pkt_t = X_obs[Feats.TIMES][idx]
     pkt_d = X_obs[Feats.DIRS][idx]
-    pkt_p = X_obs[Feats.PADDING][idx] != 0
+    pkt_p = X_obs[Feats.DECOY][idx] != 0
     # X_obs times are float seconds.
     m_all = pkt_d != 0
     m_np = m_all & (~pkt_p)

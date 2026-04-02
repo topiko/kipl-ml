@@ -414,7 +414,7 @@ def _verify_delay_effect(
     def _row4_counts(Xobs: dict[Feats, torch.Tensor]) -> tuple[int, int]:
         t = Xobs[Feats.TIMES][0]
         d = Xobs[Feats.DIRS][0]
-        p = Xobs[Feats.PADDING][0] != 0
+        p = Xobs[Feats.DECOY][0] != 0
         m = (d != 0) & (~p) & torch.isfinite(t)
         if not bool(m.any().item()):
             return 0, 0

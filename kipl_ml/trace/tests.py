@@ -326,7 +326,7 @@ class TestTR(unittest.TestCase):
         dirs = torch.tensor([UPLOAD] * 10)
         sizes = torch.ones(10)
         padding = torch.zeros(10)
-        trace = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.SIZES: sizes, Feats.PADDING: padding}
+        trace = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.SIZES: sizes, Feats.DECOY: padding}
 
         tr = PadOrCutTrace(n_packets=10, time_clamp=(2.0, 8.0, False))
         result = tr(trace)
@@ -339,7 +339,7 @@ class TestTR(unittest.TestCase):
         dirs = torch.tensor([UPLOAD] * 10)
         sizes = torch.ones(10)
         padding = torch.zeros(10)
-        trace = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.SIZES: sizes, Feats.PADDING: padding}
+        trace = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.SIZES: sizes, Feats.DECOY: padding}
 
         tr = PadOrCutTrace(n_packets=10, time_clamp=(2.0, 5.0, True))
         result = tr(trace)

@@ -70,7 +70,7 @@ class TraceExecState:
     time_step_s: float
 
     def __post_init__(self) -> None:
-        if set(self.X_base.keys()) != {Feats.TIMES, Feats.DIRS, Feats.PADDING}:
+        if set(self.X_base.keys()) != {Feats.TIMES, Feats.DIRS, Feats.DECOY}:
             raise ValueError("X_base must contain TIMES/DIRS/PADDING")
         if self.time_step_s <= 0:
             raise ValueError(f"time_step_s must be > 0, got {self.time_step_s}")
@@ -240,7 +240,7 @@ class TraceExecState:
 
         base_times = self.X_base[Feats.TIMES]
         base_dirs = self.X_base[Feats.DIRS]
-        base_pad = self.X_base[Feats.PADDING]
+        base_pad = self.X_base[Feats.DECOY]
 
         for i in range(B):
             m_base = base_dirs[i] != 0
@@ -288,7 +288,7 @@ class TraceExecState:
 
         mask = dirs_out != 0
         times_out = fill_after_seq_end(times_out, mask, fill_val="max")
-        X = {Feats.TIMES: times_out, Feats.DIRS: dirs_out, Feats.PADDING: pad_out}
+        X = {Feats.TIMES: times_out, Feats.DIRS: dirs_out, Feats.DECOY: pad_out}
         X = {k: _flush_left(v, mask, pad_val=0) for k, v in X.items()}
         X = _sort_feature_dict(X)
 
@@ -308,7 +308,7 @@ def _sort_feature_dict(
 
     dirs = feature_dict[Feats.DIRS].gather(1, indices)
     sorted_times = _flush_left(sorted_times, dirs != 0)
-    padding = _flush_left(feature_dict[Feats.PADDING].gather(1, indices), dirs != 0)
+    padding = _flush_left(feature_dict[Feats.DECOY].gather(1, indices), dirs != 0)
     dirs = _flush_left(dirs, dirs != 0)
 
     # The times are zero padded in the end. Fix this here.
@@ -327,9 +327,9 @@ def _sort_feature_dict(
 
     feature_dict[Feats.TIMES] = sorted_times
     feature_dict[Feats.DIRS] = dirs
-    feature_dict[Feats.PADDING] = padding
+    feature_dict[Feats.DECOY] = padding
 
-    if set(feature_dict.keys()) != {Feats.TIMES, Feats.DIRS, Feats.PADDING}:
+    if set(feature_dict.keys()) != {Feats.TIMES, Feats.DIRS, Feats.DECOY}:
         raise NotImplementedError(
             "Sorting for additional features not implemented yet."
         )
@@ -375,7 +375,7 @@ def execute_actions_from_sequence(
         {
             Feats.TIMES: X[Feats.TIMES].clone(),
             Feats.DIRS: X[Feats.DIRS].clone(),
-            Feats.PADDING: X.get(Feats.PADDING, torch.zeros_like(X[Feats.TIMES])),
+            Feats.DECOY: X.get(Feats.DECOY, torch.zeros_like(X[Feats.TIMES])),
         },
         time_step_s=time_step_s,
     )

@@ -84,7 +84,7 @@ def generate_for(
 
         obs_df = pd.DataFrame(
             data={k: v.squeeze(0).cpu().numpy() for k, v in X_obs.items()}
-        ).astype({Feats.DIRS: int, Feats.PADDING: int})
+        ).astype({Feats.DIRS: int, Feats.DECOY: int})
 
         action_df.to_csv(f"{data_dir}/generated_actions_{i:02d}.csv", index=False)
         obs_df.to_csv(f"{data_dir}/observed_trace_{i:02d}.csv", index=False)

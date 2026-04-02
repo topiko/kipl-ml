@@ -134,7 +134,7 @@ def get_window_feature_dict(
             f"max_silence_s must be divisible by dt (max_silence_s={max_silence_s}, dt={dt})."
         )
 
-    if set(X.keys()) > {Feats.PADDING, Feats.DIRS, Feats.TIMES}:
+    if set(X.keys()) > {Feats.DECOY, Feats.DIRS, Feats.TIMES}:
         raise ValueError("Invalid set of feats")
 
     # (B, L)
@@ -559,7 +559,7 @@ class WindowFeatureStreamer:
                 f"(max_silence_s={max_silence_s}, dt={dt})."
             )
 
-        if set(X.keys()) > {Feats.PADDING, Feats.DIRS, Feats.TIMES}:
+        if set(X.keys()) > {Feats.DECOY, Feats.DIRS, Feats.TIMES}:
             raise ValueError("Invalid set of feats")
 
         self.features = features
@@ -574,7 +574,7 @@ class WindowFeatureStreamer:
                 TraceStateCursor(
                     times=self.X[Feats.TIMES][i],
                     dirs=self.X[Feats.DIRS][i],
-                    pad=self.X[Feats.PADDING][i],
+                    pad=self.X[Feats.DECOY][i],
                     dt=dt,
                     terminate_after_s=cut_off_time_s[i].item()
                     if cut_off_time_s is not None
@@ -659,6 +659,6 @@ class WindowFeatureStreamer:
         terminated = (time_bins < 0).squeeze(1)
         return (
             {f: fd[f] for f in self.features},
-            {Feats.TIMES: times_l, Feats.DIRS: dirs_l, Feats.PADDING: padding_l},
+            {Feats.TIMES: times_l, Feats.DIRS: dirs_l, Feats.DECOY: padding_l},
             ~terminated,
         )

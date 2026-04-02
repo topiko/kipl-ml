@@ -48,7 +48,7 @@ def _pad_short_trace(
         pad_val = trace[-1].item()
     elif asset_key in {Feats.DIRS, Feats.SIZES}:
         pad_val = 0.0
-    elif asset_key == Feats.PADDING:
+    elif asset_key == Feats.DECOY:
         pad_val = False
     else:
         raise ValueError(f"Unknown asset key: {asset_key}")
@@ -145,7 +145,7 @@ class PadOrCutTrace(_TR):
 
         clamped_trace = {}
         for key, val in trace.items():
-            if key in {Feats.TIMES, Feats.DIRS, Feats.SIZES, Feats.PADDING}:
+            if key in {Feats.TIMES, Feats.DIRS, Feats.SIZES, Feats.DECOY}:
                 if key == Feats.TIMES:
                     clamped = val[indices].clone()
                     if relative and tmin is not None:
@@ -752,7 +752,7 @@ class _TAM(_TR):
 
         if self.PADDING:
             try:
-                packet_mask = packet_mask & (trace[Feats.PADDING] == 1)
+                packet_mask = packet_mask & (trace[Feats.DECOY] == 1)
             except KeyError:
                 if not self.padding_warned:
                     logger.warning(
@@ -1020,10 +1020,10 @@ def get_feature_tr(
                 _pad(n_packets),
                 Select(Feats.TIMES),
             )
-        case Feats.PADDING:
+        case Feats.DECOY:
             return Compose(
                 _pad(n_packets),
-                Select(Feats.PADDING),
+                Select(Feats.DECOY),
             )
         case Feats.UP_PACKETS:
             return Compose(

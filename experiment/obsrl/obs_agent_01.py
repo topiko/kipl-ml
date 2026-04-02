@@ -476,14 +476,14 @@ def main(cfg: DictConfig):
                     losses_metrics_d["disc_loss"].append(disc_loss)
                     # (B, )
                     normal_packets = (
-                        (X_obs[Feats.DIRS] != 0) & (X_obs[Feats.PADDING] == 0)
+                        (X_obs[Feats.DIRS] != 0) & (X_obs[Feats.DECOY] == 0)
                     ).sum(dim=1)
                     # (B, )
                     padding_packets_up = (
-                        (X_obs[Feats.DIRS] == UPLOAD) & (X_obs[Feats.PADDING] == 1)
+                        (X_obs[Feats.DIRS] == UPLOAD) & (X_obs[Feats.DECOY] == 1)
                     ).sum(dim=1)
                     padding_packets_down = (
-                        (X_obs[Feats.DIRS] == DOWNLOAD) & (X_obs[Feats.PADDING] == 1)
+                        (X_obs[Feats.DIRS] == DOWNLOAD) & (X_obs[Feats.DECOY] == 1)
                     ).sum(dim=1)
                     padding_packets = padding_packets_down + padding_packets_up
 

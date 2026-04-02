@@ -94,7 +94,7 @@ def get_rewards(
     # N is the number of TAM bins, not packets!
     n_packets = int(packet_seq_lens.max().item())
     times_all = X_obs[Feats.TIMES][:, :n_packets]
-    padding_all = X_obs[Feats.PADDING][:, :n_packets].bool()
+    padding_all = X_obs[Feats.DECOY][:, :n_packets].bool()
 
     # Make contiguous to avoid searchsorted warning.
     pkt_idx = (
