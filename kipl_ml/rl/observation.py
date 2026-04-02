@@ -240,14 +240,14 @@ class SendBuffer:
         self,
         flush_bin: int,
         dt: float,
-        times: torch.Tensor | None = None,
-        dirs: torch.Tensor | None = None,
+        times: torch.Tensor,
+        dirs: torch.Tensor,
         pad: bool = False,
         replace: bool = False,
         bypass: bool = False,
     ):
-        self.times = torch.Tensor([]) if times is None else times
-        self.dirs = torch.Tensor([]) if dirs is None else dirs
+        self.times = times
+        self.dirs = dirs
         self._flush_bin = flush_bin
         self.dt = dt
         self.replace = replace
@@ -272,12 +272,33 @@ class SendBuffer:
     def delay_down(self, time_bin: int) -> None:
         self._delay(DOWNLOAD, time_bin)
 
+    def subtract(self, dirs: torch.Tensor) -> None:
+        if not self.replace:
+            return
+        if not self.pad:
+            return
+
+        mydir = self.dirs.unique()
+        if len(mydir) != 1:
+            raise ValueError(
+                "Expected all packets in the buffer to have the same direction"
+            )
+
+        # This is paddding w. replace enabled -> we can substract.
+        npackets = len(self.dirs)
+        if (to_sub := min(npackets, (dirs == mydir).sum())) <= 0:
+            return
+
+        self.dirs = self.dirs[:-to_sub]
+        self.times = self.times[:-to_sub]
+
     def flush(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Flush the buffer and return (times, dirs, pad)."""
+        """Flush the buffer and return (times, dirs)."""
         if self.flushed:
             raise RuntimeError("Buffer already flushed")
         self.flushed = True
-        return self.times, self.dirs
+        pad = torch.full_like(self.times, self.pad)
+        return self.times, self.dirs, pad
 
 
 @dataclass
@@ -461,29 +482,51 @@ class TraceStateCursor:
         self.delay_down.step(self.send_buffers, act_time_bin, DOWNLOAD)
         self.delay_up.step(self.send_buffers, act_time_bin, UPLOAD)
 
-        self.prev_time_bin = self.cursor_time_bin
-        self.cursor_time_bin += 1
-
+        # Then flush buffers and collect.
         times_l: list[torch.Tensor] = []
         dirs_l: list[torch.Tensor] = []
         pad_l: list[torch.Tensor] = []
+
         # First apply the normal packets
         for buf in self.send_buffers:
             if buf.pad:
                 continue
 
-            if buf.flush_bin <= self.cursor_time_bin:
+            if buf.flush_bin < self.cursor_time_bin:
+                raise RuntimeError(
+                    f"Buffer flush_bin {buf.flush_bin} is in the past (cursor_time_bin={self.cursor_time_bin})"
+                )
+            elif buf.flush_bin == self.cursor_time_bin:
                 times, dirs, pad = buf.flush()
                 times_l.append(times)
                 dirs_l.append(dirs)
                 pad_l.append(pad)
+
+                # For all scheduled future padding buffers with replace=True,
+                # substract the flushed packets if possible.
+                for future_buf in self.send_buffers:
+                    if future_buf.pad and future_buf.replace:
+                        future_buf.subtract(dirs)
 
         # Then the padding ones:
         for buf in self.send_buffers:
             if not buf.pad:
                 continue
 
+            if buf.flush_bin < self.cursor_time_bin:
+                raise RuntimeError(
+                    f"Buffer flush_bin {buf.flush_bin} is in the past (cursor_time_bin={self.cursor_time_bin})"
+                )
+            if buf.flush_bin == self.cursor_time_bin:
+                times, dirs, pad = buf.flush()
+                times_l.append(times)
+                dirs_l.append(dirs)
+                pad_l.append(pad)
+
         self.send_buffers = [buf for buf in self.send_buffers if not buf.flushed]
+
+        self.prev_time_bin = self.cursor_time_bin
+        self.cursor_time_bin += 1
 
         times = torch.cat(times_l) if times_l else torch.Tensor([])
         dirs = torch.cat(dirs_l) if dirs_l else torch.Tensor([])

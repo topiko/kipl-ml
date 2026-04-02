@@ -194,8 +194,8 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         self.assertTrue(torch.equal(recovered[Feats.PADDING], padding))
 
     def test_send_down_adds_packet(self):
-        times = torch.tensor([[0.0]])
-        dirs = torch.tensor([[UPLOAD]])
+        times = torch.tensor([[0.0, 0.02, 0.04]])
+        dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD]])
         padding = torch.zeros_like(dirs)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
@@ -224,25 +224,34 @@ class TestWindowFeatureStreamer(unittest.TestCase):
             torch.equal(fd_packet_level0[Feats.PADDING][0], torch.tensor([0.0]))
         )
 
-        fd_t1, fd_packet_level1, active1 = streamer.step(
+        fd_t1, _, active1 = streamer.step(
             [NoAction(time=int(fd_t0[Feats.TIME_BINS][0, 0].item()))]
         )
         self.assertTrue(active1.any())
         self.assertEqual(int(fd_t1[Feats.UP_COUNT][0, 0].item()), 0)
         self.assertEqual(int(fd_t1[Feats.DOWN_COUNT][0, 0].item()), 1)
+
+        fd_t2, fd_packet_level2, active2 = streamer.step(
+            [NoAction(time=int(fd_t1[Feats.TIME_BINS][0, 0].item()))]
+        )
+        self.assertTrue(active2.any())
+        self.assertEqual(int(fd_t2[Feats.UP_COUNT][0, 0].item()), 1)
+        self.assertEqual(int(fd_t2[Feats.DOWN_COUNT][0, 0].item()), 1)
         self.assertTrue(
-            torch.equal(fd_packet_level1[Feats.TIMES][0], torch.tensor([0.05]))
+            torch.equal(fd_packet_level2[Feats.TIMES][0], torch.tensor([0.04, 0.05]))
         )
         self.assertTrue(
-            torch.equal(fd_packet_level1[Feats.DIRS][0], torch.tensor([DOWNLOAD]))
+            torch.equal(
+                fd_packet_level2[Feats.DIRS][0], torch.tensor([UPLOAD, DOWNLOAD])
+            )
         )
         self.assertTrue(
-            torch.equal(fd_packet_level1[Feats.PADDING][0], torch.tensor([1.0]))
+            torch.equal(fd_packet_level2[Feats.PADDING][0], torch.tensor([0.0, 1.0]))
         )
 
     def test_send_up_adds_packet(self):
-        times = torch.tensor([[0.0]])
-        dirs = torch.tensor([[DOWNLOAD]])
+        times = torch.tensor([[0.0, 0.02, 0.04]])
+        dirs = torch.tensor([[DOWNLOAD, UPLOAD, DOWNLOAD]])
         padding = torch.zeros_like(dirs)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
@@ -271,25 +280,34 @@ class TestWindowFeatureStreamer(unittest.TestCase):
             torch.equal(fd_packet_level0[Feats.PADDING][0], torch.tensor([0.0]))
         )
 
-        fd_t1, fd_packet_level1, active1 = streamer.step(
+        fd_t1, _, active1 = streamer.step(
             [NoAction(time=int(fd_t0[Feats.TIME_BINS][0, 0].item()))]
         )
         self.assertTrue(active1.any())
         self.assertEqual(int(fd_t1[Feats.UP_COUNT][0, 0].item()), 1)
         self.assertEqual(int(fd_t1[Feats.DOWN_COUNT][0, 0].item()), 0)
+
+        fd_t2, fd_packet_level2, active2 = streamer.step(
+            [NoAction(time=int(fd_t1[Feats.TIME_BINS][0, 0].item()))]
+        )
+        self.assertTrue(active2.any())
+        self.assertEqual(int(fd_t2[Feats.UP_COUNT][0, 0].item()), 1)
+        self.assertEqual(int(fd_t2[Feats.DOWN_COUNT][0, 0].item()), 1)
         self.assertTrue(
-            torch.equal(fd_packet_level1[Feats.TIMES][0], torch.tensor([0.05]))
+            torch.equal(fd_packet_level2[Feats.TIMES][0], torch.tensor([0.04, 0.05]))
         )
         self.assertTrue(
-            torch.equal(fd_packet_level1[Feats.DIRS][0], torch.tensor([UPLOAD]))
+            torch.equal(
+                fd_packet_level2[Feats.DIRS][0], torch.tensor([DOWNLOAD, UPLOAD])
+            )
         )
         self.assertTrue(
-            torch.equal(fd_packet_level1[Feats.PADDING][0], torch.tensor([1.0]))
+            torch.equal(fd_packet_level2[Feats.PADDING][0], torch.tensor([0.0, 1.0]))
         )
 
     def test_send_up_and_down_adds_both_packets(self):
-        times = torch.tensor([[0.0]])
-        dirs = torch.tensor([[UPLOAD]])
+        times = torch.tensor([[0.0, 0.02, 0.04]])
+        dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD]])
         padding = torch.zeros_like(dirs)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
@@ -315,22 +333,34 @@ class TestWindowFeatureStreamer(unittest.TestCase):
             torch.equal(fd_packet_level0[Feats.TIMES][0], torch.tensor([0.0]))
         )
 
-        fd_t1, fd_packet_level1, active1 = streamer.step(
+        fd_t1, _, active1 = streamer.step(
             [NoAction(time=int(fd_t0[Feats.TIME_BINS][0, 0].item()))]
         )
         self.assertTrue(active1.any())
-        self.assertEqual(int(fd_t1[Feats.UP_COUNT][0, 0].item()), 1)
+        self.assertEqual(int(fd_t1[Feats.UP_COUNT][0, 0].item()), 0)
         self.assertEqual(int(fd_t1[Feats.DOWN_COUNT][0, 0].item()), 1)
-        self.assertTrue(
-            torch.equal(fd_packet_level1[Feats.TIMES][0], torch.tensor([0.05, 0.05]))
+
+        fd_t2, fd_packet_level2, active2 = streamer.step(
+            [NoAction(time=int(fd_t1[Feats.TIME_BINS][0, 0].item()))]
         )
+        self.assertTrue(active2.any())
+        self.assertEqual(int(fd_t2[Feats.UP_COUNT][0, 0].item()), 2)
+        self.assertEqual(int(fd_t2[Feats.DOWN_COUNT][0, 0].item()), 1)
         self.assertTrue(
             torch.equal(
-                fd_packet_level1[Feats.DIRS][0], torch.tensor([DOWNLOAD, UPLOAD])
+                fd_packet_level2[Feats.TIMES][0], torch.tensor([0.04, 0.05, 0.05])
             )
         )
         self.assertTrue(
-            torch.equal(fd_packet_level1[Feats.PADDING][0], torch.tensor([1.0, 1.0]))
+            torch.equal(
+                fd_packet_level2[Feats.DIRS][0],
+                torch.tensor([UPLOAD, DOWNLOAD, UPLOAD]),
+            )
+        )
+        self.assertTrue(
+            torch.equal(
+                fd_packet_level2[Feats.PADDING][0], torch.tensor([0.0, 1.0, 1.0])
+            )
         )
 
 
