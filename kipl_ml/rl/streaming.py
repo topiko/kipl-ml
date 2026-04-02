@@ -277,6 +277,8 @@ class SendBuffer:
             return
         if not self.decoy:
             return
+        if len(self.dirs) == 0:
+            return
 
         mydir = self.dirs.unique()
         if len(mydir) != 1:
@@ -607,7 +609,7 @@ class WindowFeatureStreamer:
         )  # -1 = invalid
         up = torch.zeros((bs, 1), device=device, dtype=torch.long)
         down = torch.zeros((bs, 1), device=device, dtype=torch.long)
-        dt_bins = torch.full((bs, 1), -1, device=device, dtype=torch.long)  # bin count
+        dt_bins = torch.full((bs, 1), 0, device=device, dtype=torch.long)  # bin count
 
         times_l: list[torch.Tensor] = []
         dirs_l: list[torch.Tensor] = []
@@ -617,20 +619,19 @@ class WindowFeatureStreamer:
         for i, aidx in enumerate(active_idxs):
             cursor = self._cursors[aidx]
             cur_action = actions[i]
-            slept_bins = 0
+            stepped_bins = 1
+            current_bin = cursor.cursor_time_bin
             while True:
                 try:
-                    w_times, w_dirs, w_decoy, time_bin_, dt_bins_ = cursor.step(
-                        cur_action
-                    )
+                    w_times, w_dirs, w_decoy, _, _ = cursor.step(cur_action)
                 except StopIteration:
                     self.done[aidx] = True
                     break
 
-                if w_times.numel() > 0 or slept_bins >= self.max_silence_bins:
+                if w_times.numel() > 0 or stepped_bins >= self.max_silence_bins:
                     break
 
-                slept_bins += 1
+                stepped_bins += 1
                 cur_action = NoAction(time=cursor.cursor_time_bin)
 
             if self.done[aidx]:
@@ -642,8 +643,8 @@ class WindowFeatureStreamer:
 
             up[aidx, 0] = (w_dirs == UPLOAD).sum()
             down[aidx, 0] = (w_dirs == DOWNLOAD).sum()
-            dt_bins[aidx, 0] = dt_bins_
-            time_bins[aidx, 0] = time_bin_
+            time_bins[aidx, 0] = current_bin
+            dt_bins[aidx, 0] = stepped_bins
 
         fd: dict[Feats, torch.Tensor] = {
             Feats.UP_COUNT: up,
