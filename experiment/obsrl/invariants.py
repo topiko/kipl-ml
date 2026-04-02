@@ -279,22 +279,34 @@ def count_packets_inside_delay_windows(
     idx: int = 0,
     max_report: int = 25,
 ) -> DelayLeakReport:
-    if Actions.DELAY_BINS not in actions:
+    if Actions.DELAY_UP not in actions and Actions.DELAY_DOWN not in actions:
         return DelayLeakReport(
             n_delay_steps=0, bad_all=0, bad_nonpadding=0, bad_windows_sample=[]
         )
 
     t_act = act_times[idx]
-    d_act = actions[Actions.DELAY_BINS][idx]
+    d_up = actions[Actions.DELAY_UP][idx] if Actions.DELAY_UP in actions else None
+    d_down = actions[Actions.DELAY_DOWN][idx] if Actions.DELAY_DOWN in actions else None
     # act_times and DELAY are int bins; -1 = invalid.
-    m = (t_act >= 0) & (d_act > 0)
+    m = t_act >= 0
+    if d_up is not None:
+        m = m & (d_up > 0)
+    if d_down is not None:
+        m = m & (d_down > 0)
     if not bool(m.any().item()):
         return DelayLeakReport(
             n_delay_steps=0, bad_all=0, bad_nonpadding=0, bad_windows_sample=[]
         )
 
     # Already int bins - no conversion needed.
-    delay_bins = d_act[m].to(torch.long)
+    if d_up is not None and d_down is not None:
+        delay_bins = torch.maximum(d_up[m], d_down[m]).to(torch.long)
+    elif d_up is not None:
+        delay_bins = d_up[m].to(torch.long)
+    elif d_down is not None:
+        delay_bins = d_down[m].to(torch.long)
+    else:
+        delay_bins = torch.zeros((0,), dtype=torch.long)
     t0_bins = t_act[m].to(torch.long)
 
     pkt_t = X_obs[Feats.TIMES][idx]

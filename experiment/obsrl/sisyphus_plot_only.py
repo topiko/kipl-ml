@@ -99,7 +99,7 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         metavar=("START_S", "END_S"),
         help=(
-            "Force DELAY_BINS=1 for action times in [START_S, END_S). "
+            "Force DELAY_UP/DELAY_DOWN=1 for action times in [START_S, END_S). "
             "Accepted forms: '--delay_between 0 2' or '--delay_between [0,2]'. "
             "This is applied on top of the model outputs."
         ),
@@ -249,21 +249,26 @@ def _install_delay_between_override(obs, start_s: float, end_s: float) -> None:
         )
 
         # Enforce delay only inside the requested interval.
-        actions[Actions.DELAY_BINS] = torch.where(
+        actions[Actions.DELAY_UP] = torch.where(
             mask,
-            torch.ones_like(actions[Actions.DELAY_BINS]),
-            torch.zeros_like(actions[Actions.DELAY_BINS]),
+            torch.ones_like(actions[Actions.DELAY_UP]),
+            torch.zeros_like(actions[Actions.DELAY_UP]),
+        )
+        actions[Actions.DELAY_DOWN] = torch.where(
+            mask,
+            torch.ones_like(actions[Actions.DELAY_DOWN]),
+            torch.zeros_like(actions[Actions.DELAY_DOWN]),
         )
 
         # If policy selected delay outside the forced interval, convert to do-nothing.
-        outside_delay = (~mask) & (actions[Actions.SELECTOR] == 4)
+        outside_delay = (~mask) & (actions[Actions.SELECTOR] >= 4)
         if bool(outside_delay.any().item()):
             actions[Actions.SELECTOR][outside_delay] = 0
             actions[Actions.DO_NOTHING][outside_delay] = 1
-            actions[Actions.SEND_COUNT_UP][outside_delay] = 0
-            actions[Actions.SEND_COUNT_DOWN][outside_delay] = 0
-            actions[Actions.SEND_UP_AFTER_BINS][outside_delay] = 0
-            actions[Actions.SEND_DOWN_AFTER_BINS][outside_delay] = 0
+            actions[Actions.SEND_UP][outside_delay] = 0
+            actions[Actions.SEND_DOWN][outside_delay] = 0
+            actions[Actions.DELAY_UP][outside_delay] = 0
+            actions[Actions.DELAY_DOWN][outside_delay] = 0
 
             sel_probs = sel_probs.clone()
             sel_probs[outside_delay] = 0
@@ -278,11 +283,11 @@ def _install_delay_between_override(obs, start_s: float, end_s: float) -> None:
 
         if bool(mask.any().item()):
             actions[Actions.DO_NOTHING][mask] = 0
-            actions[Actions.SEND_COUNT_UP][mask] = 0
-            actions[Actions.SEND_COUNT_DOWN][mask] = 0
-            actions[Actions.SEND_UP_AFTER_BINS][mask] = 0
-            actions[Actions.SEND_DOWN_AFTER_BINS][mask] = 0
-            actions[Actions.SELECTOR][mask] = 4
+            actions[Actions.SEND_UP][mask] = 0
+            actions[Actions.SEND_DOWN][mask] = 0
+            actions[Actions.DELAY_UP][mask] = 1
+            actions[Actions.DELAY_DOWN][mask] = 1
+            actions[Actions.SELECTOR][mask] = 6
 
             sel_probs = sel_probs.clone()
             sel_probs[mask] = 0
@@ -388,7 +393,9 @@ def _verify_delay_effect(
 
     m_d = times_d[0] >= 0
     ts_d = times_d[0][m_d].to(torch.float32) * float(dt_s)
-    dmask = actions_d[Actions.DELAY_BINS][0][m_d] > 0
+    dmask = (actions_d[Actions.DELAY_UP][0][m_d] > 0) | (
+        actions_d[Actions.DELAY_DOWN][0][m_d] > 0
+    )
     inwin = (ts_d >= float(delay_between[0])) & (ts_d < float(delay_between[1]))
 
     print("delay verification:")

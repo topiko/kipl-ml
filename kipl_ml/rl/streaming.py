@@ -308,6 +308,8 @@ class DelayState:
     steps_left: int = 0
     bypass: bool = False
     replace: bool = False
+    # TODO: REMOVE this after the proper direction semantics are implemented.
+    force_both: bool = True
 
     @property
     def active(self) -> bool:
@@ -338,10 +340,17 @@ class DelayState:
             # untouched. If self.bypass is False, the delay applies to everything.
             if buf.bypass and self.bypass:
                 continue
+            if self.force_both:
+                buf.delay_up(time_bin)
+                buf.delay_down(time_bin)
+                continue
+
             if direction == UPLOAD:
                 buf.delay_up(time_bin)
-            else:
+            elif direction == DOWNLOAD:
                 buf.delay_down(time_bin)
+            else:
+                raise KeyError(f"Invalid direction {direction}")
 
         self.steps_left -= 1
 
@@ -444,8 +453,6 @@ class TraceStateCursor:
             )
 
             self.send_buffers.append(sdb)
-            if act_s_d.replace:
-                raise NotImplementedError("replace=True is not implemented yet")
 
         # Send up actions:
         if Actions.SEND_UP in actions:
@@ -467,8 +474,6 @@ class TraceStateCursor:
             )
 
             self.send_buffers.append(sdb)
-            if act_s_u.replace:
-                raise NotImplementedError("replace=True is not implemented yet")
 
         if Actions.DELAY_DOWN in actions:
             self.delay_down.update(actions[Actions.DELAY_DOWN])

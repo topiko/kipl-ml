@@ -354,108 +354,76 @@ def plot_actions(
     times = _squeeze_batched(times, idx)
     actions = {k: _squeeze_batched(v, idx) for k, v in actions.items()}
 
-    # Convert int bins to seconds.
     if dt_s is not None and dt_s > 0:
         times = times.astype(np.float64) * dt_s
-        # DELAY and SEND_*_AFTER_TIME are also in bins.
-        if Actions.DELAY_BINS in actions:
-            actions[Actions.DELAY_BINS] = (
-                actions[Actions.DELAY_BINS].astype(np.float64) * dt_s
+
+    def _mask(key: Actions) -> np.ndarray | None:
+        if key not in actions:
+            return None
+        return np.asarray(actions[key])
+
+    max_c = 1.0
+
+    # DO_NOTHING as a background span.
+    do_nothing = _mask(Actions.DO_NOTHING)
+    if do_nothing is not None:
+        mask = do_nothing == 1
+        if mask.any():
+            durs = (
+                np.diff(times, append=np.array([times[-1]]), axis=0)
+                if times.size
+                else []
             )
-        if Actions.SEND_UP_AFTER_BINS in actions:
-            actions[Actions.SEND_UP_AFTER_BINS] = (
-                actions[Actions.SEND_UP_AFTER_BINS].astype(np.float64) * dt_s
-            )
-        if Actions.SEND_DOWN_AFTER_BINS in actions:
-            actions[Actions.SEND_DOWN_AFTER_BINS] = (
-                actions[Actions.SEND_DOWN_AFTER_BINS].astype(np.float64) * dt_s
-            )
+            for t0, d in zip(times[mask], durs[mask]):
+                ax.axvspan(t0, t0 + d, color="gray", alpha=0.12, lw=0, zorder=0)
 
-    max_c = 0
-    for ackt in (
-        Actions.DO_NOTHING,
-        Actions.DELAY_BINS,
-        (Actions.SEND_COUNT_UP, Actions.SEND_UP_AFTER_BINS),
-        (Actions.SEND_COUNT_DOWN, Actions.SEND_DOWN_AFTER_BINS),
-    ):
-        if isinstance(ackt, tuple):
-            if ackt[0] not in actions or ackt[1] not in actions:
-                continue
-            counts = actions[ackt[0]]
+    def _plot_send(key: Actions, color: str, sign: int) -> None:
+        nonlocal max_c
+        vals = _mask(key)
+        if vals is None:
+            return
+        mask = vals != 0
+        if not mask.any():
+            return
+        heights = vals.astype(np.float64)
+        if sign < 0:
+            heights = -heights
+        widths = np.ones_like(times[mask], dtype=np.float64)
+        widths *= float(dt_s) if dt_s is not None and dt_s > 0 else 0.005
+        _plot_boxes(times[mask], widths, heights[mask], color=color, alpha=0.2, ax=ax)
+        max_c = max(max_c, float(np.abs(heights[mask]).max()))
 
-            match ackt[0]:
-                case Actions.SEND_COUNT_UP:
-                    color = UP_COLOR
-                case Actions.SEND_COUNT_DOWN:
-                    color = DOWN_COLOR
-                    counts = -counts
-                case _:
-                    raise ValueError(f"Unknown action type: {ackt[0]}")
+    _plot_send(Actions.SEND_UP, UP_COLOR, +1)
+    _plot_send(Actions.SEND_DOWN, DOWN_COLOR, -1)
 
-            match ackt[1]:
-                case Actions.SEND_UP_AFTER_BINS | Actions.SEND_DOWN_AFTER_BINS:
-                    durs = np.ones_like(times) * 0.005
-                    shifts = actions[ackt[1]]
-                case _:
-                    raise ValueError(f"Unknown action type: {ackt[1]}")
-
-            max_c = max(max_c, np.absolute(counts).max())
-
-            mask = counts != 0
-            _plot_boxes(
-                x=times[mask] + shifts[mask],
-                widths=durs[mask],
-                heights=counts[mask],
+    def _plot_delay(key: Actions, color: str, ymin: float, ymax: float) -> None:
+        vals = _mask(key)
+        if vals is None:
+            return
+        mask = vals > 0
+        if not mask.any():
+            return
+        delay_s = vals.astype(np.float64)
+        if dt_s is not None and dt_s > 0:
+            delay_s *= dt_s
+        for t0, d in zip(times[mask], delay_s[mask]):
+            ax.axvspan(
+                t0,
+                t0 + d,
+                ymin=ymin,
+                ymax=ymax,
                 color=color,
-                alpha=0.2,
-                ax=ax,
+                alpha=0.18,
+                lw=0,
+                zorder=0,
             )
 
-            if (shifts != 0).any():
-                mask = shifts != 0
-                ax.quiver(
-                    times[mask],
-                    np.zeros_like(times[mask]),
-                    shifts[mask],
-                    counts[mask],
-                    angles="xy",
-                    scale_units="xy",
-                    scale=1,
-                    width=0.001,
-                    headwidth=2.0,
-                    headlength=2.0,
-                    headaxislength=3.6,
-                    linewidth=0.2,
-                    color="k",
-                    alpha=0.5,
-                    rasterized=True,  # nice if you save to PDF with lots of arrows
-                )
+    # Delay spans: upward delays in upper half, downward delays in lower half.
+    _plot_delay(Actions.DELAY_UP, "#d97706", 0.5, 1.0)
+    _plot_delay(Actions.DELAY_DOWN, "#b45309", 0.0, 0.5)
 
-        elif ackt == Actions.DO_NOTHING:
-            # Render as a background span (duration effect) rather than a bar.
-            mask = actions[ackt] == 1
-            if mask.any():
-                print("Rendering DO_NOTHING spans:")
-                durs = np.diff(times, append=np.array([times[-1]]), axis=0)
-                for t0, d in zip(times[mask], durs[mask]):
-                    ax.axvspan(t0, t0 + d, color="gray", alpha=0.12, lw=0, zorder=0)
+    ax.vlines(times, -1, 1, color="black", lw=0.7)
 
-        elif ackt == Actions.DELAY_BINS:
-            # Render delay as a background span (duration effect), not as a
-            # "selector" bar, to avoid looking like it co-occurs with DO_NOTHING.
-            if Actions.DELAY_BINS not in actions:
-                continue
-            delay_s = actions[Actions.DELAY_BINS]
-            if delay_s.ndim != 1:
-                raise ValueError("Expected DELAY to be (T,)")
-            mask = delay_s > 0
-            if mask.any():
-                for t0, d in zip(times[mask], delay_s[mask]):
-                    ax.axvspan(t0, t0 + d, color="#d97706", alpha=0.18, lw=0, zorder=0)
-
-        ax.vlines(times, -1, 1, color="black", lw=0.7)
-
-    max_c = max(max_c, 1)
     ax.set_ylim(-max_c * 1.1, max_c * 1.1)
     return ax
 
