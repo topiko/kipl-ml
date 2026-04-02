@@ -7,6 +7,12 @@
 - Do not subtract packets from the opposite direction when applying replacement.
 - Replacement counting is based on scheduling state, not packet timestamps.
 
+## Padding kinds
+
+- `Feats.PADDING == 1` marks a packet as padding/decoy at the packet level.
+- `dirs == 0` is an empty-slot or batch-padding marker, not a packet direction.
+- Do not use `dirs == 0` to infer packet padding semantics.
+
 ## Delay semantics
 
 - Delay state is tracked explicitly in the cursor.
