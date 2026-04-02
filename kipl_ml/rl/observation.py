@@ -242,7 +242,7 @@ class SendBuffer:
         dt: float,
         times: torch.Tensor,
         dirs: torch.Tensor,
-        pad: bool = False,
+        decoy: bool = False,
         replace: bool = False,
         bypass: bool = False,
     ):
@@ -252,7 +252,7 @@ class SendBuffer:
         self.dt = dt
         self.replace = replace
         self.bypass = bypass
-        self.pad = pad
+        self.decoy = decoy
         self.flushed = False
 
     @property
@@ -275,7 +275,7 @@ class SendBuffer:
     def subtract(self, dirs: torch.Tensor) -> None:
         if not self.replace:
             return
-        if not self.pad:
+        if not self.decoy:
             return
 
         mydir = self.dirs.unique()
@@ -284,7 +284,7 @@ class SendBuffer:
                 "Expected all packets in the buffer to have the same direction"
             )
 
-        # This is paddding w. replace enabled -> we can substract.
+        # Decoy buffer with replace enabled -> subtract matching queued normal packets.
         npackets = len(self.dirs)
         if (to_sub := min(npackets, (dirs == mydir).sum())) <= 0:
             return
@@ -297,8 +297,8 @@ class SendBuffer:
         if self.flushed:
             raise RuntimeError("Buffer already flushed")
         self.flushed = True
-        pad = torch.full_like(self.times, self.pad)
-        return self.times, self.dirs, pad
+        decoy = torch.full_like(self.times, self.decoy)
+        return self.times, self.dirs, decoy
 
 
 @dataclass
@@ -368,14 +368,14 @@ class TraceStateCursor:
         self,
         times: torch.Tensor,
         dirs: torch.Tensor,
-        pad: torch.Tensor,
+        decoy: torch.Tensor,
         dt: float,
         terminate_after_s: float | None = None,
     ):
         self.dt = dt
         self.times = times
         self.dirs = dirs
-        self.pad = pad
+        self.decoy = decoy
         # `send_buffers` collect packets scheduled during the current cursor walk.
         # They hold both original packets from the active window and decoy packets
         # injected by the current action, then flush once their target bin is reached.
@@ -409,7 +409,7 @@ class TraceStateCursor:
                 dt=self.dt,
                 times=times,
                 dirs=dirs,
-                pad=False,
+                decoy=False,
             )
         )
         # Action logic here.
@@ -419,7 +419,7 @@ class TraceStateCursor:
         # - replace=True replaces the active delay; otherwise keep the strongest
         #   active delay (max duration and max packet count independently)
         # - when a delay is started or adjusted, its bypassable status is replaced too
-        # PADDING follows the packet through the buffers so the final reconstructed
+        # DECOY follows the packet through the buffers so the final reconstructed
         # trace can distinguish original packets from injected decoys.
         act_time_bin = actions.time
         dt_bins = self.cursor_time_bin - self.prev_time_bin
@@ -483,11 +483,11 @@ class TraceStateCursor:
         # Then flush buffers and collect.
         times_l: list[torch.Tensor] = []
         dirs_l: list[torch.Tensor] = []
-        pad_l: list[torch.Tensor] = []
+        decoy_l: list[torch.Tensor] = []
 
         # First apply the normal packets
         for buf in self.send_buffers:
-            if buf.pad:
+            if buf.decoy:
                 continue
 
             if buf.flush_bin < self.cursor_time_bin:
@@ -495,20 +495,20 @@ class TraceStateCursor:
                     f"Buffer flush_bin {buf.flush_bin} is in the past (cursor_time_bin={self.cursor_time_bin})"
                 )
             elif buf.flush_bin == self.cursor_time_bin:
-                times, dirs, pad = buf.flush()
+                times, dirs, decoy = buf.flush()
                 times_l.append(times)
                 dirs_l.append(dirs)
-                pad_l.append(pad)
+                decoy_l.append(decoy)
 
-                # For all scheduled future padding buffers with replace=True,
-                # substract the flushed packets if possible.
+                # For all scheduled future decoy buffers with replace=True,
+                # subtract the flushed packets if possible.
                 for future_buf in self.send_buffers:
-                    if future_buf.pad and future_buf.replace:
+                    if future_buf.decoy and future_buf.replace:
                         future_buf.subtract(dirs)
 
-        # Then the padding ones:
+        # Then the decoy ones:
         for buf in self.send_buffers:
-            if not buf.pad:
+            if not buf.decoy:
                 continue
 
             if buf.flush_bin < self.cursor_time_bin:
@@ -516,10 +516,10 @@ class TraceStateCursor:
                     f"Buffer flush_bin {buf.flush_bin} is in the past (cursor_time_bin={self.cursor_time_bin})"
                 )
             if buf.flush_bin == self.cursor_time_bin:
-                times, dirs, pad = buf.flush()
+                times, dirs, decoy = buf.flush()
                 times_l.append(times)
                 dirs_l.append(dirs)
-                pad_l.append(pad)
+                decoy_l.append(decoy)
 
         self.send_buffers = [buf for buf in self.send_buffers if not buf.flushed]
 
@@ -528,9 +528,9 @@ class TraceStateCursor:
 
         times = torch.cat(times_l) if times_l else torch.Tensor([])
         dirs = torch.cat(dirs_l) if dirs_l else torch.Tensor([])
-        pad = torch.cat(pad_l) if pad_l else torch.Tensor([])
+        decoy = torch.cat(decoy_l) if decoy_l else torch.Tensor([])
 
-        return times, dirs, pad, self.cursor_time_bin, dt_bins
+        return times, dirs, decoy, self.cursor_time_bin, dt_bins
 
 
 class WindowFeatureStreamer:
@@ -574,7 +574,7 @@ class WindowFeatureStreamer:
                 TraceStateCursor(
                     times=self.X[Feats.TIMES][i],
                     dirs=self.X[Feats.DIRS][i],
-                    pad=self.X[Feats.DECOY][i],
+                    decoy=self.X[Feats.DECOY][i],
                     dt=dt,
                     terminate_after_s=cut_off_time_s[i].item()
                     if cut_off_time_s is not None
@@ -606,7 +606,7 @@ class WindowFeatureStreamer:
 
         times_l: list[torch.Tensor] = []
         dirs_l: list[torch.Tensor] = []
-        padding_l: list[torch.Tensor] = []
+        decoy_l: list[torch.Tensor] = []
 
         active_idxs = np.arange(bs)[self.active_mask()]
         for i, aidx in enumerate(active_idxs):
@@ -615,7 +615,7 @@ class WindowFeatureStreamer:
             slept_bins = 0
             while True:
                 try:
-                    w_times, w_dirs, w_padding, time_bin_, dt_bins_ = cursor.step(
+                    w_times, w_dirs, w_decoy, time_bin_, dt_bins_ = cursor.step(
                         cur_action
                     )
                 except StopIteration:
@@ -633,7 +633,7 @@ class WindowFeatureStreamer:
 
             times_l.append(w_times)
             dirs_l.append(w_dirs)
-            padding_l.append(w_padding)
+            decoy_l.append(w_decoy)
 
             up[aidx, 0] = (w_dirs == UPLOAD).sum()
             down[aidx, 0] = (w_dirs == DOWNLOAD).sum()
@@ -659,6 +659,6 @@ class WindowFeatureStreamer:
         terminated = (time_bins < 0).squeeze(1)
         return (
             {f: fd[f] for f in self.features},
-            {Feats.TIMES: times_l, Feats.DIRS: dirs_l, Feats.DECOY: padding_l},
+            {Feats.TIMES: times_l, Feats.DIRS: dirs_l, Feats.DECOY: decoy_l},
             ~terminated,
         )

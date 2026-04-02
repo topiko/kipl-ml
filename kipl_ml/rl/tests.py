@@ -172,9 +172,9 @@ class TestDeprecatedWindowFeatureDict(unittest.TestCase):
     def test_deprecated_helper_warns_and_returns_bins(self):
         times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
         dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
-        padding = torch.zeros_like(dirs)
+        decoy = torch.zeros_like(dirs)
 
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: padding}
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
         features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         with warnings.catch_warnings(record=True) as caught:

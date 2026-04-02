@@ -82,7 +82,7 @@ def policy_rollout_streaming(
 ]:
     """Run policy stepwise on streamed windows and execute actions.
 
-    If max_packets is set, stops once base_packets + requested_padding >= max_packets.
+    If max_packets is set, stops once base_packets + requested_decoy >= max_packets.
     """
 
     res = cast(
@@ -112,7 +112,7 @@ def policy_obfuscate_trace_streaming(
     This is a lighter-weight variant of policy_rollout_streaming() for inference
     use-cases (e.g. NN defences): it avoids storing per-step policy outputs.
 
-    If max_packets is set, stops once base_packets + requested_padding >= max_packets.
+    If max_packets is set, stops once base_packets + requested_decoy >= max_packets.
     """
 
     X_obs = cast(
@@ -243,8 +243,6 @@ def _policy_rollout_streaming_impl(
         )
 
         hobs = _hidden_w_mask(hobs, active, h_active)
-
-        # STOP HERE
 
     X_obs = _batch_packet_level_features(fd_packet_level)
 

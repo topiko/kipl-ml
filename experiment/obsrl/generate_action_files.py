@@ -7,8 +7,7 @@ import torch
 
 from kipl_ml.data.utils import Datasets, assets, load_dataset_meta_df
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
-from kipl_ml.rl.action import execute_actions_from_sequence
-from kipl_ml.rl.observation import get_window_feature_dict
+from kipl_ml.rl.simulate import policy_rollout_streaming
 from kipl_ml.tools.mlflow_utils import set_tracking_uri_from_env
 from kipl_ml.trace.features import Feats, FeatureTrs
 
@@ -50,14 +49,6 @@ def generate_for(
 
     X = {k: x.unsqueeze(0) for k, x in X.items()}
 
-    fd = get_window_feature_dict(
-        X, obs.time_step, obs.max_silence_s, features=obs.features
-    )
-
-    # We need the seq. lens in forward.
-    action_seq_lens = fd.pop(Feats.SEQ_LENS)
-    L = action_seq_lens.max().item()
-
     print(meta_ser)
 
     trace_id = meta_ser.trace_id
@@ -68,13 +59,10 @@ def generate_for(
 
     for i in range(N_REALIZATIONS):
         with torch.no_grad():
-            act_times, actions, log_ps, sel_probs, _, entropies, h = obs.act(
-                fd, None, h_detach_period=1000, seq_lens=action_seq_lens
+            fd, act_times, actions, log_ps, sel_probs, _, entropies, X_obs = (
+                policy_rollout_streaming(obs, X, sample=True)
             )
 
-        X_obs = execute_actions_from_sequence(
-            X, act_times, actions, time_step_s=float(obs.time_step)
-        )
         act_times = act_times.squeeze(0).cpu().numpy()
 
         action_df = pd.DataFrame(data=act_times, columns=["act_times [s]"])
