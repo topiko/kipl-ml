@@ -222,7 +222,7 @@ def _policy_rollout_streaming_impl(
 
     hobs = None
     while True:
-        # We make refactor to streamer where it keep track of the active mask.
+        # The streamer sleeps internally until it emits or hits its cap.
         fd_t, fd_packet_level_, active = streamer.step(actions_a)
 
         if active.sum() == 0:

@@ -8,7 +8,7 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.rl.enums import ActDelay, Actions, StepAction, StepActions
+from kipl_ml.rl.enums import ActDelay, Actions, NoAction, StepAction, StepActions
 from kipl_ml.rl.utils import _flush_left
 from kipl_ml.trace.enums import Feats
 from kipl_ml.utils.time import (
@@ -371,7 +371,6 @@ class TraceStateCursor:
         pad: torch.Tensor,
         dt: float,
         terminate_after_s: float | None = None,
-        max_silence_bins: int | None = None,
     ):
         self.dt = dt
         self.times = times
@@ -385,18 +384,13 @@ class TraceStateCursor:
         self.delay_down = DelayState()
         self.cursor_time_bin: int = 0
         self.prev_time_bin: int = 0
-        self.max_silence_bins = max_silence_bins
-        self.terminate_after_bin = (
-            int(round(float(terminate_after_s) / float(dt)))
-            if terminate_after_s is not None
-            else int(_time_to_bin_idx(times.max().unsqueeze(0), dt).item()) + 1
-        )
+        self.terminate_after_s = terminate_after_s or times.max().item() + dt
         self.device = times.device
 
     def step(
         self, actions: StepAction
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int, int]:
-        if self.prev_time_bin >= self.terminate_after_bin:
+        if self.prev_time_bin * self.dt >= self.terminate_after_s:
             raise StopIteration
 
         times, dirs = _get_from_interval(
@@ -553,6 +547,8 @@ class WindowFeatureStreamer:
             raise ValueError(f"dt must be > 0, got {dt}")
 
         ratio = max_silence_s / dt
+        # K in bin index space.
+        self.max_silence_bins = int(ratio)
         if abs(ratio - round(ratio)) > 1e-8:
             raise ValueError(
                 f"max_silence_s must be divisible by dt "
@@ -568,10 +564,6 @@ class WindowFeatureStreamer:
         self.dt = float(dt)
         self.X = {k: v.clone() for k, v in X.items()}
 
-        # K in bin index space.
-        K = int(max_silence_s / dt) if dt > 0 else 1
-        self.K = max(K, 1)
-
         self._cursors: list[TraceStateCursor] = []
         for i in range(self.bs):
             self._cursors.append(
@@ -580,30 +572,11 @@ class WindowFeatureStreamer:
                     dirs=self.X[Feats.DIRS][i],
                     pad=self.X[Feats.PADDING][i],
                     dt=dt,
-                    max_silence_bins=self.K,
+                    terminate_after_s=cut_off_time_s[i].item()
+                    if cut_off_time_s is not None
+                    else None,
                 )
             )
-
-        # Per-trace cutoff in bin space. None means "last packet bin + 1".
-        if cut_off_time_s is None:
-            self.cut_off_bins = torch.tensor(
-                [
-                    int(
-                        _time_to_bin_idx(
-                            self.X[Feats.TIMES][i][self.X[Feats.DIRS][i] != 0], dt
-                        )
-                        .max()
-                        .item()
-                    )
-                    + 1
-                    for i in range(self.bs)
-                ],
-                device=self.device,
-                dtype=torch.long,
-            )
-        else:
-            # cut_off = torch.as_tensor(cut_off_time_s, device=self.device)
-            raise NotImplementedError("cut_off_time_s is not implemented yet")
 
         self.done = np.zeros(self.bs, dtype=bool)
 
@@ -611,7 +584,8 @@ class WindowFeatureStreamer:
         return ~self.done
 
     def step(
-        self, actions: StepActions
+        self,
+        actions: StepActions,
     ) -> tuple[
         dict[Feats, torch.Tensor], dict[Feats, list[torch.Tensor]], torch.Tensor
     ]:
@@ -632,12 +606,25 @@ class WindowFeatureStreamer:
 
         active_idxs = np.arange(bs)[self.active_mask()]
         for i, aidx in enumerate(active_idxs):
-            try:
-                w_times, w_dirs, w_padding, time_bin_, dt_bins_ = self._cursors[
-                    aidx
-                ].step(actions[i])
-            except StopIteration:
-                self.done[aidx] = True
+            cursor = self._cursors[aidx]
+            cur_action = actions[i]
+            slept_bins = 0
+            while True:
+                try:
+                    w_times, w_dirs, w_padding, time_bin_, dt_bins_ = cursor.step(
+                        cur_action
+                    )
+                except StopIteration:
+                    self.done[aidx] = True
+                    break
+
+                if w_times.numel() > 0 or slept_bins >= self.max_silence_bins:
+                    break
+
+                slept_bins += 1
+                cur_action = NoAction(time=cursor.cursor_time_bin)
+
+            if self.done[aidx]:
                 continue
 
             times_l.append(w_times)

@@ -5,7 +5,10 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.rl.enums import Actions, ActSendDown, ActSendUp, NoAction, StepAction
-from kipl_ml.rl.observation import WindowFeatureStreamer, get_window_feature_dict
+from kipl_ml.rl.observation import (
+    WindowFeatureStreamer,
+    get_window_feature_dict,
+)
 from kipl_ml.rl.utils import fill_after_seq_end
 from kipl_ml.trace.enums import Feats
 from kipl_ml.utils.time import (
@@ -361,6 +364,29 @@ class TestWindowFeatureStreamer(unittest.TestCase):
             torch.equal(
                 fd_packet_level2[Feats.PADDING][0], torch.tensor([0.0, 1.0, 1.0])
             )
+        )
+
+    def test_streamer_sleep_until_emit(self):
+        times = torch.tensor([[0.06]])
+        dirs = torch.tensor([[UPLOAD]])
+        padding = torch.tensor([[0]])
+
+        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.PADDING: padding}
+        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
+        streamer = WindowFeatureStreamer(X, self.DT, self.MAX_SILENCE_S, features)
+
+        fd_t, fd_packet_level, active = streamer.step([NoAction(time=0)])
+
+        self.assertTrue(active.any())
+        self.assertEqual(int(fd_t[Feats.UP_COUNT][0, 0].item()), 1)
+        self.assertTrue(
+            torch.equal(fd_packet_level[Feats.TIMES][0], torch.tensor([0.06]))
+        )
+        self.assertTrue(
+            torch.equal(fd_packet_level[Feats.DIRS][0], torch.tensor([UPLOAD]))
+        )
+        self.assertTrue(
+            torch.equal(fd_packet_level[Feats.PADDING][0], torch.tensor([0]))
         )
 
 
