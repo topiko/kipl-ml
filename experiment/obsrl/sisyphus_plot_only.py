@@ -433,7 +433,7 @@ def _install_action_policy_override(obs, policy: str) -> None:
                     action_dict[Actions.SEND_UP] = ActSendUp(count=100, after_steps=0)
                 if bool(delay_mask[i].item()):
                     action_dict[Actions.DELAY_UP] = ActDelayUp(steps=2)
-                    action_dict[Actions.DELAY_DOWN] = ActDelayDown(steps=2)
+                    # action_dict[Actions.DELAY_DOWN] = ActDelayDown(steps=2)
                 actions.append(StepAction(time=int(t.item()), _actions=action_dict))
 
             return action_times, actions, log_probs, sel_probs, values, entropies, h_out

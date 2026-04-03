@@ -308,8 +308,10 @@ class DelayState:
     """Active delay window for one direction."""
 
     steps_left: int = 0
+    steps_since_start: int = 0
     bypass: bool = False
     replace: bool = False
+    rtt: int = 0
 
     @property
     def active(self) -> bool:
@@ -325,6 +327,16 @@ class DelayState:
         if self.active and not action.replace:
             return
 
+        if self.active and not self.replace:
+            return
+
+        if self.active and self.replace and action.replace:
+            # We cannot update self.steps_since_start. The delay continue.
+            pass
+
+        if not self.active:
+            self.steps_since_start = 0
+
         self.steps_left = max(0, int(action.steps))
         self.bypass = action.bypass
         self.replace = action.replace
@@ -335,6 +347,9 @@ class DelayState:
         if not self.active:
             return
 
+        if self.rtt != 0:
+            raise NotImplementedError("RTT > 0 is not implemented yet")
+
         for buf in buffers:
             # If both the active delay and the buffer are bypass-enabled, leave it
             # untouched. If self.bypass is False, the delay applies to everything.
@@ -342,12 +357,17 @@ class DelayState:
                 continue
             if direction == UPLOAD:
                 buf.delay_up(time_bin)
+                if self.steps_since_start >= self.rtt:
+                    buf.delay_down(time_bin)
             elif direction == DOWNLOAD:
                 buf.delay_down(time_bin)
+                if self.steps_since_start >= self.rtt:
+                    buf.delay_up(time_bin)
             else:
                 raise KeyError(f"Invalid direction {direction}")
 
         self.steps_left -= 1
+        self.steps_since_start += 1
 
 
 def _get_from_interval(
@@ -477,8 +497,8 @@ class TraceStateCursor:
             self.delay_up.update(actions[Actions.DELAY_UP])
 
         # Apply delays:
-        self.delay_down.step(self.send_buffers, act_time_bin, DOWNLOAD)
-        self.delay_up.step(self.send_buffers, act_time_bin, UPLOAD)
+        self.delay_down.step(self.send_buffers, self.cursor_time_bin, DOWNLOAD)
+        self.delay_up.step(self.send_buffers, self.cursor_time_bin, UPLOAD)
 
         # Then flush buffers and collect.
         times_l: list[torch.Tensor] = []
