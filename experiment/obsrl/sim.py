@@ -141,6 +141,7 @@ def get_rewards(
             action_times_f[m_fin], float(tam_dt_s)
         )
 
+    disc_bins = disc_bins.to(boundaries_bins.device)
     idxs = torch.searchsorted(boundaries_bins, disc_bins, right=True) - 1
     idxs = idxs.clamp(0, T - 1)
 
