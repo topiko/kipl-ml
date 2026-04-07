@@ -268,7 +268,7 @@ def _policy_rollout_streaming_impl(
             for f in obs_.features:
                 fd_steps[f].append(fd_t[f].to("cpu"))
 
-        fd_active = {f: fd_t[f][active] for f in obs_.features}
+        fd_active = {f: fd_t[f][active].to(device) for f in obs_.features}
         h_active = _hidden_w_mask(hobs, active)
         act_time_bins_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
             obs_.act_step(fd_active, h_active, sample=sample)
