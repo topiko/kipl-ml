@@ -56,11 +56,8 @@ def run_streaming_trace(
     features: list[Feats],
     actions: list[list[StepAction]] | None = None,
     max_steps: int = 1000,
-    step_workers: int = 1,
 ) -> dict[Feats, torch.Tensor]:
-    streamer = WindowFeatureStreamer(
-        X, dt, max_silence_s, features, step_workers=step_workers
-    )
+    streamer = WindowFeatureStreamer(X, dt, max_silence_s, features)
     bs = int(X[Feats.TIMES].shape[0])
     packet_hist: list[dict[Feats, list[torch.Tensor]]] = [
         {Feats.TIMES: [], Feats.DIRS: [], Feats.DECOY: []} for _ in range(bs)
@@ -274,37 +271,6 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         self.assertEqual(seq_lens.shape, (1,))
         self.assertTrue((seq_lens > 0).all())
         self.assertEqual(seq_lens[0].item(), 5)
-
-    def test_threaded_streaming_matches_serial(self):
-        times = torch.tensor(
-            [
-                [0.0, 0.02, 0.04, 0.06, 0.08],
-                [0.01, 0.03, 0.05, 0.07, 0.09],
-            ]
-        )
-        dirs = torch.tensor(
-            [
-                [UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD],
-                [DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD],
-            ],
-            dtype=torch.float32,
-        )
-        decoy = torch.zeros_like(dirs, dtype=torch.bool)
-
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
-        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
-
-        serial = run_streaming_trace(X, self.DT, self.MAX_SILENCE_S, features)
-        threaded = run_streaming_trace(
-            X,
-            self.DT,
-            self.MAX_SILENCE_S,
-            features,
-            step_workers=4,
-        )
-
-        self.assertEqual(serial.keys(), threaded.keys())
-        assert_trace_equal(threaded, serial)
 
     def test_noaction_recovers_original_trace(self):
         times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])

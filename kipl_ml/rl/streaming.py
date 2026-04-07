@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
-from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import torch
@@ -577,8 +576,7 @@ class WindowFeatureStreamer:
         dt: float,
         max_silence_s: float,
         features: list[Feats],
-        cut_off_time_s: float | torch.Tensor | None = None,
-        step_workers: int = 1,
+        cut_off_time_s: torch.Tensor | None = None,
     ):
         if dt <= 0:
             raise ValueError(f"dt must be > 0, got {dt}")
@@ -599,9 +597,6 @@ class WindowFeatureStreamer:
         self.device = X[Feats.TIMES].device
         self.bs = X[Feats.TIMES].shape[0]
         self.dt = float(dt)
-        self.step_workers = int(step_workers)
-        if self.step_workers < 0:
-            raise ValueError(f"step_workers must be >= 0, got {step_workers}")
         self.X = {k: v.clone() for k, v in X.items()}
 
         self._cursors: list[TraceStateCursor] = []
@@ -646,10 +641,7 @@ class WindowFeatureStreamer:
 
         active_idxs = np.arange(bs)[self.active_mask()]
 
-        def _step_one(
-            item: tuple[int, StepAction],
-        ) -> StepRes:
-            aidx, cur_action = item
+        def _step_one(aidx: int, cur_action: StepAction) -> StepRes:
             cursor = self._cursors[aidx]
             stepped_bins = 1
             current_bin = cursor.cursor_time_bin
@@ -682,12 +674,8 @@ class WindowFeatureStreamer:
                 stepped_bins += 1
                 cur_action = NoAction(time=cursor.cursor_time_bin)
 
-        active_pairs = list(zip(active_idxs.tolist(), actions))
-        if self.step_workers > 1 and len(active_pairs) > 1:
-            with ThreadPoolExecutor(max_workers=self.step_workers) as ex:
-                results = list(ex.map(_step_one, active_pairs))
-        else:
-            results = [_step_one(p) for p in active_pairs]
+        # Do the stepping on the active traces. TODO: parallelize??
+        results = [_step_one(idx_, a) for idx_, a in zip(active_idxs, actions)]
 
         for res in results:
             if res.is_done:

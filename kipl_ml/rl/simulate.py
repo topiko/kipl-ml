@@ -80,17 +80,7 @@ def policy_rollout_streaming(
     sample: bool = True,
     cut_off_time_s: float | torch.Tensor | None = None,
     max_packets: int | None = None,
-    stream_workers: int = 1,
-) -> tuple[
-    dict[Feats, torch.Tensor],
-    torch.Tensor,
-    list[StepActions],
-    torch.Tensor,
-    torch.Tensor,
-    torch.Tensor,
-    dict[str, torch.Tensor],
-    dict[Feats, torch.Tensor],
-]:
+) -> _StreamingRollout:
     """Run policy stepwise on streamed windows and execute actions.
 
     If max_packets is set, stops once base_packets + requested_decoy >= max_packets.
@@ -105,15 +95,10 @@ def policy_rollout_streaming(
             sample=sample,
             cut_off_time_s=cut_off_time_s,
             max_packets=max_packets,
-            stream_workers=stream_workers,
             record_policy=True,
         ),
     )
-    logger.info(
-        "stream rollout wall time (workers=%d): %.3fs",
-        int(stream_workers),
-        perf_counter() - t0,
-    )
+    logger.info("stream rollout wall time:  %.3fs", perf_counter() - t0)
     return res
 
 
@@ -124,7 +109,6 @@ def policy_obfuscate_trace_streaming(
     sample: bool = True,
     cut_off_time_s: float | torch.Tensor | None = None,
     max_packets: int | None = None,
-    stream_workers: int = 1,
 ) -> dict[Feats, torch.Tensor]:
     """Obfuscate a trace stepwise using WindowFeatureStreamer.
 
@@ -143,15 +127,10 @@ def policy_obfuscate_trace_streaming(
             sample=sample,
             cut_off_time_s=cut_off_time_s,
             max_packets=max_packets,
-            stream_workers=stream_workers,
             record_policy=False,
         ),
     )
-    logger.info(
-        "stream obfuscation wall time (workers=%d): %.3fs",
-        int(stream_workers),
-        perf_counter() - t0,
-    )
+    logger.info("stream obfuscation wall time: %.3fs", perf_counter() - t0)
     return X_obs
 
 
@@ -163,18 +142,8 @@ def _policy_rollout_streaming_impl(
     sample: bool,
     cut_off_time_s: float | torch.Tensor | None,
     max_packets: int | None,
-    stream_workers: int,
     record_policy: Literal[True],
-) -> tuple[
-    dict[Feats, torch.Tensor],
-    torch.Tensor,
-    list[StepActions],
-    torch.Tensor,
-    torch.Tensor,
-    torch.Tensor,
-    dict[str, torch.Tensor],
-    dict[Feats, torch.Tensor],
-]: ...
+) -> _StreamingRollout: ...
 
 
 @overload
@@ -185,7 +154,6 @@ def _policy_rollout_streaming_impl(
     sample: bool,
     cut_off_time_s: float | torch.Tensor | None,
     max_packets: int | None,
-    stream_workers: int,
     record_policy: Literal[False],
 ) -> dict[Feats, torch.Tensor]: ...
 
@@ -197,7 +165,6 @@ def _policy_rollout_streaming_impl(
     sample: bool,
     cut_off_time_s: float | torch.Tensor | None,
     max_packets: int | None,
-    stream_workers: int,
     record_policy: bool,
 ) -> dict[Feats, torch.Tensor] | _StreamingRollout:
     """Internal streaming rollout implementation.
@@ -216,6 +183,10 @@ def _policy_rollout_streaming_impl(
     device = Xb[Feats.TIMES].device
     bs = int(Xb[Feats.TIMES].shape[0])
 
+    if bs > 1 and max_packets is not None:
+        raise NotImplementedError("max_packets is not supported for batch size > 1")
+    max_packets = max_packets or 0
+
     # The streamer does per-trace stepping with Python control flow. If X lives on
     # CUDA, keep the streamer on CPU to avoid per-step GPU syncs.
     stream_device = torch.device("cpu")
@@ -231,7 +202,6 @@ def _policy_rollout_streaming_impl(
         max_silence_s=obs.max_silence_s,
         features=obs.features,
         cut_off_time_s=cut_off_time_s,
-        step_workers=stream_workers,
     )
 
     log_ps_l: list[torch.Tensor] = []
@@ -244,19 +214,20 @@ def _policy_rollout_streaming_impl(
     fd_steps: dict[Feats, list[torch.Tensor]] = {f: [] for f in obs.features}
 
     actions_a: StepActions = [NoAction(time=0) for _ in range(bs)]
-    fd_packet_level: list[dict[Feats, list[torch.Tensor]]] = [
+    X_obs_l: list[dict[Feats, list[torch.Tensor]]] = [
         {Feats.TIMES: [], Feats.DIRS: [], Feats.DECOY: []} for _ in range(bs)
     ]
 
-    def _densify(x: torch.Tensor) -> torch.Tensor:
+    def _densify(x: torch.Tensor, active: torch.Tensor) -> torch.Tensor:
         full = torch.zeros((bs,) + x.shape[1:], device=x.device, dtype=x.dtype)
         full[active] = x
         return full
 
     hobs = None
+    n_packets = 0
     while True:
         # The streamer sleeps internally until it emits or hits its cap.
-        fd_t, fd_packet_level_, active = streamer.step(actions_a)
+        fd_t, X_obs_, active = streamer.step(actions_a)
 
         if active.sum() == 0:
             break
@@ -264,12 +235,16 @@ def _policy_rollout_streaming_impl(
         active_idxs = torch.nonzero(active, as_tuple=False).flatten().tolist()
         for i, aidx in enumerate(active_idxs):
             for k in (Feats.TIMES, Feats.DIRS, Feats.DECOY):
-                t_ = fd_packet_level_[k][i]
+                t_ = X_obs_[k][i]
                 if t_.numel() == 0:
                     continue
-                fd_packet_level[aidx][k].append(fd_packet_level_[k][i])
-
+                X_obs_l[aidx][k].append(X_obs_[k][i])
             actions_l[aidx].append(actions_a[i])
+
+        if max_packets:
+            n_packets = len(X_obs_l[aidx][Feats.TIMES])
+            if n_packets >= max_packets:
+                break
 
         if record_policy:
             for f in obs.features:
@@ -283,16 +258,17 @@ def _policy_rollout_streaming_impl(
 
         hobs = _hidden_w_mask(hobs, active, h_active)
 
-        act_time_bins_l.append(_densify(act_time_bins_a).detach().cpu())
-        log_ps_l.append(_densify(log_ps_a))
-        sel_probs_l.append(_densify(sel_probs_a))
-        values_actor_l.append(_densify(values_a))
-        ent_sel_l.append(_densify(ent_a[EntropyKeys.SELECTION_ENTROPY]))
-        ent_cond_l.append(_densify(ent_a[EntropyKeys.COND_ENTROPY]))
+        if record_policy:
+            act_time_bins_l.append(_densify(act_time_bins_a, active).detach().cpu())
+            log_ps_l.append(_densify(log_ps_a, active))
+            sel_probs_l.append(_densify(sel_probs_a, active))
+            values_actor_l.append(_densify(values_a, active))
+            ent_sel_l.append(_densify(ent_a[EntropyKeys.SELECTION_ENTROPY], active))
+            ent_cond_l.append(_densify(ent_a[EntropyKeys.COND_ENTROPY], active))
 
-    X_obs = _batch_packet_level_features(fd_packet_level, device)
+    X_obs = _batch_packet_level_features(X_obs_l, device)
 
-    if record_policy is False:
+    if not record_policy:
         return X_obs
 
     assert fd_steps is not None

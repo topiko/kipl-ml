@@ -14,7 +14,7 @@ def get_rewards(
     action_times: torch.Tensor,
     actions: list[StepActions],
     X_obs: dict[Feats, torch.Tensor],
-    X_raw: dict[Feats, torch.Tensor] | None,
+    X_raw: dict[Feats, torch.Tensor],
     obs_dt_s: float | None,
     X_disc: dict[Feats, torch.Tensor],
     y: torch.Tensor,
@@ -169,30 +169,23 @@ def get_rewards(
     rewards["clf"] += mean_p * clf_scale
 
     # Delay penalty: charge only for packets that actually get delayed.
-    delay_mask = None
-    if (
-        X_raw is not None
-        and obs_dt_s is not None
-        and obs_dt_s > 0
-        and "delay_scale" in reward_scales
-    ):
-        delay_mask = torch.zeros_like(action_times, dtype=torch.bool)
-        delay_bins = torch.zeros_like(action_times, dtype=torch.long)
-        for b, seq in enumerate(actions):
-            for t, sa in enumerate(seq):
-                if t >= action_times.shape[1]:
-                    break
-                if Actions.DELAY_UP not in sa and Actions.DELAY_DOWN not in sa:
-                    continue
-                delay_mask[b, t] = True
-                steps = 0
-                if Actions.DELAY_UP in sa:
-                    steps = max(steps, int(sa[Actions.DELAY_UP].steps))
-                if Actions.DELAY_DOWN in sa:
-                    steps = max(steps, int(sa[Actions.DELAY_DOWN].steps))
-                delay_bins[b, t] = steps
-        if not delay_mask.any():
-            delay_mask = None
+    delay_mask = torch.zeros_like(action_times, dtype=torch.bool)
+    delay_bins = torch.zeros_like(action_times, dtype=torch.long)
+    for b, seq in enumerate(actions):
+        for t, sa in enumerate(seq):
+            if t >= action_times.shape[1]:
+                break
+            if Actions.DELAY_UP not in sa and Actions.DELAY_DOWN not in sa:
+                continue
+            delay_mask[b, t] = True
+            steps = 0
+            if Actions.DELAY_UP in sa:
+                steps = max(steps, int(sa[Actions.DELAY_UP].steps))
+            if Actions.DELAY_DOWN in sa:
+                steps = max(steps, int(sa[Actions.DELAY_DOWN].steps))
+            delay_bins[b, t] = steps
+    if not delay_mask.any():
+        delay_mask = None
 
     if delay_mask is not None:
         # (B, L) original packet bins; fill padding with +inf bin to preserve sort.
@@ -331,7 +324,6 @@ def rollout(
     critic_detach_period: int | None = None,
     reward_scales: dict[str, float] | None = None,
     sample: bool = True,
-    stream_workers: int = 1,
 ):
     """Rollout entrypoint using the streaming rollout path."""
 
@@ -347,7 +339,6 @@ def rollout(
         critic_detach_period=critic_detach_period,
         reward_scales=reward_scales,
         sample=sample,
-        stream_workers=stream_workers,
     )
 
 
@@ -363,7 +354,6 @@ def _rollout_streaming(
     critic_detach_period: int | None = None,
     reward_scales: dict[str, float] | None = None,
     sample: bool = True,
-    stream_workers: int = 1,
 ) -> tuple[
     torch.Tensor,
     torch.Tensor,
@@ -384,7 +374,6 @@ def _rollout_streaming(
             X,
             sample=sample,
             max_packets=None,
-            stream_workers=stream_workers,
         )
     )
 
