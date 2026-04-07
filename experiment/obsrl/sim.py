@@ -151,9 +151,11 @@ def get_rewards(
         < disc_seq_lens[:, None].to(disc_logits.device)
     )[:, 1:].float()
 
+    reward_device = disc_logits.device
+
     # (bs, T)
-    sum_ = torch.zeros((bs, T), device=times.device, dtype=times.dtype).scatter_add_(
-        1, idxs, torch.ones_like(m) * disc_seq_len_mask
+    sum_ = torch.zeros((bs, T), device=reward_device, dtype=times.dtype).scatter_add_(
+        1, idxs.to(reward_device), torch.ones_like(m) * disc_seq_len_mask
     )
 
     # (bs, N)
@@ -162,8 +164,8 @@ def get_rewards(
     # We make the clf reward live between -1, 1...
     r_pkt = torch.clamp(-m, min=-1 / clf_scale, max=1 / clf_scale)
     # (bs, T)
-    mp = torch.zeros((bs, T), device=times.device, dtype=times.dtype).scatter_add_(
-        1, idxs, r_pkt * disc_seq_len_mask
+    mp = torch.zeros((bs, T), device=reward_device, dtype=times.dtype).scatter_add_(
+        1, idxs.to(reward_device), r_pkt * disc_seq_len_mask
     )
 
     mean_p = torch.where(sum_ > 0, mp / sum_, 0.0)
@@ -204,7 +206,7 @@ def get_rewards(
         pkt_bins = _time_to_bin_idx(t0_f, float(obs_dt_s))
 
         # (B, T) start bins for delay windows. action_times are already int bins.
-        start_bins = action_times.to(torch.long)
+        start_bins = action_times.to(torch.long).to(pkt_bins.device)
 
         # Count occurrences per step via searchsorted on sorted pkt_bins.
         lo = torch.searchsorted(pkt_bins, start_bins, right=False)
