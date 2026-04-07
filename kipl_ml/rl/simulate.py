@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from time import perf_counter
 from typing import Any, cast
 
 import torch
@@ -17,7 +16,7 @@ logger = get_logger(__name__)
 _StreamingRollout = tuple[
     dict[Feats, torch.Tensor],
     torch.Tensor,
-    list[StepActions],
+    list[list[StepActions]],
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
@@ -87,7 +86,6 @@ def policy_rollout_streaming(
     If max_packets is set, stops once base_packets + requested_decoy >= max_packets.
     """
 
-    t0 = perf_counter()
     res = cast(
         _StreamingRollout,
         _policy_rollout_streaming_impl(
@@ -120,7 +118,6 @@ def policy_obfuscate_trace_streaming(
     If max_packets is set, stops once base_packets + requested_decoy >= max_packets.
     """
 
-    t0 = perf_counter()
     X_obs = cast(
         dict[Feats, torch.Tensor],
         _policy_rollout_streaming_impl(

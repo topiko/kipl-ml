@@ -112,12 +112,6 @@ def train_obs_one_epoch(
         "sel vs. cond std ratio": [],
         "train_disc": [],
         "grad_norm": [],
-        "selector_wait_frac": [],
-        "selector_send_up_frac": [],
-        "selector_send_down_frac": [],
-        "selector_send_both_frac": [],
-        "selector_delay_frac": [],
-        "delay_active_frac": [],
     }
     losses_metrics_d.update(
         {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
@@ -147,7 +141,7 @@ def train_obs_one_epoch(
 
             (
                 log_ps,
-                sel_probs,
+                _,
                 values,
                 league_rewards,
                 entropies,
@@ -253,16 +247,6 @@ def train_obs_one_epoch(
             #    selection_entropy_scale * (1 + scale_update_), 1e-7, 1e-1
             # )
 
-            # Track the effect of selection vs conditional
-            sel_idx = actions[Actions.SELECTOR].to(torch.long)
-            sel_p = (
-                sel_probs.gather(-1, sel_idx.unsqueeze(-1)).squeeze(-1).clamp(min=1e-12)
-            )
-            sel_log_p = torch.log(sel_p)
-            sel_term = (advantages * sel_log_p).std()
-            cond_term = (advantages * (log_ps - sel_log_p)).std()
-            ratio = cond_term / (sel_term + 1e-8)
-
             cur_ret = _avg_leaguescore(weights, G, time_mask, per_trace=True)
 
             ema_ret = ema_update(ema_ret, cur_ret, ema_decay)
@@ -279,35 +263,16 @@ def train_obs_one_epoch(
                 selection_entropy.item() + conditional_entropy.item()
             )
             losses_metrics_d["entropy_loss"].append(entropy_loss.item())
-            losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
             losses_metrics_d["avg_return"].append(cur_ret)
 
             tm = time_mask.bool()
             denom = tm.sum().item()
-            sel = actions[Actions.SELECTOR].to(torch.long)
-            losses_metrics_d["selector_wait_frac"].append(
-                ((sel == 0) & tm).sum().item() / denom
-            )
-            losses_metrics_d["selector_send_up_frac"].append(
-                ((sel == 1) & tm).sum().item() / denom
-            )
-            losses_metrics_d["selector_send_down_frac"].append(
-                ((sel == 2) & tm).sum().item() / denom
-            )
-            losses_metrics_d["selector_send_both_frac"].append(
-                ((sel == 3) & tm).sum().item() / denom
-            )
-            losses_metrics_d["selector_delay_frac"].append(
-                ((sel == 4) & tm).sum().item() / denom
-            )
-            delay_active = torch.zeros_like(tm, dtype=torch.bool)
-            if Actions.DELAY_UP in actions:
-                delay_active |= actions[Actions.DELAY_UP] > 0
-            if Actions.DELAY_DOWN in actions:
-                delay_active |= actions[Actions.DELAY_DOWN] > 0
-            losses_metrics_d["delay_active_frac"].append(
-                ((delay_active & tm).sum().item()) / denom
-            )
+
+            for key in list(Actions):
+                key_ = f"ack_{key}_frac"
+                losses_metrics_d.setdefault(key_, []).append(0.0)
+                for ack_l in actions:
+                    losses_metrics_d[key_][-1] += sum(key in a for a in ack_l) / denom
 
             for k, v in league_rewards.items():
                 losses_metrics_d[f"mean_reward_{k}"].append(
@@ -353,7 +318,8 @@ def train_obs_one_epoch(
             postfix = {
                 "pfu": np.mean(losses_metrics_d["mean_padding_frac_up"]),
                 "pfd": np.mean(losses_metrics_d["mean_padding_frac_down"]),
-                "dly": np.mean(losses_metrics_d["selector_delay_frac"]),
+                "dlyu": np.mean(losses_metrics_d[f"ack_{Actions.DELAY_UP}_frac"]),
+                "dlyd": np.mean(losses_metrics_d[f"ack_{Actions.DELAY_DOWN}_frac"]),
                 "ret": ema_ret,
                 "rew": ema_rew,
                 "Hs": ema_sel_entropy,
@@ -410,6 +376,7 @@ def train_disc_on_league(
     )
 
     ed = 0
+    loss = 0
     while True:
         loss = train_disc_one_epoch(
             clf=discriminator,
@@ -530,9 +497,8 @@ def train_obs_on_league(
         for k, v in metrics_d.items():
             mlflow.log_metric(keymap(k), float(v), step=eo)
 
-        mlflow.log_metric(
-            "padding_scale", float(reward_scales_["padding_scale"]), step=eo
-        )
+        mlflow.log_metric("padding_scale", reward_scales_["padding_scale"], step=eo)
+        mlflow.log_metric("delay_scale", reward_scales_["delay_scale"], step=eo)
 
         if obs_lr_scheduler is not None:
             # TODO: this here is very questionable.
@@ -547,6 +513,7 @@ def train_obs_on_league(
 
         if eo % cfg.obs.rewards_rescale_epochs == 0:
             reward_scales_["padding_scale"] *= cfg.obs.padding_scale_reduction
+            reward_scales_["delay_scale"] *= cfg.obs.delay_scale_reduction
             logger.info(f"At obs epoch {eo} re-scaled rewards -> ")
             for k, v in reward_scales_.items():
                 logger.info(f"\t{k:>30} : {v:.04f}")

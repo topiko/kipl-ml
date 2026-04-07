@@ -361,7 +361,7 @@ def _rollout_streaming(
     dict[str, torch.Tensor] | None,
     dict[str, torch.Tensor],
     torch.Tensor,
-    list[StepActions],
+    list[list[StepActions]],
     dict[Feats, torch.Tensor],
     dict[Feats, torch.Tensor],
 ]:

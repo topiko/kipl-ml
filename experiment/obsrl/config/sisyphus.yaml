@@ -28,7 +28,7 @@ advantages:
 rewards:
   clf: 0.1
   d_clf: 0.001
-  padding_scale: 0.02
+  padding_scale: 0.01
   delay_scale: 0.004 # 0.0000001
 
 obs:
@@ -69,10 +69,11 @@ obs:
   rewards_rescale_epochs: 7
 
   # After this you reset the obs and critic and return...
-  max_epochs_per_push: 91
+  max_epochs_per_push: 141
 
   # How much we decrease padding scale when hitting max epochs.
   padding_scale_reduction: 0.7
+  delay_scale_reduction: 0.7
 
   lr_scheduler_patience: 7
   # The obs lr scheduling is weird; 1 disables it.
