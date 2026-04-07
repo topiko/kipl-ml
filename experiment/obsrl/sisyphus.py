@@ -32,7 +32,7 @@ from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.trgen import AGENT1, CRITIC01
-from kipl_ml.rl.enums import AHKs, Actions
+from kipl_ml.rl.enums import Actions, AHKs
 from kipl_ml.tools.mlflow_utils import (
     find_parent_run_id,
     get_mlflow_expr,
@@ -328,9 +328,9 @@ def train_obs_one_epoch(
             )
 
             # (B, )
-            normal_packets = (
-                (X_obs[Feats.DIRS] != 0) & (X_obs[Feats.DECOY] == 0)
-            ).sum(dim=1)
+            normal_packets = ((X_obs[Feats.DIRS] != 0) & (X_obs[Feats.DECOY] == 0)).sum(
+                dim=1
+            )
             # (B, )
             padding_packets_up = (
                 (X_obs[Feats.DIRS] == UPLOAD) & (X_obs[Feats.DECOY] == 1)

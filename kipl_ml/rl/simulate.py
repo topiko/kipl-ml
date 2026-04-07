@@ -39,12 +39,16 @@ def _batch_packet_level_features(
     per_trace: dict[Feats, list[torch.Tensor]] = {f: [] for f in feats}
 
     max_len = 0
+    time_sort_idx: list[torch.Tensor] = [torch.tensor([], dtype=torch.long)] * bs
     for trace_i in range(bs):
         for f in feats:
             if fd_packet_level[trace_i][f]:
                 t = torch.cat(fd_packet_level[trace_i][f], dim=0)
             else:
-                t = torch.zeros((0,), dtype=torch.long)
+                raise ValueError(f"Trace {trace_i} has no data for feature {f}")
+
+            if f == Feats.TIMES:
+                time_sort_idx[trace_i] = torch.argsort(t)
             per_trace[f].append(t)
             max_len = max(max_len, int(t.numel()))
 
@@ -59,7 +63,8 @@ def _batch_packet_level_features(
             (bs, max_len), pad_val, device=sample.device, dtype=sample.dtype
         )
         for i in range(bs):
-            t = per_trace[f][i]
+            t = per_trace[f][i][time_sort_idx[i]]
+
             if t.numel() == 0:
                 continue
             batched[i, : t.numel()] = t
@@ -208,8 +213,6 @@ def _policy_rollout_streaming_impl(
     if Feats.DECOY not in Xb:
         Xb[Feats.DECOY] = torch.zeros_like(Xb[Feats.TIMES])
 
-    obs_ = cast(Any, obs)
-
     device = Xb[Feats.TIMES].device
     bs = int(Xb[Feats.TIMES].shape[0])
 
@@ -224,9 +227,9 @@ def _policy_rollout_streaming_impl(
 
     streamer = WindowFeatureStreamer(
         Xs,
-        dt=obs_.time_step,
-        max_silence_s=obs_.max_silence_s,
-        features=obs_.features,
+        dt=obs.time_step,
+        max_silence_s=obs.max_silence_s,
+        features=obs.features,
         cut_off_time_s=cut_off_time_s,
         step_workers=stream_workers,
     )
@@ -238,7 +241,7 @@ def _policy_rollout_streaming_impl(
     ent_cond_l: list[torch.Tensor] = []
     act_time_bins_l: list[torch.Tensor] = []
     actions_l: list[StepActions] = [[] for _ in range(bs)]
-    fd_steps: dict[Feats, list[torch.Tensor]] = {f: [] for f in obs_.features}
+    fd_steps: dict[Feats, list[torch.Tensor]] = {f: [] for f in obs.features}
 
     actions_a: StepActions = [NoAction(time=0) for _ in range(bs)]
     fd_packet_level: list[dict[Feats, list[torch.Tensor]]] = [
@@ -261,18 +264,21 @@ def _policy_rollout_streaming_impl(
         active_idxs = torch.nonzero(active, as_tuple=False).flatten().tolist()
         for i, aidx in enumerate(active_idxs):
             for k in (Feats.TIMES, Feats.DIRS, Feats.DECOY):
+                t_ = fd_packet_level_[k][i]
+                if t_.numel() == 0:
+                    continue
                 fd_packet_level[aidx][k].append(fd_packet_level_[k][i])
 
             actions_l[aidx].append(actions_a[i])
 
         if record_policy:
-            for f in obs_.features:
+            for f in obs.features:
                 fd_steps[f].append(fd_t[f].to("cpu"))
 
-        fd_active = {f: fd_t[f][active].to(device) for f in obs_.features}
+        fd_active = {f: fd_t[f][active].to(device) for f in obs.features}
         h_active = _hidden_w_mask(hobs, active)
         act_time_bins_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
-            obs_.act_step(fd_active, h_active, sample=sample)
+            obs.act_step(fd_active, h_active, sample=sample)
         )
 
         hobs = _hidden_w_mask(hobs, active, h_active)
@@ -292,6 +298,9 @@ def _policy_rollout_streaming_impl(
     assert fd_steps is not None
 
     act_time_bins = torch.cat(act_time_bins_l, dim=1)
+    # 0 is here used for padding, action time _can never be 0_..
+    act_time_bins[act_time_bins == 0] = -1
+
     log_ps = torch.cat(log_ps_l, dim=1)
     sel_probs = torch.cat(sel_probs_l, dim=1)
     values_actor = torch.cat(values_actor_l, dim=1)
@@ -301,7 +310,7 @@ def _policy_rollout_streaming_impl(
     }
 
     fd = {f: torch.cat(vs, dim=1) for f, vs in fd_steps.items()}
-    fd[Feats.SEQ_LENS] = (act_time_bins >= 0).sum(dim=1).long()
+    fd[Feats.SEQ_LENS] = (act_time_bins > 0).sum(dim=1).long()
 
     fd = dict_to_device(fd, device)
     act_time_bins = act_time_bins.to(device)

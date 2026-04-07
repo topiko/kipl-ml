@@ -129,13 +129,13 @@ class PadOrCutTrace(_TR):
     def _apply_time_clamp(
         self, trace: dict[Feats, torch.Tensor]
     ) -> dict[Feats, torch.Tensor]:
-        tmin, tmax, relative = self.time_clamp
-        times = trace.get(Feats.TIMES)
-        if times is None:
+        if (times := trace.get(Feats.TIMES)) is None:
             raise ValueError("time_clamp provided but Feats.TIMES not in trace")
 
-        n = times.shape[0]
-        if n == 0:
+        tmin, tmax, relative = self.time_clamp
+        times = times[times != -1]
+
+        if (n := times.shape[0]) == 0:
             raise ValueError("time_clamp provided but trace is empty")
 
         start_idx = 0 if tmin is None else int(torch.searchsorted(times, tmin).item())
@@ -962,6 +962,7 @@ class FeatureTrs:
         trace_batch_l: list[dict[Feats, torch.Tensor]] = []
 
         max_len = 0
+
         for i in range(bs):
             current_trace = {key: val[i] for key, val in trace_batch.items()}
             trace_: dict[Feats, torch.Tensor] = {}

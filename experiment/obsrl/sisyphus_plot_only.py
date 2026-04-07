@@ -28,7 +28,6 @@ from kipl_ml.data.utils import DOWNLOAD, UPLOAD, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.rl.enums import (
-    ActDelayDown,
     ActDelayUp,
     Actions,
     ActSendUp,
