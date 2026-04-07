@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 
+from kipl_ml.data.wf_dataset import dict_to_device
 from kipl_ml.rl.enums import Actions, StepActions
 from kipl_ml.rl.simulate import policy_rollout_streaming
 from kipl_ml.rl.utils import fill_after_seq_end
@@ -276,6 +277,8 @@ def compute_rewards_league(
         X_disc = disc_features.transform_batch(X_obs)
     else:
         X_disc = X_obs
+
+    X_disc = dict_to_device(X_disc, device)
 
     disc_seq_lens = disc.seq_len_fun(X_disc).to("cpu")
     X_disc = {k: v[:, : disc_seq_lens.max()] for k, v in X_disc.items()}
