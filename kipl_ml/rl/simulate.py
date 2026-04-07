@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from typing import Any, Literal, cast, overload
+from time import perf_counter
 
 import torch
 
 from kipl_ml.models.trgen import _hidden_w_mask
+from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.enums import EntropyKeys, NoAction, StepActions
 from kipl_ml.rl.streaming import WindowFeatureStreamer
 from kipl_ml.trace.enums import Feats
+
+logger = get_logger(__name__)
 
 _StreamingRollout = tuple[
     dict[Feats, torch.Tensor],
@@ -70,6 +74,7 @@ def policy_rollout_streaming(
     sample: bool = True,
     cut_off_time_s: float | torch.Tensor | None = None,
     max_packets: int | None = None,
+    stream_workers: int = 1,
 ) -> tuple[
     dict[Feats, torch.Tensor],
     torch.Tensor,
@@ -85,6 +90,7 @@ def policy_rollout_streaming(
     If max_packets is set, stops once base_packets + requested_decoy >= max_packets.
     """
 
+    t0 = perf_counter()
     res = cast(
         _StreamingRollout,
         _policy_rollout_streaming_impl(
@@ -93,8 +99,14 @@ def policy_rollout_streaming(
             sample=sample,
             cut_off_time_s=cut_off_time_s,
             max_packets=max_packets,
+            stream_workers=stream_workers,
             record_policy=True,
         ),
+    )
+    logger.info(
+        "stream rollout wall time (workers=%d): %.3fs",
+        int(stream_workers),
+        perf_counter() - t0,
     )
     return res
 
@@ -106,6 +118,7 @@ def policy_obfuscate_trace_streaming(
     sample: bool = True,
     cut_off_time_s: float | torch.Tensor | None = None,
     max_packets: int | None = None,
+    stream_workers: int = 1,
 ) -> dict[Feats, torch.Tensor]:
     """Obfuscate a trace stepwise using WindowFeatureStreamer.
 
@@ -115,6 +128,7 @@ def policy_obfuscate_trace_streaming(
     If max_packets is set, stops once base_packets + requested_decoy >= max_packets.
     """
 
+    t0 = perf_counter()
     X_obs = cast(
         dict[Feats, torch.Tensor],
         _policy_rollout_streaming_impl(
@@ -123,8 +137,14 @@ def policy_obfuscate_trace_streaming(
             sample=sample,
             cut_off_time_s=cut_off_time_s,
             max_packets=max_packets,
+            stream_workers=stream_workers,
             record_policy=False,
         ),
+    )
+    logger.info(
+        "stream obfuscation wall time (workers=%d): %.3fs",
+        int(stream_workers),
+        perf_counter() - t0,
     )
     return X_obs
 
@@ -137,6 +157,7 @@ def _policy_rollout_streaming_impl(
     sample: bool,
     cut_off_time_s: float | torch.Tensor | None,
     max_packets: int | None,
+    stream_workers: int,
     record_policy: Literal[True],
 ) -> tuple[
     dict[Feats, torch.Tensor],
@@ -158,6 +179,7 @@ def _policy_rollout_streaming_impl(
     sample: bool,
     cut_off_time_s: float | torch.Tensor | None,
     max_packets: int | None,
+    stream_workers: int,
     record_policy: Literal[False],
 ) -> dict[Feats, torch.Tensor]: ...
 
@@ -169,6 +191,7 @@ def _policy_rollout_streaming_impl(
     sample: bool,
     cut_off_time_s: float | torch.Tensor | None,
     max_packets: int | None,
+    stream_workers: int,
     record_policy: bool,
 ) -> dict[Feats, torch.Tensor] | _StreamingRollout:
     """Internal streaming rollout implementation.
@@ -204,6 +227,7 @@ def _policy_rollout_streaming_impl(
         max_silence_s=obs_.max_silence_s,
         features=obs_.features,
         cut_off_time_s=cut_off_time_s,
+        step_workers=stream_workers,
     )
 
     log_ps_l: list[torch.Tensor] = []

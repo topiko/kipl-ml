@@ -22,7 +22,7 @@ from experiment.obsrl.sisyphus import (
     TEST_XV,
     get_agent_and_critic,
 )
-from experiment.obsrl.utils import get_advantages
+from experiment.obsrl.utils import default_num_workers, get_advantages
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
@@ -658,6 +658,13 @@ def _plot_indices(
     X_batch = dict_to_device(X_batch, device)
     y_batch = y_batch.to(device)
 
+    if cfg.obs.stream_workers is not None:
+        stream_workers = int(cfg.obs.stream_workers)
+    elif cfg.obs.use_parallel_stream:
+        stream_workers = default_num_workers()
+    else:
+        stream_workers = 1
+
     with torch.no_grad():
         (
             _,
@@ -678,6 +685,7 @@ def _plot_indices(
             disc_league=active_disc_league,
             disc_features=disc_features,
             reward_scales=reward_scales,
+            stream_workers=stream_workers,
         )
 
     action_seq_lens = fd[Feats.SEQ_LENS]

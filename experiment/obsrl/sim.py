@@ -328,6 +328,7 @@ def rollout(
     critic_detach_period: int | None = None,
     reward_scales: dict[str, float] | None = None,
     sample: bool = True,
+    stream_workers: int = 1,
 ):
     """Rollout entrypoint using the streaming rollout path."""
 
@@ -343,6 +344,7 @@ def rollout(
         critic_detach_period=critic_detach_period,
         reward_scales=reward_scales,
         sample=sample,
+        stream_workers=stream_workers,
     )
 
 
@@ -358,6 +360,7 @@ def _rollout_streaming(
     critic_detach_period: int | None = None,
     reward_scales: dict[str, float] | None = None,
     sample: bool = True,
+    stream_workers: int = 1,
 ) -> tuple[
     torch.Tensor,
     torch.Tensor,
@@ -378,6 +381,7 @@ def _rollout_streaming(
             X,
             sample=sample,
             max_packets=None,
+            stream_workers=stream_workers,
         )
     )
 

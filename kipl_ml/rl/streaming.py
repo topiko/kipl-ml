@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import torch
@@ -16,6 +17,17 @@ from kipl_ml.utils.time import (
 )
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class StepRes:
+    aidx: int
+    is_done: bool
+    w_times: torch.Tensor
+    w_dirs: torch.Tensor
+    w_decoy: torch.Tensor
+    current_bin: int
+    stepped_bins: int
 
 
 def _add_actions_to_silence_periods(
@@ -566,6 +578,7 @@ class WindowFeatureStreamer:
         max_silence_s: float,
         features: list[Feats],
         cut_off_time_s: float | torch.Tensor | None = None,
+        step_workers: int = 1,
     ):
         if dt <= 0:
             raise ValueError(f"dt must be > 0, got {dt}")
@@ -586,6 +599,9 @@ class WindowFeatureStreamer:
         self.device = X[Feats.TIMES].device
         self.bs = X[Feats.TIMES].shape[0]
         self.dt = float(dt)
+        self.step_workers = int(step_workers)
+        if self.step_workers < 0:
+            raise ValueError(f"step_workers must be >= 0, got {step_workers}")
         self.X = {k: v.clone() for k, v in X.items()}
 
         self._cursors: list[TraceStateCursor] = []
@@ -629,35 +645,63 @@ class WindowFeatureStreamer:
         decoy_l: list[torch.Tensor] = []
 
         active_idxs = np.arange(bs)[self.active_mask()]
-        for i, aidx in enumerate(active_idxs):
+
+        def _step_one(
+            item: tuple[int, StepAction],
+        ) -> StepRes:
+            aidx, cur_action = item
             cursor = self._cursors[aidx]
-            cur_action = actions[i]
             stepped_bins = 1
             current_bin = cursor.cursor_time_bin
             while True:
                 try:
                     w_times, w_dirs, w_decoy, _, _ = cursor.step(cur_action)
                 except StopIteration:
-                    self.done[aidx] = True
-                    break
+                    empty = torch.Tensor([])
+                    return StepRes(
+                        aidx=aidx,
+                        is_done=True,
+                        w_times=empty,
+                        w_dirs=empty,
+                        w_decoy=empty,
+                        current_bin=current_bin,
+                        stepped_bins=stepped_bins,
+                    )
 
                 if w_times.numel() > 0 or stepped_bins >= self.max_silence_bins:
-                    break
+                    return StepRes(
+                        aidx=aidx,
+                        is_done=False,
+                        w_times=w_times,
+                        w_dirs=w_dirs,
+                        w_decoy=w_decoy,
+                        current_bin=current_bin,
+                        stepped_bins=stepped_bins,
+                    )
 
                 stepped_bins += 1
                 cur_action = NoAction(time=cursor.cursor_time_bin)
 
-            if self.done[aidx]:
+        active_pairs = list(zip(active_idxs.tolist(), actions))
+        if self.step_workers > 1 and len(active_pairs) > 1:
+            with ThreadPoolExecutor(max_workers=self.step_workers) as ex:
+                results = list(ex.map(_step_one, active_pairs))
+        else:
+            results = [_step_one(p) for p in active_pairs]
+
+        for res in results:
+            if res.is_done:
+                self.done[res.aidx] = True
                 continue
 
-            times_l.append(w_times)
-            dirs_l.append(w_dirs)
-            decoy_l.append(w_decoy)
+            times_l.append(res.w_times)
+            dirs_l.append(res.w_dirs)
+            decoy_l.append(res.w_decoy)
 
-            up[aidx, 0] = ((w_dirs == UPLOAD) & (w_decoy == 0)).sum()
-            down[aidx, 0] = ((w_dirs == DOWNLOAD) & (w_decoy == 0)).sum()
-            time_bins[aidx, 0] = current_bin
-            dt_bins[aidx, 0] = stepped_bins
+            up[res.aidx, 0] = ((res.w_dirs == UPLOAD) & (res.w_decoy == 0)).sum()
+            down[res.aidx, 0] = ((res.w_dirs == DOWNLOAD) & (res.w_decoy == 0)).sum()
+            time_bins[res.aidx, 0] = res.current_bin
+            dt_bins[res.aidx, 0] = res.stepped_bins
 
         fd: dict[Feats, torch.Tensor] = {
             Feats.UP_COUNT: up,

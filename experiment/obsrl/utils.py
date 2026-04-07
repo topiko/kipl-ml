@@ -42,7 +42,7 @@ def dl_(
     **kwargs,
 ) -> DataLoader:
     if nworkers is None:
-        nworkers = multiprocessing.cpu_count() // 8 * 7
+        nworkers = default_num_workers()
 
     def _worker_init_fn(_worker_id: int):
         torch.set_num_threads(1)
@@ -60,6 +60,10 @@ def dl_(
         worker_init_fn=_worker_init_fn,
         **kwargs,
     )
+
+
+def default_num_workers() -> int:
+    return multiprocessing.cpu_count() // 8 * 7
 
 
 def keymap(key: str) -> str:
