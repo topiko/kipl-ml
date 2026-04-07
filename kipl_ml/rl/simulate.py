@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, Literal, cast, overload
 from time import perf_counter
+from typing import Any, Literal, cast, overload
 
 import torch
 
-from kipl_ml.models.trgen import _hidden_w_mask
+from kipl_ml.data.wf_dataset import dict_to_device
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.models.trgen import _hidden_w_mask
 from kipl_ml.rl.enums import EntropyKeys, NoAction, StepActions
 from kipl_ml.rl.streaming import WindowFeatureStreamer
 from kipl_ml.trace.enums import Feats
@@ -26,7 +27,7 @@ _StreamingRollout = tuple[
 
 
 def _batch_packet_level_features(
-    fd_packet_level: list[dict[Feats, list[torch.Tensor]]],
+    fd_packet_level: list[dict[Feats, list[torch.Tensor]]], device: torch.DeviceObjType
 ) -> dict[Feats, torch.Tensor]:
     """Materialize per-trace packet-level histories into a padded batch."""
 
@@ -64,7 +65,7 @@ def _batch_packet_level_features(
             batched[i, : t.numel()] = t
         out[f] = batched
 
-    return out
+    return dict_to_device(out, device)
 
 
 def policy_rollout_streaming(
@@ -214,7 +215,7 @@ def _policy_rollout_streaming_impl(
 
     # The streamer does per-trace stepping with Python control flow. If X lives on
     # CUDA, keep the streamer on CPU to avoid per-step GPU syncs.
-    stream_device = torch.device("cpu") if device.type == "cuda" else device
+    stream_device = torch.device("cpu")
     Xs = {
         Feats.TIMES: Xb[Feats.TIMES].detach().to(stream_device),
         Feats.DIRS: Xb[Feats.DIRS].detach().to(stream_device),
@@ -277,13 +278,13 @@ def _policy_rollout_streaming_impl(
         hobs = _hidden_w_mask(hobs, active, h_active)
 
         act_time_bins_l.append(_densify(act_time_bins_a).detach().cpu())
-        log_ps_l.append(_densify(log_ps_a).detach().cpu())
-        sel_probs_l.append(_densify(sel_probs_a).detach().cpu())
-        values_actor_l.append(_densify(values_a).detach().cpu())
-        ent_sel_l.append(_densify(ent_a[EntropyKeys.SELECTION_ENTROPY]).detach().cpu())
-        ent_cond_l.append(_densify(ent_a[EntropyKeys.COND_ENTROPY]).detach().cpu())
+        log_ps_l.append(_densify(log_ps_a))
+        sel_probs_l.append(_densify(sel_probs_a))
+        values_actor_l.append(_densify(values_a))
+        ent_sel_l.append(_densify(ent_a[EntropyKeys.SELECTION_ENTROPY]))
+        ent_cond_l.append(_densify(ent_a[EntropyKeys.COND_ENTROPY]))
 
-    X_obs = _batch_packet_level_features(fd_packet_level)
+    X_obs = _batch_packet_level_features(fd_packet_level, device)
 
     if record_policy is False:
         return X_obs
@@ -301,6 +302,9 @@ def _policy_rollout_streaming_impl(
 
     fd = {f: torch.cat(vs, dim=1) for f, vs in fd_steps.items()}
     fd[Feats.SEQ_LENS] = (act_time_bins >= 0).sum(dim=1).long()
+
+    fd = dict_to_device(fd, device)
+    act_time_bins = act_time_bins.to(device)
 
     return (
         fd,
