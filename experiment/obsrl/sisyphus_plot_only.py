@@ -22,12 +22,13 @@ from experiment.obsrl.sisyphus import (
     TEST_XV,
     get_agent_and_critic,
 )
-from experiment.obsrl.utils import default_num_workers, get_advantages
+from experiment.obsrl.utils import get_advantages
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.rl.enums import (
+    ActDelayDown,
     ActDelayUp,
     Actions,
     ActSendUp,
@@ -432,7 +433,7 @@ def _install_action_policy_override(obs, policy: str) -> None:
                     action_dict[Actions.SEND_UP] = ActSendUp(count=100, after_steps=0)
                 if bool(delay_mask[i].item()):
                     action_dict[Actions.DELAY_UP] = ActDelayUp(steps=2)
-                    # action_dict[Actions.DELAY_DOWN] = ActDelayDown(steps=2)
+                    action_dict[Actions.DELAY_DOWN] = ActDelayDown(steps=3)
                 actions.append(StepAction(time=int(t.item()), _actions=action_dict))
 
             return action_times, actions, log_probs, sel_probs, values, entropies, h_out

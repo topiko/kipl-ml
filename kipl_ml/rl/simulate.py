@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from time import perf_counter
-from typing import Any, Literal, cast, overload
+from typing import Any, cast
 
 import torch
 
@@ -79,6 +79,7 @@ def policy_rollout_streaming(
     *,
     sample: bool = True,
     cut_off_time_s: float | torch.Tensor | None = None,
+    rtt_bins: int = 0,
     max_packets: int | None = None,
 ) -> _StreamingRollout:
     """Run policy stepwise on streamed windows and execute actions.
@@ -94,6 +95,7 @@ def policy_rollout_streaming(
             X,
             sample=sample,
             cut_off_time_s=cut_off_time_s,
+            rtt_bins=rtt_bins,
             max_packets=max_packets,
             record_policy=True,
         ),
@@ -108,6 +110,7 @@ def policy_obfuscate_trace_streaming(
     *,
     sample: bool = True,
     cut_off_time_s: float | torch.Tensor | None = None,
+    rtt_bins: int = 0,
     max_packets: int | None = None,
 ) -> dict[Feats, torch.Tensor]:
     """Obfuscate a trace stepwise using WindowFeatureStreamer.
@@ -126,6 +129,7 @@ def policy_obfuscate_trace_streaming(
             X,
             sample=sample,
             cut_off_time_s=cut_off_time_s,
+            rtt_bins=rtt_bins,
             max_packets=max_packets,
             record_policy=False,
         ),
@@ -134,36 +138,13 @@ def policy_obfuscate_trace_streaming(
     return X_obs
 
 
-@overload
 def _policy_rollout_streaming_impl(
     obs: Any,
     X: dict[Feats, torch.Tensor],
     *,
     sample: bool,
     cut_off_time_s: float | torch.Tensor | None,
-    max_packets: int | None,
-    record_policy: Literal[True],
-) -> _StreamingRollout: ...
-
-
-@overload
-def _policy_rollout_streaming_impl(
-    obs: Any,
-    X: dict[Feats, torch.Tensor],
-    *,
-    sample: bool,
-    cut_off_time_s: float | torch.Tensor | None,
-    max_packets: int | None,
-    record_policy: Literal[False],
-) -> dict[Feats, torch.Tensor]: ...
-
-
-def _policy_rollout_streaming_impl(
-    obs: Any,
-    X: dict[Feats, torch.Tensor],
-    *,
-    sample: bool,
-    cut_off_time_s: float | torch.Tensor | None,
+    rtt_bins: int = 0,
     max_packets: int | None,
     record_policy: bool,
 ) -> dict[Feats, torch.Tensor] | _StreamingRollout:
@@ -201,6 +182,7 @@ def _policy_rollout_streaming_impl(
         dt=obs.time_step,
         max_silence_s=obs.max_silence_s,
         features=obs.features,
+        rtt_bins=rtt_bins,
         cut_off_time_s=cut_off_time_s,
     )
 

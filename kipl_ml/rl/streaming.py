@@ -252,35 +252,59 @@ class SendBuffer:
         flush_bin: int,
         dt: float,
         times: torch.Tensor,
-        dirs: torch.Tensor,
+        dir: torch.Tensor,
         decoy: bool = False,
         replace: bool = False,
         bypass: bool = False,
     ):
         self.times = times
-        self.dirs = dirs
+        self.dir = dir
         self._flush_bin = flush_bin
         self.dt = dt
         self.replace = replace
         self.bypass = bypass
         self.decoy = decoy
         self.flushed = False
+        self._up_delay_applied = False
+        self._down_delay_applied = False
 
     @property
     def flush_bin(self) -> int:
         return self._flush_bin
 
+    @property
+    def up_delay_applied(self) -> bool:
+        return self._up_delay_applied
+
+    @property
+    def down_delay_applied(self) -> bool:
+        return self._down_delay_applied
+
+    def reset_delay(self) -> None:
+        self._up_delay_applied = False
+        self._down_delay_applied = False
+
     def _delay(self, direction: int, time_bin: int) -> None:
         """Delay packets in the given direction by duration_s seconds."""
-        mask = self.dirs == direction
-        self.times[mask] += self.dt
+        if direction != self.dir:
+            return
+        if self.flushed:
+            raise RuntimeError("Cannot delay flushed buffer")
+
+        self.times += self.dt
 
         self._flush_bin = max(self._flush_bin, time_bin + 1)
 
     def delay_up(self, time_bin: int) -> None:
+        if self.up_delay_applied:
+            raise RuntimeError("Up delay already applied")
+        self._up_delay_applied = True
         self._delay(UPLOAD, time_bin)
 
     def delay_down(self, time_bin: int) -> None:
+        if self.down_delay_applied:
+            raise RuntimeError("Down delay already applied")
+        self._down_delay_applied = True
         self._delay(DOWNLOAD, time_bin)
 
     def subtract(self, dirs: torch.Tensor) -> None:
@@ -288,21 +312,16 @@ class SendBuffer:
             return
         if not self.decoy:
             return
-        if len(self.dirs) == 0:
+        if len(self.times) == 0:
             return
 
-        mydir = self.dirs.unique()
-        if len(mydir) != 1:
-            raise ValueError(
-                "Expected all packets in the buffer to have the same direction"
-            )
+        mydir = self.dir
 
         # Decoy buffer with replace enabled -> subtract matching queued normal packets.
-        npackets = len(self.dirs)
+        npackets = len(self.times)
         if (to_sub := min(npackets, (dirs == mydir).sum())) <= 0:
             return
 
-        self.dirs = self.dirs[:-to_sub]
         self.times = self.times[:-to_sub]
 
     def flush(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -311,7 +330,8 @@ class SendBuffer:
             raise RuntimeError("Buffer already flushed")
         self.flushed = True
         decoy = torch.full_like(self.times, self.decoy)
-        return self.times, self.dirs, decoy
+        dirs = torch.full_like(self.times, self.dir)
+        return self.times, dirs, decoy
 
 
 @dataclass
@@ -322,7 +342,7 @@ class DelayState:
     steps_since_start: int = 0
     bypass: bool = False
     replace: bool = False
-    rtt: int = 0
+    rtt: int = 1
 
     @property
     def active(self) -> bool:
@@ -358,21 +378,35 @@ class DelayState:
         if not self.active:
             return
 
-        if self.rtt != 0:
-            raise NotImplementedError("RTT > 0 is not implemented yet")
-
         for buf in buffers:
             # If both the active delay and the buffer are bypass-enabled, leave it
             # untouched. If self.bypass is False, the delay applies to everything.
             if buf.bypass and self.bypass:
                 continue
             if direction == UPLOAD:
-                buf.delay_up(time_bin)
-                if self.steps_since_start >= self.rtt:
+                if (buf.dir == UPLOAD) and (not buf.up_delay_applied):
+                    buf.delay_up(time_bin)
+
+                # The delay applies to packets in the opposite direction after the
+                # RTT has passed.
+                if (
+                    (buf.dir == DOWNLOAD)
+                    and (self.steps_since_start >= self.rtt)
+                    and (not buf.down_delay_applied)
+                ):
                     buf.delay_down(time_bin)
+
             elif direction == DOWNLOAD:
-                buf.delay_down(time_bin)
-                if self.steps_since_start >= self.rtt:
+                if (buf.dir == DOWNLOAD) and (not buf.down_delay_applied):
+                    buf.delay_down(time_bin)
+
+                # The delay applies to packets in the opposite direction after the
+                # RTT has passed.
+                if (
+                    (buf.dir == UPLOAD)
+                    and (self.steps_since_start >= self.rtt)
+                    and (not buf.up_delay_applied)
+                ):
                     buf.delay_up(time_bin)
             else:
                 raise KeyError(f"Invalid direction {direction}")
@@ -405,6 +439,7 @@ class TraceStateCursor:
         dirs: torch.Tensor,
         decoy: torch.Tensor,
         dt: float,
+        rtt_bins: int = 0,
         terminate_after_s: float | None = None,
     ):
         self.dt = dt
@@ -415,8 +450,8 @@ class TraceStateCursor:
         # They hold both original packets from the active window and decoy packets
         # injected by the current action, then flush once their target bin is reached.
         self.send_buffers: list[SendBuffer] = []
-        self.delay_up = DelayState()
-        self.delay_down = DelayState()
+        self.delay_up = DelayState(rtt=rtt_bins)
+        self.delay_down = DelayState(rtt=rtt_bins)
         self.cursor_time_bin: int = 0
         self.prev_time_bin: int = 0
         self.terminate_after_s = terminate_after_s or times.max().item() + dt
@@ -438,15 +473,21 @@ class TraceStateCursor:
             float(self.cursor_time_bin) * self.dt,
             float(self.cursor_time_bin + 1) * self.dt,
         )
-        self.send_buffers.append(
-            SendBuffer(
-                flush_bin=self.cursor_time_bin,
-                dt=self.dt,
-                times=times,
-                dirs=dirs,
-                decoy=False,
+        # We add one buffer for both directions for better delay control.
+        for dir_ in (UPLOAD, DOWNLOAD):
+            mask = dirs == dir_
+            if not mask.any():
+                continue
+
+            self.send_buffers.append(
+                SendBuffer(
+                    flush_bin=self.cursor_time_bin,
+                    dt=self.dt,
+                    times=times[mask],
+                    dir=dir_,
+                    decoy=False,
+                )
             )
-        )
         # Action logic here.
         # DelayTraffic semantics to mirror later implementation:
         # - delay is framework-scoped and affects all outgoing traffic
@@ -467,12 +508,11 @@ class TraceStateCursor:
                 (act_time_bin + act_s_d.after_steps + 0.5) * self.dt,
                 device=self.device,
             )
-            dirs = torch.ones_like(times) * DOWNLOAD
             sdb = SendBuffer(
                 act_time_bin + act_s_d.after_steps,
                 self.dt,
                 times,
-                dirs,
+                DOWNLOAD,
                 True,
                 replace=act_s_d.replace,
                 bypass=act_s_d.bypass,
@@ -488,12 +528,11 @@ class TraceStateCursor:
                 (act_time_bin + act_s_u.after_steps + 0.5) * self.dt,
                 device=self.device,
             )
-            dirs = torch.ones_like(times) * UPLOAD
             sdb = SendBuffer(
                 act_time_bin + act_s_u.after_steps,
                 self.dt,
                 times,
-                dirs,
+                UPLOAD,
                 True,
                 replace=act_s_u.replace,
                 bypass=act_s_u.bypass,
@@ -518,6 +557,9 @@ class TraceStateCursor:
 
         # First apply the normal packets
         for buf in self.send_buffers:
+            # Restore delay bookkeeping.
+            buf.reset_delay()
+
             if buf.decoy:
                 continue
 
@@ -576,6 +618,7 @@ class WindowFeatureStreamer:
         dt: float,
         max_silence_s: float,
         features: list[Feats],
+        rtt_bins: int = 0,
         cut_off_time_s: torch.Tensor | None = None,
     ):
         if dt <= 0:
@@ -607,6 +650,7 @@ class WindowFeatureStreamer:
                     dirs=self.X[Feats.DIRS][i],
                     decoy=self.X[Feats.DECOY][i],
                     dt=dt,
+                    rtt_bins=rtt_bins,
                     terminate_after_s=cut_off_time_s[i].item()
                     if cut_off_time_s is not None
                     else None,
