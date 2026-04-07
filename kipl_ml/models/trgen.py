@@ -41,7 +41,7 @@ def _select_cat_from_logits(
         # (bs, L)
         idx = dist.sample()
         # (bs, L)
-        value = bins[idx] if bins is not None else idx
+        value = bins.to(idx.device)[idx] if bins is not None else idx
         # (bs, L)
         logp = dist.log_prob(idx)
         # (bs, L)
@@ -50,7 +50,7 @@ def _select_cat_from_logits(
         # (bs, L, selector_dim) -> (bs, L)
         idx = logits.argmax(dim=-1)
         # (bs, L)
-        value = bins[idx] if bins is not None else idx
+        value = bins.to(idx.device)[idx] if bins is not None else idx
         # (bs, L)
         logp = torch.log(
             probs.gather(-1, idx.unsqueeze(-1)).squeeze(-1).clamp(min=1e-12)
