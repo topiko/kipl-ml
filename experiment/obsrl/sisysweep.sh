@@ -4,7 +4,7 @@
 # Exit if anything fails..
 set -e
 
-parent_prefix="audacious-imp-09" #"advanced-smolin" # audacious-imp
+parent_prefix="MORE-audacious-imp" #"advanced-smolin" # audacious-imp
 
 
 for div_z in false true; do

@@ -100,7 +100,6 @@ def policy_rollout_streaming(
             record_policy=True,
         ),
     )
-    logger.info("stream rollout wall time:  %.3fs", perf_counter() - t0)
     return res
 
 
@@ -134,7 +133,6 @@ def policy_obfuscate_trace_streaming(
             record_policy=False,
         ),
     )
-    logger.info("stream obfuscation wall time: %.3fs", perf_counter() - t0)
     return X_obs
 
 
