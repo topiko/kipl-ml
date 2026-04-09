@@ -457,6 +457,9 @@ def plot_actions(
     _plot_delay(Actions.DELAY_DOWN, "#E86646")
 
     # Do-nothing spans on the remaining steps.
+    ts = []
+    ytop = []
+    ybot = []
     for i, sa in enumerate(step_actions):
         if Actions.DO_NOTHING not in sa:
             continue
@@ -465,7 +468,20 @@ def plot_actions(
             break
 
         t1 = action_times[i + 1]
-        ax.axvspan(t0, t1, color="gray", alpha=0.12, lw=0, zorder=0)
+        ts += [t0, t0, t1, t1]
+        ytop += [0, hmax, hmax, 0]
+        ybot += [0, -hmax, -hmax, 0]
+
+    ax.fill_between(
+        ts,
+        ytop,
+        ybot,
+        edgecolor=None,
+        facecolor="gray",
+        alpha=0.12,
+        lw=0,
+        zorder=0,
+    )
 
     ax.vlines(action_times, -5, 5, color="black", lw=1.0)
 
