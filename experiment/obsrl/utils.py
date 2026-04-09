@@ -136,36 +136,6 @@ def _restore_obs_def_ds(
     obs = obs.to(device)
 
 
-def valid_metrics(
-    disc: nn.Module,
-    disc_feats: FeatureTrs,
-    obs: nn.Module,
-    ds_valid: WFDataset,
-    n_packets: int,
-    key: str = "valid:obs_vs._disc",
-    device: torch.DeviceObjType = "cpu",
-    obs_league: list[nn.Module.state_dict] | None = None,
-) -> dict[str, float]:
-    orig_features_trs = ds_valid.feature_trs
-    dl_valid = _get_obs_def_dl(
-        disc=disc,
-        disc_feats=disc_feats,
-        obs=obs,
-        ds=ds_valid,
-        n_packets=n_packets,
-        bs=32,
-        obs_league=obs_league,
-    )
-
-    d = evaluate_model(
-        disc, dl_valid, metrics=[Accuracy()], key=key, loss_fn=nn.CrossEntropyLoss()
-    )
-
-    _restore_obs_def_ds(ds_valid, orig_features_trs, obs, device)
-
-    return d
-
-
 def get_league_scores(
     league: list[tuple[int, nn.Module]],
     ds: WFDataset,
@@ -179,6 +149,7 @@ def get_league_scores(
     subset_indices: torch.Tensor,
     score_type: str = "acc",
     n_packets: int | None = None,
+    defence_aug: int = 1,
 ) -> torch.Tensor:
     # Set the defence and features:
     orig_features = ds.feature_trs
@@ -196,6 +167,7 @@ def get_league_scores(
             bs=32,
             obs_league=None,
             sampler=sampler,
+            train_defence_aug=defence_aug,
         )
 
     elif score_type == "neg_rewards":
@@ -337,6 +309,8 @@ def get_active_league(
     prune: bool = False,
     score_type: str = "acc",
     n_packets: int | None = None,
+    n_traces: int = 500,
+    defence_aug: int = 1,
 ) -> tuple[
     list[tuple[int, nn.Module.state_dict]],
     np.ndarray,
@@ -354,9 +328,12 @@ def get_active_league(
         disc_features=disc_feats,
         reward_scales=reward_scales,
         device=device,
-        subset_indices=rng.choice(np.arange(len(ds)), 500, replace=False),
+        subset_indices=rng.choice(
+            np.arange(len(ds)), min(len(ds), n_traces), replace=False
+        ),
         score_type=score_type,
         n_packets=n_packets,
+        defence_aug=defence_aug,
     )
 
     if prune:

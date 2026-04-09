@@ -786,6 +786,8 @@ def main(cfg: DictConfig):
                         enforce_orig=cfg.league.enforce_orig,
                         score_type=cfg.league.score_type,
                         n_packets=cfg.trace.len,
+                        n_traces=cfg.league.eval.n_traces,
+                        defence_aug=cfg.league.eval.defence_aug,
                     )
                 )
             logger.info("\tRe-scaling league weights to uniform...")

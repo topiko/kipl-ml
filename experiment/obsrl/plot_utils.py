@@ -247,10 +247,8 @@ def _plot_single(
         sel_probs[batch_i, :seq_len_i].squeeze().cpu().numpy(),
         "-",
         lw=1,
-        label="Selection prob.",
     )
 
-    ax_probs.legend(frameon=False, loc=2)
     ax_a.set_title("Actions, entropies")
 
     # Trained disc on obsfuscated trace (from batched rollout):

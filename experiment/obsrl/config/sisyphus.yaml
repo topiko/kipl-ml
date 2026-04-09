@@ -110,6 +110,10 @@ league:
   enforce_orig: True
   random_frac: 0.25
 
+  eval:
+    defence_aug: 3
+    n_traces: 500
+
 seed: 42
 ema_decay: 0.95
 grad_norm_clip: 1

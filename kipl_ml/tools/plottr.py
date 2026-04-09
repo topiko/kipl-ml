@@ -174,7 +174,6 @@ def plot_tam(
         tam_u_pad = np.zeros_like(tam_u_c, dtype=int)
         tam_d_pad = np.zeros_like(tam_d_c, dtype=int)
 
-    print(tam_d_pad.sum(), tam_u_pad.sum())
     ax = ax or plt.subplots(figsize=(12, 3))[1]
 
     miny = (-1) * _get_lims(tam_u_c, tam_d_c, 1)
