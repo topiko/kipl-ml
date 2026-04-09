@@ -305,7 +305,7 @@ class TestWindowFeatureStreamer(unittest.TestCase):
             actions=[
                 [
                     StepAction(
-                        time=0,
+                        time_bin=0,
                         _actions={
                             Actions.SEND_DOWN: ActSendDown(count=1, after_steps=2)
                         },
@@ -337,7 +337,7 @@ class TestWindowFeatureStreamer(unittest.TestCase):
             actions=[
                 [
                     StepAction(
-                        time=0,
+                        time_bin=0,
                         _actions={Actions.SEND_UP: ActSendUp(count=1, after_steps=2)},
                     )
                 ]
@@ -367,7 +367,7 @@ class TestWindowFeatureStreamer(unittest.TestCase):
             actions=[
                 [
                     StepAction(
-                        time=0,
+                        time_bin=0,
                         _actions={
                             Actions.SEND_UP: ActSendUp(count=1, after_steps=2),
                             Actions.SEND_DOWN: ActSendDown(count=1, after_steps=2),

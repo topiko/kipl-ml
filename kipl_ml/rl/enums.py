@@ -94,7 +94,7 @@ ActionType: TypeAlias = (
 
 @dataclass
 class StepAction:
-    time: int
+    time_bin: int
     _actions: dict[Actions, ActionType] = field(default_factory=dict)
 
     @property

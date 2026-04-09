@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -9,11 +8,7 @@ import torch
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.enums import ActDelay, Actions, NoAction, StepAction, StepActions
-from kipl_ml.rl.utils import _flush_left
 from kipl_ml.trace.enums import Feats
-from kipl_ml.utils.time import (
-    _time_to_bin_idx,
-)
 
 logger = get_logger(__name__)
 
@@ -27,223 +22,6 @@ class StepRes:
     w_decoy: torch.Tensor
     current_bin: int
     stepped_bins: int
-
-
-def _add_actions_to_silence_periods(
-    feature_dict: dict[Feats, torch.Tensor], time_step: float, max_silence_s: float
-) -> dict[Feats, torch.Tensor]:
-    """Insert empty action windows during silence periods.
-
-    This operates in *time bin index* space for speed and numerical stability.
-    - feature_dict[Feats.TIME_BINS] is integer bin indices (long) with -1 after seq end.
-    - We insert at least one window for every gap between consecutive bins.
-    - Additional windows are inserted every K bins, where
-      K = max(1, floor(max_silence_s / time_step)).
-
-    Inserted windows have UP/DOWN counts set to 0.
-    """
-
-    idx = feature_dict[Feats.TIME_BINS]
-    if idx.ndim != 2:
-        raise ValueError("TIMES must be (B, L)")
-
-    B, L = idx.shape
-    device = idx.device
-
-    # Convert max silence to a bin step (floor), min 1.
-    K = int(max_silence_s / time_step) if time_step > 0 else 1
-    K = max(K, 1)
-
-    prev = idx[:, :-1]
-    nxt = idx[:, 1:]
-    pair_ok = (prev >= 0) & (nxt >= 0)
-
-    # Gap in bins strictly between prev and next.
-    gap_bins = nxt - prev - 1
-    has_gap = pair_ok & (gap_bins >= 1)
-
-    if not has_gap.any():
-        return feature_dict
-
-    rows, cols = torch.where(has_gap)
-    # Integer bin start immediately after prev.
-    start = prev[rows, cols] + 1
-    gap_i = gap_bins[rows, cols]
-    # Insert: start + j*K for j=0..count-1 while < nxt.
-    count = ((gap_i - 1) // K) + 1
-
-    if (total := int(count.sum().item())) == 0:
-        return feature_dict
-
-    starts_rep = start.repeat_interleave(count)
-    rows_rep = rows.repeat_interleave(count)
-
-    # Build 0..count-1 offsets per gap without Python loops.
-    seg_start = count.cumsum(0) - count
-    seg_start_rep = seg_start.repeat_interleave(count)
-    offsets = torch.arange(total, device=device, dtype=torch.long) - seg_start_rep
-
-    new_bins = starts_rep + offsets * K
-
-    # Pack per-row inserted bins into a padded (B, max_add) tensor.
-    # Sort by row to get contiguous segments.
-    order = torch.argsort(rows_rep)
-    rows_s = rows_rep[order]
-    new_bins_s = new_bins[order]
-
-    row_counts = torch.bincount(rows_s, minlength=B)
-    max_add = int(row_counts.max().item())
-    add_times = torch.full((B, max_add), -1, device=device, dtype=torch.long)
-
-    row_offsets = row_counts.cumsum(0) - row_counts
-    pos = torch.arange(total, device=device, dtype=torch.long) - row_offsets[rows_s]
-    add_times[rows_s, pos] = new_bins_s
-
-    # Inserted windows have zero counts.
-    add_up = torch.zeros(
-        (B, max_add), device=device, dtype=feature_dict[Feats.UP_COUNT].dtype
-    )
-    add_down = torch.zeros(
-        (B, max_add), device=device, dtype=feature_dict[Feats.DOWN_COUNT].dtype
-    )
-
-    # Concatenate and sort. Use large value to push -1 sentinels to the end.
-    times_all = torch.cat([feature_dict[Feats.TIME_BINS], add_times], dim=1)
-    up_all = torch.cat([feature_dict[Feats.UP_COUNT], add_up], dim=1)
-    down_all = torch.cat([feature_dict[Feats.DOWN_COUNT], add_down], dim=1)
-
-    sort_key = torch.where(
-        times_all >= 0, times_all, torch.full_like(times_all, int(1e18))
-    )
-    sort_idx = torch.argsort(sort_key, dim=1)
-
-    feature_dict[Feats.TIME_BINS] = times_all.gather(1, sort_idx)
-    feature_dict[Feats.UP_COUNT] = up_all.gather(1, sort_idx)
-    feature_dict[Feats.DOWN_COUNT] = down_all.gather(1, sort_idx)
-
-    return feature_dict
-
-
-def get_window_feature_dict(
-    X: dict[Feats, torch.Tensor],
-    dt: float,
-    max_silence_s: float,
-    features: list[Feats],
-) -> dict[Feats, torch.Tensor]:
-    warnings.warn(
-        "get_window_feature_dict is deprecated; use WindowFeatureStreamer instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    if dt <= 0:
-        raise ValueError(f"dt must be > 0, got {dt}")
-
-    # The silence insertion logic assumes max_silence_s is aligned to the bin grid.
-    ratio = max_silence_s / dt
-    if abs(ratio - round(ratio)) > 1e-8:
-        raise ValueError(
-            f"max_silence_s must be divisible by dt (max_silence_s={max_silence_s}, dt={dt})."
-        )
-
-    if set(X.keys()) > {Feats.DECOY, Feats.DIRS, Feats.TIMES}:
-        raise ValueError("Invalid set of feats")
-
-    # (B, L)
-    times = X[Feats.TIMES]
-    bin_idx = _time_to_bin_idx(times, dt)
-
-    if bin_idx.min() < 0:
-        raise ValueError("Negative bin indices found!")
-
-    feature_dict: dict[Feats, torch.Tensor] = {}
-    device = times.device
-    bs = int(times.shape[0])
-    n_bins = int(bin_idx.max().item()) + 1
-    shape = (bs, n_bins)
-
-    up_counts = torch.zeros(shape, device=device, dtype=torch.long).scatter_add_(
-        1, bin_idx, (X[Feats.DIRS] == UPLOAD).long()
-    )
-    down_counts = torch.zeros(shape, device=device, dtype=torch.long).scatter_add_(
-        1, bin_idx, (X[Feats.DIRS] == DOWNLOAD).long()
-    )
-    # Store bin indices as long; use scatter to pick the bin index for each occupied bin.
-    times_idx = torch.zeros(shape, device=device, dtype=torch.long).scatter_(
-        1, bin_idx, bin_idx
-    )
-
-    mask = (up_counts != 0) | (down_counts != 0)
-    max_l = mask.sum(dim=1).max()
-    feature_dict[Feats.UP_COUNT] = _flush_left(up_counts, mask)[:, :max_l]
-    feature_dict[Feats.DOWN_COUNT] = _flush_left(down_counts, mask)[:, :max_l]
-
-    times_idx = _flush_left(times_idx.float(), mask).to(torch.long)[:, :max_l]
-    mask_fl = _flush_left(mask.float(), mask, pad_val=0).bool()[:, :max_l]
-
-    # Use -1 sentinel for positions after seq end.
-    times_bins = torch.where(mask_fl, times_idx, torch.full_like(times_idx, -1))
-    feature_dict[Feats.TIME_BINS] = times_bins
-
-    # Insert extra windows into silent gaps (operates in int-bin space).
-    feature_dict = _add_actions_to_silence_periods(feature_dict, dt, max_silence_s)
-
-    # Valid mask: bins >= 0.
-    mask = feature_dict[Feats.TIME_BINS] >= 0
-
-    seq_lens = mask.sum(dim=1)
-    # Compute Dt as bin differences (int bins).
-    time_bins = feature_dict[Feats.TIME_BINS]
-    dt_bins = torch.zeros_like(time_bins)
-    dt_bins[:, :-1] = torch.where(
-        mask[:, :-1] & mask[:, 1:],
-        time_bins[:, 1:] - time_bins[:, :-1],
-        torch.ones_like(time_bins[:, :-1]),  # default 1 bin
-    )
-    # Last valid window gets 1 bin.
-    dt_bins[torch.arange(bs), seq_lens - 1] = 1
-
-    feature_dict[Feats.Dt_BINS] = dt_bins
-    # Also provide Dt (duration in seconds) for convenience.
-    feature_dict[Feats.Dt] = dt_bins.to(torch.float64) * dt
-    max_l = mask.sum(dim=1).max()
-    # Flush left with -1 sentinel for int-bin features, 0 for counts.
-    out: dict[Feats, torch.Tensor] = {}
-    for k, v in feature_dict.items():
-        if k in (Feats.TIME_BINS, Feats.Dt_BINS):
-            out[k] = _flush_left(v.float(), mask, pad_val=-1).to(torch.long)[:, :max_l]
-        elif k == Feats.Dt:
-            out[k] = _flush_left(v, mask, pad_val=-1.0)[:, :max_l]
-        else:
-            out[k] = _flush_left(v, mask, pad_val=0)[:, :max_l]
-    feature_dict = out
-
-    feature_dict[Feats.SEQ_LENS] = mask.sum(dim=1)
-
-    if Feats.SILENCE_FLAG in features:
-        feature_dict[Feats.SILENCE_FLAG] = (
-            (feature_dict[Feats.UP_COUNT] == 0) & (feature_dict[Feats.DOWN_COUNT] == 0)
-        ).float()
-
-    K = max(1, int(max_silence_s / dt))
-    dt_valid = feature_dict[Feats.Dt_BINS][feature_dict[Feats.Dt_BINS] >= 0]
-    if dt_valid.numel() > 0 and int(dt_valid.max().item()) > K:
-        logger.warning(
-            f"Found max Dt bin {int(dt_valid.max().item())}, "
-            f"whereas K={K} (max_silence_s={max_silence_s}, dt={dt})."
-        )
-
-    if not all(f in feature_dict for f in features):
-        raise ValueError("Some requested features are missing!")
-
-    for f, k in zip((Feats.UP_COUNT, Feats.DOWN_COUNT), (UPLOAD, DOWNLOAD)):
-        got = feature_dict[f].sum(dim=1)
-        exp = (X[Feats.DIRS] == k).sum(dim=1)
-        if (got != exp).any():
-            raise ValueError(
-                f"Missing packets for {f}: got={got.detach().cpu().tolist()} expected={exp.detach().cpu().tolist()}"
-            )
-
-    return feature_dict
 
 
 class SendBuffer:
@@ -291,9 +69,15 @@ class SendBuffer:
         if self.flushed:
             raise RuntimeError("Cannot delay flushed buffer")
 
-        self.times += self.dt
-
-        self._flush_bin = max(self._flush_bin, time_bin + 1)
+        if self._flush_bin == time_bin:
+            self._flush_bin = time_bin + 1
+            self.times += self.dt
+        elif self._flush_bin < time_bin:
+            raise RuntimeError(
+                f"Cannot delay buffer with flush_bin {self._flush_bin} in the past"
+            )
+        else:
+            pass
 
     def delay_up(self, time_bin: int) -> None:
         if self.up_delay_applied:
@@ -463,8 +247,8 @@ class TraceStateCursor:
         if self.prev_time_bin * self.dt >= self.terminate_after_s:
             raise StopIteration
 
-        assert actions.time == self.cursor_time_bin, (
-            f"Expected action time {self.cursor_time_bin}, got {actions.time}"
+        assert actions.time_bin == self.cursor_time_bin, (
+            f"Expected action time {self.cursor_time_bin}, got {actions.time_bin}"
         )
 
         times, dirs = _get_from_interval(
@@ -497,7 +281,7 @@ class TraceStateCursor:
         # - when a delay is started or adjusted, its bypassable status is replaced too
         # DECOY follows the packet through the buffers so the final reconstructed
         # trace can distinguish original packets from injected decoys.
-        act_time_bin = actions.time
+        act_time_bin = actions.time_bin
         dt_bins = self.cursor_time_bin - self.prev_time_bin
 
         # Send down actions:

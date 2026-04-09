@@ -119,7 +119,7 @@ def _parse_args() -> argparse.Namespace:
             "occasional-send-up",
             "occasional-send-up-delay",
         ),
-        default="occasional-send-up",
+        default="model",
         help=(
             "Select the plot-only action override policy. 'model' keeps the agent"
             " outputs, 'do-nothing' forces NoAction, and 'occasional-send-up'"
@@ -353,7 +353,7 @@ def _install_do_nothing_override(obs) -> None:
             NoAction(time=int(t.item()))
             if not bool(send_up_mask[i].item())
             else StepAction(
-                time=int(t.item()),
+                time_bin=int(t.item()),
                 _actions={Actions.SEND_UP: ActSendUp(count=100, after_steps=0)},
             )
             for i, t in enumerate(times)
@@ -434,7 +434,7 @@ def _install_action_policy_override(obs, policy: str) -> None:
                 if bool(delay_mask[i].item()):
                     action_dict[Actions.DELAY_UP] = ActDelayUp(steps=2)
                     action_dict[Actions.DELAY_DOWN] = ActDelayDown(steps=3)
-                actions.append(StepAction(time=int(t.item()), _actions=action_dict))
+                actions.append(StepAction(time_bin=int(t.item()), _actions=action_dict))
 
             return action_times, actions, log_probs, sel_probs, values, entropies, h_out
 

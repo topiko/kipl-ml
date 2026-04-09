@@ -110,7 +110,7 @@ def _plot_boxes(
         else:
             y = hs
 
-        rect = plt.Rectangle((xi, y), w, h, edgecolor=None, **kwargs)
+        rect = plt.Rectangle((xi, y), w, h, **kwargs)
         ax.add_patch(rect)
 
 
@@ -174,6 +174,7 @@ def plot_tam(
         tam_u_pad = np.zeros_like(tam_u_c, dtype=int)
         tam_d_pad = np.zeros_like(tam_d_c, dtype=int)
 
+    print(tam_d_pad.sum(), tam_u_pad.sum())
     ax = ax or plt.subplots(figsize=(12, 3))[1]
 
     miny = (-1) * _get_lims(tam_u_c, tam_d_c, 1)
@@ -184,9 +185,19 @@ def plot_tam(
     ax.set_ylabel("TAM count")
 
     def _plot_stacked_counts(
-        signed_counts: np.ndarray, pad_signed: np.ndarray, color: str
+        signed_counts: np.ndarray, pad_signed: np.ndarray, direction: int
     ) -> None:
-        visible = signed_counts - pad_signed
+        if direction == UPLOAD:
+            color = UP_COLOR
+            visible = signed_counts - pad_signed
+            sh = visible
+        elif direction == DOWNLOAD:
+            color = DOWN_COLOR
+            visible = -(signed_counts - pad_signed)
+            sh = visible - pad_signed
+        else:
+            raise ValueError("Invalid direction")
+
         _plot_boxes(
             tam_times,
             np.ones_like(tam_times) * window_width,
@@ -202,13 +213,13 @@ def plot_tam(
                 np.ones_like(tam_times) * window_width,
                 pad_signed,
                 ax,
-                start_heights=visible,
+                start_heights=sh,
                 color=PAD_COLOR,
                 alpha=0.5,
             )
 
-    _plot_stacked_counts(tam_u_c, tam_u_pad, UP_COLOR)
-    _plot_stacked_counts(-tam_d_c, -tam_d_pad, DOWN_COLOR)
+    _plot_stacked_counts(tam_u_c, tam_u_pad, UPLOAD)
+    _plot_stacked_counts(tam_d_c, tam_d_pad, DOWNLOAD)
 
     info_d = {
         "nup": tam_u_c.sum(),
@@ -329,85 +340,135 @@ def plot_packet_buffer(
 
 
 def plot_actions(
-    actions: StepActions,
+    step_actions: StepActions,
+    dt_s: float,
     ax: plt.Axes | None = None,
-    dt_s: float | None = None,
 ) -> plt.Axes:
     if ax is None:
         _, ax = plt.subplots(figsize=(12, 3))
 
-    if not actions:
+    if not step_actions:
         return ax
 
-    action_times = np.asarray([float(a.time) for a in actions], dtype=np.float64)
-    if dt_s is not None and dt_s > 0:
-        action_times *= dt_s
+    action_time_bins = np.array([float(a.time_bin) for a in step_actions])
+    action_times = action_time_bins * dt_s
 
-    def _next_time(i: int) -> float:
-        if i + 1 < len(action_times):
-            return float(action_times[i + 1])
-        return float(action_times[i] + (dt_s if dt_s is not None and dt_s > 0 else 1.0))
+    from kipl_ml.rl.enums import ActDelayDown, ActDelayUp, ActSendDown, ActSendUp
 
     def _plot_send(key: Actions, color: str, sign: int) -> None:
-        xs: list[float] = []
-        hs: list[float] = []
-        for i, sa in enumerate(actions):
-            if key not in sa:
+        for bypass, replace in (
+            (False, False),
+            (True, False),
+            (False, True),
+            (True, True),
+        ):
+            xs: list[float] = []
+            hs: list[float] = []
+            shifts: list[float] = []
+            for i, sa in enumerate(step_actions):
+                if key not in sa:
+                    continue
+                act = sa[key]
+
+                if key == Actions.SEND_UP:
+                    assert isinstance(act, ActSendUp)
+                elif key == Actions.SEND_DOWN:
+                    assert isinstance(act, ActSendDown)
+                else:
+                    raise ValueError("Invalid key")
+
+                if act.bypass != bypass or act.replace != replace:
+                    continue
+
+                xs.append(action_times[i] + act.after_steps * dt_s)
+                shifts.append(act.after_steps * dt_s)
+                hs.append(act.count * sign)
+
+            if not xs:
                 continue
-            act = sa[key]
-            if hasattr(act, "count") and int(act.count) != 0:
-                xs.append(
-                    float(action_times[i] + float(act.after_steps) * (dt_s or 1.0))
+
+            eg = "black" if bypass else None
+            alpha = 0.2 if replace else 1.0
+            kwargs = {"edgecolor": eg, "alpha": alpha, "facecolor": color}
+
+            widths = np.ones(len(xs)) * dt_s
+            _plot_boxes(np.asarray(xs), widths, np.asarray(hs), ax=ax, **kwargs)
+
+            for x, h, shift in zip(xs, hs, shifts):
+                ax.plot(
+                    (x - shift, x + dt_s / 2), (0, h), "-o", color="black", lw=0.5, ms=3
                 )
-                hs.append(float(act.count) if sign > 0 else -float(act.count))
-        if not xs:
-            return
-        widths = np.ones(len(xs), dtype=np.float64) * (
-            float(dt_s) if dt_s and dt_s > 0 else 0.005
-        )
-        _plot_boxes(
-            np.asarray(xs), widths, np.asarray(hs), color=color, alpha=0.2, ax=ax
-        )
 
-    _plot_send(Actions.SEND_UP, UP_COLOR, +1)
-    _plot_send(Actions.SEND_DOWN, DOWN_COLOR, -1)
+    _plot_send(Actions.SEND_UP, UP_COLOR, UPLOAD)
+    _plot_send(Actions.SEND_DOWN, DOWN_COLOR, DOWNLOAD)
 
-    def _plot_delay(key: Actions, color: str, ymin: float, ymax: float) -> None:
-        for i, sa in enumerate(actions):
-            if key not in sa:
-                continue
-            act = sa[key]
-            if not hasattr(act, "steps") or int(act.steps) <= 0:
-                continue
-            d = float(act.steps) * (dt_s if dt_s is not None and dt_s > 0 else 1.0)
-            ax.axvspan(
-                float(action_times[i]),
-                float(action_times[i] + d),
-                ymin=ymin,
-                ymax=ymax,
-                color=color,
-                alpha=0.18,
-                lw=0,
-                zorder=0,
+    def _plot_delay(key: Actions, color: str) -> None:
+        for bypass, replace in (
+            (False, False),
+            (True, False),
+            (False, True),
+            (True, True),
+        ):
+            ts = []
+            ys = []
+            for i, sa in enumerate(step_actions):
+                if key not in sa:
+                    continue
+                act = sa[key]
+
+                if key == Actions.DELAY_UP:
+                    y = hmax / 2
+                    assert isinstance(act, ActDelayUp)
+                elif key == Actions.DELAY_DOWN:
+                    y = -hmax / 2
+                    assert isinstance(act, ActDelayDown)
+                else:
+                    raise ValueError("Invalid key")
+
+                if act.bypass != bypass or act.replace != replace:
+                    continue
+
+                t = action_times[i]
+                tend = t + act.steps * dt_s
+                ts += [t, t, tend, tend]
+                ys += [0, y, y, 0]
+
+            eg = None if bypass else "black"
+            alpha = 0.3 if replace else 0.6
+
+            ax.fill_between(
+                ts,
+                ys,
+                y2=0,
+                edgecolor=eg,
+                facecolor=color,
+                alpha=alpha,
+                lw=1,
             )
 
+    hmax = max(
+        s.count
+        for sa in step_actions
+        for s in sa.acts
+        if isinstance(s, (ActSendUp, ActSendDown))
+    )
+
     # Delay spans: upward delays in upper half, downward delays in lower half.
-    _plot_delay(Actions.DELAY_UP, "#d97706", 0.5, 1.0)
-    _plot_delay(Actions.DELAY_DOWN, "#b45309", 0.0, 0.5)
+    _plot_delay(Actions.DELAY_UP, "#5AC5ED")
+    _plot_delay(Actions.DELAY_DOWN, "#E86646")
 
     # Do-nothing spans on the remaining steps.
-    for i, sa in enumerate(actions):
+    for i, sa in enumerate(step_actions):
         if Actions.DO_NOTHING not in sa:
             continue
-        if (
-            int(sa[Actions.DO_NOTHING].bypass) != 0
-        ):  # keep only the presence of the action
-            pass
-        t0 = float(action_times[i])
-        t1 = _next_time(i)
+        t0 = action_times[i]
+        if i + 1 == len(step_actions):
+            break
+
+        t1 = action_times[i + 1]
         ax.axvspan(t0, t1, color="gray", alpha=0.12, lw=0, zorder=0)
 
-    ax.vlines(action_times, -5, 5, color="black", lw=2.0)
+    ax.vlines(action_times, -5, 5, color="black", lw=1.0)
 
     return ax
 

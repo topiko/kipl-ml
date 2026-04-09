@@ -673,11 +673,11 @@ class AGENT1(nn.Module):
             sel = selector_idx[b]
             t = time_bins[b, 0].item()
             if sel == 0:
-                sa = StepAction(time=t, _actions={Actions.DO_NOTHING: ActDoNothing()})
+                sa = StepAction(time_bin=t, _actions={Actions.DO_NOTHING: ActDoNothing()})
                 log_probs[b, 0] = sel_log_probs[b, 0]
             if sel == 1:
                 sa = StepAction(
-                    time=t,
+                    time_bin=t,
                     _actions={
                         Actions.SEND_UP: ActSendUp(
                             count=act_tup_d[AHKs.SEND_COUNT_U][0][b],
@@ -696,7 +696,7 @@ class AGENT1(nn.Module):
                 )
             elif sel == 2:
                 sa = StepAction(
-                    time=t,
+                    time_bin=t,
                     _actions={
                         Actions.SEND_DOWN: ActSendDown(
                             count=act_tup_d[AHKs.SEND_COUNT_D][0][b],
@@ -715,7 +715,7 @@ class AGENT1(nn.Module):
                 )
             elif sel == 3:
                 sa = StepAction(
-                    time=t,
+                    time_bin=t,
                     _actions={
                         Actions.SEND_UP: ActSendUp(
                             count=act_tup_d[AHKs.SEND_COUNT_U][0][b],
@@ -749,7 +749,7 @@ class AGENT1(nn.Module):
                     )
                 if sel == 4:
                     sa = StepAction(
-                        time=t,
+                        time_bin=t,
                         _actions={
                             Actions.DELAY_UP: ActDelayUp(
                                 steps=act_tup_d[AHKs.DELAY_BINS_U][0][b],
@@ -766,7 +766,7 @@ class AGENT1(nn.Module):
                     )
                 elif sel == 5:
                     sa = StepAction(
-                        time=t,
+                        time_bin=t,
                         _actions={
                             Actions.DELAY_DOWN: ActDelayDown(
                                 steps=act_tup_d[AHKs.DELAY_BINS_D][0][b],
@@ -783,7 +783,7 @@ class AGENT1(nn.Module):
                     )
                 elif sel == 6:
                     sa = StepAction(
-                        time=t,
+                        time_bin=t,
                         _actions={
                             Actions.DELAY_UP: ActDelayUp(
                                 steps=act_tup_d[AHKs.DELAY_BINS_U][0][b],

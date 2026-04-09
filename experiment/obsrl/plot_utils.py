@@ -172,14 +172,15 @@ def _plot_single(
     weights: torch.Tensor,
     obs_dt_s: float | None = None,
 ):
-    fig, (ax, ax_fd, ax_a, ax_o, ax_rew, ax_mean_rew, ax_ret, ax_adv) = plt.subplots(
-        8, 1, figsize=(20, 15.0), sharex=True
+    fig, (ax, ax_fd, ax_a, ax_a_e, ax_o, ax_rew, ax_mean_rew, ax_ret, ax_adv) = (
+        plt.subplots(9, 1, figsize=(20, 15.0), sharex=True)
     )
 
     # Make rows 1, 2, and 4 easier to visually compare.
     # Use sharey() for compatibility across matplotlib versions.
     ax_fd.sharey(ax)
     ax_o.sharey(ax)
+    ax_a.sharey(ax)
 
     plot_fn_ = partial(plot_tam, window_width=disc_orig.tam_dict["window_width_s"])
 
@@ -223,8 +224,7 @@ def _plot_single(
     )
 
     # Plot entropy
-    ax_entropy = ax_a.twinx()
-    ax_entropy.axes.spines["right"].set_visible(True)
+    ax_entropy = ax_a_e
     for entropy, entropy_values in entropies.items():
         values_i = entropy_values[batch_i, :seq_len_i]
         ax_entropy.plot(
@@ -238,9 +238,8 @@ def _plot_single(
     ax_entropy.legend(frameon=False, loc=1)
 
     # Plot selection probs
-    ax_probs = ax_a.twinx()
+    ax_probs = ax_a_e.twinx()
     ax_probs.axes.spines["right"].set_visible(True)
-    ax_probs.spines["right"].set_position(("outward", 40))  # offset by 40 points
     ax_probs.set_ylabel("Selection probs.")
 
     ax_probs.plot(
@@ -248,8 +247,10 @@ def _plot_single(
         sel_probs[batch_i, :seq_len_i].squeeze().cpu().numpy(),
         "-",
         lw=1,
+        label="Selection prob.",
     )
 
+    ax_probs.legend(frameon=False, loc=2)
     ax_a.set_title("Actions, entropies")
 
     # Trained disc on obsfuscated trace (from batched rollout):
