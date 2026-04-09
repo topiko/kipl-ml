@@ -15,7 +15,7 @@ mlflow:
 
 trace:
   trim_beginning: 10
-  len: 5_000
+  len: 1_000
   min_packets: 1000
   dur_max: 40 # max trace duration in seconds; clamps to (0, this, True); null=disabled
   rtt_bins: 2
