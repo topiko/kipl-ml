@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import os
-import random
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 import dotenv
 import mlflow
+import numpy as np
 import torch
 from torch import nn
 
@@ -146,41 +146,24 @@ class RNNDef(_NNDef):
     ) -> dict[Feats, torch.Tensor]:
         # Implement RNN specific logic
 
-        max_packets = self._n_packets
-
         trace_d = {
             k: v[: self._n_packets].unsqueeze(0).float() for k, v in trace_d.items()
         }
 
         if self.defence_model_state_dicts is not None:
-            st_d = random.choice(self.defence_model_state_dicts)
+            rng = np.random.default_rng(self.seed)
+            st_d = rng.choice(self.defence_model_state_dicts)
             self.defense_model.load_state_dict(st_d)
-
-        defense_model = self.defense_model
-
-        if getattr(defense_model, "enable_delay", False):
-            with torch.inference_mode():
-                trace_d = policy_obfuscate_trace_streaming(
-                    defense_model,
-                    trace_d,
-                    sample=True,
-                    max_packets=max_packets,
-                )
-
-            trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
-            trace_d[Feats.SIZES] = torch.ones_like(trace_d[Feats.TIMES])
-            return trace_d
 
         with torch.inference_mode():
             trace_d = policy_obfuscate_trace_streaming(
-                defense_model,
+                self.defense_model,
                 trace_d,
                 sample=True,
-                max_packets=max_packets,
+                max_packets=self._n_packets,
             )
 
         trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
-
         trace_d[Feats.SIZES] = torch.ones_like(trace_d[Feats.TIMES])
 
         return trace_d

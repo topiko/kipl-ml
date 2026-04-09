@@ -538,7 +538,7 @@ class AGENT1(nn.Module):
 
         head = self.actor["action_selection"]
         lin = head[-1]
-        if not isinstance(lin, nn.Linear) or lin.out_features not in {4, 5}:
+        if not isinstance(lin, nn.Linear):
             raise TypeError("action_selection head must end with Linear(..., 4|5)")
 
         with torch.no_grad():

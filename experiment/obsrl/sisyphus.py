@@ -455,24 +455,30 @@ def train_obs_on_league(
 
     eo = 1
     while True:
-        if cfg.obs.train.random_sample != 1.0:
+        if cfg.obs.train.random_sample == 1.0:
+            shuffle = True
+            sampler = None
+        else:
+            shuffle = False
             if cfg.obs.train.fixed_sample:
                 seed = cfg.seed
             else:
                 seed = cfg.seed + eo
             rng = np.random.default_rng(seed)
             subset_indices = rng.choice(
-                len(ds_train), replace=False, size=cfg.obs.n_traces_per_push
+                len(ds_train),
+                replace=False,
+                size=int(cfg.obs.train.random_sample * len(ds_train)),
             )
             sampler = SubsetRandomSampler(subset_indices)
-        else:
-            sampler = None
+            logger.info("Obs train subset size: %d", len(subset_indices))
+
         metrics_d = train_obs_one_epoch(
             dl_train=dl_(
                 ds_train,
                 bs=cfg.obs.train.batch_size,
                 collate_fn=None,
-                shuffle=True,
+                shuffle=shuffle,
                 sampler=sampler,
             ),
             obs=obs,
@@ -657,7 +663,7 @@ def main(cfg: DictConfig):
         label=assets.PAGE_LABEL,
         n_splits=N_SPLITS,
         test_xv=TEST_XV,
-        random_state=42,
+        random_state=cfg.seed,
         feature_trs=FeatureTrs(
             feature_names=[Feats.DIRS, Feats.TIMES],
             n_packets=cfg.trace.len,
