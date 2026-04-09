@@ -463,6 +463,10 @@ def plot_actions(
     for i, sa in enumerate(step_actions):
         if Actions.DO_NOTHING not in sa:
             continue
+
+        if len(sa._actions) != 1:
+            raise ValueError("Do-nothing action should be the only action in the step")
+
         t0 = action_times[i]
         if i + 1 == len(step_actions):
             break
