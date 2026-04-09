@@ -557,6 +557,7 @@ def train_obs_on_league(
 
 
 def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
+    model_id = "m-106b8cad5778497d813b823a4094bf4a"
     eps = cfg.obs.prob_eps
     f_ = 0.5
 
@@ -591,6 +592,10 @@ def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
     if cfg.obs.separate_critic:
         critic = CRITIC01(obs, hsize=256, nlayers=3)
 
+    if model_id is not None:
+        obs = mlflow.pytorch.load_model(
+            mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
+        )
     return obs, critic
 
 
