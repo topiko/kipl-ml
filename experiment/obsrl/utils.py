@@ -525,7 +525,7 @@ def get_advantages(
         G = get_returns(
             rewards,
             seq_lens,
-            gamma=cfg.discounting,
+            gamma=cfg.rewards.discounting,
             bootstrap=bootstrap,
         )
         advantages = G - values_detached
@@ -535,7 +535,7 @@ def get_advantages(
             values_detached,
             seq_lens,
             lambda_=cfg.advantages.lambda_,
-            gamma=cfg.discounting,
+            gamma=cfg.rewards.discounting,
         )
         G = advantages + values_detached
     else:
@@ -546,7 +546,7 @@ def get_advantages(
         # (1, T)
         t = torch.arange(advantages.shape[1], device=advantages.device)[None, :]
         # (bs, T)
-        gamma = cfg.discounting
+        gamma = cfg.rewards.discounting
         seq_lens_ = seq_lens.to(device=advantages.device)
         to_seq_end = (seq_lens_[:, None] - t).clamp_min(1).to(advantages.dtype)
         if abs(gamma - 1.0) < 1e-8:

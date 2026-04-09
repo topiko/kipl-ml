@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
+from torch.utils.data import SubsetRandomSampler
 from tqdm import tqdm
 
 from experiment.obsrl.plot_utils import _plot_set
@@ -160,6 +161,7 @@ def train_obs_one_epoch(
                 detach_period=cfg.obs.detach_period,
                 critic_detach_period=cfg.obs.critic_detach_period,
                 reward_scales=reward_scales,
+                rtt_bins=cfg.trace.rtt_bins,
             )
 
             action_seq_lens = fd[Feats.SEQ_LENS]
@@ -453,8 +455,26 @@ def train_obs_on_league(
 
     eo = 1
     while True:
+        if cfg.obs.train.random_sample != 1.0:
+            if cfg.obs.train.fixed_sample:
+                seed = cfg.seed
+            else:
+                seed = cfg.seed + eo
+            rng = np.random.default_rng(seed)
+            subset_indices = rng.choice(
+                len(ds_train), replace=False, size=cfg.obs.n_traces_per_push
+            )
+            sampler = SubsetRandomSampler(subset_indices)
+        else:
+            sampler = None
         metrics_d = train_obs_one_epoch(
-            dl_train=dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True),
+            dl_train=dl_(
+                ds_train,
+                bs=cfg.obs.train.batch_size,
+                collate_fn=None,
+                shuffle=True,
+                sampler=sampler,
+            ),
             obs=obs,
             critic=critic,
             discriminator=discriminator,

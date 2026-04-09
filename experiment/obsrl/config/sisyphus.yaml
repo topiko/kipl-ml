@@ -18,6 +18,7 @@ trace:
   len: 5_000
   min_packets: 1000
   dur_max: 40 # max trace duration in seconds; clamps to (0, this, True); null=disabled
+  rtt_bins: 2
 
 advantages:
   type: "mc"
@@ -30,6 +31,7 @@ rewards:
   d_clf: 0.001
   padding_scale: 0.01
   delay_scale: 0.004 # 0.0000001
+  discounting: 0.99
 
 obs:
   # Floor for action prob:
@@ -38,7 +40,6 @@ obs:
   max_silence_s: 0.04
   detach_period: 300
   lr: 0.0007
-  send_mode: "fixed"
   enable_delay: True
   # Number of packets to send when selector chooses send actions.
   send_count_bins: [5, 20, 50] #, 100, 200]
@@ -47,15 +48,15 @@ obs:
   # Delay action duration choices (in bins).
   delay_duration_bins: [1, 2, 3]
 
-  hsize: 64 #256
-  nhidden: 1 # 3
+  hsize: 256 #256
+  nhidden: 3 # 3
   # Push stop metric and threshold.
   # - stop_metric is used both for stopping and obs LR scheduling
   # - stop_metric_thres is required when stop_metric != avg_return
   stop_metric: mean_reward_total
-  stop_metric_thres: 0.65
+  stop_metric_thres: 0.50
 
-  init_for_wait: False
+  init_for_wait: True
   enable_entropy_loss: True
   selection_entropy_scale: 0.005
   conditional_entropy_scale: 0.0005
@@ -84,6 +85,12 @@ obs:
   critic_lr: 0.0005
   critic_detach_period: 500
 
+  train:
+    batch_size: 64
+    random_sample: 1.0
+    fixed_sample: False
+
+
 disc:
   detach_period: 500
   # When coming down the disc needs to get below this against the
@@ -103,11 +110,9 @@ league:
   enforce_orig: True
   random_frac: 0.25
 
-
+seed: 42
 ema_decay: 0.95
 grad_norm_clip: 1
-discounting: 0.99
-batch_size: 256
 label_smoothing: 0.02
 
 max_epochs: 99

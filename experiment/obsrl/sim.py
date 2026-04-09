@@ -323,36 +323,7 @@ def rollout(
     detach_period: int = 20,
     critic_detach_period: int | None = None,
     reward_scales: dict[str, float] | None = None,
-    sample: bool = True,
-):
-    """Rollout entrypoint using the streaming rollout path."""
-
-    return _rollout_streaming(
-        obs=obs,
-        critic=critic,
-        disc=disc,
-        X=X,
-        y=y,
-        disc_league=disc_league,
-        disc_features=disc_features,
-        detach_period=detach_period,
-        critic_detach_period=critic_detach_period,
-        reward_scales=reward_scales,
-        sample=sample,
-    )
-
-
-def _rollout_streaming(
-    obs: nn.Module,
-    critic: nn.Module | None,
-    disc: nn.Module,
-    X: dict[Feats, torch.Tensor],
-    y: torch.Tensor,
-    disc_league: list[tuple[int, nn.Module.state_dict]],
-    disc_features: FeatureTrs | None = None,
-    detach_period: int = 20,
-    critic_detach_period: int | None = None,
-    reward_scales: dict[str, float] | None = None,
+    rtt_bins: int = 0,
     sample: bool = True,
 ) -> tuple[
     torch.Tensor,
@@ -373,6 +344,7 @@ def _rollout_streaming(
             obs,
             X,
             sample=sample,
+            rtt_bins=rtt_bins,
             max_packets=None,
         )
     )

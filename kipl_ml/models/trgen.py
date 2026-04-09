@@ -673,7 +673,9 @@ class AGENT1(nn.Module):
             sel = selector_idx[b]
             t = time_bins[b, 0].item()
             if sel == 0:
-                sa = StepAction(time_bin=t, _actions={Actions.DO_NOTHING: ActDoNothing()})
+                sa = StepAction(
+                    time_bin=t, _actions={Actions.DO_NOTHING: ActDoNothing()}
+                )
                 log_probs[b, 0] = sel_log_probs[b, 0]
             if sel == 1:
                 sa = StepAction(
