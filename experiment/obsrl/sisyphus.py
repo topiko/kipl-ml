@@ -365,7 +365,7 @@ def train_disc_on_league(
         disc_feats=disc_feats,
         obs=obs,
         ds=ds_train,
-        n_packets=cfg.trace.len,
+        n_packets=cfg.trace.n_packets,
         bs=cfg.disc.batch_size,
         obs_league=[d for _, d in obs_league[-cfg.league.size :]],
         train_defence_aug=cfg.disc.train_defence_aug,
@@ -626,7 +626,7 @@ def main(cfg: DictConfig):
     )
 
     time_clamp = (
-        (0.0, cfg.trace.dur_max, True) if cfg.trace.dur_max is not None else None
+        (0.0, cfg.trace.dur_max_s, True) if cfg.trace.dur_max_s is not None else None
     )
     feature_names = discriminator_orig.features
     tam_d = discriminator_orig.tam_dict
@@ -671,7 +671,7 @@ def main(cfg: DictConfig):
         random_state=cfg.seed,
         feature_trs=FeatureTrs(
             feature_names=[Feats.DIRS, Feats.TIMES],
-            n_packets=cfg.trace.len,
+            n_packets=cfg.trace.n_packets,
             time_clamp=time_clamp,
         ),
         defence_aug_valid=0,
@@ -790,7 +790,7 @@ def main(cfg: DictConfig):
                         prune=len(disc_league) > cfg.league.size * 4,
                         enforce_orig=cfg.league.enforce_orig,
                         score_type=cfg.league.score_type,
-                        n_packets=cfg.trace.len,
+                        n_packets=cfg.trace.n_packets,
                         n_traces=cfg.league.eval.n_traces,
                         defence_aug=cfg.league.eval.defence_aug,
                     )

@@ -98,12 +98,12 @@ def main(cfg: DictConfig):
         random_state=42,
         feature_trs=FeatureTrs(
             feature_names=feature_names,
-            n_packets=cfg.trace.len,
+            n_packets=cfg.trace.n_packets,
             time_clamp=time_clamp,
         ),
         defence_aug_valid=0,
         n_min_packets=cfg.min_packets_in_trace,
-        exclude_time_to_packets_n=cfg.trace.len,
+        exclude_time_to_packets_n=cfg.trace.n_packets,
         exclude_time_to_packets_s=cfg.exclude_longer_than_s,
         **defence_builder.get_defence(cfg),
     )
@@ -241,7 +241,7 @@ def main(cfg: DictConfig):
                         league_update_frac=league_update_frac,
                         prune=len(disc_league) > cfg.league_size * 2,
                         score_type=cfg.league_score_type,
-                        n_packets=cfg.trace.len,
+                        n_packets=cfg.trace.n_packets,
                     )
                 )
 
@@ -612,7 +612,7 @@ def main(cfg: DictConfig):
                     disc_feats=disc_feats,
                     obs=obs,
                     ds_valid=ds_valid,
-                    n_packets=cfg.trace.len,
+                    n_packets=cfg.trace.n_packets,
                     device=device,
                     key=key,
                 )

@@ -85,7 +85,7 @@ def _parse_args() -> argparse.Namespace:
         "--cfg-overrides",
         nargs="*",
         default=[],
-        help=("Hydra config overrides, e.g. obs.enable_delay=true trace.len=5000"),
+        help=("Hydra config overrides, e.g. obs.enable_delay=true trace.n_packets=5000"),
     )
     ap.add_argument(
         "--idxs",
@@ -220,7 +220,7 @@ def _load_dataset(cfg) -> tuple[WFDataset, WFDataset]:
         random_state=42,
         feature_trs=FeatureTrs(
             feature_names=[Feats.DIRS, Feats.TIMES],
-            n_packets=cfg.trace.len,
+            n_packets=cfg.trace.n_packets,
             time_clamp=time_clamp,
         ),
         defence_aug_valid=0,

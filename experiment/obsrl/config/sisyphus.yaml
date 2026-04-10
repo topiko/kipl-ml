@@ -15,14 +15,14 @@ mlflow:
 
 trace:
   trim_beginning: 10
-  len: 1_000
   min_packets: 1000
-  dur_max: 40 # max trace duration in seconds; clamps to (0, this, True); null=disabled
+  n_packets: 10_000
+  dur_max_s: 10 # max trace duration in seconds; clamps to (0, this, True); null=disabled
   rtt_bins: 2
 
 advantages:
   type: "mc"
-  lambda_: 0.95
+  lambda_: 0.95 # Only applies w. GAE
   standardize: False
   divide_by_Z: False
 
@@ -42,11 +42,11 @@ obs:
   lr: 0.0007
   enable_delay: True
   # Number of packets to send when selector chooses send actions.
-  send_count_bins: [5, 20, 50] #, 100, 200]
+  send_count_bins: [5, 20, 50, 100] #, 100, 200]
   # Delay (in action bins) before scheduled send actions.
   send_after_bins: [0, 1, 3, 5] #, 7, 9]
   # Delay action duration choices (in bins).
-  delay_duration_bins: [1, 2, 3]
+  delay_duration_bins: [1, 2, 3, 4]
 
   hsize: 256 #256
   nhidden: 3 # 3

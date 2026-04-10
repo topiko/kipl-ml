@@ -4,7 +4,7 @@
 # Exit if anything fails..
 set -e
 
-parent_prefix="MORE-audacious-imp" #"advanced-smolin" # audacious-imp
+parent_prefix="MORE-audacious-imp-02" #"advanced-smolin" # audacious-imp
 
 
 for i in $(seq 1 100); do
