@@ -6,7 +6,7 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.rl.enums import Actions
+from kipl_ml.rl.enums import Actions, StepActions
 from kipl_ml.trace.features import Feats
 
 logger = get_logger(__name__)
@@ -110,7 +110,7 @@ def _plot_boxes(
         else:
             y = hs
 
-        rect = plt.Rectangle((xi, y), w, h, edgecolor=None, **kwargs)
+        rect = plt.Rectangle((xi, y), w, h, **kwargs)
         ax.add_patch(rect)
 
 
@@ -165,10 +165,10 @@ def plot_tam(
 
     try:
         tam_u_pad = _squeeze_batched(
-            trace_dict[Feats.TAM_UP_PAD].detach().cpu().numpy(), idx
+            trace_dict[Feats.TAM_UP_DECOY].detach().cpu().numpy(), idx
         )
         tam_d_pad = _squeeze_batched(
-            trace_dict[Feats.TAM_DOWN_PAD].detach().cpu().numpy(), idx
+            trace_dict[Feats.TAM_DOWN_DECOY].detach().cpu().numpy(), idx
         )
     except KeyError:
         tam_u_pad = np.zeros_like(tam_u_c, dtype=int)
@@ -183,45 +183,42 @@ def plot_tam(
     ax.set_title(f"TAM counts ww={window_width:.02f} s")
     ax.set_ylabel("TAM count")
 
-    if tam_u_pad.sum() > 0:
-        _plot_boxes(
-            tam_times,
-            np.ones_like(tam_times) * window_width,
-            tam_u_pad,
-            ax,
-            start_heights=0.0,
-            color=PAD_COLOR,
-            alpha=0.5,
-        )
-    if tam_d_pad.sum() > 0:
-        _plot_boxes(
-            tam_times,
-            np.ones_like(tam_times) * window_width,
-            -tam_d_pad,
-            ax,
-            start_heights=0.0,
-            color=PAD_COLOR,
-            alpha=0.5,
-        )
+    def _plot_stacked_counts(
+        signed_counts: np.ndarray, pad_signed: np.ndarray, direction: int
+    ) -> None:
+        if direction == UPLOAD:
+            color = UP_COLOR
+            visible = signed_counts - pad_signed
+            sh = visible
+        elif direction == DOWNLOAD:
+            color = DOWN_COLOR
+            visible = -(signed_counts - pad_signed)
+            sh = visible - pad_signed
+        else:
+            raise ValueError("Invalid direction")
 
-    _plot_boxes(
-        tam_times,
-        np.ones_like(tam_times) * window_width,
-        tam_u_c - tam_u_pad,
-        ax,
-        start_heights=tam_u_pad,
-        color=UP_COLOR,
-        alpha=0.5,
-    )
-    _plot_boxes(
-        tam_times,
-        np.ones_like(tam_times) * window_width,
-        -tam_d_c + tam_d_pad,
-        ax,
-        start_heights=-tam_d_pad,
-        color=DOWN_COLOR,
-        alpha=0.5,
-    )
+        _plot_boxes(
+            tam_times,
+            np.ones_like(tam_times) * window_width,
+            visible,
+            ax,
+            start_heights=0.0,
+            color=color,
+            alpha=0.5,
+        )
+        if pad_signed.sum() > 0:
+            _plot_boxes(
+                tam_times,
+                np.ones_like(tam_times) * window_width,
+                pad_signed,
+                ax,
+                start_heights=sh,
+                color=PAD_COLOR,
+                alpha=0.5,
+            )
+
+    _plot_stacked_counts(tam_u_c, tam_u_pad, UPLOAD)
+    _plot_stacked_counts(tam_d_c, tam_d_pad, DOWNLOAD)
 
     info_d = {
         "nup": tam_u_c.sum(),
@@ -288,8 +285,8 @@ def plot_trace(
     colors[dirs == UPLOAD] = UP_COLOR
     colors[dirs == DOWNLOAD] = DOWN_COLOR
 
-    if Feats.PADDING in trace_dict:
-        pad = _squeeze_batched(trace_dict[Feats.PADDING].bool(), idx)
+    if Feats.DECOY in trace_dict:
+        pad = _squeeze_batched(trace_dict[Feats.DECOY].bool(), idx)
 
         info_d["pad nup"] = (pad & (dirs == 1)).sum()
         info_d["pad ndown"] = (pad & (dirs == -1)).sum()
@@ -342,120 +339,165 @@ def plot_packet_buffer(
 
 
 def plot_actions(
-    times: torch.Tensor,
-    actions: dict[Actions, torch.Tensor],
-    idx: int | None = None,
+    step_actions: StepActions,
+    dt_s: float,
     ax: plt.Axes | None = None,
-    dt_s: float | None = None,
 ) -> plt.Axes:
     if ax is None:
         _, ax = plt.subplots(figsize=(12, 3))
 
-    times = _squeeze_batched(times, idx)
-    actions = {k: _squeeze_batched(v, idx) for k, v in actions.items()}
+    if not step_actions:
+        return ax
 
-    # Convert int bins to seconds.
-    if dt_s is not None and dt_s > 0:
-        times = times.astype(np.float64) * dt_s
-        # DELAY and SEND_*_AFTER_TIME are also in bins.
-        if Actions.DELAY_BINS in actions:
-            actions[Actions.DELAY_BINS] = (
-                actions[Actions.DELAY_BINS].astype(np.float64) * dt_s
-            )
-        if Actions.SEND_UP_AFTER_BINS in actions:
-            actions[Actions.SEND_UP_AFTER_BINS] = (
-                actions[Actions.SEND_UP_AFTER_BINS].astype(np.float64) * dt_s
-            )
-        if Actions.SEND_DOWN_AFTER_BINS in actions:
-            actions[Actions.SEND_DOWN_AFTER_BINS] = (
-                actions[Actions.SEND_DOWN_AFTER_BINS].astype(np.float64) * dt_s
-            )
+    action_time_bins = np.array([float(a.time_bin) for a in step_actions])
 
-    max_c = 0
-    for ackt in (
-        Actions.DO_NOTHING,
-        Actions.DELAY_BINS,
-        (Actions.SEND_COUNT_UP, Actions.SEND_UP_AFTER_BINS),
-        (Actions.SEND_COUNT_DOWN, Actions.SEND_DOWN_AFTER_BINS),
-    ):
-        if isinstance(ackt, tuple):
-            if ackt[0] not in actions or ackt[1] not in actions:
+    if np.unique(action_time_bins).size != action_time_bins.size:
+        breakpoint()
+        raise ValueError("Duplicate action time bins!")
+
+    if np.diff(action_time_bins).min() <= 0:
+        breakpoint()
+        raise ValueError("Action time bins not strictly increasing!")
+
+    action_times = action_time_bins * dt_s
+
+    from kipl_ml.rl.enums import ActDelayDown, ActDelayUp, ActSendDown, ActSendUp
+
+    def _plot_send(key: Actions, color: str, sign: int) -> None:
+        for bypass, replace in (
+            (False, False),
+            (True, False),
+            (False, True),
+            (True, True),
+        ):
+            xs: list[float] = []
+            hs: list[float] = []
+            shifts: list[float] = []
+            for i, sa in enumerate(step_actions):
+                if key not in sa:
+                    continue
+                act = sa[key]
+
+                if key == Actions.SEND_UP:
+                    assert isinstance(act, ActSendUp)
+                elif key == Actions.SEND_DOWN:
+                    assert isinstance(act, ActSendDown)
+                else:
+                    raise ValueError("Invalid key")
+
+                if act.bypass != bypass or act.replace != replace:
+                    continue
+
+                xs.append(action_times[i] + act.after_steps * dt_s)
+                shifts.append(act.after_steps * dt_s)
+                hs.append(act.count * sign)
+
+            if not xs:
                 continue
-            counts = actions[ackt[0]]
 
-            match ackt[0]:
-                case Actions.SEND_COUNT_UP:
-                    color = UP_COLOR
-                case Actions.SEND_COUNT_DOWN:
-                    color = DOWN_COLOR
-                    counts = -counts
-                case _:
-                    raise ValueError(f"Unknown action type: {ackt[0]}")
+            eg = "black" if bypass else None
+            alpha = 0.2 if replace else 1.0
+            kwargs = {"edgecolor": eg, "alpha": alpha, "facecolor": color}
 
-            match ackt[1]:
-                case Actions.SEND_UP_AFTER_BINS | Actions.SEND_DOWN_AFTER_BINS:
-                    durs = np.ones_like(times) * 0.005
-                    shifts = actions[ackt[1]]
-                case _:
-                    raise ValueError(f"Unknown action type: {ackt[1]}")
+            widths = np.ones(len(xs)) * dt_s
+            _plot_boxes(np.asarray(xs), widths, np.asarray(hs), ax=ax, **kwargs)
 
-            max_c = max(max_c, np.absolute(counts).max())
-
-            mask = counts != 0
-            _plot_boxes(
-                x=times[mask] + shifts[mask],
-                widths=durs[mask],
-                heights=counts[mask],
-                color=color,
-                alpha=0.2,
-                ax=ax,
-            )
-
-            if (shifts != 0).any():
-                mask = shifts != 0
-                ax.quiver(
-                    times[mask],
-                    np.zeros_like(times[mask]),
-                    shifts[mask],
-                    counts[mask],
-                    angles="xy",
-                    scale_units="xy",
-                    scale=1,
-                    width=0.001,
-                    headwidth=2.0,
-                    headlength=2.0,
-                    headaxislength=3.6,
-                    linewidth=0.2,
-                    color="k",
-                    alpha=0.5,
-                    rasterized=True,  # nice if you save to PDF with lots of arrows
+            for x, h, shift in zip(xs, hs, shifts):
+                ax.plot(
+                    (x - shift, x + dt_s / 2), (0, h), "-o", color="black", lw=0.5, ms=3
                 )
 
-        elif ackt == Actions.DO_NOTHING:
-            # Render as a background span (duration effect) rather than a bar.
-            mask = actions[ackt] == 1
-            if mask.any():
-                durs = np.diff(times, append=np.array([times[-1]]), axis=0)
-                for t0, d in zip(times[mask], durs[mask]):
-                    ax.axvspan(t0, t0 + d, color="gray", alpha=0.12, lw=0, zorder=0)
+    _plot_send(Actions.SEND_UP, UP_COLOR, UPLOAD)
+    _plot_send(Actions.SEND_DOWN, DOWN_COLOR, DOWNLOAD)
 
-        elif ackt == Actions.DELAY_BINS:
-            # Render delay as a background span (duration effect), not as a
-            # "selector" bar, to avoid looking like it co-occurs with DO_NOTHING.
-            if Actions.DELAY_BINS not in actions:
-                continue
-            delay_s = actions[Actions.DELAY_BINS]
-            if delay_s.ndim != 1:
-                raise ValueError("Expected DELAY to be (T,)")
-            mask = delay_s > 0
-            if mask.any():
-                for t0, d in zip(times[mask], delay_s[mask]):
-                    ax.axvspan(t0, t0 + d, color="#d97706", alpha=0.18, lw=0, zorder=0)
+    def _plot_delay(key: Actions, color: str) -> None:
+        for bypass, replace in (
+            (False, False),
+            (True, False),
+            (False, True),
+            (True, True),
+        ):
+            ts = []
+            ys = []
+            for i, sa in enumerate(step_actions):
+                if key not in sa:
+                    continue
+                act = sa[key]
 
-        ax.vlines(times, -1, 1, color="black", lw=0.7)
+                if key == Actions.DELAY_UP:
+                    y = hmax / 2
+                    assert isinstance(act, ActDelayUp)
+                elif key == Actions.DELAY_DOWN:
+                    y = -hmax / 2
+                    assert isinstance(act, ActDelayDown)
+                else:
+                    raise ValueError("Invalid key")
 
-    max_c = max(max_c, 1)
-    ax.set_ylim(-max_c * 1.1, max_c * 1.1)
+                if act.bypass != bypass or act.replace != replace:
+                    continue
+
+                t = action_times[i]
+                tend = t + act.steps * dt_s
+                ts += [t, t, tend, tend]
+                ys += [0, y, y, 0]
+
+            eg = None if bypass else "black"
+            alpha = 0.3 if replace else 0.6
+
+            ax.fill_between(
+                ts,
+                ys,
+                y2=0,
+                edgecolor=eg,
+                facecolor=color,
+                alpha=alpha,
+                lw=1,
+            )
+
+    hmax = max(
+        s.count
+        for sa in step_actions
+        for s in sa.acts
+        if isinstance(s, (ActSendUp, ActSendDown))
+    )
+
+    # Delay spans: upward delays in upper half, downward delays in lower half.
+    _plot_delay(Actions.DELAY_UP, "#5AC5ED")
+    _plot_delay(Actions.DELAY_DOWN, "#E86646")
+
+    # Do-nothing spans on the remaining steps.
+    ts = []
+    ytop = []
+    ybot = []
+    for i, sa in enumerate(step_actions):
+        if Actions.DO_NOTHING not in sa:
+            continue
+
+        if len(sa._actions) != 1:
+            raise ValueError("Do-nothing action should be the only action in the step")
+
+        t0 = action_times[i]
+        if i + 1 == len(step_actions):
+            break
+
+        t1 = action_times[i + 1]
+        ts += [t0, t0, t1, t1]
+        ytop += [0, hmax, hmax, 0]
+        ybot += [0, -hmax, -hmax, 0]
+
+    ax.fill_between(
+        ts,
+        ytop,
+        ybot,
+        edgecolor=None,
+        facecolor="gray",
+        alpha=0.12,
+        lw=0,
+        zorder=0,
+    )
+
+    ax.vlines(action_times, -5, 5, color="black", lw=1.0)
+
     return ax
 
 
@@ -495,12 +537,15 @@ def plot_obs_features(
 
     _plot_boxes(times, Dt, up_count, color=UP_COLOR, alpha=0.5, ax=ax)
     _plot_boxes(times, Dt, -down_count, color=DOWN_COLOR, alpha=0.5, ax=ax)
+
+    ax.vlines(times, -10, 10, color="black", lw=1.0)
+
     _plot_boxes(
         times,
         Dt,
         (up_count == 0) & (down_count == 0),
         color="gray",
-        alpha=0.5,
+        alpha=1.0,
         ax=ax,
     )
 

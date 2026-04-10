@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
+from torch.utils.data import SubsetRandomSampler
 from tqdm import tqdm
 
 from experiment.obsrl.plot_utils import _plot_set
@@ -32,7 +33,7 @@ from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.trgen import AGENT1, CRITIC01
-from kipl_ml.rl.enums import Actions
+from kipl_ml.rl.enums import Actions, AHKs
 from kipl_ml.tools.mlflow_utils import (
     find_parent_run_id,
     get_mlflow_expr,
@@ -112,12 +113,6 @@ def train_obs_one_epoch(
         "sel vs. cond std ratio": [],
         "train_disc": [],
         "grad_norm": [],
-        "selector_wait_frac": [],
-        "selector_send_up_frac": [],
-        "selector_send_down_frac": [],
-        "selector_send_both_frac": [],
-        "selector_delay_frac": [],
-        "delay_active_frac": [],
     }
     losses_metrics_d.update(
         {"mean_reward_" + k.replace("_scale", ""): [] for k in reward_scales}
@@ -147,7 +142,7 @@ def train_obs_one_epoch(
 
             (
                 log_ps,
-                sel_probs,
+                _,
                 values,
                 league_rewards,
                 entropies,
@@ -166,6 +161,7 @@ def train_obs_one_epoch(
                 detach_period=cfg.obs.detach_period,
                 critic_detach_period=cfg.obs.critic_detach_period,
                 reward_scales=reward_scales,
+                rtt_bins=cfg.trace.rtt_bins,
             )
 
             action_seq_lens = fd[Feats.SEQ_LENS]
@@ -253,16 +249,6 @@ def train_obs_one_epoch(
             #    selection_entropy_scale * (1 + scale_update_), 1e-7, 1e-1
             # )
 
-            # Track the effect of selection vs conditional
-            sel_idx = actions[Actions.SELECTOR].to(torch.long)
-            sel_p = (
-                sel_probs.gather(-1, sel_idx.unsqueeze(-1)).squeeze(-1).clamp(min=1e-12)
-            )
-            sel_log_p = torch.log(sel_p)
-            sel_term = (advantages * sel_log_p).std()
-            cond_term = (advantages * (log_ps - sel_log_p)).std()
-            ratio = cond_term / (sel_term + 1e-8)
-
             cur_ret = _avg_leaguescore(weights, G, time_mask, per_trace=True)
 
             ema_ret = ema_update(ema_ret, cur_ret, ema_decay)
@@ -279,33 +265,16 @@ def train_obs_one_epoch(
                 selection_entropy.item() + conditional_entropy.item()
             )
             losses_metrics_d["entropy_loss"].append(entropy_loss.item())
-            losses_metrics_d["sel vs. cond std ratio"].append(ratio.item())
             losses_metrics_d["avg_return"].append(cur_ret)
 
             tm = time_mask.bool()
             denom = tm.sum().item()
-            sel = actions[Actions.SELECTOR].to(torch.long)
-            losses_metrics_d["selector_wait_frac"].append(
-                ((sel == 0) & tm).sum().item() / denom
-            )
-            losses_metrics_d["selector_send_up_frac"].append(
-                ((sel == 1) & tm).sum().item() / denom
-            )
-            losses_metrics_d["selector_send_down_frac"].append(
-                ((sel == 2) & tm).sum().item() / denom
-            )
-            losses_metrics_d["selector_send_both_frac"].append(
-                ((sel == 3) & tm).sum().item() / denom
-            )
-            losses_metrics_d["selector_delay_frac"].append(
-                ((sel == 4) & tm).sum().item() / denom
-            )
-            if Actions.DELAY_BINS in actions:
-                losses_metrics_d["delay_active_frac"].append(
-                    (((actions[Actions.DELAY_BINS] > 0) & tm).sum().item()) / denom
-                )
-            else:
-                losses_metrics_d["delay_active_frac"].append(0.0)
+
+            for key in list(Actions):
+                key_ = f"ack_{key}_frac"
+                losses_metrics_d.setdefault(key_, []).append(0.0)
+                for ack_l in actions:
+                    losses_metrics_d[key_][-1] += sum(key in a for a in ack_l) / denom
 
             for k, v in league_rewards.items():
                 losses_metrics_d[f"mean_reward_{k}"].append(
@@ -326,15 +295,15 @@ def train_obs_one_epoch(
             )
 
             # (B, )
-            normal_packets = (
-                (X_obs[Feats.DIRS] != 0) & (X_obs[Feats.PADDING] == 0)
-            ).sum(dim=1)
+            normal_packets = ((X_obs[Feats.DIRS] != 0) & (X_obs[Feats.DECOY] == 0)).sum(
+                dim=1
+            )
             # (B, )
             padding_packets_up = (
-                (X_obs[Feats.DIRS] == UPLOAD) & (X_obs[Feats.PADDING] == 1)
+                (X_obs[Feats.DIRS] == UPLOAD) & (X_obs[Feats.DECOY] == 1)
             ).sum(dim=1)
             padding_packets_down = (
-                (X_obs[Feats.DIRS] == DOWNLOAD) & (X_obs[Feats.PADDING] == 1)
+                (X_obs[Feats.DIRS] == DOWNLOAD) & (X_obs[Feats.DECOY] == 1)
             ).sum(dim=1)
             padding_packets = padding_packets_down + padding_packets_up
 
@@ -351,7 +320,8 @@ def train_obs_one_epoch(
             postfix = {
                 "pfu": np.mean(losses_metrics_d["mean_padding_frac_up"]),
                 "pfd": np.mean(losses_metrics_d["mean_padding_frac_down"]),
-                "dly": np.mean(losses_metrics_d["selector_delay_frac"]),
+                "dlyu": np.mean(losses_metrics_d[f"ack_{Actions.DELAY_UP}_frac"]),
+                "dlyd": np.mean(losses_metrics_d[f"ack_{Actions.DELAY_DOWN}_frac"]),
                 "ret": ema_ret,
                 "rew": ema_rew,
                 "Hs": ema_sel_entropy,
@@ -395,7 +365,7 @@ def train_disc_on_league(
         disc_feats=disc_feats,
         obs=obs,
         ds=ds_train,
-        n_packets=cfg.trace.len,
+        n_packets=cfg.trace.n_packets,
         bs=cfg.disc.batch_size,
         obs_league=[d for _, d in obs_league[-cfg.league.size :]],
         train_defence_aug=cfg.disc.train_defence_aug,
@@ -408,6 +378,7 @@ def train_disc_on_league(
     )
 
     ed = 0
+    loss = 0
     while True:
         loss = train_disc_one_epoch(
             clf=discriminator,
@@ -484,8 +455,32 @@ def train_obs_on_league(
 
     eo = 1
     while True:
+        if cfg.obs.train.random_sample == 1.0:
+            shuffle = True
+            sampler = None
+        else:
+            shuffle = False
+            if cfg.obs.train.fixed_sample:
+                seed = cfg.seed
+            else:
+                seed = cfg.seed + eo
+            rng = np.random.default_rng(seed)
+            subset_indices = rng.choice(
+                len(ds_train),
+                replace=False,
+                size=int(cfg.obs.train.random_sample * len(ds_train)),
+            )
+            sampler = SubsetRandomSampler(subset_indices)
+            logger.info("Obs train subset size: %d", len(subset_indices))
+
         metrics_d = train_obs_one_epoch(
-            dl_train=dl_(ds_train, bs=cfg.batch_size, collate_fn=None, shuffle=True),
+            dl_train=dl_(
+                ds_train,
+                bs=cfg.obs.train.batch_size,
+                collate_fn=None,
+                shuffle=shuffle,
+                sampler=sampler,
+            ),
             obs=obs,
             critic=critic,
             discriminator=discriminator,
@@ -528,9 +523,8 @@ def train_obs_on_league(
         for k, v in metrics_d.items():
             mlflow.log_metric(keymap(k), float(v), step=eo)
 
-        mlflow.log_metric(
-            "padding_scale", float(reward_scales_["padding_scale"]), step=eo
-        )
+        mlflow.log_metric("padding_scale", reward_scales_["padding_scale"], step=eo)
+        mlflow.log_metric("delay_scale", reward_scales_["delay_scale"], step=eo)
 
         if obs_lr_scheduler is not None:
             # TODO: this here is very questionable.
@@ -563,6 +557,7 @@ def train_obs_on_league(
 
 
 def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
+    model_id = "m-106b8cad5778497d813b823a4094bf4a"
     eps = cfg.obs.prob_eps
     f_ = 0.5
 
@@ -578,16 +573,17 @@ def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
         send_count_bins=send_count_bins,
         send_after_bins=send_after_bins,
         prob_eps={
-            Actions.SELECTOR: eps,
-            Actions.SEND_COUNT_UP: f_ * eps,
-            Actions.SEND_UP_AFTER_BINS: f_ * eps,
-            Actions.SEND_COUNT_DOWN: f_ * eps,
-            Actions.SEND_DOWN_AFTER_BINS: f_ * eps,
-            Actions.DELAY_BINS: f_ * eps,
+            **{a: 0.0 for a in AHKs},
+            AHKs.ACTION_SELECTION: eps,
+            AHKs.SEND_COUNT_U: f_ * eps,
+            AHKs.SEND_TIME_U: f_ * eps,
+            AHKs.SEND_COUNT_D: f_ * eps,
+            AHKs.SEND_TIME_D: f_ * eps,
+            AHKs.DELAY_BINS_U: f_ * eps,
+            AHKs.DELAY_BINS_D: f_ * eps,
         },
         delay_duration_bins=delay_duration_bins,
         prefer_wait_bias=4.0 if cfg.obs.init_for_wait else 0.0,
-        send_mode=cfg.obs.send_mode,
         enable_delay=cfg.obs.enable_delay,
         train_env={"trim_beginning": cfg.trace.trim_beginning},
     )
@@ -596,6 +592,10 @@ def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
     if cfg.obs.separate_critic:
         critic = CRITIC01(obs, hsize=256, nlayers=3)
 
+    if model_id is not None:
+        obs = mlflow.pytorch.load_model(
+            mlflow.get_logged_model(model_id).model_uri, map_location="cpu"
+        )
     return obs, critic
 
 
@@ -626,7 +626,7 @@ def main(cfg: DictConfig):
     )
 
     time_clamp = (
-        (0.0, cfg.trace.dur_max, True) if cfg.trace.dur_max is not None else None
+        (0.0, cfg.trace.dur_max_s, True) if cfg.trace.dur_max_s is not None else None
     )
     feature_names = discriminator_orig.features
     tam_d = discriminator_orig.tam_dict
@@ -646,7 +646,7 @@ def main(cfg: DictConfig):
     ]
     disc_trs += [
         get_feature_tr(f, npackets, time_clamp, tam_kwargs=tam_d)
-        for f in (Feats.TAM_DOWN_PAD, Feats.TAM_UP_PAD)
+        for f in (Feats.TAM_DOWN_DECOY, Feats.TAM_UP_DECOY)
     ]
     disc_trs.append(
         get_feature_tr(Feats.TAM_BINS, npackets, time_clamp, tam_kwargs=tam_d)
@@ -668,10 +668,10 @@ def main(cfg: DictConfig):
         label=assets.PAGE_LABEL,
         n_splits=N_SPLITS,
         test_xv=TEST_XV,
-        random_state=42,
+        random_state=cfg.seed,
         feature_trs=FeatureTrs(
             feature_names=[Feats.DIRS, Feats.TIMES],
-            n_packets=cfg.trace.len,
+            n_packets=cfg.trace.n_packets,
             time_clamp=time_clamp,
         ),
         defence_aug_valid=0,
@@ -792,7 +792,9 @@ def main(cfg: DictConfig):
                         prune=len(disc_league) > cfg.league.size * 4,
                         enforce_orig=cfg.league.enforce_orig,
                         score_type=cfg.league.score_type,
-                        n_packets=cfg.trace.len,
+                        n_packets=cfg.trace.n_packets,
+                        n_traces=cfg.league.eval.n_traces,
+                        defence_aug=cfg.league.eval.defence_aug,
                     )
                 )
             logger.info("\tRe-scaling league weights to uniform...")

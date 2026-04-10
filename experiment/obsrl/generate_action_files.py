@@ -7,8 +7,8 @@ import torch
 
 from kipl_ml.data.utils import Datasets, assets, load_dataset_meta_df
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
-from kipl_ml.rl.action import execute_actions_from_sequence
-from kipl_ml.rl.observation import get_window_feature_dict
+from kipl_ml.rl.enums import Actions, StepAction, StepActions
+from kipl_ml.rl.simulate import policy_rollout_streaming
 from kipl_ml.tools.mlflow_utils import set_tracking_uri_from_env
 from kipl_ml.trace.features import Feats, FeatureTrs
 
@@ -35,6 +35,36 @@ AGENT_IDS = [
 ]
 
 
+def _actions_to_frame(actions: StepActions) -> pd.DataFrame:
+    rows: list[dict[str, int]] = []
+    for sa in actions:
+        row = {"act_time_bin": int(sa.time)}
+        row["do_nothing"] = int(Actions.DO_NOTHING in sa)
+        row["send_up_count"] = (
+            int(sa[Actions.SEND_UP].count) if Actions.SEND_UP in sa else 0
+        )
+        row["send_down_count"] = (
+            int(sa[Actions.SEND_DOWN].count) if Actions.SEND_DOWN in sa else 0
+        )
+        row["send_up_after_steps"] = (
+            int(sa[Actions.SEND_UP].after_steps) if Actions.SEND_UP in sa else 0
+        )
+        row["send_down_after_steps"] = (
+            int(sa[Actions.SEND_DOWN].after_steps) if Actions.SEND_DOWN in sa else 0
+        )
+        row["delay_up_steps"] = (
+            int(sa[Actions.DELAY_UP].steps) if Actions.DELAY_UP in sa else 0
+        )
+        row["delay_down_steps"] = (
+            int(sa[Actions.DELAY_DOWN].steps) if Actions.DELAY_DOWN in sa else 0
+        )
+        row["selector"] = (
+            int(sa[Actions.SELECTOR].selected) if Actions.SELECTOR in sa else 0
+        )
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def generate_for(
     obs,
     model_id: str,
@@ -50,14 +80,6 @@ def generate_for(
 
     X = {k: x.unsqueeze(0) for k, x in X.items()}
 
-    fd = get_window_feature_dict(
-        X, obs.time_step, obs.max_silence_s, features=obs.features
-    )
-
-    # We need the seq. lens in forward.
-    action_seq_lens = fd.pop(Feats.SEQ_LENS)
-    L = action_seq_lens.max().item()
-
     print(meta_ser)
 
     trace_id = meta_ser.trace_id
@@ -68,23 +90,17 @@ def generate_for(
 
     for i in range(N_REALIZATIONS):
         with torch.no_grad():
-            act_times, actions, log_ps, sel_probs, _, entropies, h = obs.act(
-                fd, None, h_detach_period=1000, seq_lens=action_seq_lens
+            fd, act_times, actions, log_ps, sel_probs, _, entropies, X_obs = (
+                policy_rollout_streaming(obs, X, sample=True)
             )
 
-        X_obs = execute_actions_from_sequence(
-            X, act_times, actions, time_step_s=float(obs.time_step)
-        )
         act_times = act_times.squeeze(0).cpu().numpy()
-
-        action_df = pd.DataFrame(data=act_times, columns=["act_times [s]"])
-
-        for k, v in actions.items():
-            action_df[k] = v.squeeze(0).cpu().numpy()
+        action_df = _actions_to_frame(actions[0])
+        action_df["act_times [s]"] = act_times
 
         obs_df = pd.DataFrame(
             data={k: v.squeeze(0).cpu().numpy() for k, v in X_obs.items()}
-        ).astype({Feats.DIRS: int, Feats.PADDING: int})
+        ).astype({Feats.DIRS: int, Feats.DECOY: int})
 
         action_df.to_csv(f"{data_dir}/generated_actions_{i:02d}.csv", index=False)
         obs_df.to_csv(f"{data_dir}/observed_trace_{i:02d}.csv", index=False)

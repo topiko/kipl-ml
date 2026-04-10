@@ -14,7 +14,7 @@ from experiment.obsrl.utils import (
 )
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.logging.logger import TQDM_W, get_logger
-from kipl_ml.rl.enums import Actions
+from kipl_ml.rl.enums import StepActions
 from kipl_ml.tools.plottr import (
     plot_actions,
     plot_obs_features,
@@ -164,7 +164,7 @@ def _plot_single(
     league_rewards: dict[str, torch.Tensor] | None,
     entropies: dict[str, torch.Tensor],
     times: torch.Tensor,
-    actions: dict[Actions, torch.Tensor],
+    actions: list[StepActions],
     X_obs: dict[Feats, torch.Tensor],
     fd: dict[Feats, torch.Tensor],
     G: torch.Tensor,
@@ -172,14 +172,15 @@ def _plot_single(
     weights: torch.Tensor,
     obs_dt_s: float | None = None,
 ):
-    fig, (ax, ax_fd, ax_a, ax_o, ax_rew, ax_mean_rew, ax_ret, ax_adv) = plt.subplots(
-        8, 1, figsize=(20, 15.0), sharex=True
+    fig, (ax, ax_fd, ax_a, ax_a_e, ax_o, ax_rew, ax_mean_rew, ax_ret, ax_adv) = (
+        plt.subplots(9, 1, figsize=(20, 15.0), sharex=True)
     )
 
     # Make rows 1, 2, and 4 easier to visually compare.
     # Use sharey() for compatibility across matplotlib versions.
     ax_fd.sharey(ax)
     ax_o.sharey(ax)
+    ax_a.sharey(ax)
 
     plot_fn_ = partial(plot_tam, window_width=disc_orig.tam_dict["window_width_s"])
 
@@ -217,15 +218,13 @@ def _plot_single(
 
     # Plot actions
     plot_actions(
-        times[batch_i, :seq_len_i],
-        {k: a[batch_i, :seq_len_i] for k, a in actions.items()},
+        actions[batch_i],
         ax=ax_a,
         dt_s=obs_dt_s,
     )
 
     # Plot entropy
-    ax_entropy = ax_a.twinx()
-    ax_entropy.axes.spines["right"].set_visible(True)
+    ax_entropy = ax_a_e
     for entropy, entropy_values in entropies.items():
         values_i = entropy_values[batch_i, :seq_len_i]
         ax_entropy.plot(
@@ -239,9 +238,8 @@ def _plot_single(
     ax_entropy.legend(frameon=False, loc=1)
 
     # Plot selection probs
-    ax_probs = ax_a.twinx()
+    ax_probs = ax_a_e.twinx()
     ax_probs.axes.spines["right"].set_visible(True)
-    ax_probs.spines["right"].set_position(("outward", 40))  # offset by 40 points
     ax_probs.set_ylabel("Selection probs.")
 
     ax_probs.plot(

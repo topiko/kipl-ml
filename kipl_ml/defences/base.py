@@ -31,6 +31,7 @@ class _Def(ABC):
         self.network_pps = NetwkPps(*network_pps, seed=seed)
         self.simul_rng = TraceSimulRng(seed=seed)
         self.FIXED_PER_TRACE = fixed_per_trace
+        self.seed = seed
 
     def _report(self, to_log: bool = True, **kwargs) -> str:
         str_ = f"{self.name}\n"

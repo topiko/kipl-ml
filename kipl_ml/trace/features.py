@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from copy import deepcopy
 from typing import Any
 
@@ -9,10 +10,10 @@ from torch import nn
 from kipl_ml.data import assets
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt, log_multiline
-from kipl_ml.rl.utils import _time_to_bin_idx
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.params import DOWNLOAD, UPLOAD
 from kipl_ml.trace.transforms import _TR
+from kipl_ml.utils.time import _time_to_bin_idx
 
 logger = get_logger(__name__)
 
@@ -45,10 +46,16 @@ def _pad_short_trace(
         return trace[:n_packets]
 
     if asset_key == Feats.TIMES:
+        warnings.warn(
+            "Padding Feats.TIMES by repeating the last timestamp is legacy behavior and "
+            "may break once batch padding uses explicit sentinels only.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         pad_val = trace[-1].item()
     elif asset_key in {Feats.DIRS, Feats.SIZES}:
         pad_val = 0.0
-    elif asset_key == Feats.PADDING:
+    elif asset_key == Feats.DECOY:
         pad_val = False
     else:
         raise ValueError(f"Unknown asset key: {asset_key}")
@@ -122,13 +129,13 @@ class PadOrCutTrace(_TR):
     def _apply_time_clamp(
         self, trace: dict[Feats, torch.Tensor]
     ) -> dict[Feats, torch.Tensor]:
-        tmin, tmax, relative = self.time_clamp
-        times = trace.get(Feats.TIMES)
-        if times is None:
+        if (times := trace.get(Feats.TIMES)) is None:
             raise ValueError("time_clamp provided but Feats.TIMES not in trace")
 
-        n = times.shape[0]
-        if n == 0:
+        tmin, tmax, relative = self.time_clamp
+        times = times[times != -1]
+
+        if (n := times.shape[0]) == 0:
             raise ValueError("time_clamp provided but trace is empty")
 
         start_idx = 0 if tmin is None else int(torch.searchsorted(times, tmin).item())
@@ -145,7 +152,7 @@ class PadOrCutTrace(_TR):
 
         clamped_trace = {}
         for key, val in trace.items():
-            if key in {Feats.TIMES, Feats.DIRS, Feats.SIZES, Feats.PADDING}:
+            if key in {Feats.TIMES, Feats.DIRS, Feats.SIZES, Feats.DECOY}:
                 if key == Feats.TIMES:
                     clamped = val[indices].clone()
                     if relative and tmin is not None:
@@ -155,7 +162,7 @@ class PadOrCutTrace(_TR):
                     clamped_trace[key] = val[indices].clone()
             else:
                 raise ValueError(
-                    f"time_clamp only supports TIMES, DIRS, SIZES, PADDING, "
+                    f"time_clamp only supports TIMES, DIRS, SIZES, DECOY, "
                     f"but got {key}. Apply time_clamp before adding derived features."
                 )
 
@@ -614,6 +621,7 @@ class RunningRate(_TR):
     def __init__(self, asset: Feats, time_asset: Feats):
         self.asset = asset
         self.time_asset = time_asset
+        self._warned_legacy_time_sentinel = False
 
     @property
     def name(self) -> Feats:
@@ -626,6 +634,15 @@ class RunningRate(_TR):
     def __call__(self, trace: dict[Feats, torch.Tensor]) -> dict[Feats, torch.Tensor]:
         times = trace[self.time_asset]
         values = trace[self.asset].clone()
+
+        if (times == 0).any() and not self._warned_legacy_time_sentinel:
+            warnings.warn(
+                "RunningRate treats times == 0 as invalid/padded slots; this will "
+                "break if zero timestamps become meaningful in the future.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._warned_legacy_time_sentinel = True
 
         values[times == 0] = 0.0
 
@@ -640,7 +657,7 @@ class _TAM(_TR):
     NAME = "tam"
     DIR: str
     TIMES: bool
-    PADDING: bool
+    DECOY: bool
 
     def __init__(
         self,
@@ -684,12 +701,12 @@ class _TAM(_TR):
         if self.TIMES:
             return Feats.TAM_TIMES
         if self.DIR == "upload" and not self.TIMES:
-            if self.PADDING:
-                return Feats.TAM_UP_PAD
+            if self.DECOY:
+                return Feats.TAM_UP_DECOY
             return Feats.TAM_UP_COUNTS
         if self.DIR == "download" and not self.TIMES:
-            if self.PADDING:
-                return Feats.TAM_DOWN_PAD
+            if self.DECOY:
+                return Feats.TAM_DOWN_DECOY
             return Feats.TAM_DOWN_COUNTS
 
         raise KeyError(f"Invalid dir {self.DIR}")
@@ -750,13 +767,21 @@ class _TAM(_TR):
         if self.TIMES:
             packet_mask = dirs != 0
 
-        if self.PADDING:
+        if self.DECOY:
+            if not self.padding_warned:
+                warnings.warn(
+                    "TAM padding-specific transforms still rely on the packet-level DECOY "
+                    "flag; this legacy naming will need a cleanup pass if packet padding semantics change.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                self.padding_warned = True
             try:
-                packet_mask = packet_mask & (trace[Feats.PADDING] == 1)
+                packet_mask = packet_mask & (trace[Feats.DECOY] == 1)
             except KeyError:
                 if not self.padding_warned:
                     logger.warning(
-                        "PADDING key not found in trace, but PADDING is True. "
+                        "DECOY key not found in trace, but DECOY is True. "
                         + "Proceeding without padding mask."
                     )
                     self.padding_warned = True
@@ -777,37 +802,37 @@ class _TAM(_TR):
 class TAM_UP(_TAM):
     DIR = "upload"
     TIMES = False
-    PADDING = False
+    DECOY = False
 
 
 class TAM_DOWN(_TAM):
     DIR = "download"
     TIMES = False
-    PADDING = False
+    DECOY = False
 
 
-class TAM_UP_PAD(_TAM):
+class TAM_UP_DECOY(_TAM):
     DIR = "upload"
     TIMES = False
-    PADDING = True
+    DECOY = True
 
 
-class TAM_DOWN_PAD(_TAM):
+class TAM_DOWN_DECOY(_TAM):
     DIR = "download"
     TIMES = False
-    PADDING = True
+    DECOY = True
 
 
 class TAM_TIMES(_TAM):
     DIR = "up/download"
     TIMES = True
-    PADDING = False
+    DECOY = False
 
 
 class TAM_BINS(_TAM):
     DIR = "up/download"
     TIMES = True
-    PADDING = False
+    DECOY = False
 
     @property
     def name(self) -> Feats:
@@ -937,6 +962,7 @@ class FeatureTrs:
         trace_batch_l: list[dict[Feats, torch.Tensor]] = []
 
         max_len = 0
+
         for i in range(bs):
             current_trace = {key: val[i] for key, val in trace_batch.items()}
             trace_: dict[Feats, torch.Tensor] = {}
@@ -1020,10 +1046,10 @@ def get_feature_tr(
                 _pad(n_packets),
                 Select(Feats.TIMES),
             )
-        case Feats.PADDING:
+        case Feats.DECOY:
             return Compose(
                 _pad(n_packets),
-                Select(Feats.PADDING),
+                Select(Feats.DECOY),
             )
         case Feats.UP_PACKETS:
             return Compose(
@@ -1236,8 +1262,8 @@ def get_feature_tr(
             )
         case Feats.TAM_UP_COUNTS:
             return Compose(_pad(None), TAM_UP(**tam_kwargs))
-        case Feats.TAM_UP_PAD:
-            return Compose(_pad(None), TAM_UP_PAD(**tam_kwargs))
+        case Feats.TAM_UP_DECOY:
+            return Compose(_pad(None), TAM_UP_DECOY(**tam_kwargs))
         case Feats.TAM_UP_COUNTS_MAX_NORMALIZED:
             return Compose(
                 _pad(None),
@@ -1250,8 +1276,8 @@ def get_feature_tr(
             )
         case Feats.TAM_DOWN_COUNTS:
             return Compose(_pad(None), TAM_DOWN(**tam_kwargs))
-        case Feats.TAM_DOWN_PAD:
-            return Compose(_pad(None), TAM_DOWN_PAD(**tam_kwargs))
+        case Feats.TAM_DOWN_DECOY:
+            return Compose(_pad(None), TAM_DOWN_DECOY(**tam_kwargs))
         case Feats.TAM_BINS:
             return TAM_BINS(**tam_kwargs)
         case Feats.TAM_TIMES:

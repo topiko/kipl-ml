@@ -76,7 +76,7 @@ def main(cfg: DictConfig):
     disc_trs = [get_feature_tr(fn, npackets, tam_kwargs=tam_d) for fn in feature_names]
     disc_trs += [
         get_feature_tr(f, npackets, tam_kwargs=tam_d)
-        for f in (Feats.TAM_DOWN_PAD, Feats.TAM_UP_PAD)
+        for f in (Feats.TAM_DOWN_DECOY, Feats.TAM_UP_DECOY)
     ]
     disc_trs.append(get_feature_tr(Feats.TAM_BINS, npackets, tam_kwargs=tam_d))
     disc_feats = FeatureTrs(feature_trs=disc_trs, n_packets=None)
@@ -98,12 +98,12 @@ def main(cfg: DictConfig):
         random_state=42,
         feature_trs=FeatureTrs(
             feature_names=feature_names,
-            n_packets=cfg.trace.len,
+            n_packets=cfg.trace.n_packets,
             time_clamp=time_clamp,
         ),
         defence_aug_valid=0,
         n_min_packets=cfg.min_packets_in_trace,
-        exclude_time_to_packets_n=cfg.trace.len,
+        exclude_time_to_packets_n=cfg.trace.n_packets,
         exclude_time_to_packets_s=cfg.exclude_longer_than_s,
         **defence_builder.get_defence(cfg),
     )
@@ -241,7 +241,7 @@ def main(cfg: DictConfig):
                         league_update_frac=league_update_frac,
                         prune=len(disc_league) > cfg.league_size * 2,
                         score_type=cfg.league_score_type,
-                        n_packets=cfg.trace.len,
+                        n_packets=cfg.trace.n_packets,
                     )
                 )
 
@@ -476,14 +476,14 @@ def main(cfg: DictConfig):
                     losses_metrics_d["disc_loss"].append(disc_loss)
                     # (B, )
                     normal_packets = (
-                        (X_obs[Feats.DIRS] != 0) & (X_obs[Feats.PADDING] == 0)
+                        (X_obs[Feats.DIRS] != 0) & (X_obs[Feats.DECOY] == 0)
                     ).sum(dim=1)
                     # (B, )
                     padding_packets_up = (
-                        (X_obs[Feats.DIRS] == UPLOAD) & (X_obs[Feats.PADDING] == 1)
+                        (X_obs[Feats.DIRS] == UPLOAD) & (X_obs[Feats.DECOY] == 1)
                     ).sum(dim=1)
                     padding_packets_down = (
-                        (X_obs[Feats.DIRS] == DOWNLOAD) & (X_obs[Feats.PADDING] == 1)
+                        (X_obs[Feats.DIRS] == DOWNLOAD) & (X_obs[Feats.DECOY] == 1)
                     ).sum(dim=1)
                     padding_packets = padding_packets_down + padding_packets_up
 
@@ -612,7 +612,7 @@ def main(cfg: DictConfig):
                     disc_feats=disc_feats,
                     obs=obs,
                     ds_valid=ds_valid,
-                    n_packets=cfg.trace.len,
+                    n_packets=cfg.trace.n_packets,
                     device=device,
                     key=key,
                 )

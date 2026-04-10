@@ -189,7 +189,7 @@ class WFDataset(Dataset):
 
         converted: dict[Feats, torch.Tensor] = {}
         for key, val in trace.items():
-            if key == assets.PADDING:
+            if key == assets.DECOY:
                 converted[key] = val.to(dtype=torch.bool)
             else:
                 converted[key] = val.to(dtype=torch.float32)

@@ -42,7 +42,7 @@ def dl_(
     **kwargs,
 ) -> DataLoader:
     if nworkers is None:
-        nworkers = multiprocessing.cpu_count() // 8 * 7
+        nworkers = default_num_workers()
 
     def _worker_init_fn(_worker_id: int):
         torch.set_num_threads(1)
@@ -60,6 +60,10 @@ def dl_(
         worker_init_fn=_worker_init_fn,
         **kwargs,
     )
+
+
+def default_num_workers() -> int:
+    return multiprocessing.cpu_count() // 8 * 7
 
 
 def keymap(key: str) -> str:
@@ -132,36 +136,6 @@ def _restore_obs_def_ds(
     obs = obs.to(device)
 
 
-def valid_metrics(
-    disc: nn.Module,
-    disc_feats: FeatureTrs,
-    obs: nn.Module,
-    ds_valid: WFDataset,
-    n_packets: int,
-    key: str = "valid:obs_vs._disc",
-    device: torch.DeviceObjType = "cpu",
-    obs_league: list[nn.Module.state_dict] | None = None,
-) -> dict[str, float]:
-    orig_features_trs = ds_valid.feature_trs
-    dl_valid = _get_obs_def_dl(
-        disc=disc,
-        disc_feats=disc_feats,
-        obs=obs,
-        ds=ds_valid,
-        n_packets=n_packets,
-        bs=32,
-        obs_league=obs_league,
-    )
-
-    d = evaluate_model(
-        disc, dl_valid, metrics=[Accuracy()], key=key, loss_fn=nn.CrossEntropyLoss()
-    )
-
-    _restore_obs_def_ds(ds_valid, orig_features_trs, obs, device)
-
-    return d
-
-
 def get_league_scores(
     league: list[tuple[int, nn.Module]],
     ds: WFDataset,
@@ -175,6 +149,7 @@ def get_league_scores(
     subset_indices: torch.Tensor,
     score_type: str = "acc",
     n_packets: int | None = None,
+    defence_aug: int = 1,
 ) -> torch.Tensor:
     if not league:
         raise ValueError("Empty league provided!")
@@ -195,6 +170,7 @@ def get_league_scores(
             bs=32,
             obs_league=None,
             sampler=sampler,
+            train_defence_aug=defence_aug,
         )
 
     elif score_type == "neg_rewards":
@@ -336,6 +312,8 @@ def get_active_league(
     prune: bool = False,
     score_type: str = "acc",
     n_packets: int | None = None,
+    n_traces: int = 500,
+    defence_aug: int = 1,
 ) -> tuple[
     list[tuple[int, nn.Module.state_dict]],
     np.ndarray,
@@ -353,9 +331,12 @@ def get_active_league(
         disc_features=disc_feats,
         reward_scales=reward_scales,
         device=device,
-        subset_indices=rng.choice(np.arange(len(ds)), 500, replace=False),
+        subset_indices=rng.choice(
+            np.arange(len(ds)), min(len(ds), n_traces), replace=False
+        ),
         score_type=score_type,
         n_packets=n_packets,
+        defence_aug=defence_aug,
     )
 
     if prune:
@@ -524,7 +505,7 @@ def get_advantages(
         G = get_returns(
             rewards,
             seq_lens,
-            gamma=cfg.discounting,
+            gamma=cfg.rewards.discounting,
             bootstrap=bootstrap,
         )
         advantages = G - values_detached
@@ -534,7 +515,7 @@ def get_advantages(
             values_detached,
             seq_lens,
             lambda_=cfg.advantages.lambda_,
-            gamma=cfg.discounting,
+            gamma=cfg.rewards.discounting,
         )
         G = advantages + values_detached
     else:
@@ -545,7 +526,7 @@ def get_advantages(
         # (1, T)
         t = torch.arange(advantages.shape[1], device=advantages.device)[None, :]
         # (bs, T)
-        gamma = cfg.discounting
+        gamma = cfg.rewards.discounting
         seq_lens_ = seq_lens.to(device=advantages.device)
         to_seq_end = (seq_lens_[:, None] - t).clamp_min(1).to(advantages.dtype)
         if abs(gamma - 1.0) < 1e-8:

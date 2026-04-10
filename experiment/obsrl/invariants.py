@@ -5,10 +5,10 @@ from dataclasses import dataclass
 import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
-from kipl_ml.rl.enums import Actions
-from kipl_ml.rl.observation import get_window_feature_dict
-from kipl_ml.rl.utils import _time_to_bin_idx
+from kipl_ml.rl.enums import Actions, NoAction, StepActions
+from kipl_ml.rl.streaming import WindowFeatureStreamer
 from kipl_ml.trace.enums import Feats
+from kipl_ml.utils.time import _time_to_bin_idx
 
 
 @dataclass
@@ -67,7 +67,7 @@ def _get_nonpadding_packet_bins_and_dirs(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     pkt_t = X_obs[Feats.TIMES][idx]
     pkt_d = X_obs[Feats.DIRS][idx]
-    pkt_p = X_obs[Feats.PADDING][idx] != 0
+    pkt_p = X_obs[Feats.DECOY][idx] != 0
     # X_obs times are float seconds; filter non-padding active packets.
     m = (pkt_d != 0) & (~pkt_p)
     pkt_t = pkt_t[m]
@@ -220,16 +220,21 @@ def check_fd_matches_recomputed_nonpadding(
     X_np = {
         Feats.TIMES: X_obs[Feats.TIMES].clone(),
         Feats.DIRS: X_obs[Feats.DIRS].clone(),
-        Feats.PADDING: torch.zeros_like(X_obs[Feats.PADDING]),
+        Feats.DECOY: torch.zeros_like(X_obs[Feats.DECOY]),
     }
-    X_np[Feats.DIRS][X_obs[Feats.PADDING] != 0] = 0
+    X_np[Feats.DIRS][X_obs[Feats.DECOY] != 0] = 0
 
-    fd_ref = get_window_feature_dict(
-        X_np,
-        dt_s,
-        max_silence_s,
-        features=[Feats.TIME_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT, Feats.Dt_BINS],
-    )
+    ref_features = [Feats.TIME_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT, Feats.Dt_BINS]
+    ref_streamer = WindowFeatureStreamer(X_np, dt_s, max_silence_s, ref_features)
+    ref_steps = {f: [] for f in ref_features}
+    ref_actions = [NoAction(time=0) for _ in range(X_np[Feats.TIMES].shape[0])]
+    for _ in range(10000):
+        fd_t, _, active = ref_streamer.step(ref_actions)
+        for f in ref_features:
+            ref_steps[f].append(fd_t[f])
+        if active.sum() == 0:
+            break
+    fd_ref = {f: torch.cat(ref_steps[f], dim=1) for f in ref_features}
 
     w_t_a, w_b_a, up_a, down_a = _get_fd_bins_and_counts(fd, idx=idx, dt_s=dt_s)
     w_t_b, w_b_b, up_b, down_b = _get_fd_bins_and_counts(fd_ref, idx=idx, dt_s=dt_s)
@@ -267,30 +272,41 @@ def check_fd_matches_recomputed_nonpadding(
 
 def count_packets_inside_delay_windows(
     act_times: torch.Tensor,
-    actions: dict[Actions, torch.Tensor],
+    actions: list[StepActions],
     X_obs: dict[Feats, torch.Tensor],
     dt_s: float,
     *,
     idx: int = 0,
     max_report: int = 25,
 ) -> DelayLeakReport:
-    if Actions.DELAY_BINS not in actions:
-        return DelayLeakReport(n_delay_steps=0, bad_all=0, bad_nonpadding=0, bad_windows_sample=[])
+    if not any(
+        Actions.DELAY_UP in sa or Actions.DELAY_DOWN in sa for sa in actions[idx]
+    ):
+        return DelayLeakReport(
+            n_delay_steps=0, bad_all=0, bad_nonpadding=0, bad_windows_sample=[]
+        )
 
     t_act = act_times[idx]
-    d_act = actions[Actions.DELAY_BINS][idx]
-    # act_times and DELAY are int bins; -1 = invalid.
-    m = (t_act >= 0) & (d_act > 0)
-    if not bool(m.any().item()):
-        return DelayLeakReport(n_delay_steps=0, bad_all=0, bad_nonpadding=0, bad_windows_sample=[])
+    delay_steps: list[tuple[int, int]] = []
+    for sa, t0 in zip(actions[idx], t_act.tolist()):
+        if t0 < 0:
+            continue
+        steps = 0
+        if Actions.DELAY_UP in sa:
+            steps = max(steps, int(sa[Actions.DELAY_UP].steps))
+        if Actions.DELAY_DOWN in sa:
+            steps = max(steps, int(sa[Actions.DELAY_DOWN].steps))
+        if steps > 0:
+            delay_steps.append((int(t0), steps))
 
-    # Already int bins - no conversion needed.
-    delay_bins = d_act[m].to(torch.long)
-    t0_bins = t_act[m].to(torch.long)
+    if not delay_steps:
+        return DelayLeakReport(
+            n_delay_steps=0, bad_all=0, bad_nonpadding=0, bad_windows_sample=[]
+        )
 
     pkt_t = X_obs[Feats.TIMES][idx]
     pkt_d = X_obs[Feats.DIRS][idx]
-    pkt_p = X_obs[Feats.PADDING][idx] != 0
+    pkt_p = X_obs[Feats.DECOY][idx] != 0
     # X_obs times are float seconds.
     m_all = pkt_d != 0
     m_np = m_all & (~pkt_p)
@@ -300,7 +316,7 @@ def count_packets_inside_delay_windows(
     bad_all = 0
     bad_nonpadding = 0
     bad_windows_sample: list[tuple[int, int, int, int, int]] = []
-    for j, (sb, sh) in enumerate(zip(t0_bins.tolist(), delay_bins.tolist())):
+    for j, (sb, sh) in enumerate(delay_steps):
         s = int(sb)
         shift = int(sh)
         if shift <= 0:
@@ -314,7 +330,7 @@ def count_packets_inside_delay_windows(
             bad_windows_sample.append((j, s, e, c_all, c_np))
 
     return DelayLeakReport(
-        n_delay_steps=int(t0_bins.numel()),
+        n_delay_steps=len(delay_steps),
         bad_all=bad_all,
         bad_nonpadding=bad_nonpadding,
         bad_windows_sample=bad_windows_sample,
@@ -341,13 +357,17 @@ def format_row24_report(rep: Row24Report) -> str:
     if rep.duplicate_bins_sample:
         lines.append(f"- duplicate bins sample: {rep.duplicate_bins_sample}")
     if rep.per_window_mismatches_sample:
-        lines.append(f"- per-window mismatch sample: {rep.per_window_mismatches_sample}")
+        lines.append(
+            f"- per-window mismatch sample: {rep.per_window_mismatches_sample}"
+        )
     if rep.per_bin_mismatches_sample:
         lines.append(f"- per-bin mismatch sample: {rep.per_bin_mismatches_sample}")
     if rep.missing_packet_bins_sample:
         lines.append(f"- missing packet bins sample: {rep.missing_packet_bins_sample}")
     if rep.extra_nonzero_fd_bins_sample:
-        lines.append(f"- extra nonzero fd bins sample: {rep.extra_nonzero_fd_bins_sample}")
+        lines.append(
+            f"- extra nonzero fd bins sample: {rep.extra_nonzero_fd_bins_sample}"
+        )
     return "\n".join(lines)
 
 

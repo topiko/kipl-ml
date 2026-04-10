@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import os
-import random
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 import dotenv
 import mlflow
+import numpy as np
 import torch
 from torch import nn
 
@@ -15,7 +15,6 @@ from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
 from kipl_ml.rl.simulate import (
-    policy_obfuscate_trace_single_pass,
     policy_obfuscate_trace_streaming,
 )
 from kipl_ml.trace.enums import Feats
@@ -147,46 +146,24 @@ class RNNDef(_NNDef):
     ) -> dict[Feats, torch.Tensor]:
         # Implement RNN specific logic
 
-        extend_end_s = 0.0
-        max_packets = self._n_packets
-
         trace_d = {
             k: v[: self._n_packets].unsqueeze(0).float() for k, v in trace_d.items()
         }
 
         if self.defence_model_state_dicts is not None:
-            st_d = random.choice(self.defence_model_state_dicts)
+            rng = np.random.default_rng(self.seed)
+            st_d = rng.choice(self.defence_model_state_dicts)
             self.defense_model.load_state_dict(st_d)
 
-        defense_model = self.defense_model
-
-        if getattr(defense_model, "enable_delay", False):
-            with torch.inference_mode():
-                trace_d = policy_obfuscate_trace_streaming(
-                    defense_model,
-                    trace_d,
-                    sample=True,
-                    extend_end_s=extend_end_s,
-                    max_packets=max_packets,
-                )
-
-            trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
-            trace_d[Feats.SIZES] = torch.ones_like(trace_d[Feats.TIMES])
-            return trace_d
-
-        # Non-delay policy can be run in one pass.
         with torch.inference_mode():
-            trace_d = policy_obfuscate_trace_single_pass(
-                defense_model,
+            trace_d = policy_obfuscate_trace_streaming(
+                self.defense_model,
                 trace_d,
                 sample=True,
-                extend_end_s=extend_end_s,
+                max_packets=self._n_packets,
             )
-        if max_packets is not None:
-            trace_d = {k: v[:, :max_packets] for k, v in trace_d.items()}
 
         trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
-
         trace_d[Feats.SIZES] = torch.ones_like(trace_d[Feats.TIMES])
 
         return trace_d

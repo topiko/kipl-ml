@@ -1,22 +1,20 @@
 import torch
 from torch import nn
 
-from kipl_ml.rl.enums import Actions
-from kipl_ml.rl.simulate import policy_rollout_single_pass, policy_rollout_streaming
-from kipl_ml.rl.utils import (
-    _boundary_time_to_bin_idx,
-    _time_to_bin_idx,
-    fill_after_seq_end,
-)
+from kipl_ml.data.wf_dataset import dict_to_device
+from kipl_ml.rl.enums import Actions, StepActions
+from kipl_ml.rl.simulate import policy_rollout_streaming
+from kipl_ml.rl.utils import fill_after_seq_end
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import FeatureTrs
+from kipl_ml.utils.time import _boundary_time_to_bin_idx, _time_to_bin_idx
 
 
 def get_rewards(
     action_times: torch.Tensor,
-    actions: dict[Actions, torch.Tensor],
+    actions: list[StepActions],
     X_obs: dict[Feats, torch.Tensor],
-    X_raw: dict[Feats, torch.Tensor] | None,
+    X_raw: dict[Feats, torch.Tensor],
     obs_dt_s: float | None,
     X_disc: dict[Feats, torch.Tensor],
     y: torch.Tensor,
@@ -30,10 +28,10 @@ def get_rewards(
 
     Args:
         action_times: (B, T) int bins
-        actions: Dict of action tensors
+        actions: Sparse per-step action histories
         X_obs: Executed trace
         X_raw: Original trace (for delay penalty)
-        obs_dt_s: Observation time step
+        obs_dt_s: Stream observation time step
         X_disc: Discriminator input features
         y: Target labels
         disc_logits: (B, N, C) discriminator logits
@@ -97,7 +95,7 @@ def get_rewards(
     # N is the number of TAM bins, not packets!
     n_packets = int(packet_seq_lens.max().item())
     times_all = X_obs[Feats.TIMES][:, :n_packets]
-    padding_all = X_obs[Feats.PADDING][:, :n_packets].bool()
+    padding_all = X_obs[Feats.DECOY][:, :n_packets].bool()
 
     # Make contiguous to avoid searchsorted warning.
     pkt_idx = (
@@ -171,18 +169,25 @@ def get_rewards(
     rewards["clf"] += mean_p * clf_scale
 
     # Delay penalty: charge only for packets that actually get delayed.
-    if (
-        X_raw is not None
-        and obs_dt_s is not None
-        and obs_dt_s > 0
-        and "delay_scale" in reward_scales
-        and Actions.DELAY_BINS in actions
-    ):
-        delay = actions[Actions.DELAY_BINS]
-        if delay.ndim == 3 and delay.shape[-1] == 1:
-            delay = delay.squeeze(-1)
-        delay_mask = (delay > 0) & (action_times >= 0)
+    delay_mask = torch.zeros_like(action_times, dtype=torch.bool)
+    delay_bins = torch.zeros_like(action_times, dtype=torch.long)
+    for b, seq in enumerate(actions):
+        for t, sa in enumerate(seq):
+            if t >= action_times.shape[1]:
+                break
+            if Actions.DELAY_UP not in sa and Actions.DELAY_DOWN not in sa:
+                continue
+            delay_mask[b, t] = True
+            steps = 0
+            if Actions.DELAY_UP in sa:
+                steps = max(steps, int(sa[Actions.DELAY_UP].steps))
+            if Actions.DELAY_DOWN in sa:
+                steps = max(steps, int(sa[Actions.DELAY_DOWN].steps))
+            delay_bins[b, t] = steps
+    if not delay_mask.any():
+        delay_mask = None
 
+    if delay_mask is not None:
         # (B, L) original packet bins; fill padding with +inf bin to preserve sort.
         dirs0 = X_raw[Feats.DIRS]
         m0 = dirs0 != 0
@@ -260,7 +265,7 @@ def compute_rewards_league(
     obs_dt_s: float | None,
     y: torch.Tensor,
     act_times: torch.Tensor,
-    actions: dict[Actions, torch.Tensor],
+    actions: list[StepActions],
 ) -> dict[str, torch.Tensor]:
     device = y.device
     current_disc_state = {k: v.detach().clone() for k, v in disc.state_dict().items()}
@@ -271,6 +276,8 @@ def compute_rewards_league(
         X_disc = disc_features.transform_batch(X_obs)
     else:
         X_disc = X_obs
+
+    X_disc = dict_to_device(X_disc, device)
 
     disc_seq_lens = disc.seq_len_fun(X_disc).to("cpu")
     X_disc = {k: v[:, : disc_seq_lens.max()] for k, v in X_disc.items()}
@@ -311,81 +318,6 @@ def compute_rewards_league(
     return rewards
 
 
-def _rollout_single_pass(
-    obs: nn.Module,
-    critic: nn.Module | None,
-    disc: nn.Module,
-    X: dict[Feats, torch.Tensor],
-    y: torch.Tensor,
-    disc_league: list[tuple[int, nn.Module.state_dict]],
-    disc_features: FeatureTrs | None = None,
-    detach_period: int = 20,
-    critic_detach_period: int | None = None,
-    reward_scales: dict[str, float] | None = None,
-    sample: bool = True,
-) -> tuple[
-    torch.Tensor,
-    torch.Tensor,
-    torch.Tensor,
-    dict[str, torch.Tensor] | None,
-    dict[str, torch.Tensor],
-    torch.Tensor,
-    dict[Actions, torch.Tensor],
-    dict[Feats, torch.Tensor],
-    dict[Feats, torch.Tensor],
-]:
-    critic_detach_period = critic_detach_period or detach_period
-
-    fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, X_obs = (
-        policy_rollout_single_pass(
-            obs,
-            X,
-            detach_period=detach_period,
-            sample=sample,
-            extend_end_s=2.0,
-        )
-    )
-
-    action_seq_lens = fd[Feats.SEQ_LENS]
-
-    values = values_actor
-    if critic is not None:
-        values = compute_values(
-            critic=critic,
-            critic_detach_period=critic_detach_period,
-            fd=fd,
-            action_seq_lens=action_seq_lens,
-            y=y,
-        )
-
-    rewards = None
-    if reward_scales is not None:
-        rewards = compute_rewards_league(
-            disc=disc,
-            disc_league=disc_league,
-            disc_features=disc_features,
-            reward_scales=reward_scales,
-            X_obs=X_obs,
-            X_raw=X,
-            obs_dt_s=float(obs.time_step),
-            y=y,
-            act_times=act_times,
-            actions=actions,
-        )
-
-    return (
-        log_ps,
-        sel_probs,
-        values,
-        rewards,
-        entropies,
-        act_times,
-        actions,
-        X_obs,
-        fd,
-    )
-
-
 def rollout(
     obs: nn.Module,
     critic: nn.Module | None,
@@ -397,54 +329,7 @@ def rollout(
     detach_period: int = 20,
     critic_detach_period: int | None = None,
     reward_scales: dict[str, float] | None = None,
-    sample: bool = True,
-):
-    """Rollout entrypoint.
-
-    Uses streaming rollout when delay is enabled on the agent.
-    """
-
-    if getattr(obs, "enable_delay", False):
-        return _rollout_streaming(
-            obs=obs,
-            critic=critic,
-            disc=disc,
-            X=X,
-            y=y,
-            disc_league=disc_league,
-            disc_features=disc_features,
-            detach_period=detach_period,
-            critic_detach_period=critic_detach_period,
-            reward_scales=reward_scales,
-            sample=sample,
-        )
-
-    return _rollout_single_pass(
-        obs=obs,
-        critic=critic,
-        disc=disc,
-        X=X,
-        y=y,
-        disc_league=disc_league,
-        disc_features=disc_features,
-        detach_period=detach_period,
-        critic_detach_period=critic_detach_period,
-        reward_scales=reward_scales,
-        sample=sample,
-    )
-
-
-def _rollout_streaming(
-    obs: nn.Module,
-    critic: nn.Module | None,
-    disc: nn.Module,
-    X: dict[Feats, torch.Tensor],
-    y: torch.Tensor,
-    disc_league: list[tuple[int, nn.Module.state_dict]],
-    disc_features: FeatureTrs | None = None,
-    detach_period: int = 20,
-    critic_detach_period: int | None = None,
-    reward_scales: dict[str, float] | None = None,
+    rtt_bins: int = 0,
     sample: bool = True,
 ) -> tuple[
     torch.Tensor,
@@ -453,7 +338,7 @@ def _rollout_streaming(
     dict[str, torch.Tensor] | None,
     dict[str, torch.Tensor],
     torch.Tensor,
-    dict[Actions, torch.Tensor],
+    list[list[StepActions]],
     dict[Feats, torch.Tensor],
     dict[Feats, torch.Tensor],
 ]:
@@ -465,7 +350,7 @@ def _rollout_streaming(
             obs,
             X,
             sample=sample,
-            extend_end_s=2.0,
+            rtt_bins=rtt_bins,
             max_packets=None,
         )
     )
