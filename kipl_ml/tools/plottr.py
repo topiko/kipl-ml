@@ -350,6 +350,11 @@ def plot_actions(
         return ax
 
     action_time_bins = np.array([float(a.time_bin) for a in step_actions])
+
+    if np.unique(action_time_bins).size != action_time_bins.size:
+        breakpoint()
+        raise ValueError("Duplicate action time bins!")
+
     action_times = action_time_bins * dt_s
 
     from kipl_ml.rl.enums import ActDelayDown, ActDelayUp, ActSendDown, ActSendUp
