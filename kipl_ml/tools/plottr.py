@@ -355,6 +355,10 @@ def plot_actions(
         breakpoint()
         raise ValueError("Duplicate action time bins!")
 
+    if np.diff(action_time_bins).min() <= 0:
+        breakpoint()
+        raise ValueError("Action time bins not strictly increasing!")
+
     action_times = action_time_bins * dt_s
 
     from kipl_ml.rl.enums import ActDelayDown, ActDelayUp, ActSendDown, ActSendUp
