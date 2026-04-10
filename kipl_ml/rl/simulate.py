@@ -209,6 +209,14 @@ def _policy_rollout_streaming_impl(
         if active.sum() == 0:
             break
 
+        fd_active = {f: fd_t[f][active].to(device) for f in obs.features}
+        h_active = _hidden_w_mask(hobs, active)
+        act_time_bins_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
+            obs.act_step(fd_active, h_active, sample=sample)
+        )
+
+        hobs = _hidden_w_mask(hobs, active, h_active)
+
         active_idxs = torch.nonzero(active, as_tuple=False).flatten().tolist()
         for i, aidx in enumerate(active_idxs):
             for k in (Feats.TIMES, Feats.DIRS, Feats.DECOY):
@@ -226,14 +234,6 @@ def _policy_rollout_streaming_impl(
         if record_policy:
             for f in obs.features:
                 fd_steps[f].append(fd_t[f].to("cpu"))
-
-        fd_active = {f: fd_t[f][active].to(device) for f in obs.features}
-        h_active = _hidden_w_mask(hobs, active)
-        act_time_bins_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
-            obs.act_step(fd_active, h_active, sample=sample)
-        )
-
-        hobs = _hidden_w_mask(hobs, active, h_active)
 
         if record_policy:
             act_time_bins_l.append(_densify(act_time_bins_a, active).detach().cpu())
