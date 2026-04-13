@@ -238,7 +238,10 @@ class TraceStateCursor:
         self.delay_down = DelayState(rtt=rtt_bins)
         self.cursor_time_bin: int = 0
         self.prev_time_bin: int = 0
-        self.terminate_after_s = terminate_after_s or times.max().item() + dt
+        if terminate_after_s is not None:
+            self.terminate_after_s = min(terminate_after_s, times.max().item() + dt)
+        else:
+            self.terminate_after_s = times.max().item() + dt
         self.device = times.device
 
     def step(

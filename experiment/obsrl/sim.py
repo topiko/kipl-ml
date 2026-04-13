@@ -205,12 +205,8 @@ def get_rewards(
         pkt_cnt = (hi - lo).float()
 
         # TODO: make this accept longer delays.
-        if (delay > 1).any():
-            raise ValueError(
-                "This dly reward is only implemented for single step delay"
-            )
         rewards["delay"] -= (
-            pkt_cnt * (delay * obs_dt_s * 1000) * reward_scales["delay_scale"]
+            pkt_cnt * (delay_bins * obs_dt_s * 1000) * reward_scales["delay_scale"]
         )
 
     # change in prob reward
@@ -331,6 +327,7 @@ def rollout(
     reward_scales: dict[str, float] | None = None,
     rtt_bins: int = 0,
     sample: bool = True,
+    cut_off_time_s: float | torch.Tensor | None = None,
 ) -> tuple[
     torch.Tensor,
     torch.Tensor,
@@ -351,6 +348,7 @@ def rollout(
             X,
             sample=sample,
             rtt_bins=rtt_bins,
+            cut_off_time_s=cut_off_time_s,
             max_packets=None,
         )
     )

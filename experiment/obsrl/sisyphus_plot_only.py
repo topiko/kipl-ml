@@ -85,7 +85,9 @@ def _parse_args() -> argparse.Namespace:
         "--cfg-overrides",
         nargs="*",
         default=[],
-        help=("Hydra config overrides, e.g. obs.enable_delay=true trace.n_packets=5000"),
+        help=(
+            "Hydra config overrides, e.g. obs.enable_delay=true trace.n_packets=5000"
+        ),
     )
     ap.add_argument(
         "--idxs",
@@ -182,7 +184,7 @@ def _compose_cfg(overrides: list[str]):
 
 def _build_disc_features(discriminator_orig: nn.Module, cfg) -> FeatureTrs:
     time_clamp = (
-        (0.0, cfg.trace.dur_max, True) if cfg.trace.dur_max is not None else None
+        (0.0, cfg.trace.dur_max_s, True) if cfg.trace.dur_max_s is not None else None
     )
 
     feature_names = discriminator_orig.features
@@ -209,7 +211,7 @@ def _build_disc_features(discriminator_orig: nn.Module, cfg) -> FeatureTrs:
 
 def _load_dataset(cfg) -> tuple[WFDataset, WFDataset]:
     time_clamp = (
-        (0.0, cfg.trace.dur_max, True) if cfg.trace.dur_max is not None else None
+        (0.0, cfg.trace.dur_max_s, True) if cfg.trace.dur_max_s is not None else None
     )
 
     ds_train, ds_valid, _ = get_train_valid_test(
@@ -470,6 +472,7 @@ def _single_rollout(
     disc_features: FeatureTrs,
     reward_scales: dict[str, float],
     device: torch.device,
+    max_dur_s: float | None,
 ):
     X_i, y_i = ds[int(idx)]
     X_roll = obs_features(X_i) if obs_features is not None else X_i
@@ -489,6 +492,7 @@ def _single_rollout(
             disc_league=[(0, None)],
             disc_features=disc_features,
             reward_scales=reward_scales,
+            cut_off_time_s=max_dur_s,
         )
 
 
@@ -506,6 +510,7 @@ def _verify_delay_effect(
     device: torch.device,
     dt_s: float,
     delay_between: tuple[float, float],
+    max_dur_s: float | None,
 ) -> None:
     out_base = _single_rollout(
         ds=ds,
@@ -517,6 +522,7 @@ def _verify_delay_effect(
         disc_features=disc_features,
         reward_scales=reward_scales,
         device=device,
+        max_dur_s=max_dur_s,
     )
     out_delay = _single_rollout(
         ds=ds,
@@ -528,6 +534,7 @@ def _verify_delay_effect(
         disc_features=disc_features,
         reward_scales=reward_scales,
         device=device,
+        max_dur_s=max_dur_s,
     )
 
     _, _, _, rewards_b, _, times_b, actions_b, Xobs_b, fd_b = out_base
@@ -678,6 +685,7 @@ def _plot_indices(
             disc_league=active_disc_league,
             disc_features=disc_features,
             reward_scales=reward_scales,
+            cut_off_time_s=cfg.trace.dur_max_s,
         )
 
     action_seq_lens = fd[Feats.SEQ_LENS]
@@ -830,6 +838,7 @@ def main() -> None:
             device=device,
             dt_s=float(cfg.obs.time_step_s),
             delay_between=delay_between,
+            max_dur_s=cfg.trace.dur_max_s,
         )
 
     _plot_indices(
