@@ -156,7 +156,6 @@ def get_rewards(
     )
 
     # (bs, N)
-
     clf_scale = reward_scales["clf_scale"]
     # We make the clf reward live between -1, 1...
     r_pkt = torch.clamp(-m, min=-1 / clf_scale, max=1 / clf_scale)
@@ -204,9 +203,9 @@ def get_rewards(
         # Packets under action bins.
         pkt_cnt = (hi - lo).float()
 
-        # TODO: make this accept longer delays.
+        # 1 packet for 100 ms is the is consider 1 unit of cost before applying scale.
         rewards["delay"] -= (
-            pkt_cnt * (delay_bins * obs_dt_s * 1000) * reward_scales["delay_scale"]
+            pkt_cnt * (delay_bins * obs_dt_s * 10) * reward_scales["delay_scale"]
         )
 
     # change in prob reward
