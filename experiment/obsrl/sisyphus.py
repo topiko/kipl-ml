@@ -374,7 +374,9 @@ def train_disc_on_league(
     disc_optim = _get_optim(discriminator, lr=cfg.disc.lr)
 
     disc_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer=disc_optim, factor=0.8, patience=7
+        optimizer=disc_optim,
+        factor=cfg.disc.lr_scheduler_factor,
+        patience=cfg.disc.lr_scheduler_patience,
     )
 
     ed = 0

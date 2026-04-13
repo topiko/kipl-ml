@@ -16,8 +16,8 @@ mlflow:
 trace:
   trim_beginning: 10
   min_packets: 1000
-  n_packets: 10_000
-  dur_max_s: 10 # max trace duration in seconds; clamps to (0, this, True); null=disabled
+  n_packets: 2_000
+  dur_max_s: 30 # max trace duration in seconds; clamps to (0, this, True); null=disabled
   rtt_bins: 2
 
 advantages:
@@ -48,8 +48,8 @@ obs:
   # Delay action duration choices (in bins).
   delay_duration_bins: [1, 2, 3, 4]
 
-  hsize: 256 #256
-  nhidden: 3 # 3
+  hsize: 128 #256
+  nhidden: 2 # 3
   # Push stop metric and threshold.
   # - stop_metric is used both for stopping and obs LR scheduling
   # - stop_metric_thres is required when stop_metric != avg_return
@@ -103,6 +103,9 @@ disc:
   train_defence_aug: 5  # Cache defended traces during disc training (1=enabled, 0=disabled)
 
   no_defense_disc_id: "m-3a65302e5214463dbe7cb150ddcacdcb"
+
+  lr_scheduler_patience: 10
+  lr_scheduler_factor: 0.8
 
 league:
   score_type: "acc"
