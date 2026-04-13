@@ -366,6 +366,7 @@ def train_disc_on_league(
         obs=obs,
         ds=ds_train,
         n_packets=cfg.trace.n_packets,
+        max_dur_s=cfg.trace.dur_max_s,
         bs=cfg.disc.batch_size,
         obs_league=[d for _, d in obs_league[-cfg.league.size :]],
         train_defence_aug=cfg.disc.train_defence_aug,
@@ -795,6 +796,7 @@ def main(cfg: DictConfig):
                         enforce_orig=cfg.league.enforce_orig,
                         score_type=cfg.league.score_type,
                         n_packets=cfg.trace.n_packets,
+                        max_dur_s=cfg.trace.dur_max_s,
                         n_traces=cfg.league.eval.n_traces,
                         defence_aug=cfg.league.eval.defence_aug,
                     )

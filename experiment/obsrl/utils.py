@@ -95,6 +95,7 @@ def _get_obs_def_dl(
     obs: nn.Module,
     ds: WFDataset,
     n_packets: int,
+    max_dur_s: float | None,
     bs: int = 64,
     obs_league: list[nn.Module.state_dict] | None = None,
     sampler: SubsetRandomSampler | None = None,
@@ -109,6 +110,7 @@ def _get_obs_def_dl(
         (40_000, 40_000),
         obs.to("cpu"),
         n_packets=n_packets,
+        max_dur_s=max_dur_s,
         state_dicts=obs_league,
     )
 
@@ -149,6 +151,7 @@ def get_league_scores(
     subset_indices: torch.Tensor,
     score_type: str = "acc",
     n_packets: int | None = None,
+    max_dur_s: float | None = None,
     defence_aug: int = 1,
 ) -> torch.Tensor:
     if not league:
@@ -167,6 +170,7 @@ def get_league_scores(
             obs=obs,
             ds=ds,
             n_packets=n_packets,
+            max_dur_s=max_dur_s,
             bs=32,
             obs_league=None,
             sampler=sampler,
@@ -312,6 +316,7 @@ def get_active_league(
     prune: bool = False,
     score_type: str = "acc",
     n_packets: int | None = None,
+    max_dur_s: float | None = None,
     n_traces: int = 500,
     defence_aug: int = 1,
 ) -> tuple[
@@ -336,6 +341,7 @@ def get_active_league(
         ),
         score_type=score_type,
         n_packets=n_packets,
+        max_dur_s=max_dur_s,
         defence_aug=defence_aug,
     )
 

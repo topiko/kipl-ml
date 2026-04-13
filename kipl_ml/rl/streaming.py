@@ -403,7 +403,7 @@ class WindowFeatureStreamer:
         max_silence_s: float,
         features: list[Feats],
         rtt_bins: int = 0,
-        cut_off_time_s: torch.Tensor | None = None,
+        cut_off_time_s: torch.Tensor | float | None = None,
     ):
         if dt <= 0:
             raise ValueError(f"dt must be > 0, got {dt}")
@@ -427,6 +427,19 @@ class WindowFeatureStreamer:
         self.X = {k: v.clone() for k, v in X.items()}
 
         self._cursors: list[TraceStateCursor] = []
+
+        if cut_off_time_s is None:
+            pass
+        elif isinstance(cut_off_time_s, (int, float)):
+            cut_off_time_s = np.ones(self.bs, dtype=np.float64) * cut_off_time_s
+        elif isinstance(cut_off_time_s, torch.Tensor):
+            if cut_off_time_s.shape != (self.bs,):
+                raise ValueError(
+                    f"cut_off_time_s must have shape ({self.bs},), got {cut_off_time_s.shape}"
+                )
+        else:
+            raise ValueError(f"Invalid type for cut_off_time_s: {type(cut_off_time_s)}")
+
         for i in range(self.bs):
             self._cursors.append(
                 TraceStateCursor(

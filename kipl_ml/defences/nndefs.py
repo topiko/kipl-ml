@@ -137,9 +137,16 @@ class _NNDef(_Def):
 
 
 class RNNDef(_NNDef):
-    def __init__(self, *args, n_packets: int | None = 5000, **kwargs):
+    def __init__(
+        self,
+        *args,
+        n_packets: int | None = 5000,
+        max_dur_s: float | None = None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self._n_packets = n_packets
+        self._max_dur_s = max_dur_s
 
     def _run_model(
         self, trace_d: dict[Feats, torch.Tensor]
@@ -161,6 +168,7 @@ class RNNDef(_NNDef):
                 trace_d,
                 sample=True,
                 max_packets=self._n_packets,
+                cut_off_time_s=self._max_dur_s,
             )
 
         trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
