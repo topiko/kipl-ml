@@ -194,14 +194,22 @@ def get_rewards(
         t0_f = fill_after_seq_end(t0, m0, fill_val="max")
         pkt_bins = _time_to_bin_idx(t0_f, float(obs_dt_s))
 
+        # (B, L) mask of valid packet bins (exclude padding i.e., the padding in the end not the decoy).
+        valid_mask = torch.arange(m0.shape[1])[None, :] < m0.sum(dim=1, keepdim=True)
+        valid_len = valid_mask.sum(dim=1, keepdim=True)
+
         # (B, T) start bins for delay windows. action_times are already int bins.
         start_bins = action_times.to(torch.long)
 
         # Count occurrences per step via searchsorted on sorted pkt_bins.
         lo = torch.searchsorted(pkt_bins, start_bins, right=False)
         hi = torch.searchsorted(pkt_bins, start_bins, right=True)
-        # Packets under action bins.
-        pkt_cnt = (hi - lo).float()
+
+        # Packets under action bins, that are still within the valid seq..
+        lo_valid = torch.minimum(lo, valid_len)
+        hi_valid = torch.minimum(hi, valid_len)
+
+        pkt_cnt = (hi_valid - lo_valid).float()
 
         # 1 packet for 100 ms is the is consider 1 unit of cost before applying scale.
         rewards["delay"] -= (
