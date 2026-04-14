@@ -15,7 +15,7 @@ def get_rewards(
     actions: list[StepActions],
     X_obs: dict[Feats, torch.Tensor],
     X_raw: dict[Feats, torch.Tensor],
-    obs_dt_s: float | None,
+    obs_dt_s: float,
     X_disc: dict[Feats, torch.Tensor],
     y: torch.Tensor,
     disc_logits: torch.Tensor,
@@ -50,7 +50,7 @@ def get_rewards(
     # This is critical for correct reward computation: action_times are in
     # obs_dt_s bins, and TAM bins are in tam_dt_s bins. If they differ,
     # the searchsorted logic would map to wrong intervals.
-    if obs_dt_s is not None and abs(obs_dt_s - tam_dt_s) > 1e-9:
+    if abs(obs_dt_s - tam_dt_s) > 1e-9:
         raise ValueError(
             f"obs_dt_s ({obs_dt_s}) must equal tam_dt_s ({tam_dt_s}) for reward computation. "
             f"Action times are binned with dt={obs_dt_s}, but TAM bins use dt={tam_dt_s}."
@@ -60,8 +60,8 @@ def get_rewards(
     bs, T = action_times.shape
 
     # Convert int bin action times to float seconds for reward computation.
-    if obs_dt_s is not None and action_times.dtype in (torch.long, torch.int):
-        action_times_f = action_times.float() * float(obs_dt_s)
+    if action_times.dtype in (torch.long, torch.int):
+        action_times_f = action_times.float() * obs_dt_s
         # Mark invalid bins (-1) as inf so searchsorted sorts them last.
         action_times_f = torch.where(
             action_times >= 0, action_times_f, torch.tensor(float("inf"))
@@ -192,17 +192,19 @@ def get_rewards(
         m0 = dirs0 != 0
         t0 = X_raw[Feats.TIMES]
         t0_f = fill_after_seq_end(t0, m0, fill_val="max")
-        pkt_bins = _time_to_bin_idx(t0_f, float(obs_dt_s))
+        pkt_bins = _time_to_bin_idx(t0_f, obs_dt_s)
 
-        # (B, L) mask of valid packet bins (exclude padding i.e., the padding in the end not the decoy).
-        valid_mask = torch.arange(m0.shape[1])[None, :] < m0.sum(dim=1, keepdim=True)
-        valid_len = valid_mask.sum(dim=1, keepdim=True)
+        # (B, 1) lens of the orig seqs:
+        valid_len = m0.sum(dim=1, keepdim=True)
 
         # (B, T) start bins for delay windows. action_times are already int bins.
         start_bins = action_times.to(torch.long)
 
         # Count occurrences per step via searchsorted on sorted pkt_bins.
+        # NOTE: this returns indices that can correspond to the _padded_ region...
+        # (B, T) first index in pkt_bins that is >= start_bin
         lo = torch.searchsorted(pkt_bins, start_bins, right=False)
+        # (B, T) first index in pkt_bins that is > start_bin
         hi = torch.searchsorted(pkt_bins, start_bins, right=True)
 
         # Packets under action bins, that are still within the valid seq..
