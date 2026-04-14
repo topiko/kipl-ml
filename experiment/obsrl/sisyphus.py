@@ -497,6 +497,14 @@ def train_obs_on_league(
             e=eo,
             cfg=cfg,
         )
+
+        # Log per-epoch metrics within this push run.
+        for k, v in metrics_d.items():
+            mlflow.log_metric(keymap(k), float(v), step=eo)
+
+        mlflow.log_metric("padding_scale", reward_scales_["padding_scale"], step=eo)
+        mlflow.log_metric("delay_scale", reward_scales_["delay_scale"], step=eo)
+
         if stop_metric not in metrics_d:
             raise KeyError(
                 f"cfg.obs.stop_metric={stop_metric!r} not found in epoch metrics"
@@ -521,13 +529,6 @@ def train_obs_on_league(
                 f"Current {stop_metric}: {stop_score:.04f} "
                 f"< {stop_thres:.04f} (=thres for stopping)"
             )
-
-        # Log per-epoch metrics within this push run.
-        for k, v in metrics_d.items():
-            mlflow.log_metric(keymap(k), float(v), step=eo)
-
-        mlflow.log_metric("padding_scale", reward_scales_["padding_scale"], step=eo)
-        mlflow.log_metric("delay_scale", reward_scales_["delay_scale"], step=eo)
 
         if obs_lr_scheduler is not None:
             # TODO: this here is very questionable.
