@@ -1,4 +1,5 @@
 import os
+import random
 
 import dotenv
 import hydra
@@ -600,6 +601,12 @@ def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
 
 @hydra.main(config_path=CONFIG_DIR_PATH, config_name="sisyphus", version_base=None)
 def main(cfg: DictConfig):
+    random.seed(int(cfg.seed))
+    np.random.seed(int(cfg.seed))
+    torch.manual_seed(int(cfg.seed))
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(int(cfg.seed))
+
     experiment_name = cfg.experiment_name
     experiment_id = get_mlflow_expr(experiment_name=experiment_name)
     mlflow.set_experiment(experiment_id=experiment_id)

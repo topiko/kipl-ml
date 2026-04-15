@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import multiprocessing
+import random
 
 import dotenv
 import mlflow
@@ -10,7 +11,7 @@ import pandas as pd
 import torch
 from omegaconf import DictConfig
 from torch import nn
-from torch.utils.data import DataLoader, SubsetRandomSampler
+from torch.utils.data import DataLoader, SubsetRandomSampler, get_worker_info
 from tqdm import tqdm
 
 from experiment.obsrl.sim import rollout
@@ -50,6 +51,17 @@ def dl_(
             torch.set_num_interop_threads(1)
         except RuntimeError:
             pass
+
+        seed = int(torch.initial_seed() % (2**32))
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+        wi = get_worker_info()
+        if wi is not None and hasattr(wi.dataset, "defence"):
+            defence = wi.dataset.defence
+            if hasattr(defence, "rng"):
+                defence.rng = np.random.default_rng(seed)
 
     return DataLoader(
         ds,
