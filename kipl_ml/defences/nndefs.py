@@ -147,6 +147,7 @@ class RNNDef(_NNDef):
         super().__init__(*args, **kwargs)
         self._n_packets = n_packets
         self._max_dur_s = max_dur_s
+        self.rng = np.random.default_rng()
 
     def _run_model(
         self, trace_d: dict[Feats, torch.Tensor]
@@ -158,8 +159,7 @@ class RNNDef(_NNDef):
         }
 
         if self.defence_model_state_dicts is not None:
-            rng = np.random.default_rng(self.seed)
-            st_d = rng.choice(self.defence_model_state_dicts)
+            st_d = self.rng.choice(self.defence_model_state_dicts)
             self.defense_model.load_state_dict(st_d)
 
         with torch.inference_mode():
