@@ -61,7 +61,7 @@ def dl_(
         if wi is not None and hasattr(wi.dataset, "defence"):
             defence = wi.dataset.defence
             if hasattr(defence, "rng"):
-                defence.rng = np.random.default_rng(seed)
+                defence.rng = np.random.default_rng(seed + wi.id)
 
     return DataLoader(
         ds,

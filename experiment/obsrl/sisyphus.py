@@ -464,10 +464,7 @@ def train_obs_on_league(
             sampler = None
         else:
             shuffle = False
-            if cfg.obs.train.fixed_sample:
-                seed = cfg.seed
-            else:
-                seed = cfg.seed + eo
+            seed = cfg.seed if cfg.obs.train.fixed_sample else cfg.seed + eo
             rng = np.random.default_rng(seed)
             subset_indices = rng.choice(
                 len(ds_train),
