@@ -109,9 +109,9 @@ def train_obs_one_epoch(
         "cond_entropy": [],
         "entropy": [],
         "entropy_loss": [],
-        "mean_padding_frac": [],
-        "mean_padding_frac_up": [],
-        "mean_padding_frac_down": [],
+        "mean_decoy_frac": [],
+        "mean_decoy_frac_up": [],
+        "mean_decoy_frac_down": [],
         "sel vs. cond std ratio": [],
         "train_disc": [],
         "grad_norm": [],
@@ -301,27 +301,27 @@ def train_obs_one_epoch(
                 dim=1
             )
             # (B, )
-            padding_packets_up = (
+            decoy_packets_up = (
                 (X_obs[Feats.DIRS] == UPLOAD) & (X_obs[Feats.DECOY] == 1)
             ).sum(dim=1)
-            padding_packets_down = (
+            decoy_packets_down = (
                 (X_obs[Feats.DIRS] == DOWNLOAD) & (X_obs[Feats.DECOY] == 1)
             ).sum(dim=1)
-            padding_packets = padding_packets_down + padding_packets_up
+            decoy_packets = decoy_packets_down + decoy_packets_up
 
-            losses_metrics_d["mean_padding_frac"].append(
-                (padding_packets / normal_packets).mean().item()
+            losses_metrics_d["mean_decoy_frac"].append(
+                (decoy_packets / normal_packets).mean().item()
             )
-            losses_metrics_d["mean_padding_frac_up"].append(
-                (padding_packets_up / normal_packets).mean().item()
+            losses_metrics_d["mean_decoy_frac_up"].append(
+                (decoy_packets_up / normal_packets).mean().item()
             )
-            losses_metrics_d["mean_padding_frac_down"].append(
-                (padding_packets_down / normal_packets).mean().item()
+            losses_metrics_d["mean_decoy_frac_down"].append(
+                (decoy_packets_down / normal_packets).mean().item()
             )
 
             postfix = {
-                "pfu": np.mean(losses_metrics_d["mean_padding_frac_up"]),
-                "pfd": np.mean(losses_metrics_d["mean_padding_frac_down"]),
+                "pfu": np.mean(losses_metrics_d["mean_decoy_frac_up"]),
+                "pfd": np.mean(losses_metrics_d["mean_decoy_frac_down"]),
                 "dlyu": np.mean(losses_metrics_d[f"ack_{Actions.DELAY_UP}_frac"]),
                 "dlyd": np.mean(losses_metrics_d[f"ack_{Actions.DELAY_DOWN}_frac"]),
                 "ret": ema_ret,
@@ -501,7 +501,7 @@ def train_obs_on_league(
         for k, v in metrics_d.items():
             mlflow.log_metric(keymap(k), float(v), step=eo)
 
-        mlflow.log_metric("padding_scale", reward_scales_["padding_scale"], step=eo)
+        mlflow.log_metric("decoy_scale", reward_scales_["decoy_scale"], step=eo)
         mlflow.log_metric("delay_scale", reward_scales_["delay_scale"], step=eo)
 
         if stop_metric not in metrics_d:
@@ -541,7 +541,7 @@ def train_obs_on_league(
             log_lrs(critic_lr_scheduler)
 
         if eo % cfg.obs.rewards_rescale_epochs == 0:
-            reward_scales_["padding_scale"] *= cfg.obs.padding_scale_reduction
+            reward_scales_["decoy_scale"] *= cfg.obs.decoy_scale_reduction
             reward_scales_["delay_scale"] *= cfg.obs.delay_scale_reduction
             logger.info(f"At obs epoch {eo} re-scaled rewards -> ")
             for k, v in reward_scales_.items():
@@ -742,7 +742,7 @@ def main(cfg: DictConfig):
     reward_scales = {
         "clf_scale": cfg.rewards.clf,
         "d_clf_scale": cfg.rewards.d_clf,
-        "padding_scale": cfg.rewards.padding_scale,
+        "decoy_scale": cfg.rewards.decoy_scale,
         "delay_scale": cfg.rewards.delay_scale,
     }
 

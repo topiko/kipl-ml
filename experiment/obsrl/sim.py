@@ -116,7 +116,7 @@ def get_rewards(
     npad = torch.zeros(
         (bs, T), device=times_all.device, dtype=times_all.dtype
     ).scatter_add_(1, pkt_idx_clamped, pad_w)
-    rewards["padding"] -= npad * reward_scales["padding_scale"]
+    rewards["decoy"] -= npad * reward_scales["decoy_scale"]
 
     # TAM reward computation
     # (bs, N-1)

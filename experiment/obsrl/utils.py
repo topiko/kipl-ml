@@ -403,8 +403,9 @@ def get_active_league(
             random_idx[0] = 0
 
         # The rest are sampled from this array with the probs:
+        eps = 1e-8
         sample_arr_ = np.array(
-            [[i, p] for i, p in enumerate(probs) if i not in random_idx]
+            [[i, p + eps] for i, p in enumerate(probs) if i not in random_idx]
         )
         sampled_idx = rng.choice(
             sample_arr_[:, 0],
