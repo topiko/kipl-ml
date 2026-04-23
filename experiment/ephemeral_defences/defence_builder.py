@@ -13,6 +13,31 @@ from kipl_ml.logging.logger import get_logger
 logger = get_logger(__name__)
 
 
+def get_defence(
+    cfg: OmegaConf,
+) -> dict[str, Maybenot | FRONT | Interspace | Breakpad | NoDefence]:
+
+    match cfg.defence.type:
+        case "no-defence":
+            return no_def(cfg)
+        case "ephemeral":
+            return ephemeral(cfg)
+        case "front":
+            return front(cfg)
+        case "interspace":
+            return interspace(cfg)
+        case "breakpad":
+            return breakpad(cfg)
+        case "tamaraw":
+            return tamaraw(cfg)
+        case "regulator":
+            return regulator(cfg)
+        case "rlobs":
+            return rlobs(cfg)
+        case _:
+            raise NotImplementedError("no builder for defence '{def_type}'")
+
+
 def _parse_netwk(cfg: OmegaConf) -> tuple[tuple[int, int], tuple[int, int]]:
     delay = (cfg.network.delay_millis.min, cfg.network.delay_millis.max)
     pps = (cfg.network.pps.min, cfg.network.pps.max)

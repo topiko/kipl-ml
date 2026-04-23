@@ -5,7 +5,7 @@ PAGE_LABEL: str = "page_label"
 SUB_PAGE_LABEL: str = "sub_page_label"
 PRED: str = "pred"
 PRED_CLS_PROB: str = "prob"
-DECOY: str = "padding"
+DECOY: str = "decoy"
 TRACE_ID: str = "trace_id"
 SAMPLE_ID: str = "sample_id"
 

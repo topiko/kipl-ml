@@ -13,7 +13,7 @@ from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader, Dataset
 from torchtune.training.lr_schedulers import get_cosine_schedule_with_warmup
 
-from experiment.ephemeral_defences import defence_builder
+from experiment.utils import defence_builder
 from kipl_ml.data import assets
 from kipl_ml.data.wf_dataset import get_train_valid_test
 from kipl_ml.defences.base import NoDefence
@@ -146,27 +146,8 @@ def _get_loss(cfg: OmegaConf):
 def _get_defence(
     cfg: OmegaConf,
 ) -> dict[str, Maybenot | FRONT | Interspace | Breakpad | NoDefence]:
-    def_type = cfg.defence.type
 
-    match def_type:
-        case "no-defence":
-            return defence_builder.no_def(cfg)
-        case "ephemeral":
-            return defence_builder.ephemeral(cfg)
-        case "front":
-            return defence_builder.front(cfg)
-        case "interspace":
-            return defence_builder.interspace(cfg)
-        case "breakpad":
-            return defence_builder.breakpad(cfg)
-        case "tamaraw":
-            return defence_builder.tamaraw(cfg)
-        case "regulator":
-            return defence_builder.regulator(cfg)
-        case "rlobs":
-            return defence_builder.rlobs(cfg)
-        case _:
-            raise NotImplementedError("no builder for defence '{def_type}'")
+    return defence_builder.get_defence(cfg)
 
 
 def _get_dl(ds: Dataset, bs: int, shuffle: bool = False) -> DataLoader:

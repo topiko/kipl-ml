@@ -46,6 +46,7 @@ from kipl_ml.trace.features import Feats, FeatureTrs, get_feature_tr
 logger = get_logger(__name__)
 dotenv.load_dotenv()
 
+
 WORKING_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR_PATH = os.path.join(WORKING_DIR, "config")
 
@@ -574,7 +575,7 @@ def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
         send_count_bins=send_count_bins,
         send_after_bins=send_after_bins,
         prob_eps={
-            **{a: 0.0 for a in AHKs},
+            **dict.fromkeys(AHKs, 0.0),
             AHKs.ACTION_SELECTION: eps,
             AHKs.SEND_COUNT_U: f_ * eps,
             AHKs.SEND_TIME_U: f_ * eps,

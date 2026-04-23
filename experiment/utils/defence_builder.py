@@ -5,6 +5,7 @@ from kipl_ml.defences.breakpad import Breakpad
 from kipl_ml.defences.front import FRONT
 from kipl_ml.defences.interspace import Interspace
 from kipl_ml.defences.maybenot import Maybenot
+from kipl_ml.defences.nndefs import RNNDef
 from kipl_ml.defences.regulator import Regulator
 from kipl_ml.defences.tamaraw import Tamaraw
 from kipl_ml.logging.logger import get_logger
@@ -12,26 +13,11 @@ from kipl_ml.logging.logger import get_logger
 logger = get_logger(__name__)
 
 
-def _parse_netwk(cfg: OmegaConf) -> tuple[tuple[int, int], tuple[int, int]]:
-    delay = (cfg.network.delay_millis.min, cfg.network.delay_millis.max)
-    pps = (cfg.network.pps.min, cfg.network.pps.max)
-
-    return delay, pps
-
-
-def _get_simul_kwargs(cfg: OmegaConf) -> dict:
-    return {
-        "max_trace_length": cfg.misc.simul_args.max_trace_length,
-        "events_multiplier": cfg.misc.simul_args.events_multiplier,
-    }
-
-
 def get_defence(
     cfg: OmegaConf,
 ) -> dict[str, Maybenot | FRONT | Interspace | Breakpad | NoDefence]:
-    def_type = cfg.defence.type
 
-    match def_type:
+    match cfg.defence.type:
         case "no-defence":
             return no_def(cfg)
         case "ephemeral":
@@ -46,8 +32,24 @@ def get_defence(
             return tamaraw(cfg)
         case "regulator":
             return regulator(cfg)
+        case "rlobs":
+            return rlobs(cfg)
         case _:
             raise NotImplementedError("no builder for defence '{def_type}'")
+
+
+def _parse_netwk(cfg: OmegaConf) -> tuple[tuple[int, int], tuple[int, int]]:
+    delay = (cfg.network.delay_millis.min, cfg.network.delay_millis.max)
+    pps = (cfg.network.pps.min, cfg.network.pps.max)
+
+    return delay, pps
+
+
+def _get_simul_kwargs(cfg: OmegaConf) -> dict:
+    return {
+        "max_trace_length": cfg.misc.simul_args.max_trace_length,
+        "events_multiplier": cfg.misc.simul_args.events_multiplier,
+    }
 
 
 def no_def(cfg: OmegaConf) -> dict[str, NoDefence]:
@@ -244,4 +246,38 @@ def ephemeral(cfg: OmegaConf) -> dict[str, Maybenot]:
         "defence_train": _ephemeral(n_train_machines, seed + 1),
         "defence_valid": _ephemeral(n_valid_machines, seed + 2),
         "defence_test": _ephemeral(n_test_machines, seed + 3),
+    }
+
+
+def rlobs(cfg: OmegaConf) -> dict[str, RNNDef]:
+    netwk_delay, netwk_pps = _parse_netwk(cfg)
+
+    seed = cfg.misc.seed
+
+    if "model" in cfg:
+        trace_len = cfg.model.trace_len
+    else:
+        logger.warning("No source for trace len rlobs simul -> very long")
+        trace_len = None
+
+    def _rlobs(seed: int, idx: int):
+        return RNNDef(
+            network_delay_millis=netwk_delay,
+            network_pps=netwk_pps,
+            obs_model=cfg.defence.model_id[idx],
+            n_packets=trace_len,
+            seed=seed,
+            fixed_per_trace=False,
+            simul_kwargs=_get_simul_kwargs(cfg),
+            mlflow_keys={
+                "run_name": cfg.defence.run_name,
+                "train_step": cfg.defence.train_step,
+                "test_step": cfg.defence.test_step,
+            },
+        )
+
+    return {
+        "defence_train": _rlobs(seed + 1, 0),
+        "defence_valid": _rlobs(seed + 2, 1),
+        "defence_test": _rlobs(seed + 3, 2),
     }

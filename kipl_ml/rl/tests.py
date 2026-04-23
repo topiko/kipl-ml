@@ -6,8 +6,7 @@ import torch
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.rl.enums import Actions, ActSendDown, ActSendUp, NoAction, StepAction
 from kipl_ml.rl.streaming import (
-    WindowFeatureStreamer,
-    get_window_feature_dict,
+    WindowFeatureStreamer
 )
 from kipl_ml.rl.utils import fill_after_seq_end
 from kipl_ml.trace.enums import Feats
@@ -171,31 +170,6 @@ class TestFillAfterSeqEnd(unittest.TestCase):
         result = fill_after_seq_end(values.clone(), keep_mask, fill_val="max")
         expected = torch.tensor([[1.0, 5.0, 5.0, 5.0]])
         self.assertTrue(torch.equal(result, expected))
-
-
-class TestDeprecatedWindowFeatureDict(unittest.TestCase):
-    DT = 0.02
-    MAX_SILENCE_S = 0.1
-
-    def test_deprecated_helper_warns_and_returns_bins(self):
-        times = torch.tensor([[0.0, 0.02, 0.04, 0.06, 0.08]])
-        dirs = torch.tensor([[UPLOAD, DOWNLOAD, UPLOAD, DOWNLOAD, UPLOAD]])
-        decoy = torch.zeros_like(dirs)
-
-        X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
-        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
-
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            fd = get_window_feature_dict(X, self.DT, self.MAX_SILENCE_S, features)
-
-        self.assertTrue(any(issubclass(w.category, DeprecationWarning) for w in caught))
-        self.assertEqual(fd[Feats.TIME_BINS].dtype, torch.long)
-        self.assertEqual(fd[Feats.Dt_BINS].dtype, torch.long)
-        self.assertEqual(fd[Feats.UP_COUNT].dtype, torch.long)
-        self.assertEqual(fd[Feats.DOWN_COUNT].dtype, torch.long)
-        self.assertTrue((fd[Feats.TIME_BINS] >= 0).any())
-        self.assertTrue((fd[Feats.Dt_BINS] >= 0).any())
 
 
 class TestWindowFeatureStreamer(unittest.TestCase):
