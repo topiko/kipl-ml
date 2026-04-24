@@ -136,8 +136,8 @@ def get_std_trace_dict(
         network_packets_per_second=network_packets_per_second,
     )
 
-    if dirs[0] != -1:
-        raise ValueError("First packet must be download (-1)")
+    # if dirs[0] != -1:
+    #    raise ValueError("First packet must be download (-1)")
 
     return parse_trace_to_tensor_dict(times, dirs, paddings, None)
 

@@ -15,13 +15,7 @@ from tqdm import tqdm
 
 from experiment.obsrl.plot_utils import _plot_single
 from experiment.obsrl.sim import rollout
-from experiment.obsrl.sisyphus import (
-    CONFIG_DIR_PATH,
-    DATASET,
-    N_SPLITS,
-    TEST_XV,
-    get_agent_and_critic,
-)
+from experiment.obsrl.sisyphus import CONFIG_DIR_PATH, get_agent_and_critic
 from experiment.obsrl.utils import get_advantages
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD, assets
@@ -40,6 +34,8 @@ from kipl_ml.trace.features import FeatureTrs, get_feature_tr
 from kipl_ml.utils.time import _time_to_bin_idx
 
 logger = get_logger(__name__)
+
+TEST_XV = 0
 
 
 def _maybe_enable_interactive_backend(show: bool, backend: str | None) -> None:
@@ -215,9 +211,9 @@ def _load_dataset(cfg) -> tuple[WFDataset, WFDataset]:
     )
 
     ds_train, ds_valid, _ = get_train_valid_test(
-        dataset=DATASET,
+        dataset=cfg.dataset.name,
         label=assets.PAGE_LABEL,
-        n_splits=N_SPLITS,
+        n_splits=cfg.dataset.n_splits,
         test_xv=TEST_XV,
         random_state=42,
         feature_trs=FeatureTrs(

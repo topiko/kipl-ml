@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from time import perf_counter
 from typing import Any, cast
 
 import torch
@@ -201,8 +202,6 @@ def _policy_rollout_streaming_impl(
         full = torch.zeros((bs,) + x.shape[1:], device=x.device, dtype=x.dtype)
         full[active] = x
         return full
-
-    from time import perf_counter
 
     t_stepping_ = 0.0
     t_acting_1_ = 0.0
