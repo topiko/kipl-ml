@@ -468,7 +468,7 @@ class AGENT1(nn.Module):
 
         # Exploration prob eps for each action:
         # Initialize prob_eps for all AHKs (will be set in the block below)
-        self.prob_eps: dict[AHKs, float] = {a: 0.0 for a in AHKs}
+        self.prob_eps: dict[AHKs, float] = dict.fromkeys(AHKs, 0.0)
         if prob_eps is not None:
             for a in AHKs:
                 if a not in self.ackt_bin_d:

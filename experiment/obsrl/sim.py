@@ -355,6 +355,7 @@ def rollout(
         policy_rollout_streaming(
             obs,
             X,
+            detach_period=detach_period,
             sample=sample,
             rtt_bins=rtt_bins,
             cut_off_time_s=cut_off_time_s,
