@@ -592,7 +592,7 @@ def _verify_delay_effect(
         + f"{r2_b} / {r2_d}"
     )
     print(
-        "  - row4 (X_obs-padding) packets in forced window baseline/forced up,down = "
+        "  - row4 (X_obs-decoy) packets in forced window baseline/forced up,down = "
         + f"{r4_b} / {r4_d}"
     )
 
@@ -809,7 +809,7 @@ def main() -> None:
     reward_scales = {
         "clf_scale": 0.1,
         "d_clf_scale": cfg.rewards.d_clf,
-        "padding_scale": cfg.rewards.padding_scale,
+        "decoy_scale": cfg.rewards.decoy_scale,
         "delay_scale": cfg.rewards.delay_scale,
     }
 

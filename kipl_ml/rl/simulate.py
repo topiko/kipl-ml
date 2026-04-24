@@ -200,11 +200,20 @@ def _policy_rollout_streaming_impl(
         full[active] = x
         return full
 
+    from time import perf_counter
+
+    t_stepping_ = 0.0
+    t_acting_ = 0.0
+    t_storing_X_obs_ = 0.0
+    t_storing_policy_ = 0.0
+
     hobs = None
-    n_packets = 0
     while True:
         # The streamer sleeps internally until it emits or hits its cap.
+        t0 = perf_counter()
         fd_t, X_obs_, active = streamer.step(actions_a)
+        t1 = perf_counter()
+        t_stepping_ += t1 - t0
 
         if active.sum() == 0:
             break
@@ -216,6 +225,8 @@ def _policy_rollout_streaming_impl(
         )
 
         hobs = _hidden_w_mask(hobs, active, h_active)
+        t2 = perf_counter()
+        t_acting_ += t2 - t1
 
         active_idxs = torch.nonzero(active, as_tuple=False).flatten().tolist()
         for i, aidx in enumerate(active_idxs):
@@ -225,23 +236,32 @@ def _policy_rollout_streaming_impl(
                     continue
                 X_obs_l[aidx][k].append(X_obs_[k][i])
             actions_l[aidx].append(actions_a[i])
+        t3 = perf_counter()
+        t_storing_X_obs_ += t3 - t2
 
         if max_packets:
-            n_packets = len(X_obs_l[aidx][Feats.TIMES])
-            if n_packets >= max_packets:
+            if len(X_obs_l[aidx][Feats.TIMES]) >= max_packets:
                 break
 
         if record_policy:
             for f in obs.features:
                 fd_steps[f].append(fd_t[f].to("cpu"))
 
-        if record_policy:
             act_time_bins_l.append(_densify(act_time_bins_a, active).detach().cpu())
             log_ps_l.append(_densify(log_ps_a, active))
             sel_probs_l.append(_densify(sel_probs_a, active))
             values_actor_l.append(_densify(values_a, active))
             ent_sel_l.append(_densify(ent_a[EntropyKeys.SELECTION_ENTROPY], active))
             ent_cond_l.append(_densify(ent_a[EntropyKeys.COND_ENTROPY], active))
+
+        t4 = perf_counter()
+        t_storing_policy_ += t4 - t3
+
+    print("Batch simulated, timings:")
+    print(f"{t_stepping_=}")
+    print(f"{t_acting_=}")
+    print(f"{t_storing_X_obs_=}")
+    print(f"{t_storing_policy_=}")
 
     X_obs = _batch_packet_level_features(X_obs_l, device)
 
