@@ -1,0 +1,18 @@
+defaults:
+  - _self_
+  - defence: no_defence
+  - dataset: bigenough
+  - network: infinite
+  - misc: default
+
+
+trace:
+  trim_beginning: 10
+  min_packets: 1000
+  n_packets: 5_000
+  dur_max_s: 30 # max trace duration in seconds; clamps to (0, this, True); null=disabled
+  rtt_bins: 2
+
+
+seed: 42
+

@@ -1,0 +1,15 @@
+type: ephemeral
+deck_name: "eph-blocking-bottle-1k-c2-100k-april13-use-scale0.75"
+scale: 0.5
+client_padding_budget: [1000, 2000]
+client_blocking_budget: [100_000, 200_000]
+client_padding_frac: [0.95, 0.95]
+client_blocking_frac: [0.5, 0.5]
+server_padding_budget: [1000, 3000]
+server_blocking_budget: [100_000, 200_000]
+server_padding_frac: [0.95, 0.95]
+server_blocking_frac: [0.5, 0.5]
+n_train_machines: 50_000
+n_valid_machines: 5_000
+n_test_machines: 5_000
+fixed_per_trace: false

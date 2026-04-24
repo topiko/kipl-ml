@@ -1,0 +1,9 @@
+type: "rlobs"
+run_name: audacious-imp
+train_step: 20
+test_step: 20
+model_id:
+  - m-a7c775e5ec7e44939f075ddc72befe18
+  - m-a7c775e5ec7e44939f075ddc72befe18
+  - m-a7c775e5ec7e44939f075ddc72befe18
+

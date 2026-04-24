@@ -1,0 +1,9 @@
+type: "rlobs"
+run_name: audacious-imp
+train_step: 5
+test_step: 5
+model_id:
+  - m-c2bd961914e34b9398034b87ef04fb2a
+  - m-c2bd961914e34b9398034b87ef04fb2a
+  - m-c2bd961914e34b9398034b87ef04fb2a
+
