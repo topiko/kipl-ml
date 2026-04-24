@@ -175,7 +175,6 @@ def _policy_rollout_streaming_impl(
         Feats.DECOY: Xb[Feats.DECOY].detach().to(stream_device),
     }
 
-    print(f"{add_tail_s=}")
     streamer = WindowFeatureStreamer(
         Xs,
         dt=obs.time_step,

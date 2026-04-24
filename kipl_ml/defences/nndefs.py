@@ -162,13 +162,18 @@ class RNNDef(_NNDef):
             st_d = self.rng.choice(self.defence_model_state_dicts)
             self.defense_model.load_state_dict(st_d)
 
+        if self._max_dur_s is not None:
+            add_tail_s = min(self._max_dur_s - trace_d[Feats.TIMES].max().item(), 0.0)
+        else:
+            add_tail_s = 0.0
+
         with torch.inference_mode():
             trace_d = policy_obfuscate_trace_streaming(
                 self.defense_model,
                 trace_d,
                 sample=True,
                 max_packets=self._n_packets,
-                cut_off_time_s=self._max_dur_s,
+                add_tail_s=add_tail_s,
             )
 
         trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
