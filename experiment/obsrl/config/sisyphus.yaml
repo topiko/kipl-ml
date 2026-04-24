@@ -29,8 +29,8 @@ advantages:
 rewards:
   clf: 0.1
   d_clf: 0.001
-  decoy_scale: 0.05
-  delay_scale: 0.05 # 0.01
+  decoy_scale: 0.03
+  delay_scale: 0.02 # 0.01
   discounting: 0.99
 
 obs:
@@ -73,10 +73,10 @@ obs:
   max_epochs_per_push: 141
 
   # How much we decrease padding/delay scale when hitting max epochs.
-  decoy_scale_reduction: 0.7
-  delay_scale_reduction: 0.7
+  decoy_scale_reduction: 0.9
+  delay_scale_reduction: 0.9
 
-  lr_scheduler_patience: 7
+  lr_scheduler_patience: 10
   # The obs lr scheduling is awkward; 1 disables it.
   lr_scheduler_factor: 0.99
 
