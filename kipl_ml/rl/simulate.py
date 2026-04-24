@@ -78,7 +78,7 @@ def policy_rollout_streaming(
     X: dict[Feats, torch.Tensor],
     detach_period: int | None = None,
     sample: bool = True,
-    cut_off_time_s: float | torch.Tensor | None = None,
+    add_tail_s: float | torch.Tensor | None = None,
     rtt_bins: int = 0,
     max_packets: int | None = None,
 ) -> _StreamingRollout:
@@ -94,7 +94,7 @@ def policy_rollout_streaming(
             X,
             detach_period=detach_period,
             sample=sample,
-            cut_off_time_s=cut_off_time_s,
+            add_tail_s=add_tail_s,
             rtt_bins=rtt_bins,
             max_packets=max_packets,
             record_policy=True,
@@ -108,7 +108,7 @@ def policy_obfuscate_trace_streaming(
     X: dict[Feats, torch.Tensor],
     detach_period: int | None = None,
     sample: bool = True,
-    cut_off_time_s: float | torch.Tensor | None = None,
+    add_tail_s: float | torch.Tensor | None = None,
     rtt_bins: int = 0,
     max_packets: int | None = None,
 ) -> dict[Feats, torch.Tensor]:
@@ -127,7 +127,7 @@ def policy_obfuscate_trace_streaming(
             X,
             detach_period=detach_period,
             sample=sample,
-            cut_off_time_s=cut_off_time_s,
+            add_tail_s=add_tail_s,
             rtt_bins=rtt_bins,
             max_packets=max_packets,
             record_policy=False,
@@ -141,7 +141,7 @@ def _policy_rollout_streaming_impl(
     X: dict[Feats, torch.Tensor],
     detach_period: int | None,
     sample: bool,
-    cut_off_time_s: float | torch.Tensor | None,
+    add_tail_s: float | torch.Tensor | None,
     rtt_bins: int,
     max_packets: int | None,
     record_policy: bool,
@@ -175,13 +175,14 @@ def _policy_rollout_streaming_impl(
         Feats.DECOY: Xb[Feats.DECOY].detach().to(stream_device),
     }
 
+    print(f"{add_tail_s=}")
     streamer = WindowFeatureStreamer(
         Xs,
         dt=obs.time_step,
         max_silence_s=obs.max_silence_s,
         features=obs.features,
         rtt_bins=rtt_bins,
-        cut_off_time_s=cut_off_time_s,
+        add_tail_s=add_tail_s,
     )
 
     log_ps_l: list[torch.Tensor] = []

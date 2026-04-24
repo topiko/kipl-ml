@@ -224,7 +224,7 @@ class TraceStateCursor:
         decoy: torch.Tensor,
         dt: float,
         rtt_bins: int = 0,
-        terminate_after_s: float | None = None,
+        add_tail_s: float | None = None,
     ):
         self.dt = dt
         self.times = times
@@ -238,10 +238,10 @@ class TraceStateCursor:
         self.delay_down = DelayState(rtt=rtt_bins)
         self.cursor_time_bin: int = 0
         self.prev_time_bin: int = 0
-        if terminate_after_s is not None:
-            self.terminate_after_s = min(terminate_after_s, times.max().item() + dt)
-        else:
+        if add_tail_s is None:
             self.terminate_after_s = times.max().item() + dt
+        elif isinstance(add_tail_s, int | float):
+            self.terminate_after_s = times.max().item() + add_tail_s
         self.device = times.device
 
     def step(
@@ -406,7 +406,7 @@ class WindowFeatureStreamer:
         max_silence_s: float,
         features: list[Feats],
         rtt_bins: int = 0,
-        cut_off_time_s: torch.Tensor | float | None = None,
+        add_tail_s: torch.Tensor | float | None = None,
     ):
         if dt <= 0:
             raise ValueError(f"dt must be > 0, got {dt}")
@@ -431,17 +431,17 @@ class WindowFeatureStreamer:
 
         self._cursors: list[TraceStateCursor] = []
 
-        if cut_off_time_s is None:
+        if add_tail_s is None:
             pass
-        elif isinstance(cut_off_time_s, (int, float)):
-            cut_off_time_s = np.ones(self.bs, dtype=np.float64) * cut_off_time_s
-        elif isinstance(cut_off_time_s, torch.Tensor):
-            if cut_off_time_s.shape != (self.bs,):
+        elif isinstance(add_tail_s, (int, float)):
+            add_tail_s = np.ones(self.bs, dtype=np.float64) * add_tail_s
+        elif isinstance(add_tail_s, torch.Tensor):
+            if add_tail_s.shape != (self.bs,):
                 raise ValueError(
-                    f"cut_off_time_s must have shape ({self.bs},), got {cut_off_time_s.shape}"
+                    f"cut_off_time_s must have shape ({self.bs},), got {add_tail_s.shape}"
                 )
         else:
-            raise ValueError(f"Invalid type for cut_off_time_s: {type(cut_off_time_s)}")
+            raise ValueError(f"Invalid type for cut_off_time_s: {type(add_tail_s)}")
 
         for i in range(self.bs):
             self._cursors.append(
@@ -451,9 +451,7 @@ class WindowFeatureStreamer:
                     decoy=self.X[Feats.DECOY][i],
                     dt=dt,
                     rtt_bins=rtt_bins,
-                    terminate_after_s=cut_off_time_s[i].item()
-                    if cut_off_time_s is not None
-                    else None,
+                    add_tail_s=add_tail_s[i].item() if add_tail_s is not None else None,
                 )
             )
 

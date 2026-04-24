@@ -89,6 +89,7 @@ obs:
     batch_size: 64
     random_sample: 0.05
     fixed_sample: True
+    add_tail_s: 5
 
 
 disc:

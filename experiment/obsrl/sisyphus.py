@@ -164,6 +164,7 @@ def train_obs_one_epoch(
                 critic_detach_period=cfg.obs.critic_detach_period,
                 reward_scales=reward_scales,
                 rtt_bins=cfg.trace.rtt_bins,
+                add_tail_s=cfg.obs.train.add_tail_s,
             )
 
             action_seq_lens = fd[Feats.SEQ_LENS]

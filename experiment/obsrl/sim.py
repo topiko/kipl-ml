@@ -336,7 +336,7 @@ def rollout(
     reward_scales: dict[str, float] | None = None,
     rtt_bins: int = 0,
     sample: bool = True,
-    cut_off_time_s: float | torch.Tensor | None = None,
+    add_tail_s: float | torch.Tensor | None = None,
 ) -> tuple[
     torch.Tensor,
     torch.Tensor,
@@ -358,7 +358,7 @@ def rollout(
             detach_period=detach_period,
             sample=sample,
             rtt_bins=rtt_bins,
-            cut_off_time_s=cut_off_time_s,
+            add_tail_s=add_tail_s,
             max_packets=None,
         )
     )

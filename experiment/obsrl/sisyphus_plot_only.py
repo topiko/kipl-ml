@@ -488,7 +488,7 @@ def _single_rollout(
             disc_league=[(0, None)],
             disc_features=disc_features,
             reward_scales=reward_scales,
-            cut_off_time_s=max_dur_s,
+            add_tail_s=None,
         )
 
 
@@ -681,7 +681,7 @@ def _plot_indices(
             disc_league=active_disc_league,
             disc_features=disc_features,
             reward_scales=reward_scales,
-            cut_off_time_s=cfg.trace.dur_max_s,
+            add_tail_s=cfg.obs.train.add_tail_s,
         )
 
     action_seq_lens = fd[Feats.SEQ_LENS]
