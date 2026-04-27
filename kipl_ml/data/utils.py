@@ -18,6 +18,7 @@ from kipl_ml.trace.params import DOWNLOAD, EVENTS_MULTIPLIER, MAX_TRACE_LENGTH, 
 logger = get_logger(__name__)
 
 METADF_FNAME = "metadf.h5"
+META_DATA_DIR_ENV = "WF_META_DATA_DIR"
 
 
 @dataclass
@@ -33,6 +34,10 @@ def _xv_splits_fname(dataset: str, n_splits: int, label_asset: str) -> Path:
 
 
 def get_dataset_root(dataset: str) -> Path:
+    meta_root = os.getenv(META_DATA_DIR_ENV)
+    if meta_root is not None:
+        return Path(meta_root).expanduser().resolve() / dataset
+
     return Path(os.path.join(PROJECT_ROOT, ".data", dataset))
 
 

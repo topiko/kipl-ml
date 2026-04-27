@@ -3,6 +3,7 @@ axes.spines.right: False
 legend.frameon: False
 figure.figsize: 5, 3
 figure.facecolor: '1'
+figure.autolayout: True
 lines.markersize: 5
 lines.marker: |
 lines.linewidth: 1
