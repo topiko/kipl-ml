@@ -33,7 +33,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-mbnt-rustbindings = { path = "../mbnt-rustbindings" } # For Eph. use tag: v0.4
+mbnt-rustbindings = { path = "../sisyphean-defenses/python/mbnt_rustbindings" }
 # mbnt-rustbindings = { git = "ssh://git@github.com/topiko/mbnt-rustbindings.git", branch="main" }
 laserbeak = { git = "ssh://git@github.com/topiko/laserbeak.git" } # For Eph. use tag: v0.0
 
