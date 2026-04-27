@@ -3,9 +3,7 @@ from __future__ import annotations
 import argparse
 import copy
 import random
-from pathlib import Path
 
-import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import torch
@@ -18,7 +16,7 @@ from experiment.obsrl.sim import rollout
 from experiment.obsrl.sisyphus import CONFIG_DIR_PATH, get_agent_and_critic
 from experiment.obsrl.utils import get_advantages
 from experiment.utils import defence_builder
-from kipl_ml.data.utils import DOWNLOAD, UPLOAD, assets
+from kipl_ml.data.utils import assets
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.rl.enums import (
@@ -31,44 +29,10 @@ from kipl_ml.rl.enums import (
 )
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import FeatureTrs, get_feature_tr
-from kipl_ml.utils.time import _time_to_bin_idx
 
 logger = get_logger(__name__)
 
 TEST_XV = 0
-
-
-def _maybe_enable_interactive_backend(show: bool, backend: str | None) -> None:
-    if backend:
-        plt.switch_backend(backend)
-
-    if not show:
-        return
-
-    current = str(plt.get_backend()).lower()
-    if current not in {"agg", "module://matplotlib_inline.backend_inline", "inline"}:
-        return
-
-    for cand in ("QtAgg", "TkAgg", "GTK3Agg", "WXAgg", "MacOSX"):
-        try:
-            plt.switch_backend(cand)
-            return
-        except Exception:
-            continue
-
-
-def _install_local_figure_logger(outdir: Path, show: bool) -> None:
-    outdir.mkdir(parents=True, exist_ok=True)
-
-    def _log_figure(fig, artifact_file: str) -> None:
-        out = outdir / artifact_file
-        out.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(out, dpi=150)
-        print(f"wrote {out}")
-        if show:
-            plt.show()
-
-    mlflow.log_figure = _log_figure  # type: ignore[assignment]
 
 
 def _parse_args() -> argparse.Namespace:
@@ -457,170 +421,6 @@ def _choose_indices(ds: WFDataset, idxs_s: str, ntraces: int, seed: int) -> list
     return [int(i) for i in rng.choice(len(ds), size=n, replace=False).tolist()]
 
 
-def _single_rollout(
-    *,
-    ds: WFDataset,
-    idx: int,
-    obs,
-    critic,
-    obs_features: FeatureTrs | None,
-    disc,
-    disc_features: FeatureTrs,
-    reward_scales: dict[str, float],
-    device: torch.device,
-    max_dur_s: float | None,
-):
-    X_i, y_i = ds[int(idx)]
-    X_roll = obs_features(X_i) if obs_features is not None else X_i
-    Xb = {k: v.unsqueeze(0) for k, v in X_roll.items()}
-    yb = y_i.unsqueeze(0)
-
-    Xb = dict_to_device(Xb, device)
-    yb = yb.to(device)
-
-    with torch.no_grad():
-        return rollout(
-            obs,
-            critic,
-            disc,
-            Xb,
-            yb,
-            disc_league=[(0, None)],
-            disc_features=disc_features,
-            reward_scales=reward_scales,
-            add_tail_s=None,
-        )
-
-
-def _verify_delay_effect(
-    *,
-    ds: WFDataset,
-    idx: int,
-    obs_delay,
-    obs_base,
-    critic,
-    obs_features: FeatureTrs | None,
-    disc,
-    disc_features: FeatureTrs,
-    reward_scales: dict[str, float],
-    device: torch.device,
-    dt_s: float,
-    delay_between: tuple[float, float],
-    max_dur_s: float | None,
-) -> None:
-    out_base = _single_rollout(
-        ds=ds,
-        idx=idx,
-        obs=obs_base,
-        critic=critic,
-        obs_features=obs_features,
-        disc=disc,
-        disc_features=disc_features,
-        reward_scales=reward_scales,
-        device=device,
-        max_dur_s=max_dur_s,
-    )
-    out_delay = _single_rollout(
-        ds=ds,
-        idx=idx,
-        obs=obs_delay,
-        critic=critic,
-        obs_features=obs_features,
-        disc=disc,
-        disc_features=disc_features,
-        reward_scales=reward_scales,
-        device=device,
-        max_dur_s=max_dur_s,
-    )
-
-    _, _, _, rewards_b, _, times_b, actions_b, Xobs_b, fd_b = out_base
-    _, _, _, rewards_d, _, times_d, actions_d, Xobs_d, fd_d = out_delay
-
-    m_d = times_d[0] >= 0
-    ts_d = times_d[0][m_d].to(torch.float32) * float(dt_s)
-    dmask = torch.zeros_like(m_d, dtype=torch.bool)
-    for j, sa in enumerate(actions_d[0]):
-        if j >= dmask.shape[0]:
-            break
-        dmask[j] = Actions.DELAY_UP in sa or Actions.DELAY_DOWN in sa
-    inwin = (ts_d >= float(delay_between[0])) & (ts_d < float(delay_between[1]))
-
-    print("delay verification:")
-    print(
-        "  - forced delay steps in window="
-        + f"{int((dmask & inwin).sum().item())} / {int(inwin.sum().item())}"
-    )
-    print(
-        "  - forced delay steps outside window="
-        + f"{int((dmask & ~inwin).sum().item())}"
-    )
-
-    start_bin = int(round(float(delay_between[0]) / float(dt_s)))
-    end_bin = int(round(float(delay_between[1]) / float(dt_s)))
-
-    def _row2_counts(fd: dict[Feats, torch.Tensor]) -> tuple[int, int]:
-        tb = fd[Feats.TIME_BINS][0]
-        up = fd[Feats.UP_COUNT][0]
-        down = fd[Feats.DOWN_COUNT][0]
-        m = (tb >= start_bin) & (tb < end_bin)
-        return int(up[m].sum().item()), int(down[m].sum().item())
-
-    def _row4_counts(Xobs: dict[Feats, torch.Tensor]) -> tuple[int, int]:
-        t = Xobs[Feats.TIMES][0]
-        d = Xobs[Feats.DIRS][0]
-        p = Xobs[Feats.DECOY][0] != 0
-        m = (d != 0) & (~p) & torch.isfinite(t)
-        if not bool(m.any().item()):
-            return 0, 0
-        b = _time_to_bin_idx(t[m], float(dt_s))
-        mb = (b >= start_bin) & (b < end_bin)
-        dd = d[m][mb]
-        up = int((dd == int(UPLOAD)).sum().item())
-        down = int((dd == int(DOWNLOAD)).sum().item())
-        return up, down
-
-    r2_b = _row2_counts(fd_b)
-    r2_d = _row2_counts(fd_d)
-    r4_b = _row4_counts(Xobs_b)
-    r4_d = _row4_counts(Xobs_d)
-    print(
-        "  - row2 (fd) packets in forced window baseline/forced up,down = "
-        + f"{r2_b} / {r2_d}"
-    )
-    print(
-        "  - row4 (X_obs-decoy) packets in forced window baseline/forced up,down = "
-        + f"{r4_b} / {r4_d}"
-    )
-
-    T = min(fd_b[Feats.TIME_BINS].shape[1], fd_d[Feats.TIME_BINS].shape[1])
-    vm = (fd_b[Feats.TIME_BINS][0, :T] >= 0) & (fd_d[Feats.TIME_BINS][0, :T] >= 0)
-    up_diff = (
-        (fd_b[Feats.UP_COUNT][0, :T][vm] - fd_d[Feats.UP_COUNT][0, :T][vm]).abs().sum()
-    )
-    down_diff = (
-        (fd_b[Feats.DOWN_COUNT][0, :T][vm] - fd_d[Feats.DOWN_COUNT][0, :T][vm])
-        .abs()
-        .sum()
-    )
-    print(
-        "  - obs-feature diff abs-sum up/down="
-        + f"{int(up_diff.item())}/{int(down_diff.item())} across {int(vm.sum().item())} bins"
-    )
-
-    n = min(Xobs_b[Feats.TIMES].shape[1], Xobs_d[Feats.TIMES].shape[1], 1000)
-    tdiff = (Xobs_b[Feats.TIMES][0, :n] - Xobs_d[Feats.TIMES][0, :n]).abs()
-    print(
-        "  - defended-trace time diffs (first 1000 packets): "
-        + f"count>1e-9={int((tdiff > 1e-9).sum().item())}, max={float(tdiff.max().item()):.6f}s"
-    )
-
-    if rewards_b is not None and rewards_d is not None and "delay" in rewards_d:
-        mb = times_b[0] >= 0
-        rb = float(rewards_b["delay"][-1, 0, mb].sum().item())
-        rd = float(rewards_d["delay"][-1, 0, m_d].sum().item())
-        print(f"  - delay reward sum baseline/forced = {rb:.6f} / {rd:.6f}")
-
-
 def _plot_indices(
     *,
     cfg,
@@ -724,15 +524,13 @@ def _plot_indices(
                 advantages=advantages,
                 weights=weights,
                 obs_dt_s=float(obs.time_step),
+                show=True,
             )
 
 
 def main() -> None:
     args = _parse_args()
     delay_between = _parse_delay_between(args.delay_between)
-
-    _maybe_enable_interactive_backend(show=args.show, backend=args.backend or None)
-    _install_local_figure_logger(Path(args.outdir), show=args.show)
 
     random.seed(args.seed)
     np.random.seed(args.seed)

@@ -1,4 +1,4 @@
-from pathlib import Path
+from importlib import resources
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,9 +11,7 @@ from kipl_ml.trace.features import Feats
 
 logger = get_logger(__name__)
 
-style_path = (
-    Path(__file__).resolve().parent.parent.parent / ".config" / "plotstyle.mplstyle"
-)
+style_path = resources.files("kipl_ml.visualize").joinpath("pltstyle.mplstyle")
 
 plt.style.use(style_path)
 

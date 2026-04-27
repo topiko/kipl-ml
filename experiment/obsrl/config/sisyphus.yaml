@@ -30,7 +30,7 @@ rewards:
   clf: 0.1
   d_clf: 0.001
   decoy_scale: 0.03
-  delay_scale: 0.02 # 0.01
+  delay_scale: 0.05 # 0.01
   discounting: 0.99
 
 obs:

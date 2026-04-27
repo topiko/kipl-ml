@@ -171,6 +171,7 @@ def _plot_single(
     advantages: torch.Tensor,
     weights: torch.Tensor,
     obs_dt_s: float | None = None,
+    show: bool = False,
 ):
     fig, (ax, ax_fd, ax_a, ax_a_e, ax_o, ax_rew, ax_mean_rew, ax_ret, ax_adv) = (
         plt.subplots(9, 1, figsize=(20, 15.0), sharex=True)
@@ -388,4 +389,6 @@ def _plot_single(
 
     mlflow.log_figure(fig, f"trace_{ds_idx}_clf_epoch={e:03d}.png")
 
+    if show:
+        plt.show()
     plt.close()

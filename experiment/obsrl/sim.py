@@ -2,12 +2,57 @@ import torch
 from torch import nn
 
 from kipl_ml.data.wf_dataset import dict_to_device
-from kipl_ml.rl.enums import Actions, StepActions
+from kipl_ml.rl.enums import StepActions
 from kipl_ml.rl.simulate import policy_rollout_streaming
-from kipl_ml.rl.utils import fill_after_seq_end
+from kipl_ml.rl.utils import _flush_left, fill_after_seq_end
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import FeatureTrs
 from kipl_ml.utils.time import _boundary_time_to_bin_idx, _time_to_bin_idx
+
+
+def _normal_pkt_cum_cnt(
+    bin_times: torch.Tensor,
+    pkt_dirs: torch.Tensor,
+    pkt_times: torch.Tensor,
+    decoy_flag: torch.Tensor | None,
+    obs_dt_s: float,
+) -> torch.Tensor:
+
+    decoy_flag = torch.zeros_like(pkt_dirs) if decoy_flag is None else decoy_flag
+
+    # (B, L) original packet bins; fill padding with +inf bin to preserve sort.
+    msk = (pkt_dirs != 0) & (decoy_flag != 1)
+
+    pkt_times = _flush_left(pkt_times, msk, pkt_times.max())
+
+    t0_f = fill_after_seq_end(pkt_times, msk, fill_val="max")
+
+    pkt_bins = _time_to_bin_idx(t0_f, obs_dt_s)
+
+    # (B, 1) lens of the orig seqs:
+    valid_len = msk.sum(dim=1, keepdim=True)
+
+    # (B, T) start bins for delay windows. action_times are already int bins.
+    start_bins = bin_times.to(torch.long)
+
+    bs = len(bin_times)
+    left = torch.cat(
+        (torch.zeros(bs, 1, device=bin_times.device), start_bins[:, :-1]), dim=1
+    )
+    right = start_bins
+
+    # (B, T) first index in pkt_bins that is > start_bin
+    lo = torch.searchsorted(pkt_bins, left, right=False)
+    # (B, T) first index in pkt_bins that is > start_bin
+    hi = torch.searchsorted(pkt_bins, right, right=False)
+
+    # Packets under action bins, that are still within the valid seq..
+    lo_valid = torch.minimum(lo, valid_len)
+    hi_valid = torch.minimum(hi, valid_len)
+
+    pkt_cnt = (hi_valid - lo_valid).float()
+
+    return pkt_cnt.cumsum(dim=1)
 
 
 def get_rewards(
@@ -167,57 +212,6 @@ def get_rewards(
     mean_p = torch.where(sum_ > 0, mp / sum_, 0.0)
     rewards["clf"] += mean_p * clf_scale
 
-    # Delay penalty: charge only for packets that actually get delayed.
-    delay_mask = torch.zeros_like(action_times, dtype=torch.bool)
-    delay_bins = torch.zeros_like(action_times, dtype=torch.long)
-    for b, seq in enumerate(actions):
-        for t, sa in enumerate(seq):
-            if t >= action_times.shape[1]:
-                break
-            if Actions.DELAY_UP not in sa and Actions.DELAY_DOWN not in sa:
-                continue
-            delay_mask[b, t] = True
-            steps = 0
-            if Actions.DELAY_UP in sa:
-                steps = max(steps, int(sa[Actions.DELAY_UP].steps))
-            if Actions.DELAY_DOWN in sa:
-                steps = max(steps, int(sa[Actions.DELAY_DOWN].steps))
-            delay_bins[b, t] = steps
-    if not delay_mask.any():
-        delay_mask = None
-
-    if delay_mask is not None:
-        # (B, L) original packet bins; fill padding with +inf bin to preserve sort.
-        dirs0 = X_raw[Feats.DIRS]
-        m0 = dirs0 != 0
-        t0 = X_raw[Feats.TIMES]
-        t0_f = fill_after_seq_end(t0, m0, fill_val="max")
-        pkt_bins = _time_to_bin_idx(t0_f, obs_dt_s)
-
-        # (B, 1) lens of the orig seqs:
-        valid_len = m0.sum(dim=1, keepdim=True)
-
-        # (B, T) start bins for delay windows. action_times are already int bins.
-        start_bins = action_times.to(torch.long)
-
-        # Count occurrences per step via searchsorted on sorted pkt_bins.
-        # NOTE: this returns indices that can correspond to the _padded_ region...
-        # (B, T) first index in pkt_bins that is >= start_bin
-        lo = torch.searchsorted(pkt_bins, start_bins, right=False)
-        # (B, T) first index in pkt_bins that is > start_bin
-        hi = torch.searchsorted(pkt_bins, start_bins, right=True)
-
-        # Packets under action bins, that are still within the valid seq..
-        lo_valid = torch.minimum(lo, valid_len)
-        hi_valid = torch.minimum(hi, valid_len)
-
-        pkt_cnt = (hi_valid - lo_valid).float()
-
-        # 1 packet for 100 ms is the is consider 1 unit of cost before applying scale.
-        rewards["delay"] -= (
-            pkt_cnt * (delay_bins * obs_dt_s * 10) * reward_scales["delay_scale"]
-        )
-
     # change in prob reward
     mask = mean_p != 0
     rewards["d_clf"] += torch.where(
@@ -233,6 +227,36 @@ def get_rewards(
         * reward_scales["d_clf_scale"],
         0,
     )
+
+    # Delay penalty: charge only for packets that actually get delayed.
+    cum_raw = _normal_pkt_cum_cnt(
+        action_times,
+        X_raw[Feats.DIRS],
+        X_raw[Feats.TIMES],
+        None,
+        obs_dt_s,
+    )
+    cum_obs = _normal_pkt_cum_cnt(
+        action_times,
+        X_obs[Feats.DIRS],
+        X_obs[Feats.TIMES],
+        X_obs[Feats.DECOY],
+        obs_dt_s,
+    )
+
+    # The first bin is the one before any action -> exclude
+    delayed_pkt_cnt = (cum_raw - cum_obs)[:, 1:]
+
+    # We weight w. the bin w.
+    action_bin_widths = action_times.diff(dim=1)
+
+    # 1 packet for 100 ms is the is consider 1 unit of cost before applying scale.
+    rewards["delay"][:, :-1] -= (
+        delayed_pkt_cnt
+        * (action_bin_widths * obs_dt_s * 10)
+        * reward_scales["delay_scale"]
+    )
+
     return rewards
 
 
@@ -351,6 +375,7 @@ def rollout(
     """Discrete-time rollout where observation windows are generated on the fly."""
 
     critic_detach_period = critic_detach_period or detach_period
+
     fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, X_obs = (
         policy_rollout_streaming(
             obs,
