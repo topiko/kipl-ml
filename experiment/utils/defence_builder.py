@@ -1,3 +1,5 @@
+import os
+
 from omegaconf import OmegaConf
 
 from kipl_ml.defences.base import NoDefence
@@ -11,6 +13,11 @@ from kipl_ml.defences.tamaraw import Tamaraw
 from kipl_ml.logging.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _get_deck_path(deck_name: str) -> str:
+    deck_root = os.getenv("MAYBENOT_DECKS_PATH", ".maybenot-decks")
+    return os.path.join(deck_root, deck_name)
 
 
 def get_defence(
@@ -212,7 +219,7 @@ def ephemeral(cfg: OmegaConf) -> dict[str, Maybenot]:
     mbnt_conf["network_delay_millis"] = netwk_delay
     mbnt_conf["network_pps"] = netwk_pps
 
-    mbnt_conf["deck_path"] = ".maybenot-decks/" + mbnt_conf.pop("deck_name")
+    mbnt_conf["deck_path"] = _get_deck_path(mbnt_conf.pop("deck_name"))
     keys = (
         "client_padding_budget",
         "client_blocking_budget",

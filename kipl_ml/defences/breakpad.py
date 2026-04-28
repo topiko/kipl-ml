@@ -16,24 +16,25 @@ class Breakpad(_FixedMachine):
         seed: int = 42,
         simul_kwargs: dict | None = None,
     ):
-
-        self.machination_kwargs: dict[str, int | float] = {"seed": seed}
+        self._client_machine = "break_pad_client"
+        self._server_machine = "break_pad_server"
         super().__init__(
             network_delay_millis=network_delay_millis,
             network_pps=network_pps,
+            seed=seed,
             simul_kwargs=simul_kwargs,
         )
 
     def _machination(self, tmpfile_: str, seed: int) -> None:
         run = subprocess.run(
             [
-                self._rust_machination,
+                self._rust_maybenot,
                 "fixed",
-                "-c",
-                "break_pad_client",
-                "-s",
-                "break_pad_server",
-                "-o",
+                "--client",
+                self._client_machine,
+                "--server",
+                self._server_machine,
+                "--output",
                 tmpfile_,
                 "--seed",
                 str(seed),
@@ -44,7 +45,7 @@ class Breakpad(_FixedMachine):
         self.machination_args = run.args
 
         if run.returncode != 0:
-            raise RuntimeError(f"Breakpad machination failed!! --> {run.stderr!r}")
+            raise RuntimeError(f"Breakpad maybenot failed!! --> {run.stderr!r}")
 
 
 if __name__ == "__main__":

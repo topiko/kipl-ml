@@ -23,46 +23,33 @@ class Regulator(_FixedMachine):
         seed: int = 42,
         simul_kwargs: dict | None = None,
     ):
-
-        self.machination_kwargs = {
-            "U": U,
-            "C": C,
-            "R": R,
-            "D": D,
-            "T": T,
-            "padding_budget": padding_budget,
-            "B": B,
-            "seed": seed,
-        }
+        self._U = U
+        self._C = C
+        self._R = R
+        self._D = D
+        self._T = T
+        self._padding_budget = padding_budget
+        self._B = B
         super().__init__(
             network_delay_millis=network_delay_millis,
             network_pps=network_pps,
-            fixed_per_trace=False,
+            seed=seed,
             simul_kwargs=simul_kwargs,
         )
 
-    def _machination(
-        self,
-        tmpfile_: str,
-        U: float,
-        C: float,
-        R: float,
-        D: float,
-        T: float,
-        padding_budget: int,
-        B: int,
-        seed: int,
-    ) -> None:
+    def _machination(self, tmpfile_: str, seed: int) -> None:
+        client_machine = f"regulator_client {self._U} {self._C}"
+        server_machine = f"regulator_server {self._R} {self._D} {self._T} {self._padding_budget} {self._B}"
 
         run = subprocess.run(
             [
-                self._rust_machination,
+                self._rust_maybenot,
                 "fixed",
-                "-c",
-                f"regulator_client {U} {C}",
-                "-s",
-                f"regulator_server {R} {D} {T} {padding_budget} {B}",
-                "-o",
+                "--client",
+                client_machine,
+                "--server",
+                server_machine,
+                "--output",
                 tmpfile_,
                 "--seed",
                 str(seed),
@@ -74,5 +61,5 @@ class Regulator(_FixedMachine):
 
         if run.returncode != 0:
             raise RuntimeError(
-                f"{self.__class__.__name__} machination failed!! --> {run.stderr!r}"
+                f"{self.__class__.__name__} maybenot failed!! --> {run.stderr!r}"
             )

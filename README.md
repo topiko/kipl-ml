@@ -56,7 +56,8 @@ Required (depending on what you run):
 
 - `WF_DATA_DIR`: path to the directory containing the original dataset folders (used by `kipl_ml/data/conversion.py`).
 - `MLFLOW_TRACKING_URI`: required by most experiment scripts (e.g. `experiment/ephemeral_defences/main.py` asserts it is set).
-- `MACHINATION`: path to the `machination` binary (required for fixed-machine defences: Breakpad/FRONT/Interspace/Regulator/Tamaraw).
+- `MAYBENOT`: path to the `maybenot` binary (required for fixed-machine defences: Breakpad/FRONT/Interspace/Regulator/Tamaraw).
+- `MACHINATION`: **deprecated**, use `MAYBENOT` instead.
 
 Optional:
 
@@ -66,7 +67,7 @@ Optional:
 .env
 
 WF_DATA_DIR=/path/to/orig/data
-MACHINATION=/PATH/TO/MAYBENOT-GEN/target/release/machination
+MAYBENOT=/PATH/TO/MAYBENOT/target/release/maybenot
 
 MLFLOW_TRACKING_URI=http://127.0.0.1:8000
 MLFLOW_TRACKING_USERNAME=***

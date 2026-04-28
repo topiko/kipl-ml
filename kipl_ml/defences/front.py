@@ -26,55 +26,41 @@ class FRONT(_FixedMachine):
         fixed_per_trace: bool = True,
         simul_kwargs: dict | None = None,
     ):
-
-        self.machination_kwargs = {
-            "padding_budget_max_client": padding_budget_max_client,
-            "padding_budget_max_server": padding_budget_max_server,
-            "window_min_client": window_min_client,
-            "window_min_server": window_min_server,
-            "window_max_client": window_max_client,
-            "window_max_server": window_max_server,
-            "num_states_client": num_states_client,
-            "num_states_server": num_states_server,
-            "n_machines": n_machines,
-            "seed": seed,
-        }
+        self._padding_budget_max_client = padding_budget_max_client
+        self._padding_budget_max_server = padding_budget_max_server
+        self._window_min_client = window_min_client
+        self._window_min_server = window_min_server
+        self._window_max_client = window_max_client
+        self._window_max_server = window_max_server
+        self._num_states_client = num_states_client
+        self._num_states_server = num_states_server
+        self._n_machines = n_machines
         super().__init__(
             network_delay_millis=network_delay_millis,
             network_pps=network_pps,
+            seed=seed,
             fixed_per_trace=fixed_per_trace,
             simul_kwargs=simul_kwargs,
         )
 
-    def _machination(
-        self,
-        tmpfile_: str,
-        padding_budget_max_client: int,
-        padding_budget_max_server: int,
-        window_min_client: float,
-        window_min_server: float,
-        window_max_client: float,
-        window_max_server: float,
-        num_states_client: int,
-        num_states_server: int,
-        n_machines: int,
-        seed: int,
-    ) -> None:
+    def _machination(self, tmpfile_: str, seed: int) -> None:
+        client_machine = f"front {self._padding_budget_max_client} {self._window_min_client} {self._window_max_client} {self._num_states_client}"
+        server_machine = f"front {self._padding_budget_max_server} {self._window_min_server} {self._window_max_server} {self._num_states_server}"
 
         run = subprocess.run(
             [
-                self._rust_machination,
+                self._rust_maybenot,
                 "fixed",
-                "-c",
-                f"front {padding_budget_max_client} {window_min_client} {window_max_client} {num_states_client}",
-                "-s",
-                f"front {padding_budget_max_server} {window_min_server} {window_max_server} {num_states_server}",
-                "-n",
-                str(n_machines),
-                "-o",
+                "--client",
+                client_machine,
+                "--server",
+                server_machine,
+                "--output",
                 tmpfile_,
                 "--seed",
                 str(seed),
+                "--n",
+                str(self._n_machines),
             ],
             check=False,
             capture_output=True,
@@ -82,7 +68,7 @@ class FRONT(_FixedMachine):
         self.machination_args = run.args
 
         if run.returncode != 0:
-            raise RuntimeError(f"FRONT machination failed!! --> {run.stderr!r}")
+            raise RuntimeError(f"FRONT maybenot failed!! --> {run.stderr!r}")
 
 
 if __name__ == "__main__":

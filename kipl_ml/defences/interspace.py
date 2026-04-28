@@ -18,32 +18,32 @@ class Interspace(_FixedMachine):
         fixed_per_trace: bool = True,
         simul_kwargs: dict | None = None,
     ):
-        self.machination_kwargs: dict[str, int | float] = {
-            "n_machines": n_machines,
-            "seed": seed,
-        }
+        self._client_machine = "InterspaceClient"
+        self._server_machine = "InterspaceServer"
+        self._n_machines = n_machines
         super().__init__(
             network_delay_millis=network_delay_millis,
             network_pps=network_pps,
+            seed=seed,
             fixed_per_trace=fixed_per_trace,
             simul_kwargs=simul_kwargs,
         )
 
-    def _machination(self, tmpfile_: str, n_machines: int, seed: int) -> None:
+    def _machination(self, tmpfile_: str, seed: int) -> None:
         run = subprocess.run(
             [
-                self._rust_machination,
+                self._rust_maybenot,
                 "fixed",
-                "-c",
+                "--client",
                 "interspace_client",
-                "-s",
+                "--server",
                 "interspace_server",
-                "-n",
-                str(n_machines),
-                "-o",
+                "--output",
                 tmpfile_,
                 "--seed",
                 str(seed),
+                "--n",
+                str(self._n_machines),
             ],
             check=False,
             capture_output=True,
@@ -51,7 +51,7 @@ class Interspace(_FixedMachine):
         self.machination_args = run.args
 
         if run.returncode != 0:
-            raise RuntimeError(f"Interspace machination failed!! --> {run.stderr!r}")
+            raise RuntimeError(f"Interspace maybenot failed!! --> {run.stderr!r}")
 
 
 if __name__ == "__main__":

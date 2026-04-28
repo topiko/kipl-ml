@@ -20,33 +20,30 @@ class Tamaraw(_FixedMachine):
         fixed_per_trace: bool = False,
         simul_kwargs: dict | None = None,
     ):
-
-        self.machination_kwargs = {
-            "pc": pc,
-            "ps": ps,
-            "window_val": window_val,
-            "seed": seed,
-        }
+        self._pc = pc
+        self._ps = ps
+        self._window_val = window_val
         super().__init__(
             network_delay_millis=network_delay_millis,
             network_pps=network_pps,
+            seed=seed,
             fixed_per_trace=fixed_per_trace,
             simul_kwargs=simul_kwargs,
         )
 
-    def _machination(
-        self, tmpfile_: str, pc: float, ps: float, window_val: int, seed: int
-    ) -> None:
+    def _machination(self, tmpfile_: str, seed: int) -> None:
+        client_machine = f"tamaraw {self._pc} {self._window_val}"
+        server_machine = f"tamaraw {self._ps} {self._window_val}"
 
         run = subprocess.run(
             [
-                self._rust_machination,
+                self._rust_maybenot,
                 "fixed",
-                "-c",
-                f"tamaraw {pc} {window_val}",
-                "-s",
-                f"tamaraw {ps} {window_val}",
-                "-o",
+                "--client",
+                client_machine,
+                "--server",
+                server_machine,
+                "--output",
                 tmpfile_,
                 "--seed",
                 str(seed),
@@ -58,5 +55,5 @@ class Tamaraw(_FixedMachine):
 
         if run.returncode != 0:
             raise RuntimeError(
-                f"{self.__class__.__name__} machination failed!! --> {run.stderr!r}"
+                f"{self.__class__.__name__} maybenot failed!! --> {run.stderr!r}"
             )

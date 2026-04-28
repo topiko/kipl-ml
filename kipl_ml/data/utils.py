@@ -34,8 +34,7 @@ def _xv_splits_fname(dataset: str, n_splits: int, label_asset: str) -> Path:
 
 
 def get_dataset_root(dataset: str) -> Path:
-    meta_root = os.getenv(META_DATA_DIR_ENV)
-    if meta_root is not None:
+    if (meta_root := os.getenv(META_DATA_DIR_ENV)) is not None:
         return Path(meta_root).expanduser().resolve() / dataset
 
     return Path(os.path.join(PROJECT_ROOT, ".data", dataset))
