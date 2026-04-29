@@ -118,7 +118,7 @@ class _NNDef(_Def):
             raise NotImplementedError(
                 f"{self.__class__.__name__} does not support machine_idx argument."
             )
-        trace_d = get_std_trace_dict(trace_path)
+        trace_d = get_std_trace_dict(trace_path, network_delay_millis=10)
 
         trace_d.pop(Feats.SIZES)
 

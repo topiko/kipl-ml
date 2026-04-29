@@ -71,7 +71,7 @@ def load_dataset_meta_df(dataset: str, include_xv_cols: bool = True) -> pd.DataF
 
 def get_std_trace_array(
     path: os.PathLike,
-    network_delay_millis: int = 0,
+    network_delay_millis: int = 10,
     network_packets_per_second: int = 0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -83,6 +83,11 @@ def get_std_trace_array(
         - dirs: np.ndarray[int8]
         - paddings: np.ndarray[bool]
     """
+
+    if network_delay_millis == 0:
+        raise ValueError(
+            "Network delay needs to be positive; the rust simul crashes otherwise"
+        )
 
     return load_trace_to_numpy(
         str(path),
@@ -131,7 +136,7 @@ def parse_trace_to_tensor_dict(
 
 def get_std_trace_dict(
     path: os.PathLike,
-    network_delay_millis: int = 0,
+    network_delay_millis: int = 10,
     network_packets_per_second: int = 0,
 ) -> dict[Feats, torch.Tensor]:
     times, dirs, paddings = get_std_trace_array(
