@@ -49,7 +49,7 @@ class WFDataset(Dataset):
         self.label = label
 
         self.defence = defence or NoDefence(
-            network_delay_millis=(0, 0), network_pps=(0, 0)
+            network_delay_millis=(1, 1), network_pps=(0, 0)
         )
         self.tmp_dir = None
         self.defence_aug = defence_aug

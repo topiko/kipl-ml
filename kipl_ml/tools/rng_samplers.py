@@ -56,6 +56,8 @@ class MachineRng(RandSampler):
 class NetwkDelay(RandSampler):
     def __init__(self, min_delay_ms: int, max_delay_ms: int, seed: int | None = 42):
 
+        if min_delay_ms <= 0 or max_delay_ms <= 0:
+            raise ValueError("Network delay cannot be 0 -> issues in simul.")
         super().__init__(min_delay_ms, max_delay_ms, seed=seed)
 
     def __str__(self):
