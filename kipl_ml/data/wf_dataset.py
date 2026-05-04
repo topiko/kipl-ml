@@ -200,6 +200,10 @@ class WFDataset(Dataset):
         idx = self._get_idx(idx)[0]
         return torch.tensor(self.meta_df.iloc[idx][self.label], dtype=torch.long)
 
+    def get_meta(self, idx: int) -> pd.Series:
+        orig_idx = self._get_idx(idx)[0]
+        return self.meta_df.iloc[orig_idx]
+
     def __len__(self) -> int:
         if self.defence_aug > 0:
             return len(self.meta_df) * self.defence_aug
@@ -223,6 +227,24 @@ class WFDataset(Dataset):
         label = self._get_label(idx)
 
         return trace_dict, label
+
+
+class WithIdxDataset(Dataset):
+    def __init__(self, base: WFDataset):
+        self.base = base
+
+    def __len__(self) -> int:
+        return len(self.base)
+
+    def __getitem__(self, idx: int):
+        X, y = self.base[idx]
+        return X, y, idx
+
+    def get_meta(self, idx: int) -> pd.Series:
+        return self.base.get_meta(idx)
+
+    def __getattr__(self, name: str):
+        return getattr(self.base, name)
 
 
 def dict_to_device(
