@@ -40,10 +40,6 @@ class _NNDef(_Def):
         state_dicts: Sequence[Mapping[str, torch.Tensor]] | None = None,
         mlflow_keys: dict[str, Any] | None = None,
     ):
-        if not network_delay_millis != (0, 0) or not network_pps != (0, 0):
-            logger.warning(
-                "NNdefs do not use the network simulator -> params. ignored."
-            )
         if fixed_per_trace:
             logger.warning(
                 "NNdefs do not use fixed_per_trace parameter -> param. ignored."
@@ -170,6 +166,9 @@ class RNNDef(_NNDef):
         else:
             add_tail_s = 0.0
 
+        network_delay_millis = int(self.network_delay_millis())
+        network_packets_per_second = int(self.network_pps())
+
         with torch.inference_mode():
             trace_d = policy_obfuscate_trace(
                 self.defense_model,
@@ -177,6 +176,8 @@ class RNNDef(_NNDef):
                 sample=True,
                 max_packets=self._n_packets,
                 add_tail_s=add_tail_s,
+                network_delay_millis=network_delay_millis,
+                network_packets_per_second=network_packets_per_second,
             )
 
         trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
