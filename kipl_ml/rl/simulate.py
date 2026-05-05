@@ -87,9 +87,7 @@ def map_step_actions(
 
 
 def _batch_packet_level_features(
-    fd_packet_level: list[dict[Feats, list[torch.Tensor]]],
-    device: torch.DeviceObjType,
-    normalize_time: bool = True,
+    fd_packet_level: list[dict[Feats, list[torch.Tensor]]], device: torch.DeviceObjType
 ) -> dict[Feats, torch.Tensor]:
     """Materialize per-trace packet-level histories into a padded batch."""
 
@@ -129,9 +127,6 @@ def _batch_packet_level_features(
 
             if t.numel() == 0:
                 continue
-
-            if f == Feats.TIMES and normalize_time:
-                t = t - t[0]
 
             batched[i, : t.numel()] = t
 
@@ -255,6 +250,7 @@ def _policy_rollout_impl(
         max_trace_length=max_trace_length,
         seed=seed,
         trim_raw=trim_raw,
+        relative=True,
     )
     bs = len(trace_paths)
 
@@ -272,10 +268,10 @@ def _policy_rollout_impl(
     act_time_bins_l: list[torch.Tensor] = []
     actions_l: list[StepActions] = [[] for _ in range(bs)]
     fd_steps: dict[Feats, list[torch.Tensor]] = {f: [] for f in obs.features}
-    prev_bins = torch.zeros(bs)
 
     actions_a: StepActions = [NoAction(time=0) for _ in range(bs)]
     active = np.ones(bs, dtype=bool)
+    has_started = np.zeros_like(active, dtype=bool)
     X_obs_l: list[dict[Feats, list[torch.Tensor]]] = [
         {Feats.TIMES: [], Feats.DIRS: [], Feats.DECOY: []} for _ in range(bs)
     ]
@@ -298,7 +294,7 @@ def _policy_rollout_impl(
         t0 = perf_counter()
 
         client_actions, server_actions = map_step_actions(actions_a, active)
-        trace_windows, stepped_bins = simul_batch.step_until_emit(
+        trace_windows, stepped_bins, current_bins = simul_batch.step_until_emit(
             client_actions, server_actions, max_silence_bins
         )
 
@@ -308,23 +304,25 @@ def _policy_rollout_impl(
 
         prev_idxs = np.nonzero(active)[0]
         next_idxs = np.nonzero(next_active)[0]
-        n_next_active = next_active.sum()
 
-        if n_next_active == 0:
+        if (n_next_active := next_active.sum()) == 0:
             break
 
         i = 0
         fd_w = {f: torch.zeros((n_next_active, 1)) for f in obs.features}
-        for idx, window, prev_bin, n_steps in zip(
-            range(bs), trace_windows, prev_bins, stepped_bins
+        for idx, window, n_steps, current_bin in zip(
+            range(bs), trace_windows, stepped_bins, current_bins
         ):
-            if idx not in prev_idxs:
-                # This trace is done now -> discard
-                continue
-
             times = torch.tensor(window[0] / 1e9).float()  # ns -> s
             dirs = torch.tensor(window[1]).float()  # dirs
             decoys = torch.tensor(window[2]).float()  # decoy
+
+            if (len(times) > 0) and (not has_started[idx]):
+                has_started[idx] = True
+
+            if idx not in prev_idxs or (not has_started[idx]):
+                # This trace is done now -> discard
+                continue
 
             # Store the observation.
             X_obs_l[idx][Feats.TIMES].append(times)
@@ -334,22 +332,19 @@ def _policy_rollout_impl(
             # The actions_a is a list of the prev action len(actions_a) == len(prev_idxs)
             # We need to map e.g., prev_idxs = [0, 2, 12] and idx == 12 -> actions_a[2]
             aidx = np.argwhere(prev_idxs == idx)[0, 0]
-            actions_l[idx].append(actions_a[aidx])
 
             if idx not in next_idxs:
                 continue
 
+            actions_l[idx].append(actions_a[aidx])
             fd_w[Feats.UP_COUNT][i, 0] = ((dirs == UPLOAD) & (decoys == 0)).sum()
             fd_w[Feats.DOWN_COUNT][i, 0] = ((dirs == DOWNLOAD) & (decoys == 0)).sum()
             fd_w[Feats.Dt_BINS][i, 0] = n_steps
-            fd_w[Feats.TIME_BINS][i, 0] = prev_bin
+            fd_w[Feats.TIME_BINS][i, 0] = current_bin
             fd_w[Feats.SILENCE_FLAG][i, 0] = float(
                 (fd_w[Feats.UP_COUNT][i, 0] == 0)
                 and (fd_w[Feats.DOWN_COUNT][i, 0] == 0)
             )
-
-            # Advance the bins.
-            prev_bins[idx] += n_steps
 
             i += 1
 
@@ -404,7 +399,7 @@ def _policy_rollout_impl(
     # print(f"{t_storing_X_obs_=}")
     # print(f"{t_storing_policy_=}")
 
-    X_obs = _batch_packet_level_features(X_obs_l, device, normalize_time=True)
+    X_obs = _batch_packet_level_features(X_obs_l, device)
 
     if not record_policy:
         return X_obs
