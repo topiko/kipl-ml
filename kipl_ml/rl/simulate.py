@@ -49,37 +49,47 @@ def map_step_actions(
         for ack_ in (Actions.SEND_UP, Actions.SEND_DOWN):
             if ack_ in step_action:
                 act = step_action[ack_]
-                client_actions.append(
-                    (
-                        batch_idx,
-                        mbnt.RlAction.Decoy(
-                            count=int(act.count),
-                            after_steps=int(act.after_steps),
-                            bypass=bool(act.bypass),
-                            replace=bool(act.replace),
-                        ),
-                    )
+                ack_tuple = (
+                    batch_idx,
+                    mbnt.RlAction.Decoy(
+                        count=int(act.count),
+                        after_steps=int(act.after_steps),
+                        bypass=bool(act.bypass),
+                        replace=bool(act.replace),
+                    ),
                 )
+                if ack_ == Actions.SEND_UP:
+                    client_actions.append(ack_tuple)
+                elif ack_ == Actions.SEND_DOWN:
+                    server_actions.append(ack_tuple)
+                else:
+                    raise ValueError("Invalid ack")
 
         for ack_ in (Actions.DELAY_UP, Actions.DELAY_DOWN):
             if ack_ in step_action:
                 act = step_action[ack_]
-                client_actions.append(
-                    (
-                        batch_idx,
-                        mbnt.RlAction.Delay(
-                            steps=int(act.steps),
-                            bypass=bool(act.bypass),
-                            replace=bool(act.replace),
-                        ),
-                    )
+                ack_tuple = (
+                    batch_idx,
+                    mbnt.RlAction.Delay(
+                        steps=int(act.steps),
+                        bypass=bool(act.bypass),
+                        replace=bool(act.replace),
+                    ),
                 )
+                if ack_ == Actions.DELAY_UP:
+                    client_actions.append(ack_tuple)
+                elif ack_ == Actions.DELAY_DOWN:
+                    server_actions.append(ack_tuple)
+                else:
+                    raise ValueError("Invalid ack")
 
     return client_actions, server_actions
 
 
 def _batch_packet_level_features(
-    fd_packet_level: list[dict[Feats, list[torch.Tensor]]], device: torch.DeviceObjType
+    fd_packet_level: list[dict[Feats, list[torch.Tensor]]],
+    device: torch.DeviceObjType,
+    normalize_time: bool = True,
 ) -> dict[Feats, torch.Tensor]:
     """Materialize per-trace packet-level histories into a padded batch."""
 
@@ -119,7 +129,12 @@ def _batch_packet_level_features(
 
             if t.numel() == 0:
                 continue
+
+            if f == Feats.TIMES and normalize_time:
+                t = t - t[0]
+
             batched[i, : t.numel()] = t
+
         out[f] = batched
 
     return dict_to_device(out, device)
@@ -212,8 +227,8 @@ def _policy_rollout_streaming_impl(
 
     device = X[Feats.TIMES].device
     num_machines = 4096
-    network_delay_millis = 1
-    network_packets_per_second = 40_000
+    network_delay_millis = 10
+    network_packets_per_second = 0
     max_trace_length = 60_000
     seed = 0
     max_silence_bins = int(round(obs.max_silence_s / obs.time_step))
@@ -374,7 +389,7 @@ def _policy_rollout_streaming_impl(
     # print(f"{t_storing_X_obs_=}")
     # print(f"{t_storing_policy_=}")
 
-    X_obs = _batch_packet_level_features(X_obs_l, device)
+    X_obs = _batch_packet_level_features(X_obs_l, device, normalize_time=True)
 
     if not record_policy:
         return X_obs
