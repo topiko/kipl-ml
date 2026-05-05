@@ -8,7 +8,7 @@ import torch
 from kipl_ml.data.utils import Datasets, assets, load_dataset_meta_df
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.rl.enums import Actions, StepAction, StepActions
-from kipl_ml.rl.simulate import policy_rollout_streaming
+from kipl_ml.rl.simulate import policy_rollout
 from kipl_ml.tools.mlflow_utils import set_tracking_uri_from_env
 from kipl_ml.trace.features import Feats, FeatureTrs
 
@@ -91,7 +91,7 @@ def generate_for(
     for i in range(N_REALIZATIONS):
         with torch.no_grad():
             fd, act_times, actions, log_ps, sel_probs, _, entropies, X_obs = (
-                policy_rollout_streaming(obs, X, sample=True)
+                policy_rollout(obs, X, sample=True)
             )
 
         act_times = act_times.squeeze(0).cpu().numpy()

@@ -73,6 +73,7 @@ def get_std_trace_array(
     path: os.PathLike,
     network_delay_millis: int = 10,
     network_packets_per_second: int = 0,
+    trim_raw: int = 0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Load a standard trace array from a file
@@ -95,6 +96,7 @@ def get_std_trace_array(
         network_packets_per_second=network_packets_per_second,
         max_trace_length=MAX_TRACE_LENGTH,
         events_multiplier=EVENTS_MULTIPLIER,
+        trim_raw=trim_raw,
     )
 
 
@@ -138,11 +140,13 @@ def get_std_trace_dict(
     path: os.PathLike,
     network_delay_millis: int = 10,
     network_packets_per_second: int = 0,
+    trim_raw: int = 0,
 ) -> dict[Feats, torch.Tensor]:
     times, dirs, paddings = get_std_trace_array(
         path,
         network_delay_millis=network_delay_millis,
         network_packets_per_second=network_packets_per_second,
+        trim_raw=trim_raw,
     )
 
     # if dirs[0] != -1:

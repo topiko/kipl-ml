@@ -17,9 +17,11 @@ class RandomPadding(_Def):
     def report(self, to_log: bool = True) -> str:
         return self._report(to_log, fraction=self.fraction)
 
-    def _simulate(self, trace_path: os.PathLike) -> dict[Feats, torch.Tensor]:
+    def _simulate(
+        self, trace_path: os.PathLike, machine_idx: int | None = None, trim_raw: int = 0
+    ) -> dict[Feats, torch.Tensor]:
 
-        trace = self.load_data(trace_path)
+        trace = self.load_data(trace_path, trim_raw=trim_raw)
 
         times = trace[assets.TIMES]
         dirs = trace[assets.DIRS]
@@ -72,9 +74,11 @@ class Chi2Delays(_Def):
     def report(self, to_log: bool = True) -> str:
         return self._report(to_log, k=self.k, scale_frac=self.scale_frac)
 
-    def _simulate(self, trace_path: os.PathLike) -> dict[Feats, torch.Tensor]:
+    def _simulate(
+        self, trace_path: os.PathLike, machine_idx: int | None = None, trim_raw: int = 0
+    ) -> dict[Feats, torch.Tensor]:
 
-        trace = self.load_data(trace_path)
+        trace = self.load_data(trace_path, trim_raw=trim_raw)
 
         if self.identity:
             return trace

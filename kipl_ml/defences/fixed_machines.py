@@ -110,7 +110,10 @@ class _FixedMachine(_Def):
             ) from e
 
     def _simulate(
-        self, trace_path: os.PathLike, machine_idx: int | None = None
+        self,
+        trace_path: os.PathLike,
+        machine_idx: int | None = None,
+        trim_raw: int = 0,
     ) -> dict[Feats, torch.Tensor]:
         client_machines, server_machines = self._get_machines(machine_idx)
 
@@ -131,6 +134,7 @@ class _FixedMachine(_Def):
                 "events_multiplier", EVENTS_MULTIPLIER
             ),
             random_state=self.simul_rng(),
+            trim_raw=trim_raw,
         )
 
         trace_d = parse_trace_to_tensor_dict(times, dirs, paddings, None)

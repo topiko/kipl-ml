@@ -49,21 +49,27 @@ class _Def(ABC):
         return self.__class__.__name__
 
     def __call__(
-        self, trace_path: os.PathLike, machine_idx: int | None = None
+        self,
+        trace_path: os.PathLike,
+        machine_idx: int | None = None,
+        trim_raw: int = 0,
     ) -> dict[Feats, torch.Tensor]:
         if not isinstance(trace_path, os.PathLike):
             raise TypeError(
                 f"Expected trace to be os.PathLike, got: {type(trace_path)}"
             )
 
-        return self._simulate(trace_path, machine_idx)
+        return self._simulate(trace_path, machine_idx, trim_raw=trim_raw)
 
-    def load_data(self, trace_path: os.PathLike) -> dict[Feats, torch.Tensor]:
-        return get_std_trace_dict(trace_path)
+    def load_data(self, trace_path: os.PathLike, trim_raw: int = 0) -> dict[Feats, torch.Tensor]:
+        return get_std_trace_dict(trace_path, trim_raw=trim_raw)
 
     @abstractmethod
     def _simulate(
-        self, trace_path: os.PathLike, machine_idx: int | None = None
+        self,
+        trace_path: os.PathLike,
+        machine_idx: int | None = None,
+        trim_raw: int = 0,
     ) -> dict[Feats, torch.Tensor]:
         raise NotImplementedError
 
@@ -118,7 +124,10 @@ class NoDefence(_Def):
         return str_
 
     def _simulate(
-        self, trace_path: os.PathLike, machine_idx: int | None = None
+        self,
+        trace_path: os.PathLike,
+        machine_idx: int | None = None,
+        trim_raw: int = 0,
     ) -> dict[Feats, torch.Tensor]:
         times, dirs, paddings = sim_trace_from_file_advanced(
             str(trace_path),
@@ -137,6 +146,7 @@ class NoDefence(_Def):
             events_multiplier=self.simul_kwargs.get(
                 "events_multiplier", EVENTS_MULTIPLIER
             ),
+            trim_raw=trim_raw,
         )
         trace_d = parse_trace_to_tensor_dict(times, dirs, paddings, None)
         return trace_d

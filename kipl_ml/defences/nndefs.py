@@ -14,9 +14,7 @@ from kipl_ml.data.utils import get_std_trace_dict
 from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
-from kipl_ml.rl.simulate import (
-    policy_obfuscate_trace_streaming,
-)
+from kipl_ml.rl.simulate import policy_obfuscate_trace
 from kipl_ml.trace.enums import Feats
 
 dotenv.load_dotenv()
@@ -112,13 +110,18 @@ class _NNDef(_Def):
         raise NotImplementedError
 
     def _simulate(
-        self, trace_path: os.PathLike, machine_idx: int | None = None
+        self,
+        trace_path: os.PathLike,
+        machine_idx: int | None = None,
+        trim_raw: int = 0,
     ) -> dict[Feats, torch.Tensor]:
         if machine_idx is not None:
             raise NotImplementedError(
                 f"{self.__class__.__name__} does not support machine_idx argument."
             )
-        trace_d = get_std_trace_dict(trace_path, network_delay_millis=10)
+        trace_d = get_std_trace_dict(
+            trace_path, network_delay_millis=10, trim_raw=trim_raw
+        )
 
         trace_d.pop(Feats.SIZES)
 
@@ -168,7 +171,7 @@ class RNNDef(_NNDef):
             add_tail_s = 0.0
 
         with torch.inference_mode():
-            trace_d = policy_obfuscate_trace_streaming(
+            trace_d = policy_obfuscate_trace(
                 self.defense_model,
                 trace_d,
                 sample=True,

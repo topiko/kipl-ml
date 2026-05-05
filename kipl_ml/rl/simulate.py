@@ -140,7 +140,7 @@ def _batch_packet_level_features(
     return dict_to_device(out, device)
 
 
-def policy_rollout_streaming(
+def policy_rollout(
     obs: Any,
     trace_paths: list[str],
     X: dict[Feats, torch.Tensor],
@@ -149,6 +149,9 @@ def policy_rollout_streaming(
     add_tail_s: float | torch.Tensor | None = None,
     rtt_bins: int = 0,
     max_packets: int | None = None,
+    trim_raw: int = 0,
+    network_delay_millis: int = 10,
+    network_packets_per_second: int = 0,
 ) -> _StreamingRollout:
     """Run policy stepwise on streamed windows and execute actions.
 
@@ -157,7 +160,7 @@ def policy_rollout_streaming(
 
     res = cast(
         _StreamingRollout,
-        _policy_rollout_streaming_impl(
+        _policy_rollout_impl(
             obs,
             trace_paths,
             X,
@@ -166,13 +169,16 @@ def policy_rollout_streaming(
             add_tail_s=add_tail_s,
             rtt_bins=rtt_bins,
             max_packets=max_packets,
+            trim_raw=trim_raw,
+            network_delay_millis=network_delay_millis,
+            network_packets_per_second=network_packets_per_second,
             record_policy=True,
         ),
     )
     return res
 
 
-def policy_obfuscate_trace_streaming(
+def policy_obfuscate_trace(
     obs: Any,
     trace_paths: list[str],
     X: dict[Feats, torch.Tensor],
@@ -181,10 +187,13 @@ def policy_obfuscate_trace_streaming(
     add_tail_s: float | torch.Tensor | None = None,
     rtt_bins: int = 0,
     max_packets: int | None = None,
+    trim_raw: int = 0,
+    network_delay_millis: int = 10,
+    network_packets_per_second: int = 0,
 ) -> dict[Feats, torch.Tensor]:
-    """Obfuscate a trace stepwise using WindowFeatureStreamer.
+    """Obfuscate a trace stepwise using the rollout simulator.
 
-    This is a lighter-weight variant of policy_rollout_streaming() for inference
+    This is a lighter-weight variant of policy_rollout() for inference
     use-cases (e.g. NN defences): it avoids storing per-step policy outputs.
 
     If max_packets is set, stops once base_packets + requested_decoy >= max_packets.
@@ -192,7 +201,7 @@ def policy_obfuscate_trace_streaming(
 
     X_obs = cast(
         dict[Feats, torch.Tensor],
-        _policy_rollout_streaming_impl(
+        _policy_rollout_impl(
             obs,
             trace_paths,
             X,
@@ -201,13 +210,16 @@ def policy_obfuscate_trace_streaming(
             add_tail_s=add_tail_s,
             rtt_bins=rtt_bins,
             max_packets=max_packets,
+            trim_raw=trim_raw,
+            network_delay_millis=network_delay_millis,
+            network_packets_per_second=network_packets_per_second,
             record_policy=False,
         ),
     )
     return X_obs
 
 
-def _policy_rollout_streaming_impl(
+def _policy_rollout_impl(
     obs: AGENT1,
     trace_paths: list[str],
     X: dict[Feats, torch.Tensor],
@@ -216,6 +228,9 @@ def _policy_rollout_streaming_impl(
     add_tail_s: float | torch.Tensor | None,
     rtt_bins: int,
     max_packets: int | None,
+    trim_raw: int,
+    network_delay_millis: int,
+    network_packets_per_second: int,
     record_policy: bool,
 ) -> dict[Feats, torch.Tensor] | _StreamingRollout:
     """Internal streaming rollout implementation.
@@ -227,8 +242,6 @@ def _policy_rollout_streaming_impl(
 
     device = X[Feats.TIMES].device
     num_machines = 4096
-    network_delay_millis = 10
-    network_packets_per_second = 0
     max_trace_length = 60_000
     seed = 0
     max_silence_bins = int(round(obs.max_silence_s / obs.time_step))
@@ -241,6 +254,7 @@ def _policy_rollout_streaming_impl(
         network_packets_per_second=network_packets_per_second,
         max_trace_length=max_trace_length,
         seed=seed,
+        trim_raw=trim_raw,
     )
     bs = len(trace_paths)
 
@@ -329,8 +343,9 @@ def _policy_rollout_streaming_impl(
             fd_w[Feats.DOWN_COUNT][i, 0] = ((dirs == DOWNLOAD) & (decoys == 0)).sum()
             fd_w[Feats.Dt_BINS][i, 0] = n_steps
             fd_w[Feats.TIME_BINS][i, 0] = prev_bin
-            fd_w[Feats.SILENCE_FLAG][i, 0] = (fd_w[Feats.UP_COUNT][i, 0] == 0) and (
-                fd_w[Feats.DOWN_COUNT][i, 0] == 0
+            fd_w[Feats.SILENCE_FLAG][i, 0] = float(
+                (fd_w[Feats.UP_COUNT][i, 0] == 0)
+                and (fd_w[Feats.DOWN_COUNT][i, 0] == 0)
             )
 
             # Advance the bins.
@@ -426,7 +441,7 @@ def _policy_rollout_streaming_impl(
     )
 
 
-def _policy_rollout_streaming_impl_ORIG(
+def _policy_rollout_impl_ORIG(
     obs: Any,
     trace_paths: list[str],
     X: dict[Feats, torch.Tensor],

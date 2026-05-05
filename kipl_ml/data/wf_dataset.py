@@ -156,7 +156,9 @@ class WFDataset(Dataset):
         machine_idx = orig_idx if self.defence.FIXED_PER_TRACE else None
 
         if self.defence_aug == 0:
-            trace = self.defence(orig_trace_path, machine_idx=machine_idx)
+            trace = self.defence(
+                orig_trace_path, machine_idx=machine_idx, trim_raw=self.trim_raw
+            )
         else:
             if self.tmp_dir is None:
                 raise ValueError("Temporary directory not initialized")
@@ -174,7 +176,11 @@ class WFDataset(Dataset):
                 with open(orig_trace_path, "rb") as f:
                     fcntl.flock(f, fcntl.LOCK_EX)  # Acquire an exclusive lock
                     try:
-                        return self.defence(orig_trace_path, machine_idx=machine_idx)
+                        return self.defence(
+                            orig_trace_path,
+                            machine_idx=machine_idx,
+                            trim_raw=self.trim_raw,
+                        )
                     finally:
                         fcntl.flock(f, fcntl.LOCK_UN)  # Release the lock
 
@@ -212,14 +218,6 @@ class WFDataset(Dataset):
 
     def __getitem__(self, idx: int) -> tuple[dict[Feats, torch.Tensor], torch.Tensor]:
         trace_dict = self._get_trace(idx)
-
-        if self.trim_raw:
-            trace_dict = {k: v[self.trim_raw :] for k, v in trace_dict.items()}
-            # Set time to start from 0.
-            if trace_dict[Feats.TIMES].numel():
-                t0 = float(trace_dict[Feats.TIMES][0].item())
-                # Avoid in-place ops: cached traces may contain inference tensors.
-                trace_dict[Feats.TIMES] = trace_dict[Feats.TIMES] - t0
 
         if self.feature_trs is not None:
             trace_dict = self.feature_trs(trace_dict)

@@ -3,7 +3,7 @@ from torch import nn
 
 from kipl_ml.data.wf_dataset import dict_to_device
 from kipl_ml.rl.enums import StepActions
-from kipl_ml.rl.simulate import policy_rollout_streaming
+from kipl_ml.rl.simulate import policy_rollout
 from kipl_ml.rl.utils import _flush_left, fill_after_seq_end
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import FeatureTrs
@@ -377,7 +377,7 @@ def rollout(
     critic_detach_period = critic_detach_period or detach_period
 
     fd, act_times, actions, log_ps, sel_probs, values_actor, entropies, X_obs = (
-        policy_rollout_streaming(
+        policy_rollout(
             obs,
             X,
             detach_period=detach_period,

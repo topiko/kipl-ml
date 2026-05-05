@@ -5,7 +5,7 @@ import numpy as np
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.models.trgen import AGENT1
-from kipl_ml.rl.simulate import policy_rollout_streaming
+from kipl_ml.rl.simulate import policy_rollout
 from kipl_ml.trace.enums import Feats
 from kipl_ml.rl.enums import Actions
 
@@ -91,7 +91,7 @@ def main():
     # Run streaming rollout
     print("\nRunning streaming rollout...")
     fd, act_time_bins, actions, log_ps, sel_probs, values, entropies, X_obs = (
-        policy_rollout_streaming(agent, X, sample=False)
+        policy_rollout(agent, X, sample=False)
     )
 
     # Check outputs

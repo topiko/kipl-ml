@@ -109,7 +109,10 @@ class Maybenot(_Def):
         return d, (client_machines, server_machines)
 
     def _simulate(
-        self, trace_path: os.PathLike, machine_idx: int | None = None
+        self,
+        trace_path: os.PathLike,
+        machine_idx: int | None = None,
+        trim_raw: int = 0,
     ) -> dict[Feats, torch.Tensor]:
         pad_bloc_fracs, (client_machines, server_machines) = self._get_machines(
             machine_idx
@@ -128,6 +131,7 @@ class Maybenot(_Def):
             events_multiplier=self.simul_kwargs.get(
                 "events_multiplier", EVENTS_MULTIPLIER
             ),
+            trim_raw=trim_raw,
         )
 
         trace_d = parse_trace_to_tensor_dict(times, dirs, paddings, None)
