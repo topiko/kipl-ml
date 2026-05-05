@@ -452,12 +452,16 @@ def plot_actions(
                 lw=1,
             )
 
-    hmax = max(
-        s.count
-        for sa in step_actions
-        for s in sa.acts
-        if isinstance(s, (ActSendUp, ActSendDown))
-    )
+    try:
+        hmax = max(
+            s.count
+            for sa in step_actions
+            for s in sa.acts
+            if isinstance(s, (ActSendUp, ActSendDown))
+        )
+    except ValueError:
+        logger.warning("No y limits found")
+        hmax = 1
 
     # Delay spans: upward delays in upper half, downward delays in lower half.
     _plot_delay(Actions.DELAY_UP, "#5AC5ED")
@@ -536,7 +540,7 @@ def plot_obs_features(
     _plot_boxes(times, Dt, up_count, color=UP_COLOR, alpha=0.5, ax=ax)
     _plot_boxes(times, Dt, -down_count, color=DOWN_COLOR, alpha=0.5, ax=ax)
 
-    ax.vlines(times, -10, 10, color="black", lw=1.0)
+    ax.vlines(times, -1, 1, color="black", lw=1.0)
 
     _plot_boxes(
         times,
