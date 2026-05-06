@@ -28,6 +28,9 @@ class WFDataset(Dataset):
         feature_trs: FeatureTrs | None,
         label: str = assets.PAGE_LABEL,
         defence: _Def | None = None,
+        network_delay_millis: tuple[int, int] | None = None,
+        network_pps: tuple[int, int] | None = None,
+        seed: int | None = 42,
         defence_aug: int = 0,
         dataset_key: str | None = None,
         trim_raw: int = 0,
@@ -48,9 +51,27 @@ class WFDataset(Dataset):
         self.name = dataset
         self.label = label
 
-        self.defence = defence or NoDefence(
-            network_delay_millis=(1, 1), network_pps=(0, 0)
-        )
+        if defence is not None and (
+            network_delay_millis is not None or network_pps is not None
+        ):
+            logger.warning(
+                "WFDataset received both an explicit defence and network params; "
+                "using the defence and ignoring network_delay_millis/network_pps"
+            )
+
+        if defence is None:
+            if network_delay_millis is None or network_pps is None:
+                raise ValueError(
+                    "WFDataset requires either an explicit defence or explicit "
+                    "network_delay_millis and network_pps values"
+                )
+            defence = NoDefence(
+                network_delay_millis=network_delay_millis,
+                network_pps=network_pps,
+                seed=seed,
+            )
+
+        self.defence = defence
         self.tmp_dir = None
         self.defence_aug = defence_aug
 
@@ -260,6 +281,9 @@ def get_train_valid_test(
     defence_train: _Def | None = None,
     defence_valid: _Def | None = None,
     defence_test: _Def | None = None,
+    network_delay_millis: tuple[int, int] | None = None,
+    network_pps: tuple[int, int] | None = None,
+    seed: int | None = 42,
     defence_aug_valid: int = 1,
     n_min_packets: int | None = None,
     **kwargs,
@@ -290,6 +314,9 @@ def get_train_valid_test(
         label=label,
         meta_df=train_df,
         defence=defence_train,
+        network_delay_millis=network_delay_millis,
+        network_pps=network_pps,
+        seed=seed,
         dataset_key="train",
         **kwargs,
     )
@@ -304,6 +331,9 @@ def get_train_valid_test(
         label=label,
         meta_df=valid_df,
         defence=defence_valid,
+        network_delay_millis=network_delay_millis,
+        network_pps=network_pps,
+        seed=seed,
         dataset_key="valid",
         **kwargs,
     )
@@ -313,6 +343,9 @@ def get_train_valid_test(
         label=label,
         meta_df=test_df,
         defence=defence_test,
+        network_delay_millis=network_delay_millis,
+        network_pps=network_pps,
+        seed=seed,
         dataset_key="test",
         **kwargs,
     )
