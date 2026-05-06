@@ -248,9 +248,7 @@ def _policy_rollout_impl(
     )
     bs = len(trace_paths)
 
-    if bs > 1 and max_packets is not None:
-        raise NotImplementedError("max_packets is not supported for batch size > 1")
-    max_packets = max_packets or 0
+    max_packets = max_packets or 1_000_000
 
     # The streamer does per-trace stepping with Python control flow. If X lives on
     # CUDA, keep the streamer on CPU to avoid per-step GPU syncs.
@@ -266,7 +264,9 @@ def _policy_rollout_impl(
     actions_a: StepActions = [NoAction(time=0) for _ in range(bs)]
     active = np.ones(bs, dtype=bool)
     has_started = np.zeros_like(active, dtype=bool)
+    long_enough = np.zeros_like(has_started)
     next_bins = np.zeros(bs, dtype=np.int64)
+    n_packets = np.zeros(bs)
     X_obs_l: list[dict[Feats, list[torch.Tensor]]] = [
         {Feats.TIMES: [], Feats.DIRS: [], Feats.DECOY: []} for _ in range(bs)
     ]
@@ -284,7 +284,6 @@ def _policy_rollout_impl(
 
     hobs = None
     step_count = 0
-    n_packets = 0
     while True:
         # The streamer sleeps internally until it emits or hits its cap.
         t0 = perf_counter()
@@ -294,7 +293,7 @@ def _policy_rollout_impl(
             client_actions, server_actions, max_silence_bins
         )
 
-        next_active = ~np.asarray(simul_batch.is_done(), dtype=bool)
+        next_active = ~np.asarray(simul_batch.is_done() | long_enough, dtype=bool)
         t1 = perf_counter()
         t_stepping_ += t1 - t0
 
@@ -322,6 +321,11 @@ def _policy_rollout_impl(
             X_obs_l[idx][Feats.TIMES].append(times)
             X_obs_l[idx][Feats.DIRS].append(dirs)
             X_obs_l[idx][Feats.DECOY].append(decoys)
+
+            n_packets[idx] += times.numel()
+
+            if n_packets[idx] > max_packets:
+                long_enough[idx] = True
 
             # The actions_a is a list of the prev action len(actions_a) == len(prev_idxs)
             # We need to map e.g., prev_idxs = [0, 2, 12] and idx == 12 -> actions_a[2]
@@ -366,12 +370,6 @@ def _policy_rollout_impl(
 
         t4 = perf_counter()
         t_storing_X_obs_ += t4 - t3
-
-        if max_packets:
-            # NOTE: n_packets only applies when bs = 1
-            n_packets += times.numel()
-            if n_packets >= max_packets:
-                break
 
         if record_policy:
             for f in obs.features:
