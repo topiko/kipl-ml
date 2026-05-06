@@ -96,7 +96,7 @@ class PadOrCutTrace(_TR):
     def name(self) -> str:
         if self.time_clamp is not None:
             tmin, tmax, rel = self.time_clamp
-            abs_str = "abs" if rel else "rel"
+            abs_str = "rel2min" if rel else "abs"
             clamp_str = f"clamp_time({tmin}, {tmax}, {abs_str})"
         else:
             clamp_str = ""
@@ -108,7 +108,7 @@ class PadOrCutTrace(_TR):
         return f"slice|:{self.n_packets}"
 
     def get_shapes(self, trace: dict[Feats, torch.Tensor]) -> PadOrCutTrace:
-        self._output_sizes = {key: self.n_packets for key in trace.keys()}
+        self._output_sizes = dict.fromkeys(trace.keys(), self.n_packets)
 
         return self
 

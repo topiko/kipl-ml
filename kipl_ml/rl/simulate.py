@@ -272,6 +272,7 @@ def _policy_rollout_impl(
     actions_a: StepActions = [NoAction(time=0) for _ in range(bs)]
     active = np.ones(bs, dtype=bool)
     has_started = np.zeros_like(active, dtype=bool)
+    next_bins = np.zeros(bs, dtype=np.int64)
     X_obs_l: list[dict[Feats, list[torch.Tensor]]] = [
         {Feats.TIMES: [], Feats.DIRS: [], Feats.DECOY: []} for _ in range(bs)
     ]
@@ -294,7 +295,7 @@ def _policy_rollout_impl(
         t0 = perf_counter()
 
         client_actions, server_actions = map_step_actions(actions_a, active)
-        trace_windows, stepped_bins, current_bins = simul_batch.step_until_emit(
+        trace_windows, stepped_bins = simul_batch.step_until_emit(
             client_actions, server_actions, max_silence_bins
         )
 
@@ -310,9 +311,7 @@ def _policy_rollout_impl(
 
         i = 0
         fd_w = {f: torch.zeros((n_next_active, 1)) for f in obs.features}
-        for idx, window, n_steps, current_bin in zip(
-            range(bs), trace_windows, stepped_bins, current_bins
-        ):
+        for idx, window, n_steps in zip(range(bs), trace_windows, stepped_bins):
             times = torch.tensor(window[0] / 1e9).float()  # ns -> s
             dirs = torch.tensor(window[1]).float()  # dirs
             decoys = torch.tensor(window[2]).float()  # decoy
@@ -336,6 +335,7 @@ def _policy_rollout_impl(
             if idx not in next_idxs:
                 continue
 
+            current_bin = int(next_bins[idx])
             actions_l[idx].append(actions_a[aidx])
             fd_w[Feats.UP_COUNT][i, 0] = ((dirs == UPLOAD) & (decoys == 0)).sum()
             fd_w[Feats.DOWN_COUNT][i, 0] = ((dirs == DOWNLOAD) & (decoys == 0)).sum()
@@ -345,6 +345,8 @@ def _policy_rollout_impl(
                 (fd_w[Feats.UP_COUNT][i, 0] == 0)
                 and (fd_w[Feats.DOWN_COUNT][i, 0] == 0)
             )
+
+            next_bins[idx] += int(n_steps)
 
             i += 1
 
