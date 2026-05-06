@@ -284,6 +284,7 @@ def _policy_rollout_impl(
 
     hobs = None
     step_count = 0
+    n_packets = 0
     while True:
         # The streamer sleeps internally until it emits or hits its cap.
         t0 = perf_counter()
@@ -367,7 +368,9 @@ def _policy_rollout_impl(
         t_storing_X_obs_ += t4 - t3
 
         if max_packets:
-            if len(X_obs_l[0][Feats.TIMES]) >= max_packets:
+            # NOTE: n_packets only applies when bs = 1
+            n_packets += times.numel()
+            if n_packets >= max_packets:
                 break
 
         if record_policy:
