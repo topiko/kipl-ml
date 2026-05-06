@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from time import perf_counter
 from typing import Any, cast
 
@@ -142,9 +143,11 @@ def policy_rollout(
     sample: bool = True,
     add_tail_s: float | torch.Tensor | None = None,
     max_packets: int | None = None,
+    max_duration_s: float | None = None,
     trim_raw: int = 0,
     network_delay_millis: int | None = None,
     network_packets_per_second: int | None = None,
+    seed: int = 0,
 ) -> _StreamingRollout:
     """Run policy stepwise on streamed windows and execute actions.
 
@@ -161,10 +164,12 @@ def policy_rollout(
             sample=sample,
             add_tail_s=add_tail_s,
             max_packets=max_packets,
+            max_duration_s=max_duration_s,
             trim_raw=trim_raw,
             network_delay_millis=network_delay_millis,
             network_packets_per_second=network_packets_per_second,
             record_policy=True,
+            seed=seed,
         ),
     )
     return res
@@ -177,11 +182,12 @@ def policy_obfuscate_trace(
     detach_period: int | None = None,
     sample: bool = True,
     add_tail_s: float | torch.Tensor | None = None,
-    rtt_bins: int = 0,
     max_packets: int | None = None,
+    max_duration_s: float | None = None,
     trim_raw: int = 0,
     network_delay_millis: int = 10,
     network_packets_per_second: int = 0,
+    seed: int = 0,
 ) -> dict[Feats, torch.Tensor]:
     """Obfuscate a trace stepwise using the rollout simulator.
 
@@ -201,10 +207,12 @@ def policy_obfuscate_trace(
             sample=sample,
             add_tail_s=add_tail_s,
             max_packets=max_packets,
+            max_duration_s=max_duration_s,
             trim_raw=trim_raw,
             network_delay_millis=network_delay_millis,
             network_packets_per_second=network_packets_per_second,
             record_policy=False,
+            seed=seed,
         ),
     )
     return X_obs
@@ -218,10 +226,12 @@ def _policy_rollout_impl(
     sample: bool,
     add_tail_s: float | torch.Tensor | None,
     max_packets: int | None,
+    max_duration_s: float | None,
     trim_raw: int,
     network_delay_millis: int,
     network_packets_per_second: int,
     record_policy: bool,
+    seed: int,
 ) -> dict[Feats, torch.Tensor] | _StreamingRollout:
     """Internal streaming rollout implementation.
 
@@ -231,8 +241,6 @@ def _policy_rollout_impl(
     """
 
     num_machines = 4096
-    max_trace_length = 60_000
-    seed = 0
     max_silence_bins = int(round(obs.max_silence_s / obs.time_step))
 
     simul_batch = mbnt.Batch.new(
@@ -241,7 +249,7 @@ def _policy_rollout_impl(
         num_machines=num_machines,
         network_delay_millis=network_delay_millis,
         network_packets_per_second=network_packets_per_second,
-        max_trace_length=max_trace_length,
+        max_trace_length=max_packets or 60_000,
         seed=seed,
         trim_raw=trim_raw,
         relative=True,
@@ -249,6 +257,7 @@ def _policy_rollout_impl(
     bs = len(trace_paths)
 
     max_packets = max_packets or 1_000_000
+    max_duration_s = max_duration_s or math.inf
 
     # The streamer does per-trace stepping with Python control flow. If X lives on
     # CUDA, keep the streamer on CPU to avoid per-step GPU syncs.
@@ -325,6 +334,9 @@ def _policy_rollout_impl(
             n_packets[idx] += times.numel()
 
             if n_packets[idx] > max_packets:
+                long_enough[idx] = True
+
+            if times.numel() > 0 and times.max().item() > max_duration_s:
                 long_enough[idx] = True
 
             # The actions_a is a list of the prev action len(actions_a) == len(prev_idxs)

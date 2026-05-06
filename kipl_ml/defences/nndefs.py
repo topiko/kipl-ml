@@ -164,6 +164,7 @@ class RNNDef(_NNDef):
                 add_tail_s=add_tail_s,
                 network_delay_millis=network_delay_millis,
                 network_packets_per_second=network_packets_per_second,
+                seed=self.seed,
             )
 
         trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
