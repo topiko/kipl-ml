@@ -10,7 +10,6 @@ import numpy as np
 import torch
 from torch import nn
 
-from kipl_ml.data.utils import get_std_trace_dict
 from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
@@ -101,7 +100,7 @@ class _NNDef(_Def):
         return str_
 
     def _run_model(
-        self, trace_d: dict[Feats, torch.Tensor]
+        self, trace_path: os.PathLike, trace_d: dict[Feats, torch.Tensor]
     ) -> dict[Feats, torch.Tensor]:
         raise NotImplementedError
 
@@ -115,13 +114,8 @@ class _NNDef(_Def):
             raise NotImplementedError(
                 f"{self.__class__.__name__} does not support machine_idx argument."
             )
-        trace_d = get_std_trace_dict(
-            trace_path, network_delay_millis=10, trim_raw=trim_raw
-        )
 
-        trace_d.pop(Feats.SIZES)
-
-        trace_d = self._run_model(trace_d)
+        trace_d = self._run_model(trace_path)
 
         return trace_d
 
@@ -148,23 +142,14 @@ class RNNDef(_NNDef):
         self._max_dur_s = max_dur_s
         self.rng = np.random.default_rng()
 
-    def _run_model(
-        self, trace_d: dict[Feats, torch.Tensor]
-    ) -> dict[Feats, torch.Tensor]:
+    def _run_model(self, trace_path: os.PathLike) -> dict[Feats, torch.Tensor]:
         # Implement RNN specific logic
-
-        trace_d = {
-            k: v[: self._n_packets].unsqueeze(0).float() for k, v in trace_d.items()
-        }
 
         if self.defence_model_state_dicts is not None:
             st_d = self.rng.choice(self.defence_model_state_dicts)
             self.defense_model.load_state_dict(st_d)
 
-        if self._max_dur_s is not None:
-            add_tail_s = min(self._max_dur_s - trace_d[Feats.TIMES].max().item(), 0.0)
-        else:
-            add_tail_s = 0.0
+        add_tail_s = 0.0
 
         network_delay_millis = int(self.network_delay_millis())
         network_packets_per_second = int(self.network_pps())
@@ -172,7 +157,8 @@ class RNNDef(_NNDef):
         with torch.inference_mode():
             trace_d = policy_obfuscate_trace(
                 self.defense_model,
-                trace_d,
+                [str(trace_path)],
+                device=torch.device("cpu"),
                 sample=True,
                 max_packets=self._n_packets,
                 add_tail_s=add_tail_s,
