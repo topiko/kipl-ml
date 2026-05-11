@@ -242,19 +242,19 @@ def _policy_rollout_impl(
 
     num_machines = 4096
     max_silence_bins = int(round(obs.max_silence_s / obs.time_step))
+    bs = len(trace_paths)
 
     simul_batch = mbnt.Batch.new(
         trace_paths=trace_paths,
         window_duration_ns=int(round(obs.time_step * 1e9)),
         num_machines=num_machines,
-        network_delay_millis=network_delay_millis,
-        network_packets_per_second=network_packets_per_second,
+        network_delay_millis=[int(network_delay_millis)] * bs,
+        network_packets_per_second=[int(network_packets_per_second)] * bs,
         max_trace_length=max_packets or 60_000,
         seed=seed,
         trim_raw=trim_raw,
         relative=True,
     )
-    bs = len(trace_paths)
 
     max_packets = max_packets or 1_000_000
     max_duration_s = max_duration_s or math.inf
