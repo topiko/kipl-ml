@@ -11,19 +11,12 @@ logger = get_logger(__name__)
 class Breakpad(_FixedMachine):
     def __init__(
         self,
-        network_delay_millis: tuple[int, int],
-        network_pps: tuple[int, int],
         seed: int = 42,
         simul_kwargs: dict | None = None,
     ):
         self._client_machine = "break_pad_client"
         self._server_machine = "break_pad_server"
-        super().__init__(
-            network_delay_millis=network_delay_millis,
-            network_pps=network_pps,
-            seed=seed,
-            simul_kwargs=simul_kwargs,
-        )
+        super().__init__(seed=seed, simul_kwargs=simul_kwargs)
 
     def _machination(self, tmpfile_: str, seed: int) -> None:
         run = subprocess.run(
@@ -49,5 +42,5 @@ class Breakpad(_FixedMachine):
 
 
 if __name__ == "__main__":
-    breakpad = Breakpad(network_delay_millis=50)
+    breakpad = Breakpad()
     print(breakpad.report())

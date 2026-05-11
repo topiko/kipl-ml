@@ -15,7 +15,7 @@ from torchtune.training.lr_schedulers import get_cosine_schedule_with_warmup
 
 from experiment.utils import defence_builder
 from kipl_ml.data import assets
-from kipl_ml.data.wf_dataset import get_train_valid_test
+from kipl_ml.data.wf_dataset import get_network_context_ranges, get_train_valid_test
 from kipl_ml.defences.base import NoDefence
 from kipl_ml.defences.breakpad import Breakpad
 from kipl_ml.defences.front import FRONT
@@ -310,6 +310,7 @@ def _run_xv(
         defence_aug_valid=cfg.train.defence_augmentation_valid,
         n_min_packets=cfg.dataset.n_min_packets,
         trim_raw=cfg.dataset.trim_beginning,
+        **get_network_context_ranges(cfg),
         **_get_defence(cfg),
     )
 

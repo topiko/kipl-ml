@@ -17,7 +17,12 @@ from experiment.obsrl.sisyphus import CONFIG_DIR_PATH, get_agent_and_critic
 from experiment.obsrl.utils import get_advantages
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import assets
-from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
+from kipl_ml.data.wf_dataset import (
+    WFDataset,
+    dict_to_device,
+    get_network_context_ranges,
+    get_train_valid_test,
+)
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.rl.enums import (
     ActDelayDown,
@@ -188,6 +193,7 @@ def _load_dataset(cfg) -> tuple[WFDataset, WFDataset]:
         defence_aug_valid=0,
         n_min_packets=cfg.trace.min_packets,
         trim_raw=cfg.trace.trim_beginning,
+        **get_network_context_ranges(cfg),
         **defence_builder.get_defence(cfg),
     )
     return ds_train, ds_valid

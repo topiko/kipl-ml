@@ -11,8 +11,6 @@ logger = get_logger(__name__)
 class Interspace(_FixedMachine):
     def __init__(
         self,
-        network_delay_millis: tuple[int, int],
-        network_pps: tuple[int, int],
         n_machines: int,
         seed: int = 42,
         fixed_per_trace: bool = True,
@@ -21,13 +19,7 @@ class Interspace(_FixedMachine):
         self._client_machine = "InterspaceClient"
         self._server_machine = "InterspaceServer"
         self._n_machines = n_machines
-        super().__init__(
-            network_delay_millis=network_delay_millis,
-            network_pps=network_pps,
-            seed=seed,
-            fixed_per_trace=fixed_per_trace,
-            simul_kwargs=simul_kwargs,
-        )
+        super().__init__(seed=seed, fixed_per_trace=fixed_per_trace, simul_kwargs=simul_kwargs)
 
     def _machination(self, tmpfile_: str, seed: int) -> None:
         run = subprocess.run(
@@ -55,5 +47,5 @@ class Interspace(_FixedMachine):
 
 
 if __name__ == "__main__":
-    inter = Interspace(network_delay_millis=50, n=10000)
+    inter = Interspace(n_machines=10000)
     print(inter.report())

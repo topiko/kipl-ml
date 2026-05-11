@@ -11,8 +11,6 @@ logger = get_logger(__name__)
 class Regulator(_FixedMachine):
     def __init__(
         self,
-        network_delay_millis: tuple[int, int],
-        network_pps: tuple[int, int],
         U: float,
         C: float,
         R: float,
@@ -30,12 +28,7 @@ class Regulator(_FixedMachine):
         self._T = T
         self._padding_budget = padding_budget
         self._B = B
-        super().__init__(
-            network_delay_millis=network_delay_millis,
-            network_pps=network_pps,
-            seed=seed,
-            simul_kwargs=simul_kwargs,
-        )
+        super().__init__(seed=seed, simul_kwargs=simul_kwargs)
 
     def _machination(self, tmpfile_: str, seed: int) -> None:
         client_machine = f"regulator_client {self._U} {self._C}"

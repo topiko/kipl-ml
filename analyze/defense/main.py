@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from experiment.utils import defence_builder
 from kipl_ml.data import assets
-from kipl_ml.data.wf_dataset import get_train_valid_test
+from kipl_ml.data.wf_dataset import get_network_context_ranges, get_train_valid_test
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.features import FeatureTrs
@@ -71,6 +71,7 @@ def _build_df(cfg: OmegaConf, maxt: float) -> pd.DataFrame:
         defence_aug_valid=0,
         n_min_packets=None,
         trim_raw=0,
+        **get_network_context_ranges(cfg),
         **defence_builder.get_defence(cfg),
     )
 

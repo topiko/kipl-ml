@@ -11,8 +11,6 @@ logger = get_logger(__name__)
 class FRONT(_FixedMachine):
     def __init__(
         self,
-        network_delay_millis: tuple[int, int],
-        network_pps: tuple[int, int],
         padding_budget_max_client: int,
         padding_budget_max_server: int,
         window_min_client: float,
@@ -36,8 +34,6 @@ class FRONT(_FixedMachine):
         self._num_states_server = num_states_server
         self._n_machines = n_machines
         super().__init__(
-            network_delay_millis=network_delay_millis,
-            network_pps=network_pps,
             seed=seed,
             fixed_per_trace=fixed_per_trace,
             simul_kwargs=simul_kwargs,
@@ -72,5 +68,15 @@ class FRONT(_FixedMachine):
 
 
 if __name__ == "__main__":
-    front = FRONT(network_delay_millis=50)
+    front = FRONT(
+        padding_budget_max_client=1,
+        padding_budget_max_server=1,
+        window_min_client=0.1,
+        window_min_server=0.1,
+        window_max_client=0.2,
+        window_max_server=0.2,
+        num_states_client=1,
+        num_states_server=1,
+        n_machines=1,
+    )
     print(front.report())

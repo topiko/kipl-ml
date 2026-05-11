@@ -118,8 +118,6 @@ def _get_obs_def_dl(
 
     # Set the defense:
     ds.defence = RNNDef(
-        (0, 0),
-        (40_000, 40_000),
         obs.to("cpu"),
         n_packets=n_packets,
         max_dur_s=max_dur_s,
@@ -141,7 +139,7 @@ def _restore_obs_def_ds(
     device: torch.DeviceObjType,
 ):
     # Restore no defence
-    ds.defence = NoDefence(network_delay_millis=(25, 250), network_pps=(40_000, 40_000))
+    ds.defence = NoDefence()
     # Clear cached defended traces (defense changed, cache is stale)
     ds.wipe_cache()
     # Restore no features.

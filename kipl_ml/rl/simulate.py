@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 import math
 from time import perf_counter
 from typing import Any, cast
@@ -145,8 +146,8 @@ def policy_rollout(
     max_packets: int | None = None,
     max_duration_s: float | None = None,
     trim_raw: int = 0,
-    network_delay_millis: int | None = None,
-    network_packets_per_second: int | None = None,
+    network_delay_millis: int | Sequence[int] | None = None,
+    network_packets_per_second: int | Sequence[int] | None = None,
     seed: int = 0,
 ) -> _StreamingRollout:
     """Run policy stepwise on streamed windows and execute actions.
@@ -185,8 +186,8 @@ def policy_obfuscate_trace(
     max_packets: int | None = None,
     max_duration_s: float | None = None,
     trim_raw: int = 0,
-    network_delay_millis: int = 10,
-    network_packets_per_second: int = 0,
+    network_delay_millis: int | Sequence[int] = 10,
+    network_packets_per_second: int | Sequence[int] = 0,
     seed: int = 0,
 ) -> dict[Feats, torch.Tensor]:
     """Obfuscate a trace stepwise using the rollout simulator.
@@ -228,8 +229,8 @@ def _policy_rollout_impl(
     max_packets: int | None,
     max_duration_s: float | None,
     trim_raw: int,
-    network_delay_millis: int,
-    network_packets_per_second: int,
+    network_delay_millis: int | Sequence[int],
+    network_packets_per_second: int | Sequence[int],
     record_policy: bool,
     seed: int,
 ) -> dict[Feats, torch.Tensor] | _StreamingRollout:
@@ -244,12 +245,31 @@ def _policy_rollout_impl(
     max_silence_bins = int(round(obs.max_silence_s / obs.time_step))
     bs = len(trace_paths)
 
+    def _expand_network_param(
+        value: int | Sequence[int], name: str
+    ) -> list[int]:
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            out = [int(v) for v in value]
+            if len(out) != bs:
+                raise ValueError(
+                    f"{name} has length {len(out)} but trace_paths has length {bs}"
+                )
+            return out
+        return [int(value)] * bs
+
+    network_delay_millis_l = _expand_network_param(
+        network_delay_millis, "network_delay_millis"
+    )
+    network_packets_per_second_l = _expand_network_param(
+        network_packets_per_second, "network_packets_per_second"
+    )
+
     simul_batch = mbnt.Batch.new(
         trace_paths=trace_paths,
         window_duration_ns=int(round(obs.time_step * 1e9)),
         num_machines=num_machines,
-        network_delay_millis=[int(network_delay_millis)] * bs,
-        network_packets_per_second=[int(network_packets_per_second)] * bs,
+        network_delay_millis=network_delay_millis_l,
+        network_packets_per_second=network_packets_per_second_l,
         max_trace_length=max_packets or 60_000,
         seed=seed,
         trim_raw=trim_raw,

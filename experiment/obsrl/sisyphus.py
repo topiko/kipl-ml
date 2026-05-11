@@ -31,7 +31,12 @@ from experiment.obsrl.utils import (
 )
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD, Datasets, assets
-from kipl_ml.data.wf_dataset import WFDataset, dict_to_device, get_train_valid_test
+from kipl_ml.data.wf_dataset import (
+    WFDataset,
+    dict_to_device,
+    get_network_context_ranges,
+    get_train_valid_test,
+)
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.models.trgen import AGENT1, CRITIC01
 from kipl_ml.rl.enums import Actions, AHKs
@@ -682,6 +687,7 @@ def main(cfg: DictConfig):
         defence_aug_valid=0,
         n_min_packets=cfg.trace.min_packets,
         trim_raw=cfg.trace.trim_beginning,
+        **get_network_context_ranges(cfg),
         **defence_builder.get_defence(cfg),
     )
 

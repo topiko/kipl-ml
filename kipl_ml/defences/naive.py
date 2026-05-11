@@ -6,7 +6,7 @@ import os
 
 import kipl_ml.data.assets as assets
 import torch
-from kipl_ml.defences.base import _Def
+from kipl_ml.defences.base import NetworkContext, _Def
 from torch.distributions.chi2 import Chi2
 
 
@@ -18,7 +18,11 @@ class RandomPadding(_Def):
         return self._report(to_log, fraction=self.fraction)
 
     def _simulate(
-        self, trace_path: os.PathLike, machine_idx: int | None = None, trim_raw: int = 0
+        self,
+        trace_path: os.PathLike,
+        machine_idx: int | None = None,
+        trim_raw: int = 0,
+        network_context: NetworkContext | None = None,
     ) -> dict[Feats, torch.Tensor]:
 
         trace = self.load_data(trace_path, trim_raw=trim_raw)
@@ -75,7 +79,11 @@ class Chi2Delays(_Def):
         return self._report(to_log, k=self.k, scale_frac=self.scale_frac)
 
     def _simulate(
-        self, trace_path: os.PathLike, machine_idx: int | None = None, trim_raw: int = 0
+        self,
+        trace_path: os.PathLike,
+        machine_idx: int | None = None,
+        trim_raw: int = 0,
+        network_context: NetworkContext | None = None,
     ) -> dict[Feats, torch.Tensor]:
 
         trace = self.load_data(trace_path, trim_raw=trim_raw)

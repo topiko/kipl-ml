@@ -13,7 +13,11 @@ from tqdm import tqdm
 from experiment.obsrl.utils import dl_, train_disc_one_batch
 from experiment.utils import defence_builder
 from kipl_ml.data.utils import assets
-from kipl_ml.data.wf_dataset import dict_to_device, get_train_valid_test
+from kipl_ml.data.wf_dataset import (
+    dict_to_device,
+    get_network_context_ranges,
+    get_train_valid_test,
+)
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.logging.utils import log_dict
 from kipl_ml.metrics.clf_metrics import Accuracy
@@ -68,6 +72,7 @@ def main(cfg: DictConfig):
         random_state=42,
         feature_trs=FeatureTrs(feature_trs=feature_trs, n_packets=npackets),
         trim_raw=cfg.trim_beginning,
+        **get_network_context_ranges(cfg),
         **defence_builder.get_defence(cfg),
     )
 

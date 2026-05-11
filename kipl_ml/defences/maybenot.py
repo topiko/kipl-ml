@@ -7,7 +7,7 @@ from mbnt import deal_machines, sim_trace_from_file_advanced
 
 from kipl_ml.data import assets
 from kipl_ml.data.utils import parse_trace_to_tensor_dict
-from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
+from kipl_ml.defences.base import DEFENCE_TYPE_KW, NetworkContext, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
 from kipl_ml.tools.rng_samplers import MachineRng
@@ -21,8 +21,6 @@ class Maybenot(_Def):
     def __init__(
         self,
         deck_path: os.PathLike,
-        network_delay_millis: tuple[int, int],
-        network_pps: tuple[int, int],
         n_machines: int,
         scale: float,
         client_padding_budget: tuple[int, int],
@@ -37,12 +35,7 @@ class Maybenot(_Def):
         fixed_per_trace: bool = False,
         simul_kwargs: dict | None = None,
     ):
-        super().__init__(
-            network_delay_millis=network_delay_millis,
-            network_pps=network_pps,
-            seed=seed,
-            fixed_per_trace=fixed_per_trace,
-        )
+        super().__init__(seed=seed, fixed_per_trace=fixed_per_trace)
 
         self.limits = {
             "client": {
@@ -77,8 +70,6 @@ class Maybenot(_Def):
         str_ += f"\tDeck: {self.deck_path}\n"
         str_ += f"\tN machines: {len(self.machines)}\n"
         str_ += f"\tScale: {self.scale}\n"
-        str_ += f"\t{self.network_delay_millis}\n"
-        str_ += f"\t{self.network_pps}\n"
         str_ += f"\tFixed per trace: {self.FIXED_PER_TRACE}\n"
 
         if self.simul_kwargs:
@@ -113,7 +104,11 @@ class Maybenot(_Def):
         trace_path: os.PathLike,
         machine_idx: int | None = None,
         trim_raw: int = 0,
+        network_context: NetworkContext | None = None,
     ) -> dict[Feats, torch.Tensor]:
+        network_delay_millis, network_packets_per_second = self._require_network_context(
+            network_context
+        )
         pad_bloc_fracs, (client_machines, server_machines) = self._get_machines(
             machine_idx
         )
@@ -121,8 +116,8 @@ class Maybenot(_Def):
             str(trace_path),
             client_machines,
             server_machines,
-            self.network_delay_millis(),
-            self.network_pps(),
+            network_delay_millis,
+            network_packets_per_second,
             **pad_bloc_fracs,
             max_trace_length=self.simul_kwargs.get(
                 "max_trace_length", MAX_TRACE_LENGTH

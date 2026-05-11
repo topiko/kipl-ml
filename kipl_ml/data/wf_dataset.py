@@ -13,12 +13,26 @@ from torch.utils.data import Dataset
 
 from kipl_ml.data import assets
 from kipl_ml.data.utils import load_dataset_meta_df
-from kipl_ml.defences.base import NoDefence, _Def
+from kipl_ml.defences.base import NET_DELAY_KW, NET_PPS_KW, NetworkContext, NoDefence, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
+from kipl_ml.tools.rng_samplers import NetwkDelay, NetwkPps
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
+
+
+def get_network_context_ranges(cfg) -> dict[str, tuple[int, int]]:
+    return {
+        "network_delay_millis": (
+            int(cfg.network.delay_millis.min),
+            int(cfg.network.delay_millis.max),
+        ),
+        "network_pps": (
+            int(cfg.network.pps.min),
+            int(cfg.network.pps.max),
+        ),
+    }
 
 
 class WFDataset(Dataset):
@@ -51,27 +65,20 @@ class WFDataset(Dataset):
         self.name = dataset
         self.label = label
 
-        if defence is not None and (
-            network_delay_millis is not None or network_pps is not None
-        ):
-            logger.warning(
-                "WFDataset received both an explicit defence and network params; "
-                "using the defence and ignoring network_delay_millis/network_pps"
+        if network_delay_millis is None or network_pps is None:
+            raise ValueError(
+                "WFDataset requires explicit network_delay_millis and network_pps "
+                "because it owns network context sampling"
             )
 
         if defence is None:
-            if network_delay_millis is None or network_pps is None:
-                raise ValueError(
-                    "WFDataset requires either an explicit defence or explicit "
-                    "network_delay_millis and network_pps values"
-                )
-            defence = NoDefence(
-                network_delay_millis=network_delay_millis,
-                network_pps=network_pps,
-                seed=seed,
-            )
+            defence = NoDefence(seed=seed)
 
         self.defence = defence
+        self.network_delay_millis = tuple(int(v) for v in network_delay_millis)
+        self.network_pps = tuple(int(v) for v in network_pps)
+        self.network_delay_sampler = NetwkDelay(*self.network_delay_millis, seed=seed)
+        self.network_pps_sampler = NetwkPps(*self.network_pps, seed=seed)
         self.tmp_dir = None
         self.defence_aug = defence_aug
 
@@ -91,6 +98,8 @@ class WFDataset(Dataset):
         str_ += key_val_fmt("defence augmentation", self.defence_aug)
         str_ += key_val_fmt("n_traces (aug)", len(self))
         str_ += key_val_fmt("n_classes", self.n_classes)
+        str_ += key_val_fmt("network_delay_millis", self.network_delay_millis)
+        str_ += key_val_fmt("network_pps", self.network_pps)
         if self.trim_raw > 0:
             str_ += key_val_fmt("trimming from start", self.trim_raw)
         if self.feature_trs is not None:
@@ -169,7 +178,15 @@ class WFDataset(Dataset):
 
         return (idx // self.defence_aug, idx % self.defence_aug)
 
-    def _get_trace(self, idx: int) -> dict[Feats, torch.Tensor]:
+    def _sample_network_context(self) -> NetworkContext:
+        return {
+            NET_DELAY_KW: int(self.network_delay_sampler()),
+            NET_PPS_KW: int(self.network_pps_sampler()),
+        }
+
+    def _get_trace_and_context(
+        self, idx: int
+    ) -> tuple[dict[Feats, torch.Tensor], NetworkContext]:
         orig_idx, sub_idx = self._get_idx(idx)
 
         orig_trace_path = Path(self.meta_df.iloc[orig_idx][assets.TRACE_F_PATH])
@@ -177,8 +194,12 @@ class WFDataset(Dataset):
         machine_idx = orig_idx if self.defence.FIXED_PER_TRACE else None
 
         if self.defence_aug == 0:
+            network_context = self._sample_network_context()
             trace = self.defence(
-                orig_trace_path, machine_idx=machine_idx, trim_raw=self.trim_raw
+                orig_trace_path,
+                machine_idx=machine_idx,
+                trim_raw=self.trim_raw,
+                network_context=network_context,
             )
         else:
             if self.tmp_dir is None:
@@ -188,7 +209,7 @@ class WFDataset(Dataset):
                 self.tmp_dir.name, f"{orig_trace_path.name}.{sub_idx:03d}"
             )
 
-            def safe_load() -> dict[str, torch.tensor]:
+            def safe_load() -> tuple[dict[Feats, torch.Tensor], NetworkContext]:
                 """
                 When using dataloaders, several threads can call reading of the same
                 trace file. This can cause some issues, here is an attempt to protect
@@ -197,22 +218,33 @@ class WFDataset(Dataset):
                 with open(orig_trace_path, "rb") as f:
                     fcntl.flock(f, fcntl.LOCK_EX)  # Acquire an exclusive lock
                     try:
+                        network_context = self._sample_network_context()
                         return self.defence(
                             orig_trace_path,
                             machine_idx=machine_idx,
                             trim_raw=self.trim_raw,
-                        )
+                            network_context=network_context,
+                        ), network_context
                     finally:
                         fcntl.flock(f, fcntl.LOCK_UN)  # Release the lock
 
             if not os.path.exists(tmp_trace_path):
-                trace = safe_load()
+                trace, network_context = safe_load()
                 with open(tmp_trace_path, "wb") as f:
-                    torch.save(trace, f)
+                    torch.save(
+                        {"trace": trace, "network_context": network_context},
+                        f,
+                    )
             else:
                 with torch.serialization.safe_globals([Feats]):
                     with open(tmp_trace_path, "rb") as f:
-                        trace = torch.load(f, weights_only=True)
+                        payload = torch.load(f, weights_only=True)
+                if isinstance(payload, dict) and "trace" in payload:
+                    trace = payload["trace"]
+                    network_context = payload["network_context"]
+                else:
+                    trace = payload
+                    network_context = self._sample_network_context()
 
         converted: dict[Feats, torch.Tensor] = {}
         for key, val in trace.items():
@@ -221,7 +253,11 @@ class WFDataset(Dataset):
             else:
                 converted[key] = val.to(dtype=torch.float32)
 
-        return converted
+        return converted, network_context
+
+    def _get_trace(self, idx: int) -> dict[Feats, torch.Tensor]:
+        trace, _ = self._get_trace_and_context(idx)
+        return trace
 
     def _get_label(self, idx: int) -> torch.Tensor:
         idx = self._get_idx(idx)[0]
@@ -256,8 +292,18 @@ class WithIdxDataset(Dataset):
         return len(self.base)
 
     def __getitem__(self, idx: int):
-        X, y = self.base[idx]
-        return X, y, idx
+        # Override bases get_trace...
+
+        if self.defence_aug != 0:
+            raise ValueError("WithIDx dataset requires def aug == 0!")
+
+        trace_dict, network_context = self.base._get_trace_and_context(idx)
+
+        trace_dict = self.feature_trs(trace_dict)
+
+        label = self._get_label(idx)
+
+        return trace_dict, label, idx, network_context
 
     def get_meta(self, idx: int) -> pd.Series:
         return self.base.get_meta(idx)

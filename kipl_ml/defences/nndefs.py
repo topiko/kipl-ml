@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
+from kipl_ml.defences.base import DEFENCE_TYPE_KW, NetworkContext, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
 from kipl_ml.rl.simulate import policy_obfuscate_trace
@@ -30,8 +30,6 @@ def _load_model(model: str) -> nn.Module:
 class _NNDef(_Def):
     def __init__(
         self,
-        network_delay_millis: tuple[int, int],
-        network_pps: tuple[int, int],
         obs_model: Sequence[str] | nn.Module | str,
         seed: int | None = 42,
         fixed_per_trace: bool = False,
@@ -44,12 +42,7 @@ class _NNDef(_Def):
                 "NNdefs do not use fixed_per_trace parameter -> param. ignored."
             )
 
-        super().__init__(
-            network_delay_millis=network_delay_millis,
-            network_pps=network_pps,
-            seed=seed,
-            fixed_per_trace=fixed_per_trace,
-        )
+        super().__init__(seed=seed, fixed_per_trace=fixed_per_trace)
 
         self.mlflow_keys = mlflow_keys
         self._model_ids: Sequence[str | None] = [None]
@@ -77,8 +70,6 @@ class _NNDef(_Def):
 
     def report(self, to_log: bool = False) -> str:
         str_ = self.__class__.__name__ + "\n"
-        str_ += f"\t{self.network_delay_millis}\n"
-        str_ += f"\t{self.network_pps}\n"
         str_ += f"\tFixed per trace: {self.FIXED_PER_TRACE}\n"
 
         dm = self.defense_model
@@ -100,7 +91,9 @@ class _NNDef(_Def):
         return str_
 
     def _run_model(
-        self, trace_path: os.PathLike, trace_d: dict[Feats, torch.Tensor]
+        self,
+        trace_path: os.PathLike,
+        network_context: NetworkContext | None,
     ) -> dict[Feats, torch.Tensor]:
         raise NotImplementedError
 
@@ -109,13 +102,14 @@ class _NNDef(_Def):
         trace_path: os.PathLike,
         machine_idx: int | None = None,
         trim_raw: int = 0,
+        network_context: NetworkContext | None = None,
     ) -> dict[Feats, torch.Tensor]:
         if machine_idx is not None:
             raise NotImplementedError(
                 f"{self.__class__.__name__} does not support machine_idx argument."
             )
 
-        trace_d = self._run_model(trace_path)
+        trace_d = self._run_model(trace_path, network_context)
 
         return trace_d
 
@@ -142,7 +136,11 @@ class RNNDef(_NNDef):
         self._max_dur_s = max_dur_s
         self.rng = np.random.default_rng()
 
-    def _run_model(self, trace_path: os.PathLike) -> dict[Feats, torch.Tensor]:
+    def _run_model(
+        self,
+        trace_path: os.PathLike,
+        network_context: NetworkContext | None,
+    ) -> dict[Feats, torch.Tensor]:
         # Implement RNN specific logic
 
         if self.defence_model_state_dicts is not None:
@@ -151,8 +149,9 @@ class RNNDef(_NNDef):
 
         add_tail_s = 0.0
 
-        network_delay_millis = int(self.network_delay_millis())
-        network_packets_per_second = int(self.network_pps())
+        network_delay_millis, network_packets_per_second = self._require_network_context(
+            network_context
+        )
 
         with torch.inference_mode():
             trace_d = policy_obfuscate_trace(

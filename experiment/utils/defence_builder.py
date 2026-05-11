@@ -45,13 +45,6 @@ def get_defence(
             raise NotImplementedError("no builder for defence '{def_type}'")
 
 
-def _parse_netwk(cfg: OmegaConf) -> tuple[tuple[int, int], tuple[int, int]]:
-    delay = (cfg.network.delay_millis.min, cfg.network.delay_millis.max)
-    pps = (cfg.network.pps.min, cfg.network.pps.max)
-
-    return delay, pps
-
-
 def _get_simul_kwargs(cfg: OmegaConf) -> dict:
     return {
         "max_trace_length": cfg.misc.simul_args.max_trace_length,
@@ -60,10 +53,7 @@ def _get_simul_kwargs(cfg: OmegaConf) -> dict:
 
 
 def no_def(cfg: OmegaConf) -> dict[str, NoDefence]:
-    netwk_delay, netwk_pps = _parse_netwk(cfg)
     no_defence = NoDefence(
-        network_delay_millis=netwk_delay,
-        network_pps=netwk_pps,
         seed=cfg.misc.seed,
         simul_kwargs=_get_simul_kwargs(cfg),
     )
@@ -76,14 +66,10 @@ def no_def(cfg: OmegaConf) -> dict[str, NoDefence]:
 
 
 def breakpad(cfg: OmegaConf) -> dict[str, Breakpad]:
-    netwk_delay, netwk_pps = _parse_netwk(cfg)
-
     seed = cfg.misc.seed
 
     def _breakpad(seed: int):
         return Breakpad(
-            network_delay_millis=netwk_delay,
-            network_pps=netwk_pps,
             seed=seed,
             simul_kwargs=_get_simul_kwargs(cfg),
         )
@@ -96,14 +82,10 @@ def breakpad(cfg: OmegaConf) -> dict[str, Breakpad]:
 
 
 def tamaraw(cfg: OmegaConf) -> dict[str, Breakpad]:
-    netwk_delay, netwk_pps = _parse_netwk(cfg)
-
     seed = cfg.misc.seed
 
     def _tamaraw(seed: int):
         return Tamaraw(
-            network_delay_millis=netwk_delay,
-            network_pps=netwk_pps,
             pc=cfg.defence.pc,
             ps=cfg.defence.ps,
             window_val=cfg.defence.window_val,
@@ -119,15 +101,11 @@ def tamaraw(cfg: OmegaConf) -> dict[str, Breakpad]:
 
 
 def regulator(cfg: OmegaConf) -> dict[str, Breakpad]:
-    netwk_delay, netwk_pps = _parse_netwk(cfg)
-
     seed = cfg.misc.seed
     def_params = cfg.defence
 
     def _regulator(seed: int):
         return Regulator(
-            network_delay_millis=netwk_delay,
-            network_pps=netwk_pps,
             U=def_params.U,
             C=def_params.C,
             R=def_params.R,
@@ -154,14 +132,10 @@ def interspace(cfg: OmegaConf) -> dict[str, Interspace]:
     n_valid_machines = d.pop("n_valid_machines")
     n_test_machines = d.pop("n_test_machines")
 
-    netwk_delay, netwk_pps = _parse_netwk(cfg)
-
     fixed_per_trace = d.pop("fixed_per_trace")
 
     def _interspace(n_machines: int, seed: int):
         return Interspace(
-            network_delay_millis=netwk_delay,
-            network_pps=netwk_pps,
             **d,
             n_machines=n_machines,
             seed=seed,
@@ -184,13 +158,10 @@ def front(cfg: OmegaConf) -> dict[str, FRONT]:
     n_valid_machines = d.pop("n_valid_machines")
     n_test_machines = d.pop("n_test_machines")
 
-    netwk_delay, netwk_pps = _parse_netwk(cfg)
     fixed_per_trace = d.pop("fixed_per_trace")
 
     def _front(n_machines: int, seed: int):
         return FRONT(
-            network_delay_millis=netwk_delay,
-            network_pps=netwk_pps,
             **d,
             n_machines=n_machines,
             seed=seed,
@@ -215,10 +186,6 @@ def ephemeral(cfg: OmegaConf) -> dict[str, Maybenot]:
         pass
 
     seed = cfg.misc.seed
-    netwk_delay, netwk_pps = _parse_netwk(cfg)
-    mbnt_conf["network_delay_millis"] = netwk_delay
-    mbnt_conf["network_pps"] = netwk_pps
-
     mbnt_conf["deck_path"] = _get_deck_path(mbnt_conf.pop("deck_name"))
     keys = (
         "client_padding_budget",
@@ -257,8 +224,6 @@ def ephemeral(cfg: OmegaConf) -> dict[str, Maybenot]:
 
 
 def rlobs(cfg: OmegaConf) -> dict[str, RNNDef]:
-    netwk_delay, netwk_pps = _parse_netwk(cfg)
-
     seed = cfg.misc.seed
 
     if "model" in cfg:
@@ -269,8 +234,6 @@ def rlobs(cfg: OmegaConf) -> dict[str, RNNDef]:
 
     def _rlobs(seed: int, idx: int):
         return RNNDef(
-            network_delay_millis=netwk_delay,
-            network_pps=netwk_pps,
             obs_model=cfg.defence.model_id[idx],
             n_packets=trace_len,
             seed=seed,

@@ -11,8 +11,6 @@ logger = get_logger(__name__)
 class Tamaraw(_FixedMachine):
     def __init__(
         self,
-        network_delay_millis: tuple[int, int],
-        network_pps: tuple[int, int],
         pc: float,
         ps: float,
         window_val: int,
@@ -23,13 +21,7 @@ class Tamaraw(_FixedMachine):
         self._pc = pc
         self._ps = ps
         self._window_val = window_val
-        super().__init__(
-            network_delay_millis=network_delay_millis,
-            network_pps=network_pps,
-            seed=seed,
-            fixed_per_trace=fixed_per_trace,
-            simul_kwargs=simul_kwargs,
-        )
+        super().__init__(seed=seed, fixed_per_trace=fixed_per_trace, simul_kwargs=simul_kwargs)
 
     def _machination(self, tmpfile_: str, seed: int) -> None:
         client_machine = f"tamaraw {self._pc} {self._window_val}"

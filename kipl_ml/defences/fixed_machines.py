@@ -11,7 +11,7 @@ import yaml
 from mbnt import sim_trace_from_file_advanced
 
 from kipl_ml.data.utils import parse_trace_to_tensor_dict
-from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
+from kipl_ml.defences.base import DEFENCE_TYPE_KW, NetworkContext, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
 from kipl_ml.tools.rng_samplers import MachineRng
@@ -51,8 +51,6 @@ def load_machines(
 class _FixedMachine(_Def):
     def __init__(
         self,
-        network_delay_millis: tuple[int, int],
-        network_pps: tuple[int, int],
         seed: int | None = 42,
         fixed_per_trace: bool = False,
         simul_kwargs: dict | None = None,
@@ -60,12 +58,7 @@ class _FixedMachine(_Def):
         if (MAYBENOT := os.getenv("MAYBENOT")) is None:
             raise ValueError("MAYBENOT not found in environment (deprecated: MACHINATION)")
 
-        super().__init__(
-            network_delay_millis=network_delay_millis,
-            network_pps=network_pps,
-            seed=seed,
-            fixed_per_trace=fixed_per_trace,
-        )
+        super().__init__(seed=seed, fixed_per_trace=fixed_per_trace)
 
         self._rust_maybenot = MAYBENOT
         tmpfile_ = tempfile.mktemp(prefix=self.__class__.__name__, suffix=".defence")
@@ -84,8 +77,6 @@ class _FixedMachine(_Def):
         if self.machination_args is not None:
             str_ += f"\tcmd: maybenot {' '.join(self.machination_args[1:])}\n"
         str_ += f"\tN machines: {len(self.machines)}\n"
-        str_ += f"\t{self.network_delay_millis}\n"
-        str_ += f"\t{self.network_pps}\n"
         str_ += f"\tFixed per trace: {self.FIXED_PER_TRACE}\n"
 
         if self.simul_kwargs:
@@ -114,15 +105,19 @@ class _FixedMachine(_Def):
         trace_path: os.PathLike,
         machine_idx: int | None = None,
         trim_raw: int = 0,
+        network_context: NetworkContext | None = None,
     ) -> dict[Feats, torch.Tensor]:
+        network_delay_millis, network_packets_per_second = self._require_network_context(
+            network_context
+        )
         client_machines, server_machines = self._get_machines(machine_idx)
 
         times, dirs, paddings = sim_trace_from_file_advanced(
             str(trace_path),
             client_machines,
             server_machines,
-            self.network_delay_millis(),
-            self.network_pps(),
+            network_delay_millis,
+            network_packets_per_second,
             max_padding_frac_client=0,
             max_padding_frac_server=0,
             max_blocking_frac_client=0,

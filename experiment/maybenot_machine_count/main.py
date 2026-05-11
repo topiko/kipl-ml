@@ -150,7 +150,7 @@ def main(cfg: DictConfig):
         raise ValueError("Defence must be 'maybenot'")
 
     if (n_machines := maybenot_config.pop("n_machines")) == 0:
-        defence_train = NoDefence(network_delay_millis=netwk_delay)
+        defence_train = NoDefence()
         defence_valid = defence_train
         defence_test = defence_train
     else:
