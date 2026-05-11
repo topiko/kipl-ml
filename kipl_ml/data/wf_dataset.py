@@ -356,13 +356,22 @@ def get_train_valid_test(
     valid_df = meta_df[meta_df[col] == valid_xv]
     test_df = meta_df[meta_df[col] == test_xv]
 
+    if seed is None:
+        train_seed = None
+        valid_seed = None
+        test_seed = None
+    else:
+        train_seed = seed + 1
+        valid_seed = seed + 2
+        test_seed = seed + 3
+
     train_ds = WFDataset(
         label=label,
         meta_df=train_df,
         defence=defence_train,
         network_delay_millis=network_delay_millis,
         network_pps=network_pps,
-        seed=seed,
+        seed=train_seed,
         dataset_key="train",
         **kwargs,
     )
@@ -379,7 +388,7 @@ def get_train_valid_test(
         defence=defence_valid,
         network_delay_millis=network_delay_millis,
         network_pps=network_pps,
-        seed=seed,
+        seed=valid_seed,
         dataset_key="valid",
         **kwargs,
     )
@@ -391,7 +400,7 @@ def get_train_valid_test(
         defence=defence_test,
         network_delay_millis=network_delay_millis,
         network_pps=network_pps,
-        seed=seed,
+        seed=test_seed,
         dataset_key="test",
         **kwargs,
     )
