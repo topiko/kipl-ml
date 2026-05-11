@@ -71,8 +71,8 @@ def load_dataset_meta_df(dataset: str, include_xv_cols: bool = True) -> pd.DataF
 
 def get_std_trace_array(
     path: os.PathLike,
-    network_delay_millis: int = 10,
-    network_packets_per_second: int = 0,
+    network_rtt_millis: int = 10,
+    network_mbps: int = 0,
     trim_raw: int = 0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -85,15 +85,15 @@ def get_std_trace_array(
         - paddings: np.ndarray[bool]
     """
 
-    if network_delay_millis == 0:
+    if network_rtt_millis == 0:
         raise ValueError(
-            "Network delay needs to be positive; the rust simul crashes otherwise"
+            "RTT needs to be positive; the rust simul crashes otherwise"
         )
 
     return load_trace_to_numpy(
         str(path),
-        network_delay_millis=network_delay_millis,
-        network_packets_per_second=network_packets_per_second,
+        network_rtt_millis=network_rtt_millis,
+        network_mbps=network_mbps,
         max_trace_length=MAX_TRACE_LENGTH,
         events_multiplier=EVENTS_MULTIPLIER,
         trim_raw=trim_raw,
@@ -138,14 +138,14 @@ def parse_trace_to_tensor_dict(
 
 def get_std_trace_dict(
     path: os.PathLike,
-    network_delay_millis: int = 10,
-    network_packets_per_second: int = 0,
+    network_rtt_millis: int = 10,
+    network_mbps: int = 0,
     trim_raw: int = 0,
 ) -> dict[Feats, torch.Tensor]:
     times, dirs, paddings = get_std_trace_array(
         path,
-        network_delay_millis=network_delay_millis,
-        network_packets_per_second=network_packets_per_second,
+        network_rtt_millis=network_rtt_millis,
+        network_mbps=network_mbps,
         trim_raw=trim_raw,
     )
 

@@ -16,7 +16,7 @@ from kipl_ml.data.utils import load_dataset_meta_df
 from kipl_ml.defences.base import NET_DELAY_KW, NET_PPS_KW, NetworkContext, NoDefence, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
-from kipl_ml.tools.rng_samplers import NetwkDelay, NetwkPps
+from kipl_ml.tools.rng_samplers import NetwkRtt, NetwkMbps
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
@@ -24,13 +24,13 @@ logger = get_logger(__name__)
 
 def get_network_context_ranges(cfg) -> dict[str, tuple[int, int]]:
     return {
-        "network_delay_millis": (
-            int(cfg.network.delay_millis.min),
-            int(cfg.network.delay_millis.max),
+        "network_rtt_millis": (
+            int(cfg.network.rtt_millis.min),
+            int(cfg.network.rtt_millis.max),
         ),
-        "network_pps": (
-            int(cfg.network.pps.min),
-            int(cfg.network.pps.max),
+        "network_mbps": (
+            int(cfg.network.mbps.min),
+            int(cfg.network.mbps.max),
         ),
     }
 
@@ -42,8 +42,8 @@ class WFDataset(Dataset):
         feature_trs: FeatureTrs | None,
         label: str = assets.PAGE_LABEL,
         defence: _Def | None = None,
-        network_delay_millis: tuple[int, int] | None = None,
-        network_pps: tuple[int, int] | None = None,
+        network_rtt_millis: tuple[int, int] | None = None,
+        network_mbps: tuple[int, int] | None = None,
         seed: int | None = 42,
         defence_aug: int = 0,
         dataset_key: str | None = None,
@@ -65,9 +65,9 @@ class WFDataset(Dataset):
         self.name = dataset
         self.label = label
 
-        if network_delay_millis is None or network_pps is None:
+        if network_rtt_millis is None or network_mbps is None:
             raise ValueError(
-                "WFDataset requires explicit network_delay_millis and network_pps "
+                "WFDataset requires explicit network_rtt_millis and network_mbps "
                 "because it owns network context sampling"
             )
 
@@ -75,10 +75,10 @@ class WFDataset(Dataset):
             defence = NoDefence(seed=seed)
 
         self.defence = defence
-        self.network_delay_millis = tuple(int(v) for v in network_delay_millis)
-        self.network_pps = tuple(int(v) for v in network_pps)
-        self.network_delay_sampler = NetwkDelay(*self.network_delay_millis, seed=seed)
-        self.network_pps_sampler = NetwkPps(*self.network_pps, seed=seed)
+        self.network_rtt_millis = tuple(int(v) for v in network_rtt_millis)
+        self.network_mbps = tuple(int(v) for v in network_mbps)
+        self.network_rtt_sampler = NetwkRtt(*self.network_rtt_millis, seed=seed)
+        self.network_mbps_sampler = NetwkMbps(*self.network_mbps, seed=seed)
         self.tmp_dir = None
         self.defence_aug = defence_aug
 
@@ -98,8 +98,8 @@ class WFDataset(Dataset):
         str_ += key_val_fmt("defence augmentation", self.defence_aug)
         str_ += key_val_fmt("n_traces (aug)", len(self))
         str_ += key_val_fmt("n_classes", self.n_classes)
-        str_ += key_val_fmt("network_delay_millis", self.network_delay_millis)
-        str_ += key_val_fmt("network_pps", self.network_pps)
+        str_ += key_val_fmt("network_rtt_millis", self.network_rtt_millis)
+        str_ += key_val_fmt("network_mbps", self.network_mbps)
         if self.trim_raw > 0:
             str_ += key_val_fmt("trimming from start", self.trim_raw)
         if self.feature_trs is not None:
@@ -180,8 +180,8 @@ class WFDataset(Dataset):
 
     def _sample_network_context(self) -> NetworkContext:
         return {
-            NET_DELAY_KW: int(self.network_delay_sampler()),
-            NET_PPS_KW: int(self.network_pps_sampler()),
+            NET_DELAY_KW: int(self.network_rtt_sampler()),
+            NET_PPS_KW: int(self.network_mbps_sampler()),
         }
 
     def _get_trace_and_context(
@@ -327,8 +327,8 @@ def get_train_valid_test(
     defence_train: _Def | None = None,
     defence_valid: _Def | None = None,
     defence_test: _Def | None = None,
-    network_delay_millis: tuple[int, int] | None = None,
-    network_pps: tuple[int, int] | None = None,
+    network_rtt_millis: tuple[int, int] | None = None,
+    network_mbps: tuple[int, int] | None = None,
     seed: int | None = 42,
     defence_aug_valid: int = 1,
     n_min_packets: int | None = None,
@@ -369,8 +369,8 @@ def get_train_valid_test(
         label=label,
         meta_df=train_df,
         defence=defence_train,
-        network_delay_millis=network_delay_millis,
-        network_pps=network_pps,
+        network_rtt_millis=network_rtt_millis,
+        network_mbps=network_mbps,
         seed=train_seed,
         dataset_key="train",
         **kwargs,
@@ -386,8 +386,8 @@ def get_train_valid_test(
         label=label,
         meta_df=valid_df,
         defence=defence_valid,
-        network_delay_millis=network_delay_millis,
-        network_pps=network_pps,
+        network_rtt_millis=network_rtt_millis,
+        network_mbps=network_mbps,
         seed=valid_seed,
         dataset_key="valid",
         **kwargs,
@@ -398,8 +398,8 @@ def get_train_valid_test(
         label=label,
         meta_df=test_df,
         defence=defence_test,
-        network_delay_millis=network_delay_millis,
-        network_pps=network_pps,
+        network_rtt_millis=network_rtt_millis,
+        network_mbps=network_mbps,
         seed=test_seed,
         dataset_key="test",
         **kwargs,

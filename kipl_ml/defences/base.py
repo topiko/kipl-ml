@@ -15,8 +15,8 @@ from kipl_ml.trace.params import EVENTS_MULTIPLIER, MAX_TRACE_LENGTH
 
 logger = get_logger(__name__)
 DEFENCE_TYPE_KW = "defence-type"
-NET_DELAY_KW = "network_delay_millis"
-NET_PPS_KW = "network_packets_per_second"
+NET_DELAY_KW = "network_rtt_millis"
+NET_PPS_KW = "network_mbps"
 NetworkContext = dict[str, int]
 
 
@@ -99,13 +99,13 @@ class _Def(ABC):
                 f"'{NET_DELAY_KW}' and '{NET_PPS_KW}'"
             )
         try:
-            delay_ms = int(network_context[NET_DELAY_KW])
-            pps = int(network_context[NET_PPS_KW])
+            rtt_ms = int(network_context[NET_DELAY_KW])
+            mbps = int(network_context[NET_PPS_KW])
         except KeyError as exc:
             raise KeyError(
                 f"network_context must contain '{NET_DELAY_KW}' and '{NET_PPS_KW}'"
             ) from exc
-        return delay_ms, pps
+        return rtt_ms, mbps
 
 
 class NoDefence(_Def):
@@ -136,15 +136,15 @@ class NoDefence(_Def):
         trim_raw: int = 0,
         network_context: NetworkContext | None = None,
     ) -> dict[Feats, torch.Tensor]:
-        network_delay_millis, network_packets_per_second = self._require_network_context(
+        network_rtt_millis, network_mbps = self._require_network_context(
             network_context
         )
         times, dirs, paddings = sim_trace_from_file_advanced(
             str(trace_path),
             [],  # Empty machines --> no defence
             [],  # Empty machines --> no defence
-            network_delay_millis,
-            network_packets_per_second,
+            network_rtt_millis,
+            network_mbps,
             max_padding_frac_client=0,
             max_padding_frac_server=0,
             max_blocking_frac_client=0,

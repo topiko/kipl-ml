@@ -106,7 +106,7 @@ class Maybenot(_Def):
         trim_raw: int = 0,
         network_context: NetworkContext | None = None,
     ) -> dict[Feats, torch.Tensor]:
-        network_delay_millis, network_packets_per_second = self._require_network_context(
+        network_rtt_millis, network_mbps = self._require_network_context(
             network_context
         )
         pad_bloc_fracs, (client_machines, server_machines) = self._get_machines(
@@ -116,8 +116,8 @@ class Maybenot(_Def):
             str(trace_path),
             client_machines,
             server_machines,
-            network_delay_millis,
-            network_packets_per_second,
+            network_rtt_millis,
+            network_mbps,
             **pad_bloc_fracs,
             max_trace_length=self.simul_kwargs.get(
                 "max_trace_length", MAX_TRACE_LENGTH

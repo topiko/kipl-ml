@@ -149,7 +149,7 @@ class RNNDef(_NNDef):
 
         add_tail_s = 0.0
 
-        network_delay_millis, network_packets_per_second = self._require_network_context(
+        network_rtt_millis, network_mbps = self._require_network_context(
             network_context
         )
 
@@ -161,8 +161,8 @@ class RNNDef(_NNDef):
                 sample=True,
                 max_packets=self._n_packets,
                 add_tail_s=add_tail_s,
-                network_delay_millis=network_delay_millis,
-                network_packets_per_second=network_packets_per_second,
+                network_rtt_millis=network_rtt_millis,
+                network_mbps=network_mbps,
                 seed=self.seed,
             )
 

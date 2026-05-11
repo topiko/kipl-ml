@@ -53,35 +53,35 @@ class MachineRng(RandSampler):
         return f"Machine rng: {self.way} [{self.low_lim}, {self.up_lim}]."
 
 
-class NetwkDelay(RandSampler):
-    def __init__(self, min_delay_ms: int, max_delay_ms: int, seed: int | None = 42):
+class NetwkRtt(RandSampler):
+    def __init__(self, min_rtt_ms: int, max_rtt_ms: int, seed: int | None = 42):
 
-        if min_delay_ms <= 0 or max_delay_ms <= 0:
+        if min_rtt_ms <= 0 or max_rtt_ms <= 0:
             raise ValueError("Network delay cannot be 0 -> issues in simul.")
-        super().__init__(min_delay_ms, max_delay_ms, seed=seed)
+        super().__init__(min_rtt_ms, max_rtt_ms, seed=seed)
 
     def __str__(self):
-        return f"Netwk delay fun: {self.way} [{self.low_lim}, {self.up_lim}] ms."
+        return f"Netwk rtt fun: {self.way} [{self.low_lim}, {self.up_lim}] ms."
 
     def mlflow_log_params(self) -> dict[str, str]:
         return {
-            "netwk_delay_type": self.way,
-            "netwk_delay_min_ms": str(self.low_lim),
-            "netwk_delay_max_ms": str(self.up_lim),
+            "netwk_rtt_type": self.way,
+            "netwk_rtt_min_ms": str(self.low_lim),
+            "netwk_rtt_max_ms": str(self.up_lim),
         }
 
 
-class NetwkPps(RandSampler):
-    def __init__(self, min_pps: int, max_pps: int, seed: int | None = 42):
+class NetwkMbps(RandSampler):
+    def __init__(self, min_mbps: int, max_mbps: int, seed: int | None = 42):
 
-        super().__init__(min_pps, max_pps, seed=seed)
+        super().__init__(min_mbps, max_mbps, seed=seed)
 
     def __str__(self):
-        return f"Netwk pps fun: {self.way} [{self.low_lim}, {self.up_lim}] pps."
+        return f"Netwk mbps fun: {self.way} [{self.low_lim}, {self.up_lim}] mbps."
 
     def mlflow_log_params(self) -> dict[str, str]:
         return {
-            "netwk_pps_type": self.way,
-            "netwk_pps_min_pps": str(self.low_lim),
-            "netwk_pps_max_pps": str(self.up_lim),
+            "netwk_mbps_type": self.way,
+            "netwk_mbps_min_mbps": str(self.low_lim),
+            "netwk_mbps_max_mbps": str(self.up_lim),
         }

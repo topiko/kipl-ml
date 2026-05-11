@@ -107,7 +107,7 @@ class _FixedMachine(_Def):
         trim_raw: int = 0,
         network_context: NetworkContext | None = None,
     ) -> dict[Feats, torch.Tensor]:
-        network_delay_millis, network_packets_per_second = self._require_network_context(
+        network_rtt_millis, network_mbps = self._require_network_context(
             network_context
         )
         client_machines, server_machines = self._get_machines(machine_idx)
@@ -116,8 +116,8 @@ class _FixedMachine(_Def):
             str(trace_path),
             client_machines,
             server_machines,
-            network_delay_millis,
-            network_packets_per_second,
+            network_rtt_millis,
+            network_mbps,
             max_padding_frac_client=0,
             max_padding_frac_server=0,
             max_blocking_frac_client=0,

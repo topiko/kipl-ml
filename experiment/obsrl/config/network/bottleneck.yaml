@@ -1,8 +1,8 @@
 type: bottleneck
-delay_millis:
+rtt_millis:
   min: 25
   max: 250
-pps:
+mbps:
   min: 0
   max: 0
 

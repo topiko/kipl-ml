@@ -1,7 +1,7 @@
 type: infinite
-delay_millis:
+rtt_millis:
   min: 25
   max: 250
-pps:
+mbps:
   min: 40_000
   max: 40_000

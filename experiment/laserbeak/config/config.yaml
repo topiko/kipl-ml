@@ -9,6 +9,6 @@ defaults:
 mlflow:
   experiment_name: "laserbeak"
 network:
-  network_delay_millis: 0
+  network_rtt_millis: 0
 
 
