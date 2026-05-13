@@ -332,50 +332,30 @@ def get_train_valid_test(
     test_df = meta_df[meta_df[col] == test_xv]
 
     if seed is None:
-        train_seed = None
-        valid_seed = None
-        test_seed = None
+        train_seed = valid_seed = test_seed = None
     else:
         train_seed = seed + 1
         valid_seed = seed + 2
         test_seed = seed + 3
 
-    train_ds = WFDataset(
-        label=label,
-        meta_df=train_df,
-        defence=defence_train,
-        network_context=network_context.with_seed(train_seed),
-        seed=train_seed,
-        dataset_key="train",
-        **kwargs,
-    )
-    train_ds.report()
+    def _make_split(name: str, df, defence, split_seed, defence_aug):
+        split_kwargs = {**kwargs, "defence_aug": defence_aug}
+        ds = WFDataset(
+            label=label,
+            meta_df=df,
+            defence=defence,
+            network_context=network_context.with_seed(split_seed),
+            seed=split_seed,
+            dataset_key=name,
+            **split_kwargs,
+        )
+        ds.report()
+        return ds
 
-    logger.info(
-        "Setting %d fold augmentation for valid and test sets.", defence_aug_valid
-    )
-    kwargs["defence_aug"] = defence_aug_valid
+    train_ds = _make_split("train", train_df, defence_train, train_seed, kwargs.get("defence_aug", 0))
 
-    valid_ds = WFDataset(
-        label=label,
-        meta_df=valid_df,
-        defence=defence_valid,
-        network_context=network_context.with_seed(valid_seed),
-        seed=valid_seed,
-        dataset_key="valid",
-        **kwargs,
-    )
-    valid_ds.report()
-
-    test_ds = WFDataset(
-        label=label,
-        meta_df=test_df,
-        defence=defence_test,
-        network_context=network_context.with_seed(test_seed),
-        seed=test_seed,
-        dataset_key="test",
-        **kwargs,
-    )
-    test_ds.report()
+    logger.info("Setting %d fold augmentation for valid and test sets.", defence_aug_valid)
+    valid_ds = _make_split("valid", valid_df, defence_valid, valid_seed, defence_aug_valid)
+    test_ds = _make_split("test", test_df, defence_test, test_seed, defence_aug_valid)
 
     return train_ds, valid_ds, test_ds
