@@ -331,13 +331,6 @@ def get_train_valid_test(
     valid_df = meta_df[meta_df[col] == valid_xv]
     test_df = meta_df[meta_df[col] == test_xv]
 
-    if seed is None:
-        train_seed = valid_seed = test_seed = None
-    else:
-        train_seed = seed + 1
-        valid_seed = seed + 2
-        test_seed = seed + 3
-
     def _make_split(name: str, df, defence, split_seed, defence_aug):
         split_kwargs = {**kwargs, "defence_aug": defence_aug}
         ds = WFDataset(
@@ -352,10 +345,13 @@ def get_train_valid_test(
         ds.report()
         return ds
 
-    train_ds = _make_split("train", train_df, defence_train, train_seed, kwargs.get("defence_aug", 0))
+    def _seed(delta: int) -> int | None:
+        return None if seed is None else seed + delta
+
+    train_ds = _make_split("train", train_df, defence_train, _seed(1), kwargs.get("defence_aug", 0))
 
     logger.info("Setting %d fold augmentation for valid and test sets.", defence_aug_valid)
-    valid_ds = _make_split("valid", valid_df, defence_valid, valid_seed, defence_aug_valid)
-    test_ds = _make_split("test", test_df, defence_test, test_seed, defence_aug_valid)
+    valid_ds = _make_split("valid", valid_df, defence_valid, _seed(2), defence_aug_valid)
+    test_ds = _make_split("test", test_df, defence_test, _seed(3), defence_aug_valid)
 
     return train_ds, valid_ds, test_ds
