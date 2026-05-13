@@ -185,7 +185,8 @@ def policy_obfuscate_trace(
     trim_raw: int = 0,
     network_context: NetworkContextIntDict | None = None,
     seed: int = 0,
-) -> dict[Feats, torch.Tensor]:
+    profile: bool = False,
+) -> dict[Feats, torch.Tensor] | tuple[dict[Feats, torch.Tensor], dict[str, float]]:
     """Obfuscate a trace stepwise using the rollout simulator.
 
     This is a lighter-weight variant of policy_rollout() for inference
@@ -194,24 +195,25 @@ def policy_obfuscate_trace(
     If max_packets is set, stops once base_packets + requested_decoy >= max_packets.
     """
 
-    X_obs = cast(
-        dict[Feats, torch.Tensor],
-        _policy_rollout_impl(
-            obs,
-            trace_paths,
-            device,
-            detach_period=detach_period,
-            sample=sample,
-            add_tail_s=add_tail_s,
-            max_packets=max_packets,
-            max_duration_s=max_duration_s,
-            trim_raw=trim_raw,
-            network_context=network_context,
-            record_policy=False,
-            seed=seed,
-        ),
+    res = _policy_rollout_impl(
+        obs,
+        trace_paths,
+        device,
+        detach_period=detach_period,
+        sample=sample,
+        add_tail_s=add_tail_s,
+        max_packets=max_packets,
+        max_duration_s=max_duration_s,
+        trim_raw=trim_raw,
+        network_context=network_context,
+        record_policy=False,
+        seed=seed,
+        profile=profile,
     )
-    return X_obs
+    if profile:
+        X_obs, timers = res
+        return X_obs, timers
+    return cast(dict[Feats, torch.Tensor], res)
 
 
 def _policy_rollout_impl(
@@ -227,6 +229,7 @@ def _policy_rollout_impl(
     network_context: NetworkContextIntDict | dict[str, object] | None,
     record_policy: bool,
     seed: int,
+    profile: bool = False,
 ) -> dict[Feats, torch.Tensor] | _StreamingRollout:
     """Internal streaming rollout implementation.
 
@@ -288,8 +291,8 @@ def _policy_rollout_impl(
         return full
 
     t_stepping_ = 0.0
-    t_acting_1_ = 0.0
-    t_acting_2_ = 0.0
+    t_marshall_ = 0.0
+    t_forward_ = 0.0
     t_storing_X_obs_ = 0.0
     t_storing_policy_ = 0.0
 
@@ -368,14 +371,14 @@ def _policy_rollout_impl(
 
         h_active = _hidden_w_mask(hobs, active)
         t2 = perf_counter()
-        t_acting_1_ += t2 - t1
+        t_marshall_ += t2 - t1
 
         fd_w = dict_to_device(fd_w, device=device)
         act_time_bins_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
             obs.act_step(fd_w, h_active, sample=sample)
         )
         t3 = perf_counter()
-        t_acting_2_ += t3 - t2
+        t_forward_ += t3 - t2
 
         hobs = _hidden_w_mask(hobs, active, h_active)
 
@@ -403,16 +406,29 @@ def _policy_rollout_impl(
 
         step_count += 1
 
-    # print("Batch simulated, timings:")
-    # print(f"{t_stepping_=}")
-    # print(f"{t_acting_1_=}")
-    # print(f"{t_acting_2_=}")
-    # print(f"{t_storing_X_obs_=}")
-    # print(f"{t_storing_policy_=}")
+    if profile:
+        logger.info(
+            "rollout profile: "
+            f"stepping={t_stepping_:.2f}s "
+            f"marshall={t_marshall_:.2f}s "
+            f"forward={t_forward_:.2f}s "
+            f"store_X={t_storing_X_obs_:.2f}s "
+            f"store_policy={t_storing_policy_:.2f}s "
+            f"steps={step_count}"
+        )
 
     X_obs = _batch_packet_level_features(X_obs_l, device)
 
     if not record_policy:
+        if profile:
+            return X_obs, {
+                "stepping": t_stepping_,
+                "marshall": t_marshall_,
+                "forward": t_forward_,
+                "store_X": t_storing_X_obs_,
+                "store_policy": t_storing_policy_,
+                "steps": step_count,
+            }
         return X_obs
 
     assert fd_steps is not None
@@ -435,7 +451,7 @@ def _policy_rollout_impl(
     fd = dict_to_device(fd, device)
     act_time_bins = act_time_bins.to(device)
 
-    return (
+    result = (
         fd,
         act_time_bins,
         actions_l,
@@ -445,3 +461,13 @@ def _policy_rollout_impl(
         entropies,
         X_obs,
     )
+    if profile:
+        return result, {
+            "stepping": t_stepping_,
+            "marshall": t_marshall_,
+            "forward": t_forward_,
+            "store_X": t_storing_X_obs_,
+            "store_policy": t_storing_policy_,
+            "steps": step_count,
+        }
+    return result
