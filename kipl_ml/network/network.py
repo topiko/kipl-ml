@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.tools.rng_samplers import NetwkMbps, NetwkRtt
@@ -35,6 +35,17 @@ _TOR_QUARTILES: dict[int, tuple[tuple[float, ...], tuple[float, ...]]] = {
         (162.0, 8430.0, 14979.0, 24672.0, 46603.0),  # throughput (kbps)
     ),
 }
+
+
+def _as_int_list(value: int | Sequence[int] | object, key: str) -> list[int]:
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return [int(v) for v in value]
+    if hasattr(value, "tolist"):
+        out = value.tolist()
+        if isinstance(out, list):
+            return [int(v) for v in out]
+        return [int(out)]
+    return [int(value)]
 
 
 def _sample_tor_quartile(q: tuple[float, ...]) -> float:
@@ -109,6 +120,19 @@ class NetworkContext:
         return d
 
     @staticmethod
+    def _add_tor_kwargs(
+        kwargs: dict[str, object],
+        tor_profile: int,
+        src: dict[str, object],
+        get_value: Callable[[str], object],
+    ) -> None:
+        if tor_profile != -1:
+            kwargs.update(TOR_PROFILES[tor_profile])
+        for key in (TOR_E2E_RTT_US_KW, TOR_E2E_TPUT_BPS_KW):
+            if key in src:
+                kwargs[key] = get_value(key)
+
+    @staticmethod
     def to_rust_args(int_dict: NetworkContextIntDict) -> tuple[str, dict[str, object]]:
         network_type = INV_NETWK_MAP[int_dict[NET_KIND_KW]]
 
@@ -117,15 +141,10 @@ class NetworkContext:
             "mbps": int(int_dict[NET_PPS_KW]),
         }
 
-        if (tor_int := int_dict[TOR_PROFILE_KW]) != -1:
-            kwargs.update(TOR_PROFILES[tor_int])
-
-        # Forward pre-sampled Tor values (if present) so the Rust side can
-        # build the network deterministically — no RNG needed during create().
-        if TOR_E2E_RTT_US_KW in int_dict:
-            kwargs[TOR_E2E_RTT_US_KW] = int(int_dict[TOR_E2E_RTT_US_KW])
-        if TOR_E2E_TPUT_BPS_KW in int_dict:
-            kwargs[TOR_E2E_TPUT_BPS_KW] = int(int_dict[TOR_E2E_TPUT_BPS_KW])
+        NetworkContext._add_tor_kwargs(
+            kwargs, int_dict[TOR_PROFILE_KW], int_dict,
+            lambda k: int(int_dict[k]),
+        )
 
         return network_type, kwargs
 
@@ -133,16 +152,6 @@ class NetworkContext:
     def to_rust_args_batch(
         batch_dict: dict[str, int | Sequence[int] | object],
     ) -> tuple[str, dict[str, object]]:
-        def _as_int_list(value: int | Sequence[int] | object, key: str) -> list[int]:
-            if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-                return [int(v) for v in value]
-            if hasattr(value, "tolist"):
-                out = value.tolist()
-                if isinstance(out, list):
-                    return [int(v) for v in out]
-                return [int(out)]
-            return [int(value)]
-
         kinds = _as_int_list(batch_dict[NET_KIND_KW], NET_KIND_KW)
         if len(set(kinds)) != 1:
             raise ValueError("Batched network_context requires one shared network_kind")
@@ -157,18 +166,10 @@ class NetworkContext:
             "rtt_millis": rtts,
             "mbps": mbps,
         }
-        if tor_profiles[0] != -1:
-            kwargs.update(TOR_PROFILES[tor_profiles[0]])
-
-        # Forward pre-sampled Tor values (batched as lists).
-        if TOR_E2E_RTT_US_KW in batch_dict:
-            kwargs[TOR_E2E_RTT_US_KW] = _as_int_list(
-                batch_dict[TOR_E2E_RTT_US_KW], TOR_E2E_RTT_US_KW
-            )
-        if TOR_E2E_TPUT_BPS_KW in batch_dict:
-            kwargs[TOR_E2E_TPUT_BPS_KW] = _as_int_list(
-                batch_dict[TOR_E2E_TPUT_BPS_KW], TOR_E2E_TPUT_BPS_KW
-            )
+        NetworkContext._add_tor_kwargs(
+            kwargs, tor_profiles[0], batch_dict,
+            lambda k: _as_int_list(batch_dict[k], k),
+        )
 
         return network_type, kwargs
 
