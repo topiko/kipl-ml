@@ -160,6 +160,7 @@ class RNNDef(_NNDef):
                 device=torch.device("cpu"),
                 sample=True,
                 max_packets=self._n_packets,
+                max_duration_s=self._max_dur_s,
                 add_tail_s=add_tail_s,
                 network_context=network_context,
                 seed=self.seed,
