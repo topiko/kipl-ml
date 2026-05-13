@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from time import perf_counter
 from typing import Any, cast
 
@@ -236,12 +235,17 @@ def _policy_rollout_impl(
     tuple.
     """
 
-    num_machines = 4096
-    max_silence_bins = int(round(obs.max_silence_s / obs.time_step))
+    if max_packets is None:
+        raise ValueError("Explicit max_packets required")
+    if max_duration_s is None:
+        raise ValueError("Explicit max_dur required")
+
     if network_context is None:
         raise ValueError("policy rollout requires explicit network_context")
-
     network_type, network_kwargs = NetworkContext.to_rust_args_batch(network_context)
+
+    num_machines = 4096
+    max_silence_bins = int(round(obs.max_silence_s / obs.time_step))
 
     simul_batch = mbnt.Batch.new(
         trace_paths=trace_paths,
@@ -249,15 +253,13 @@ def _policy_rollout_impl(
         num_machines=num_machines,
         network_type=network_type,
         network_kwargs=network_kwargs,
-        max_trace_length=max_packets or 60_000,
+        max_trace_length=max_packets,
         seed=seed,
         trim_raw=trim_raw,
         relative=True,
     )
 
     bs = len(trace_paths)
-    max_packets = max_packets or 1_000_000
-    max_duration_s = max_duration_s or math.inf
 
     # The streamer does per-trace stepping with Python control flow. If X lives on
     # CUDA, keep the streamer on CPU to avoid per-step GPU syncs.
