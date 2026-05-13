@@ -12,6 +12,14 @@ from mbnt import load_trace_to_numpy
 from kipl_ml.config import PROJECT_ROOT
 from kipl_ml.data import assets
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.network.network import (
+    NETWK_MAP,
+    NET_DELAY_KW,
+    NET_PPS_KW,
+    TOR_PROFILE_KW,
+    NetworkContext,
+    NetworkContextIntDict,
+)
 from kipl_ml.trace.features import Feats
 from kipl_ml.trace.params import DOWNLOAD, EVENTS_MULTIPLIER, MAX_TRACE_LENGTH, UPLOAD
 
@@ -71,8 +79,7 @@ def load_dataset_meta_df(dataset: str, include_xv_cols: bool = True) -> pd.DataF
 
 def get_std_trace_array(
     path: os.PathLike,
-    network_rtt_millis: int = 10,
-    network_mbps: int = 0,
+    network_context: NetworkContextIntDict | None = None,
     trim_raw: int = 0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -85,15 +92,26 @@ def get_std_trace_array(
         - paddings: np.ndarray[bool]
     """
 
-    if network_rtt_millis == 0:
+    network_context = network_context or {
+        "network_kind": NETWK_MAP["vpn_custom"],
+        NET_DELAY_KW: 10,
+        NET_PPS_KW: 0,
+        TOR_PROFILE_KW: -1,
+    }
+
+    if int(network_context[NET_DELAY_KW]) == 0:
         raise ValueError(
             "RTT needs to be positive; the rust simul crashes otherwise"
         )
 
+    network_type, network_kwargs = NetworkContext.to_rust_args(
+        network_context
+    )
+
     return load_trace_to_numpy(
         str(path),
-        network_rtt_millis=network_rtt_millis,
-        network_mbps=network_mbps,
+        network_type=network_type,
+        network_kwargs=network_kwargs,
         max_trace_length=MAX_TRACE_LENGTH,
         events_multiplier=EVENTS_MULTIPLIER,
         trim_raw=trim_raw,
@@ -138,14 +156,12 @@ def parse_trace_to_tensor_dict(
 
 def get_std_trace_dict(
     path: os.PathLike,
-    network_rtt_millis: int = 10,
-    network_mbps: int = 0,
+    network_context: NetworkContextIntDict | None = None,
     trim_raw: int = 0,
 ) -> dict[Feats, torch.Tensor]:
     times, dirs, paddings = get_std_trace_array(
         path,
-        network_rtt_millis=network_rtt_millis,
-        network_mbps=network_mbps,
+        network_context=network_context,
         trim_raw=trim_raw,
     )
 

@@ -10,7 +10,8 @@ import numpy as np
 import torch
 from torch import nn
 
-from kipl_ml.defences.base import DEFENCE_TYPE_KW, NetworkContext, _Def
+from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
+from kipl_ml.network.network import NetworkContextIntDict
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
 from kipl_ml.rl.simulate import policy_obfuscate_trace
@@ -93,7 +94,7 @@ class _NNDef(_Def):
     def _run_model(
         self,
         trace_path: os.PathLike,
-        network_context: NetworkContext | None,
+        network_context: NetworkContextIntDict | None,
     ) -> dict[Feats, torch.Tensor]:
         raise NotImplementedError
 
@@ -102,7 +103,7 @@ class _NNDef(_Def):
         trace_path: os.PathLike,
         machine_idx: int | None = None,
         trim_raw: int = 0,
-        network_context: NetworkContext | None = None,
+        network_context: NetworkContextIntDict | None = None,
     ) -> dict[Feats, torch.Tensor]:
         if machine_idx is not None:
             raise NotImplementedError(
@@ -139,7 +140,7 @@ class RNNDef(_NNDef):
     def _run_model(
         self,
         trace_path: os.PathLike,
-        network_context: NetworkContext | None,
+        network_context: NetworkContextIntDict | None,
     ) -> dict[Feats, torch.Tensor]:
         # Implement RNN specific logic
 
@@ -149,9 +150,8 @@ class RNNDef(_NNDef):
 
         add_tail_s = 0.0
 
-        network_rtt_millis, network_mbps = self._require_network_context(
-            network_context
-        )
+        if network_context is None:
+            raise ValueError(f"{self.__class__.__name__} requires explicit network_context")
 
         with torch.inference_mode():
             trace_d = policy_obfuscate_trace(
@@ -161,8 +161,7 @@ class RNNDef(_NNDef):
                 sample=True,
                 max_packets=self._n_packets,
                 add_tail_s=add_tail_s,
-                network_rtt_millis=network_rtt_millis,
-                network_mbps=network_mbps,
+                network_context=network_context,
                 seed=self.seed,
             )
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
 from time import perf_counter
 from typing import Any, cast
 
@@ -13,6 +12,7 @@ from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.data.wf_dataset import dict_to_device
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.models.trgen import AGENT1, _hidden_w_mask
+from kipl_ml.network.network import NetworkContext, NetworkContextIntDict
 from kipl_ml.rl.enums import (
     Actions,
     EntropyKeys,
@@ -146,8 +146,7 @@ def policy_rollout(
     max_packets: int | None = None,
     max_duration_s: float | None = None,
     trim_raw: int = 0,
-    network_rtt_millis: int | Sequence[int] | None = None,
-    network_mbps: int | Sequence[int] | None = None,
+    network_context: NetworkContextIntDict | dict[str, object] | None = None,
     seed: int = 0,
 ) -> _StreamingRollout:
     """Run policy stepwise on streamed windows and execute actions.
@@ -167,8 +166,7 @@ def policy_rollout(
             max_packets=max_packets,
             max_duration_s=max_duration_s,
             trim_raw=trim_raw,
-            network_rtt_millis=network_rtt_millis,
-            network_mbps=network_mbps,
+            network_context=network_context,
             record_policy=True,
             seed=seed,
         ),
@@ -186,8 +184,7 @@ def policy_obfuscate_trace(
     max_packets: int | None = None,
     max_duration_s: float | None = None,
     trim_raw: int = 0,
-    network_rtt_millis: int | Sequence[int] = 10,
-    network_mbps: int | Sequence[int] = 0,
+    network_context: NetworkContextIntDict | None = None,
     seed: int = 0,
 ) -> dict[Feats, torch.Tensor]:
     """Obfuscate a trace stepwise using the rollout simulator.
@@ -210,8 +207,7 @@ def policy_obfuscate_trace(
             max_packets=max_packets,
             max_duration_s=max_duration_s,
             trim_raw=trim_raw,
-            network_rtt_millis=network_rtt_millis,
-            network_mbps=network_mbps,
+            network_context=network_context,
             record_policy=False,
             seed=seed,
         ),
@@ -229,8 +225,7 @@ def _policy_rollout_impl(
     max_packets: int | None,
     max_duration_s: float | None,
     trim_raw: int,
-    network_rtt_millis: int | Sequence[int],
-    network_mbps: int | Sequence[int],
+    network_context: NetworkContextIntDict | dict[str, object] | None,
     record_policy: bool,
     seed: int,
 ) -> dict[Feats, torch.Tensor] | _StreamingRollout:
@@ -243,30 +238,24 @@ def _policy_rollout_impl(
 
     num_machines = 4096
     max_silence_bins = int(round(obs.max_silence_s / obs.time_step))
-    bs = len(trace_paths)
+    if network_context is None:
+        raise ValueError("policy rollout requires explicit network_context")
 
-    if isinstance(network_rtt_millis, int):
-        network_rtt_millis_l = [network_rtt_millis] * bs
-    else:
-        network_rtt_millis_l = list(network_rtt_millis)
-
-    if isinstance(network_mbps, int):
-        network_mbps_l = [network_mbps] * bs
-    else:
-        network_mbps_l = list(network_mbps)
+    network_type, network_kwargs = NetworkContext.to_rust_args_batch(network_context)
 
     simul_batch = mbnt.Batch.new(
         trace_paths=trace_paths,
         window_duration_ns=int(round(obs.time_step * 1e9)),
         num_machines=num_machines,
-        network_rtt_millis=network_rtt_millis_l,
-        network_mbps=network_mbps_l,
+        network_type=network_type,
+        network_kwargs=network_kwargs,
         max_trace_length=max_packets or 60_000,
         seed=seed,
         trim_raw=trim_raw,
         relative=True,
     )
 
+    bs = len(trace_paths)
     max_packets = max_packets or 1_000_000
     max_duration_s = max_duration_s or math.inf
 

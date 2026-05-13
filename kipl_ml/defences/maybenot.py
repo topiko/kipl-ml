@@ -7,7 +7,8 @@ from mbnt import deal_machines, sim_trace_from_file_advanced
 
 from kipl_ml.data import assets
 from kipl_ml.data.utils import parse_trace_to_tensor_dict
-from kipl_ml.defences.base import DEFENCE_TYPE_KW, NetworkContext, _Def
+from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
+from kipl_ml.network.network import NetworkContext, NetworkContextIntDict
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
 from kipl_ml.tools.rng_samplers import MachineRng
@@ -104,11 +105,11 @@ class Maybenot(_Def):
         trace_path: os.PathLike,
         machine_idx: int | None = None,
         trim_raw: int = 0,
-        network_context: NetworkContext | None = None,
+        network_context: NetworkContextIntDict | None = None,
     ) -> dict[Feats, torch.Tensor]:
-        network_rtt_millis, network_mbps = self._require_network_context(
-            network_context
-        )
+        if network_context is None:
+            raise ValueError(f"{self.__class__.__name__} requires explicit network_context")
+        network_type, network_kwargs = NetworkContext.to_rust_args(network_context)
         pad_bloc_fracs, (client_machines, server_machines) = self._get_machines(
             machine_idx
         )
@@ -116,8 +117,8 @@ class Maybenot(_Def):
             str(trace_path),
             client_machines,
             server_machines,
-            network_rtt_millis,
-            network_mbps,
+            network_type=network_type,
+            network_kwargs=network_kwargs,
             **pad_bloc_fracs,
             max_trace_length=self.simul_kwargs.get(
                 "max_trace_length", MAX_TRACE_LENGTH

@@ -13,26 +13,13 @@ from torch.utils.data import Dataset
 
 from kipl_ml.data import assets
 from kipl_ml.data.utils import load_dataset_meta_df
-from kipl_ml.defences.base import NET_DELAY_KW, NET_PPS_KW, NetworkContext, NoDefence, _Def
+from kipl_ml.defences.base import NoDefence, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
-from kipl_ml.tools.rng_samplers import NetwkRtt, NetwkMbps
+from kipl_ml.network.network import NetworkContext, NetworkContextIntDict
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
-
-
-def get_network_context_ranges(cfg) -> dict[str, tuple[int, int]]:
-    return {
-        "network_rtt_millis": (
-            int(cfg.network.rtt_millis.min),
-            int(cfg.network.rtt_millis.max),
-        ),
-        "network_mbps": (
-            int(cfg.network.mbps.min),
-            int(cfg.network.mbps.max),
-        ),
-    }
 
 
 class WFDataset(Dataset):
@@ -40,10 +27,9 @@ class WFDataset(Dataset):
         self,
         meta_df: pd.DataFrame,
         feature_trs: FeatureTrs | None,
+        network_context: NetworkContext,
         label: str = assets.PAGE_LABEL,
         defence: _Def | None = None,
-        network_rtt_millis: tuple[int, int] | None = None,
-        network_mbps: tuple[int, int] | None = None,
         seed: int | None = 42,
         defence_aug: int = 0,
         dataset_key: str | None = None,
@@ -65,20 +51,11 @@ class WFDataset(Dataset):
         self.name = dataset
         self.label = label
 
-        if network_rtt_millis is None or network_mbps is None:
-            raise ValueError(
-                "WFDataset requires explicit network_rtt_millis and network_mbps "
-                "because it owns network context sampling"
-            )
-
         if defence is None:
             defence = NoDefence(seed=seed)
 
         self.defence = defence
-        self.network_rtt_millis = tuple(int(v) for v in network_rtt_millis)
-        self.network_mbps = tuple(int(v) for v in network_mbps)
-        self.network_rtt_sampler = NetwkRtt(*self.network_rtt_millis, seed=seed)
-        self.network_mbps_sampler = NetwkMbps(*self.network_mbps, seed=seed)
+        self.network_context = network_context.with_seed(seed)
         self.tmp_dir = None
         self.defence_aug = defence_aug
 
@@ -98,8 +75,7 @@ class WFDataset(Dataset):
         str_ += key_val_fmt("defence augmentation", self.defence_aug)
         str_ += key_val_fmt("n_traces (aug)", len(self))
         str_ += key_val_fmt("n_classes", self.n_classes)
-        str_ += key_val_fmt("network_rtt_millis", self.network_rtt_millis)
-        str_ += key_val_fmt("network_mbps", self.network_mbps)
+        str_ += self.network_context.report() + "\n"
         if self.trim_raw > 0:
             str_ += key_val_fmt("trimming from start", self.trim_raw)
         if self.feature_trs is not None:
@@ -178,15 +154,12 @@ class WFDataset(Dataset):
 
         return (idx // self.defence_aug, idx % self.defence_aug)
 
-    def _sample_network_context(self) -> NetworkContext:
-        return {
-            NET_DELAY_KW: int(self.network_rtt_sampler()),
-            NET_PPS_KW: int(self.network_mbps_sampler()),
-        }
+    def _sample_network_context(self) -> NetworkContextIntDict:
+        return self.network_context.sample_params()
 
     def _get_trace_and_context(
         self, idx: int
-    ) -> tuple[dict[Feats, torch.Tensor], NetworkContext]:
+    ) -> tuple[dict[Feats, torch.Tensor], NetworkContextIntDict]:
         orig_idx, sub_idx = self._get_idx(idx)
 
         orig_trace_path = Path(self.meta_df.iloc[orig_idx][assets.TRACE_F_PATH])
@@ -209,7 +182,7 @@ class WFDataset(Dataset):
                 self.tmp_dir.name, f"{orig_trace_path.name}.{sub_idx:03d}"
             )
 
-            def safe_load() -> tuple[dict[Feats, torch.Tensor], NetworkContext]:
+            def safe_load() -> tuple[dict[Feats, torch.Tensor], NetworkContextIntDict]:
                 """
                 When using dataloaders, several threads can call reading of the same
                 trace file. This can cause some issues, here is an attempt to protect
@@ -321,19 +294,21 @@ def dict_to_device(
 def get_train_valid_test(
     dataset: str,
     label: str,
+    network_context: NetworkContext,
     n_splits: int,
     test_xv: int,
     random_state: int | None = None,
     defence_train: _Def | None = None,
     defence_valid: _Def | None = None,
     defence_test: _Def | None = None,
-    network_rtt_millis: tuple[int, int] | None = None,
-    network_mbps: tuple[int, int] | None = None,
     seed: int | None = 42,
     defence_aug_valid: int = 1,
     n_min_packets: int | None = None,
     **kwargs,
 ) -> tuple[WFDataset, WFDataset, WFDataset]:
+    if network_context is None:
+        raise ValueError("get_train_valid_test requires explicit network_context")
+
     meta_df = load_dataset_meta_df(dataset)
 
     if (n_min_packets := n_min_packets or 0) > 0:
@@ -369,8 +344,7 @@ def get_train_valid_test(
         label=label,
         meta_df=train_df,
         defence=defence_train,
-        network_rtt_millis=network_rtt_millis,
-        network_mbps=network_mbps,
+        network_context=network_context.with_seed(train_seed),
         seed=train_seed,
         dataset_key="train",
         **kwargs,
@@ -386,8 +360,7 @@ def get_train_valid_test(
         label=label,
         meta_df=valid_df,
         defence=defence_valid,
-        network_rtt_millis=network_rtt_millis,
-        network_mbps=network_mbps,
+        network_context=network_context.with_seed(valid_seed),
         seed=valid_seed,
         dataset_key="valid",
         **kwargs,
@@ -398,8 +371,7 @@ def get_train_valid_test(
         label=label,
         meta_df=test_df,
         defence=defence_test,
-        network_rtt_millis=network_rtt_millis,
-        network_mbps=network_mbps,
+        network_context=network_context.with_seed(test_seed),
         seed=test_seed,
         dataset_key="test",
         **kwargs,

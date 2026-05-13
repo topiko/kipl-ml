@@ -26,7 +26,7 @@ from experiment.ephemeral_defences.main import (
 from experiment.ephemeral_defences.scripts.name_maps import DEFENCE_NAME_MAP
 from kipl_ml.data import assets
 from kipl_ml.data.utils import load_dataset_meta_df
-from kipl_ml.data.wf_dataset import WFDataset
+from kipl_ml.data.wf_dataset import WFDataset, get_network_context
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import get_mlflow_expr
 from kipl_ml.metrics.clf_metrics import Accuracy
@@ -168,6 +168,7 @@ def get_test_set(cfg: OmegaConf, test_xv: int) -> WFDataset:
         label=label,
         meta_df=test_df,
         defence=defence_test,
+        network_context=get_network_context(cfg)["network_context"],
         feature_trs=feature_trs,
         defence_aug=cfg.train.defence_augmentation_valid,
         dataset_key="test",

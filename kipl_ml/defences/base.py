@@ -9,15 +9,18 @@ from mbnt import sim_trace_from_file_advanced
 from kipl_ml.data.utils import get_std_trace_dict, parse_trace_to_tensor_dict
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
+from kipl_ml.network.network import (
+    NET_DELAY_KW,
+    NET_PPS_KW,
+    NetworkContext,
+    NetworkContextIntDict,
+)
 from kipl_ml.tools.rng_samplers import TraceSimulRng
 from kipl_ml.trace.features import Feats
 from kipl_ml.trace.params import EVENTS_MULTIPLIER, MAX_TRACE_LENGTH
 
 logger = get_logger(__name__)
 DEFENCE_TYPE_KW = "defence-type"
-NET_DELAY_KW = "network_rtt_millis"
-NET_PPS_KW = "network_mbps"
-NetworkContext = dict[str, int]
 
 
 class _Def(ABC):
@@ -52,7 +55,7 @@ class _Def(ABC):
         trace_path: os.PathLike,
         machine_idx: int | None = None,
         trim_raw: int = 0,
-        network_context: NetworkContext | None = None,
+        network_context: NetworkContextIntDict | None = None,
     ) -> dict[Feats, torch.Tensor]:
         if not isinstance(trace_path, os.PathLike):
             raise TypeError(
@@ -66,7 +69,9 @@ class _Def(ABC):
             network_context=network_context,
         )
 
-    def load_data(self, trace_path: os.PathLike, trim_raw: int = 0) -> dict[Feats, torch.Tensor]:
+    def load_data(
+        self, trace_path: os.PathLike, trim_raw: int = 0
+    ) -> dict[Feats, torch.Tensor]:
         return get_std_trace_dict(trace_path, trim_raw=trim_raw)
 
     @abstractmethod
@@ -75,7 +80,7 @@ class _Def(ABC):
         trace_path: os.PathLike,
         machine_idx: int | None = None,
         trim_raw: int = 0,
-        network_context: NetworkContext | None = None,
+        network_context: NetworkContextIntDict | None = None,
     ) -> dict[Feats, torch.Tensor]:
         raise NotImplementedError
 
@@ -91,7 +96,7 @@ class _Def(ABC):
         raise NotImplementedError
 
     def _require_network_context(
-        self, network_context: NetworkContext | None
+        self, network_context: NetworkContextIntDict | None
     ) -> tuple[int, int]:
         if network_context is None:
             raise ValueError(
@@ -134,17 +139,18 @@ class NoDefence(_Def):
         trace_path: os.PathLike,
         machine_idx: int | None = None,
         trim_raw: int = 0,
-        network_context: NetworkContext | None = None,
+        network_context: NetworkContextIntDict | None = None,
     ) -> dict[Feats, torch.Tensor]:
-        network_rtt_millis, network_mbps = self._require_network_context(
-            network_context
-        )
+        if network_context is None:
+            raise ValueError("NoDefence requires explicit network_context")
+        network_type, network_kwargs = NetworkContext.to_rust_args(network_context)
+
         times, dirs, paddings = sim_trace_from_file_advanced(
             str(trace_path),
             [],  # Empty machines --> no defence
             [],  # Empty machines --> no defence
-            network_rtt_millis,
-            network_mbps,
+            network_type=network_type,
+            network_kwargs=network_kwargs,
             max_padding_frac_client=0,
             max_padding_frac_server=0,
             max_blocking_frac_client=0,
