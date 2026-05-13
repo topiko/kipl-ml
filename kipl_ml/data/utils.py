@@ -13,10 +13,7 @@ from kipl_ml.config import PROJECT_ROOT
 from kipl_ml.data import assets
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.network.network import (
-    NETWK_MAP,
     NET_DELAY_KW,
-    NET_PPS_KW,
-    TOR_PROFILE_KW,
     NetworkContext,
     NetworkContextIntDict,
 )
@@ -79,25 +76,11 @@ def load_dataset_meta_df(dataset: str, include_xv_cols: bool = True) -> pd.DataF
 
 def get_std_trace_array(
     path: os.PathLike,
-    network_context: NetworkContextIntDict | None = None,
+    network_context: NetworkContextIntDict,
     trim_raw: int = 0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Load a standard trace array from a file
-    The standard is given by:
-
-    return:
-        - times [ns]: np.ndarray[float64]
-        - dirs: np.ndarray[int8]
-        - paddings: np.ndarray[bool]
-    """
-
-    network_context = network_context or {
-        "network_kind": NETWK_MAP["vpn_custom"],
-        NET_DELAY_KW: 10,
-        NET_PPS_KW: 0,
-        TOR_PROFILE_KW: -1,
-    }
+    if network_context is None:
+        raise ValueError("get_std_trace_array requires explicit network_context")
 
     if int(network_context[NET_DELAY_KW]) == 0:
         raise ValueError(
@@ -156,9 +139,11 @@ def parse_trace_to_tensor_dict(
 
 def get_std_trace_dict(
     path: os.PathLike,
-    network_context: NetworkContextIntDict | None = None,
+    network_context: NetworkContextIntDict,
     trim_raw: int = 0,
 ) -> dict[Feats, torch.Tensor]:
+    if network_context is None:
+        raise ValueError("get_std_trace_dict requires explicit network_context")
     times, dirs, paddings = get_std_trace_array(
         path,
         network_context=network_context,

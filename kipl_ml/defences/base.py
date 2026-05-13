@@ -10,8 +10,6 @@ from kipl_ml.data.utils import get_std_trace_dict, parse_trace_to_tensor_dict
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.network.network import (
-    NET_DELAY_KW,
-    NET_PPS_KW,
     NetworkContext,
     NetworkContextIntDict,
 )
@@ -70,9 +68,12 @@ class _Def(ABC):
         )
 
     def load_data(
-        self, trace_path: os.PathLike, trim_raw: int = 0
+        self,
+        trace_path: os.PathLike,
+        trim_raw: int = 0,
+        network_context: NetworkContextIntDict | None = None,
     ) -> dict[Feats, torch.Tensor]:
-        return get_std_trace_dict(trace_path, trim_raw=trim_raw)
+        return get_std_trace_dict(trace_path, network_context=network_context, trim_raw=trim_raw)
 
     @abstractmethod
     def _simulate(
@@ -94,24 +95,6 @@ class _Def(ABC):
     @abstractmethod
     def _mlflow_log_params(self) -> dict[str, str]:
         raise NotImplementedError
-
-    def _require_network_context(
-        self, network_context: NetworkContextIntDict | None
-    ) -> tuple[int, int]:
-        if network_context is None:
-            raise ValueError(
-                f"{self.__class__.__name__} requires explicit network_context with "
-                f"'{NET_DELAY_KW}' and '{NET_PPS_KW}'"
-            )
-        try:
-            rtt_ms = int(network_context[NET_DELAY_KW])
-            mbps = int(network_context[NET_PPS_KW])
-        except KeyError as exc:
-            raise KeyError(
-                f"network_context must contain '{NET_DELAY_KW}' and '{NET_PPS_KW}'"
-            ) from exc
-        return rtt_ms, mbps
-
 
 class NoDefence(_Def):
     def __init__(
