@@ -27,14 +27,21 @@ TOR_PROFILES: dict[int, dict[str, str]] = {
     },
 }
 
+
+def _parse_tor_metrics_csv(csv_str: str) -> tuple[float, ...]:
+    parts = csv_str.split(",")
+    return tuple(float(parts[i]) for i in range(-5, 0))
+
+
 # Pre-parsed Tor Metrics box-plot quartiles for Python-side sampling.
-# Each entry: (low, q1, md, q3, high)
-_TOR_QUARTILES: dict[int, tuple[tuple[float, ...], tuple[float, ...]]] = {
-    1: (
-        (20.0, 60.0, 90.0, 130.0, 230.0),   # latencies (RTT, ms)
-        (162.0, 8430.0, 14979.0, 24672.0, 46603.0),  # throughput (kbps)
-    ),
-}
+# Derived from TOR_PROFILES strings so they stay in sync.
+_TOR_QUARTILES: dict[int, tuple[tuple[float, ...], tuple[float, ...]]] = {}
+for _prof_id, _prof_data in TOR_PROFILES.items():
+    if "tor_metrics_latencies" in _prof_data and "tor_metrics_throughput" in _prof_data:
+        _TOR_QUARTILES[_prof_id] = (
+            _parse_tor_metrics_csv(_prof_data["tor_metrics_latencies"]),
+            _parse_tor_metrics_csv(_prof_data["tor_metrics_throughput"]),
+        )
 
 
 def _as_int_list(value: int | Sequence[int] | object, key: str) -> list[int]:
