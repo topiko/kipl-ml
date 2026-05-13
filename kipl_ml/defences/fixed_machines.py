@@ -110,14 +110,13 @@ class _FixedMachine(_Def):
     ) -> dict[Feats, torch.Tensor]:
         if network_context is None:
             raise ValueError(f"{self.__class__.__name__} requires explicit network_context")
-        network_type, network_kwargs = NetworkContext.to_rust_args(network_context)
+        network_kwargs = NetworkContext.to_rust_args(network_context)
         client_machines, server_machines = self._get_machines(machine_idx)
 
         times, dirs, paddings = sim_trace_from_file_advanced(
             str(trace_path),
             client_machines,
             server_machines,
-            network_type=network_type,
             network_kwargs=network_kwargs,
             max_padding_frac_client=0,
             max_padding_frac_server=0,

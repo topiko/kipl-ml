@@ -245,7 +245,7 @@ def _policy_rollout_impl(
 
     if network_context is None:
         raise ValueError("policy rollout requires explicit network_context")
-    network_type, network_kwargs = NetworkContext.to_rust_args_batch(network_context)
+    network_kwargs = NetworkContext.to_rust_args_batch(network_context)
 
     num_machines = 4096
     max_silence_bins = int(round(obs.max_silence_s / obs.time_step))
@@ -254,7 +254,6 @@ def _policy_rollout_impl(
         trace_paths=trace_paths,
         window_duration_ns=int(round(obs.time_step * 1e9)),
         num_machines=num_machines,
-        network_type=network_type,
         network_kwargs=network_kwargs,
         max_trace_length=max_packets,
         seed=seed,

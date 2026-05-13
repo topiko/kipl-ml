@@ -10,6 +10,7 @@ from kipl_ml.tools.rng_samplers import NetwkMbps, NetwkRtt
 NET_KIND_KW = "network_kind"
 NET_DELAY_KW = "network_rtt_millis"
 NET_PPS_KW = "network_mbps"
+NET_TYPE_KW = "network_type"
 TOR_PROFILE_KW = "tor_profile"
 NetworkContextIntDict = dict[str, int]
 
@@ -147,10 +148,11 @@ class NetworkContext:
                 kwargs[key] = get_value(key)
 
     @staticmethod
-    def to_rust_args(int_dict: NetworkContextIntDict) -> tuple[str, dict[str, object]]:
+    def to_rust_args(int_dict: NetworkContextIntDict) -> dict[str, object]:
         network_type = INV_NETWK_MAP[int_dict[NET_KIND_KW]]
 
         kwargs: dict[str, object] = {
+            NET_TYPE_KW: network_type,
             "rtt_millis": int(int_dict[NET_DELAY_KW]),
             "mbps": int(int_dict[NET_PPS_KW]),
         }
@@ -160,12 +162,12 @@ class NetworkContext:
             lambda k: int(int_dict[k]),
         )
 
-        return network_type, kwargs
+        return kwargs
 
     @staticmethod
     def to_rust_args_batch(
         batch_dict: dict[str, int | Sequence[int] | object],
-    ) -> tuple[str, dict[str, object]]:
+    ) -> dict[str, object]:
         kinds = _as_int_list(batch_dict[NET_KIND_KW], NET_KIND_KW)
         if len(set(kinds)) != 1:
             raise ValueError("Batched network_context requires one shared network_kind")
@@ -177,6 +179,7 @@ class NetworkContext:
 
         network_type = INV_NETWK_MAP[kinds[0]]
         kwargs: dict[str, object] = {
+            NET_TYPE_KW: network_type,
             "rtt_millis": rtts,
             "mbps": mbps,
         }
@@ -185,7 +188,7 @@ class NetworkContext:
             lambda k: _as_int_list(batch_dict[k], k),
         )
 
-        return network_type, kwargs
+        return kwargs
 
     def report(self) -> str:
         lines = key_val_fmt("network_kind", self.network_kind)

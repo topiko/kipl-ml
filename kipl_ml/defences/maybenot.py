@@ -109,7 +109,7 @@ class Maybenot(_Def):
     ) -> dict[Feats, torch.Tensor]:
         if network_context is None:
             raise ValueError(f"{self.__class__.__name__} requires explicit network_context")
-        network_type, network_kwargs = NetworkContext.to_rust_args(network_context)
+        network_kwargs = NetworkContext.to_rust_args(network_context)
         pad_bloc_fracs, (client_machines, server_machines) = self._get_machines(
             machine_idx
         )
@@ -117,7 +117,6 @@ class Maybenot(_Def):
             str(trace_path),
             client_machines,
             server_machines,
-            network_type=network_type,
             network_kwargs=network_kwargs,
             **pad_bloc_fracs,
             max_trace_length=self.simul_kwargs.get(

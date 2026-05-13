@@ -87,13 +87,12 @@ def get_std_trace_array(
             "RTT needs to be positive; the rust simul crashes otherwise"
         )
 
-    network_type, network_kwargs = NetworkContext.to_rust_args(
+    network_kwargs = NetworkContext.to_rust_args(
         network_context
     )
 
     return load_trace_to_numpy(
         str(path),
-        network_type=network_type,
         network_kwargs=network_kwargs,
         max_trace_length=MAX_TRACE_LENGTH,
         events_multiplier=EVENTS_MULTIPLIER,
