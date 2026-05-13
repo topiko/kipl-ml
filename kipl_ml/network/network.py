@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import random
 from collections.abc import Callable, Sequence
+
+import numpy as np
 
 from kipl_ml.logging.utils import key_val_fmt
 from kipl_ml.tools.rng_samplers import NetwkMbps, NetwkRtt
@@ -55,20 +56,25 @@ def _as_int_list(value: int | Sequence[int] | object, key: str) -> list[int]:
     return [int(value)]
 
 
-def _sample_tor_quartile(q: tuple[float, ...]) -> float:
-    """Piecewise-uniform sample matching TorMetricsRow::sample() logic.
+class TorMetricsSampler:
+    """Piecewise-uniform sampler matching TorMetricsRow::sample() logic.
 
     Picks one of the four quartile bins uniformly, then samples uniformly
     within that bin.
     """
-    bucket = random.randint(0, 3)
-    lo, hi = {
-        0: (q[0], q[1]),
-        1: (q[1], q[2]),
-        2: (q[2], q[3]),
-        3: (q[3], q[4]),
-    }[bucket]
-    return random.uniform(lo, hi) if lo != hi else lo
+
+    def __init__(self, seed: int | None = None):
+        self.rng = np.random.default_rng(seed)
+
+    def sample_quartile(self, q: tuple[float, ...]) -> float:
+        bucket = int(self.rng.integers(0, 4))
+        lo, hi = {
+            0: (q[0], q[1]),
+            1: (q[1], q[2]),
+            2: (q[2], q[3]),
+            3: (q[3], q[4]),
+        }[bucket]
+        return float(self.rng.uniform(lo, hi)) if lo != hi else float(lo)
 
 
 class NetworkContext:
@@ -88,6 +94,7 @@ class NetworkContext:
 
         self.rtt_sampler = NetwkRtt(*network_rtt_millis, seed=seed)
         self.mbps_sampler = NetwkMbps(*network_mbps, seed=seed)
+        self.tor_sampler = TorMetricsSampler(seed=seed)
 
     @classmethod
     def from_cfg(cls, cfg) -> NetworkContext:
@@ -119,8 +126,8 @@ class NetworkContext:
         # Pre-sample Tor Metrics when using a profile with data.
         if (tor_int := self.tor_profile) in _TOR_QUARTILES:
             lat_q, tp_q = _TOR_QUARTILES[tor_int]
-            e2e_rtt_ms = _sample_tor_quartile(lat_q)
-            e2e_kbps = _sample_tor_quartile(tp_q)
+            e2e_rtt_ms = self.tor_sampler.sample_quartile(lat_q)
+            e2e_kbps = self.tor_sampler.sample_quartile(tp_q)
             d[TOR_E2E_RTT_US_KW] = int(e2e_rtt_ms * 1000)   # ms → µs
             d[TOR_E2E_TPUT_BPS_KW] = int(e2e_kbps * 1000)   # kbps → bps
 
