@@ -275,7 +275,7 @@ def _policy_rollout_impl(
     fd_steps: dict[Feats, list[torch.Tensor]] = {f: [] for f in obs.features}
 
     actions_a: StepActions = [NoAction(time=0) for _ in range(bs)]
-    active = np.ones(bs, dtype=bool)
+    active = np.zeros(bs, dtype=bool)
     has_started = np.zeros_like(active, dtype=bool)
     long_enough = np.zeros_like(has_started)
     next_bins = np.zeros(bs, dtype=np.int64)
@@ -295,40 +295,51 @@ def _policy_rollout_impl(
     t_storing_X_obs_ = 0.0
     t_storing_policy_ = 0.0
 
-    hobs = None
     step_count = 0
+    hobs = obs.init_hidden(bs)
     while True:
         # The streamer sleeps internally until it emits or hits its cap.
         t0 = perf_counter()
 
-        client_actions, server_actions = map_step_actions(actions_a, active)
+        if step_count == 0:
+            client_actions, server_actions = map_step_actions(
+                actions_a, np.ones_like(active)
+            )
+        else:
+            client_actions, server_actions = map_step_actions(actions_a, active)
+
         trace_windows, stepped_bins = simul_batch.step_until_emit(
             client_actions, server_actions, max_silence_bins
         )
 
-        next_active = ~np.asarray(simul_batch.is_done() | long_enough, dtype=bool)
+        terminated = np.asarray(simul_batch.is_done() | long_enough, dtype=bool)
+        next_active = has_started & ~terminated
         t1 = perf_counter()
         t_stepping_ += t1 - t0
 
-        prev_idxs = np.nonzero(active)[0]
-        next_idxs = np.nonzero(next_active)[0]
-
-        if (n_next_active := next_active.sum()) == 0:
+        if terminated.sum() == bs:
             break
 
         i = 0
-        fd_w = {f: torch.zeros((n_next_active, 1)) for f in obs.features}
+        idxs = []
+        fd_w: dict[Feats, list[float]] = {f: [] for f in obs.features}
         for idx, window, n_steps in zip(range(bs), trace_windows, stepped_bins):
             times = torch.tensor(window[0] / 1e9).float()  # ns -> s
             dirs = torch.tensor(window[1]).float()  # dirs
             decoys = torch.tensor(window[2]).float()  # decoy
 
-            if (len(times) > 0) and (not has_started[idx]):
-                has_started[idx] = True
+            emits = len(times) > 0
 
-            if idx not in prev_idxs or (not has_started[idx]):
-                # This trace is done now -> discard
-                continue
+            if emits and (not has_started[idx]):
+                has_started[idx] = True
+                next_active[idx] = True
+                active[idx] = True
+                just_started = True
+            else:
+                just_started = False
+
+            if not has_started[idx]:
+                next_bins[idx] += n_steps
 
             # Store the observation.
             X_obs_l[idx][Feats.TIMES].append(times)
@@ -343,32 +354,42 @@ def _policy_rollout_impl(
             if times.numel() > 0 and times.max().item() > max_duration_s:
                 long_enough[idx] = True
 
-            # The actions_a is a list of the prev action len(actions_a) == len(prev_idxs)
-            # We need to map e.g., prev_idxs = [0, 2, 12] and idx == 12 -> actions_a[2]
-            aidx = np.argwhere(prev_idxs == idx)[0, 0]
-
-            if idx not in next_idxs:
-                continue
-
             current_bin = int(next_bins[idx])
-            actions_l[idx].append(actions_a[aidx])
-            fd_w[Feats.UP_COUNT][i, 0] = ((dirs == UPLOAD) & (decoys == 0)).sum()
-            fd_w[Feats.DOWN_COUNT][i, 0] = ((dirs == DOWNLOAD) & (decoys == 0)).sum()
-            fd_w[Feats.Dt_BINS][i, 0] = n_steps
-            fd_w[Feats.TIME_BINS][i, 0] = current_bin
-            fd_w[Feats.SILENCE_FLAG][i, 0] = float(
-                (fd_w[Feats.UP_COUNT][i, 0] == 0)
-                and (fd_w[Feats.DOWN_COUNT][i, 0] == 0)
-            )
+            if just_started:
+                prev_action = NoAction(time=current_bin)
+            elif active[idx] and just_started:
+                pass
+            elif active[idx] and not just_started:
+                aidx = np.nonzero(prev_action_idxs == idx)[0][0]
+                prev_action = actions_a[aidx]
+            elif not active[idx]:
+                if has_started[idx] and not terminated[idx]:
+                    raise
+                else:
+                    continue
 
-            next_bins[idx] += int(n_steps)
+            if not terminated[idx]:
+                actions_l[idx].append(prev_action)
+                up_c = ((dirs == UPLOAD) & (decoys == 0)).sum()
+                down_c = ((dirs == DOWNLOAD) & (decoys == 0)).sum()
+                fd_w[Feats.UP_COUNT].append(up_c)
+                fd_w[Feats.DOWN_COUNT].append(down_c)
+                fd_w[Feats.Dt_BINS].append(n_steps)
+                fd_w[Feats.TIME_BINS].append(current_bin)
+                fd_w[Feats.SILENCE_FLAG].append(float(up_c == 0.0 and down_c == 0.0))
+                idxs.append(idx)
 
+                next_bins[idx] += n_steps
             i += 1
+
+        fd_w = {k: torch.tensor(v).reshape(-1, 1).float() for k, v in fd_w.items()}
+        prev_action_idxs = np.array(idxs)
 
         # Update which are active
         active = next_active
 
         h_active = _hidden_w_mask(hobs, active)
+
         t2 = perf_counter()
         t_marshall_ += t2 - t1
 

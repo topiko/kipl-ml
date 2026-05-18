@@ -68,8 +68,6 @@ def _hidden_w_mask(
     hmasked: tuple[torch.Tensor, ...] | None = None,
 ) -> tuple[torch.Tensor, ...] | None:
     if h is None:
-        if not mask.all():
-            raise ValueError("Hidden is none, but only a subet is selected")
         if hmasked is not None:
             return hmasked
         return None
@@ -530,6 +528,12 @@ class AGENT1(nn.Module):
 
         if prefer_wait_bias != 0.0:
             self._init_action_selection_prefer_wait(prefer_wait_bias=prefer_wait_bias)
+
+    def init_hidden(self, bs: int) -> tuple[torch.tensor, torch.tensor]:
+        return (
+            torch.zeros(self.num_layers, bs, self.hidden_size),
+            torch.zeros(self.num_layers, bs, self.hidden_size),
+        )
 
     def _init_action_selection_prefer_wait(self, prefer_wait_bias: float) -> None:
         """Initialize selector logits to heavily prefer DO_NOTHING (selector index 0)."""
