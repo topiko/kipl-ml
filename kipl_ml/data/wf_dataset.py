@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import fcntl
 import os
 import random
@@ -20,6 +21,8 @@ from kipl_ml.network.network import NetworkContext, NetworkContextIntDict
 from kipl_ml.trace.features import Feats, FeatureTrs
 
 logger = get_logger(__name__)
+
+_KEEP = object()
 
 
 class WFDataset(Dataset):
@@ -93,6 +96,30 @@ class WFDataset(Dataset):
                 logger.info(tab + line)
 
         return str_
+
+    def clone(
+        self,
+        *,
+        feature_trs: FeatureTrs | None | object = _KEEP,
+        defence_aug: int | object = _KEEP,
+        dataset_key: str | None = None,
+    ) -> WFDataset:
+        if feature_trs is _KEEP:
+            feature_trs = deepcopy(self.feature_trs)
+        if defence_aug is _KEEP:
+            defence_aug = self.defence_aug
+
+        return type(self)(
+            meta_df=self.meta_df.copy(deep=True),
+            feature_trs=feature_trs,
+            network_context=self.network_context,
+            label=self.label,
+            defence=deepcopy(self.defence),
+            seed=self.network_context.seed,
+            defence_aug=defence_aug,
+            dataset_key=dataset_key,
+            trim_raw=self.trim_raw,
+        )
 
     @property
     def n_orig_traces(self) -> int:
@@ -272,7 +299,8 @@ class InformativeDataset(Dataset):
 
         trace_dict, network_context = self.base._get_trace_and_context(idx)
 
-        trace_dict = self.feature_trs(trace_dict)
+        if self.feature_trs is not None:
+            trace_dict = self.feature_trs(trace_dict)
 
         label = self._get_label(idx)
 
