@@ -341,11 +341,6 @@ def _policy_rollout_impl(
             if not has_started[idx]:
                 next_bins[idx] += n_steps
 
-            # Store the observation.
-            X_obs_l[idx][Feats.TIMES].append(times)
-            X_obs_l[idx][Feats.DIRS].append(dirs)
-            X_obs_l[idx][Feats.DECOY].append(decoys)
-
             n_packets[idx] += times.numel()
 
             if n_packets[idx] > max_packets:
@@ -355,6 +350,7 @@ def _policy_rollout_impl(
                 long_enough[idx] = True
 
             current_bin = int(next_bins[idx])
+
             if just_started:
                 prev_action = NoAction(time=current_bin)
             elif active[idx] and just_started:
@@ -380,6 +376,12 @@ def _policy_rollout_impl(
                 idxs.append(idx)
 
                 next_bins[idx] += n_steps
+
+                # Store the observation.
+                X_obs_l[idx][Feats.TIMES].append(times)
+                X_obs_l[idx][Feats.DIRS].append(dirs)
+                X_obs_l[idx][Feats.DECOY].append(decoys)
+
             i += 1
 
         fd_w = {k: torch.tensor(v).reshape(-1, 1).float() for k, v in fd_w.items()}
