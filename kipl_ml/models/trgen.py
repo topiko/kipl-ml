@@ -529,10 +529,12 @@ class AGENT1(nn.Module):
         if prefer_wait_bias != 0.0:
             self._init_action_selection_prefer_wait(prefer_wait_bias=prefer_wait_bias)
 
-    def init_hidden(self, bs: int) -> tuple[torch.tensor, torch.tensor]:
+    def init_hidden(
+        self, bs: int, device: torch.DeviceObjType = "cpu"
+    ) -> tuple[torch.tensor, torch.tensor]:
         return (
-            torch.zeros(self.num_layers, bs, self.hidden_size),
-            torch.zeros(self.num_layers, bs, self.hidden_size),
+            torch.zeros(self.num_layers, bs, self.hidden_size, device=device),
+            torch.zeros(self.num_layers, bs, self.hidden_size, device=device),
         )
 
     def _init_action_selection_prefer_wait(self, prefer_wait_bias: float) -> None:

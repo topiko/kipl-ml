@@ -296,7 +296,7 @@ def _policy_rollout_impl(
     t_storing_policy_ = 0.0
 
     step_count = 0
-    hobs = obs.init_hidden(bs)
+    hobs = obs.init_hidden(bs, device=device)
     while True:
         # The streamer sleeps internally until it emits or hits its cap.
         t0 = perf_counter()
