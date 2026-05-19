@@ -257,7 +257,7 @@ class WFDataset(Dataset):
         return trace_dict, label
 
 
-class WithIdxDataset(Dataset):
+class InformativeDataset(Dataset):
     def __init__(self, base: WFDataset):
         self.base = base
 
@@ -348,10 +348,16 @@ def get_train_valid_test(
     def _seed(delta: int) -> int | None:
         return None if seed is None else seed + delta
 
-    train_ds = _make_split("train", train_df, defence_train, _seed(1), kwargs.get("defence_aug", 0))
+    train_ds = _make_split(
+        "train", train_df, defence_train, _seed(1), kwargs.get("defence_aug", 0)
+    )
 
-    logger.info("Setting %d fold augmentation for valid and test sets.", defence_aug_valid)
-    valid_ds = _make_split("valid", valid_df, defence_valid, _seed(2), defence_aug_valid)
+    logger.info(
+        "Setting %d fold augmentation for valid and test sets.", defence_aug_valid
+    )
+    valid_ds = _make_split(
+        "valid", valid_df, defence_valid, _seed(2), defence_aug_valid
+    )
     test_ds = _make_split("test", test_df, defence_test, _seed(3), defence_aug_valid)
 
     return train_ds, valid_ds, test_ds
