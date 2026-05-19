@@ -369,9 +369,7 @@ def _run_xv(
             log_dataset(ds, STORE_DATA_COLS, target)
 
         # Log the overheads
-        defence_overheads = get_overheads(
-            test_loader.dataset.defence, test_loader.dataset.meta_df
-        )
+        defence_overheads = get_overheads(test_loader.dataset)
 
         if (missing := defence_overheads["sim.missing"]) > 0.0001:
             logger.warning(f"Missing packets ({missing}) in simulation!")
