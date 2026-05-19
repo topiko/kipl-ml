@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -11,9 +12,9 @@ import torch
 from torch import nn
 
 from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
-from kipl_ml.network.network import NetworkContextIntDict
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
+from kipl_ml.network.network import NetworkContextIntDict
 from kipl_ml.rl.simulate import policy_obfuscate_trace
 from kipl_ml.trace.enums import Feats
 
@@ -134,7 +135,7 @@ class RNNDef(_NNDef):
     ):
         super().__init__(*args, **kwargs)
         self._n_packets = n_packets
-        self._max_dur_s = max_dur_s
+        self._max_dur_s = max_dur_s or math.inf
         self.rng = np.random.default_rng()
 
     def _run_model(
@@ -151,7 +152,9 @@ class RNNDef(_NNDef):
         add_tail_s = 0.0
 
         if network_context is None:
-            raise ValueError(f"{self.__class__.__name__} requires explicit network_context")
+            raise ValueError(
+                f"{self.__class__.__name__} requires explicit network_context"
+            )
 
         with torch.inference_mode():
             trace_d = policy_obfuscate_trace(
