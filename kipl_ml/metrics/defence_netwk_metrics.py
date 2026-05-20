@@ -1,16 +1,19 @@
 import os
 from contextlib import ExitStack
+from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from mbnt import compute_overheads, load_trace_to_str
+from mbnt import compute_overheads
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from kipl_ml.data.assets import DATASET, TRACE_F_PATH
 from kipl_ml.data.utils import tensor_dict_to_str
 from kipl_ml.data.wf_dataset import InformativeDataset, WFDataset
+from kipl_ml.defences.nndefs import RNNDef
 from kipl_ml.logging.logger import TQDM_W, get_logger
+from kipl_ml.network.network import NetworkContextIntDict
 from kipl_ml.trace.params import MAX_TRACE_LENGTH
 
 logger = get_logger(__name__)
@@ -23,11 +26,11 @@ def _unwrap_dataset(dataset: WFDataset | InformativeDataset) -> WFDataset:
 
 
 def _collate_overheads(
-    batch: list[tuple[dict, object, int, object]],
-) -> list[tuple[str, int]]:
-    out: list[tuple[str, int]] = []
-    for trace_d, _label, idx, _network_context in batch:
-        out.append((tensor_dict_to_str(trace_d), int(idx)))
+    batch: list[tuple[dict, object, int, NetworkContextIntDict]],
+) -> list[tuple[str, int, NetworkContextIntDict]]:
+    out: list[tuple[str, int, NetworkContextIntDict]] = []
+    for trace_d, _, idx, _network_context in batch:
+        out.append((tensor_dict_to_str(trace_d), int(idx), _network_context))
     return out
 
 
@@ -36,10 +39,22 @@ def _make_tmp(
     dir_orig: Path,
     dir_defended: Path,
 ):
+
+    defence = deepcopy(dataset.defence)
+
+    if isinstance(defence, RNNDef):
+        # We want to go over the full trace.
+        # Set any simul restricting params to high values.
+        defence._n_packets = 100_000_000
+        defence._max_dur_s = 100_000
+
+    # We create a new dataset w.o., defence.
     dataset = _unwrap_dataset(dataset).clone(
         feature_trs=None,
-        defence_aug=0,
         dataset_key="overheads",
+        defence=None,
+        defence_aug=0,
+        trim_raw=0,
     )
 
     meta_df = dataset.meta_df
@@ -60,16 +75,22 @@ def _make_tmp(
 
     with tqdm(dl, desc="tmp files", ncols=TQDM_W, total=len(dl)) as pbar:
         for batch in pbar:
-            for defended_str_trace, idx in batch:
-                trace_path = str(info_ds.get_meta(int(idx))[TRACE_F_PATH])
+            for undefended_str_trace, idx, network_context in batch:
+                trace_path = info_ds.get_meta(int(idx))[TRACE_F_PATH]
                 sub_folder = trace_path.split(dataset_name)[-1][1:]
 
                 orig_path = dir_orig.joinpath(sub_folder)
                 def_path = dir_defended.joinpath(sub_folder)
 
-                original_str_trace = load_trace_to_str(trace_path)
+                defended_trace = defence(
+                    Path(trace_path),
+                    None,
+                    trim_raw=dataset.trim_raw,
+                    network_context=network_context,
+                )
+                defended_str_trace = tensor_dict_to_str(defended_trace)
                 for p_, trace_str in (
-                    (orig_path, original_str_trace),
+                    (orig_path, undefended_str_trace),
                     (def_path, defended_str_trace),
                 ):
                     if not p_.parent.exists():

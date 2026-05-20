@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import fcntl
 import os
 import random
 import shutil
+from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -101,24 +101,33 @@ class WFDataset(Dataset):
         self,
         *,
         feature_trs: FeatureTrs | None | object = _KEEP,
+        network_context: NetworkContext | object = _KEEP,
+        defence: _Def | None | object = _KEEP,
         defence_aug: int | object = _KEEP,
         dataset_key: str | None = None,
+        trim_raw: int | object = _KEEP,
     ) -> WFDataset:
         if feature_trs is _KEEP:
             feature_trs = deepcopy(self.feature_trs)
+        if network_context is _KEEP:
+            network_context = deepcopy(self.network_context)
+        if defence is _KEEP:
+            defence = deepcopy(self.defence)
         if defence_aug is _KEEP:
             defence_aug = self.defence_aug
+        if trim_raw is _KEEP:
+            trim_raw = self.trim_raw
 
         return type(self)(
             meta_df=self.meta_df.copy(deep=True),
             feature_trs=feature_trs,
-            network_context=self.network_context,
+            network_context=network_context,
             label=self.label,
-            defence=deepcopy(self.defence),
+            defence=defence,
             seed=self.network_context.seed,
             defence_aug=defence_aug,
             dataset_key=dataset_key,
-            trim_raw=self.trim_raw,
+            trim_raw=trim_raw,
         )
 
     @property
