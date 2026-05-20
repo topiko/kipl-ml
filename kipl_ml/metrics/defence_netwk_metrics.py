@@ -120,7 +120,7 @@ def get_overheads(
         overheads = compute_overheads(dirs[0], dirs[1], max_len, real_world)
 
     overheads_fin: dict[str, float] = {}
-    overheads_fin["def.bandwidth"] = overheads["defended"] / overheads["base"] - 1.0
+    overheads_fin["def.bandwidth"] = overheads["load"]
     overheads_fin["def.delay"] = overheads["delay"]
     overheads_fin["sim.missing"] = overheads["missing"]
 
