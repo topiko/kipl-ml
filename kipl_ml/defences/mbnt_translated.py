@@ -137,7 +137,7 @@ def _generate_deck(
     """Generate a deck at *deck_path* (blocking)."""
     import mlflow
     import numpy as np
-    from obsrl.translate import build_dataset, generate_deck
+    from shared_utils.translate import build_dataset, generate_deck
     from kipl_ml.network.network import NetworkContext
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
