@@ -70,12 +70,16 @@ class MbntTranslated(Maybenot):
             batch_size=batch_size,
             dataset_name=dataset_name,
         )
-        super().__init__(deck_path=str(deck_path), **maybenot_kwargs)
+        self._deck_dir = deck_path
+        super().__init__(
+            deck_path=str(deck_path / "machines.txt"),
+            **maybenot_kwargs,
+        )
 
     def report(self, to_log: bool = True) -> str:
         str_ = "MbntTranslated Defence:\n"
-        str_ += f"\tName: {Path(self.deck_path).name}\n"
-        str_ += f"\tDeck: {self.deck_path}\n"
+        str_ += f"\tName: {self._deck_dir.name}\n"
+        str_ += f"\tDeck: {self._deck_dir}\n"
         str_ += f"\tN machines: {len(self.machines)}\n"
         str_ += f"\tScale: {self.scale}\n"
         str_ += f"\tFixed per trace: {self.FIXED_PER_TRACE}\n"
@@ -90,8 +94,8 @@ class MbntTranslated(Maybenot):
 
     def _mlflow_log_params(self) -> dict[str, str]:
         from kipl_ml.defences.base import DEFENCE_TYPE_KW
-        d = {"name": self.deck_path.name if hasattr(self, "deck_path") else ""}
-        d["deck"] = Path(self.deck_path).name if hasattr(self, "deck_path") else ""
+        d = {"name": self._deck_dir.name}
+        d["deck"] = str(self._deck_dir)
         d[DEFENCE_TYPE_KW] = "mbnt_translated"
         return d
 
