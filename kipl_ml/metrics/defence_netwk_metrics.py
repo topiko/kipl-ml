@@ -38,6 +38,7 @@ def _make_tmp(
     dataset: WFDataset | InformativeDataset,
     dir_orig: Path,
     dir_defended: Path,
+    overhead_frac: float,
 ):
 
     defence = deepcopy(dataset.defence)
@@ -57,12 +58,12 @@ def _make_tmp(
         trim_raw=0,
     )
 
-    meta_df = dataset.meta_df
+    dataset.meta_df = dataset.meta_df.sample(frac=overhead_frac, random_state=0)
 
-    if meta_df.loc[:, DATASET].nunique() != 1:
+    if dataset.meta_df.loc[:, DATASET].nunique() != 1:
         raise ValueError("Multiple datasets detected")
 
-    dataset_name = meta_df.loc[:, DATASET].unique()[0]
+    dataset_name = dataset.meta_df.loc[:, DATASET].unique()[0]
 
     info_ds = InformativeDataset(dataset)
     dl_kwargs = {
@@ -102,11 +103,12 @@ def _make_tmp(
 
 def get_overheads(
     dataset: WFDataset | InformativeDataset,
+    overhead_frac: float,
     max_len: int = MAX_TRACE_LENGTH,
     real_world: bool = False,
     full_output: bool = False,
 ) -> dict[str, float]:
-    dataset = _unwrap_dataset(dataset)
+    dataset = _unwrap_dataset(dataset).clone(dataset_key="overheads")
 
     logger.info("Compute overheads for: %s", dataset.defence.name)
     with ExitStack() as stack:
@@ -115,7 +117,7 @@ def get_overheads(
             for prefix in ("orig", f"defended_{dataset.defence.name}")
         ]
 
-        _make_tmp(dataset, Path(dirs[0]), Path(dirs[1]))
+        _make_tmp(dataset, Path(dirs[0]), Path(dirs[1]), overhead_frac)
 
         overheads = compute_overheads(dirs[0], dirs[1], max_len, real_world)
 
