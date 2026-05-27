@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from pathlib import Path
 
@@ -17,9 +19,12 @@ _MAYBENOT_DECKS_PATH = os.environ.get("MAYBENOT_DECKS_PATH", ".maybenot-decks")
 class MbntTranslated(Maybenot):
     """Maybenot defence whose deck is auto-generated from a trained AGENT1 model.
 
-    The deck is stored at ``$MAYBENOT_DECKS_PATH/<name>/``.  If it already
-    exists it is reused; otherwise *auto_generate* controls whether the deck
-    is built on the fly (blocks until done) or an error is raised.
+    The deck is stored at ``$MAYBENOT_DECKS_PATH/<name>_<hash>/`` where
+    *hash* is derived from all generation params.  Different params produce
+    a different directory so multiple caches coexist.  If the directory
+    already exists the deck is reused; otherwise *auto_generate* controls
+    whether the deck is built on the fly (blocks until done) or an error
+    is raised.
 
     The ``**maybenot_kwargs`` are forwarded verbatim to
     :class:`Maybenot` — see its constructor for the full list
@@ -100,6 +105,19 @@ class MbntTranslated(Maybenot):
         return d
 
 
+_PARAMS_FILE = "_gen_params.json"
+
+
+def _deck_params_hash(model_id: str, **gen_kwargs) -> str:
+    params = dict(model_id=model_id, **gen_kwargs)
+    raw = json.dumps(params, sort_keys=True).encode()
+    return hashlib.sha256(raw).hexdigest()[:8]
+
+
+def _write_gen_params(deck_path: Path, params: dict) -> None:
+    (deck_path / _PARAMS_FILE).write_text(json.dumps(params, indent=2, sort_keys=True))
+
+
 def _resolve_deck(
     *,
     name: str,
@@ -107,7 +125,9 @@ def _resolve_deck(
     auto_generate: bool,
     **gen_kwargs,
 ) -> Path:
-    deck_path = Path(_MAYBENOT_DECKS_PATH) / name
+    params_hash = _deck_params_hash(model_id=model_id, **gen_kwargs)
+    deck_path = Path(_MAYBENOT_DECKS_PATH) / f"{name}_{params_hash}"
+
     if deck_path.is_dir():
         logger.info("Reusing cached deck %s", deck_path)
         return deck_path
@@ -198,4 +218,20 @@ def _generate_deck(
 
     import shutil
     shutil.rmtree(data_dir, ignore_errors=True)
+
+    _write_gen_params(deck_path, dict(
+        model_id=model_id,
+        n_traces=n_traces,
+        n_realizations=n_realizations,
+        side=side,
+        chaos=chaos,
+        groups=groups,
+        seed=seed,
+        network_name=network_name,
+        tor_profile=tor_profile,
+        trace_n_packets=trace_n_packets,
+        trace_trim_beginning=trace_trim_beginning,
+        batch_size=batch_size,
+        dataset_name=dataset_name,
+    ))
     logger.info("Deck %s ready", deck_path)
