@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 import torch
-from mbnt import deal_machines, sim_trace_from_file_advanced
+from mbnt import MachineStore, sim_trace_from_file_advanced
 
 from kipl_ml.data import assets
 from kipl_ml.data.utils import parse_trace_to_tensor_dict
@@ -59,17 +59,17 @@ class Maybenot(_Def):
         if not os.path.isfile(deck_path):
             raise ValueError(f"No deck found in: {deck_path}")
 
-        self.machines = deal_machines(
+        self.machine_store = MachineStore(
             str(deck_path), self.limits, n_machines, scale, seed=seed
         )
-        self.machine_rng = MachineRng(len(self.machines))
+        self.machine_rng = MachineRng(self.machine_store.len(), seed=seed)
         self.deck_path = deck_path
         self.simul_kwargs = simul_kwargs or {}
 
     def report(self, to_log: bool = True) -> str:
         str_ = "Maybenot Defence:\n"
         str_ += f"\tDeck: {self.deck_path}\n"
-        str_ += f"\tN machines: {len(self.machines)}\n"
+        str_ += f"\tN machines: {self.n_machines}\n"
         str_ += f"\tScale: {self.scale}\n"
         str_ += f"\tFixed per trace: {self.FIXED_PER_TRACE}\n"
 
@@ -88,11 +88,11 @@ class Maybenot(_Def):
         idx = idx or self.machine_rng()
 
         try:
-            d = self.machines[idx].copy()
+            d = self.machine_store.get(int(idx))
         except IndexError as e:
             raise IndexError(
                 f"You provided machine {idx}, however there is only \
-                {len(self.machines)} machines available!"
+                {self.n_machines} machines available!"
             ) from e
 
         server_machines = d.pop("server_machines")
@@ -142,6 +142,6 @@ class Maybenot(_Def):
         d["fixed_per_trace"] = str(self.FIXED_PER_TRACE)
         d["scale"] = str(self.scale)
         d["deck"] = str(self.deck_path).rsplit("/", maxsplit=1)[-1]
-        d["n_machines"] = str(len(self.machines))
+        d["n_machines"] = str(self.n_machines)
 
         return d

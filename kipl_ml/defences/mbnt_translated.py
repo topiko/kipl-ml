@@ -55,6 +55,7 @@ class MbntTranslated(Maybenot):
         auto_generate: bool = True,
         **maybenot_kwargs,
     ):
+        self._name = name
         maybenot_kwargs.setdefault("n_machines", n_traces * n_realizations)
         maybenot_kwargs.setdefault("seed", deck_seed)
 
@@ -83,7 +84,7 @@ class MbntTranslated(Maybenot):
 
     def report(self, to_log: bool = True) -> str:
         str_ = "MbntTranslated Defence:\n"
-        str_ += f"\tName: {self._deck_dir.name}\n"
+        str_ += f"\tName: {self._name}\n"
         str_ += f"\tDeck: {self._deck_dir}\n"
         str_ += f"\tN machines: {len(self.machines)}\n"
         str_ += f"\tScale: {self.scale}\n"
@@ -99,7 +100,7 @@ class MbntTranslated(Maybenot):
 
     def _mlflow_log_params(self) -> dict[str, str]:
         from kipl_ml.defences.base import DEFENCE_TYPE_KW
-        d = {"name": self._deck_dir.name}
+        d = {"name": self._name}
         d["deck"] = str(self._deck_dir)
         d[DEFENCE_TYPE_KW] = "mbnt_translated"
         return d
