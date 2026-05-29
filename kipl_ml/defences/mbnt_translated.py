@@ -3,13 +3,18 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 
+import mlflow
+import numpy as np
 import torch
-from mbnt import deal_machines
+from shared_utils.translate import build_dataset, generate_deck
 
+from kipl_ml.defences.base import DEFENCE_TYPE_KW
 from kipl_ml.defences.maybenot import Maybenot
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.network.network import NetworkContext
 
 logger = get_logger(__name__)
 
@@ -95,11 +100,11 @@ class MbntTranslated(Maybenot):
                 str_ += f"\t{k} : {v}\n"
         if to_log:
             from kipl_ml.logging.utils import log_multiline
+
             log_multiline(str_)
         return str_
 
     def _mlflow_log_params(self) -> dict[str, str]:
-        from kipl_ml.defences.base import DEFENCE_TYPE_KW
         d = {"name": self._name}
         d["deck"] = str(self._deck_dir)
         d[DEFENCE_TYPE_KW] = "mbnt_translated"
@@ -160,10 +165,6 @@ def _generate_deck(
     dataset_name: str,
 ) -> None:
     """Generate a deck at *deck_path* (blocking)."""
-    import mlflow
-    import numpy as np
-    from shared_utils.translate import build_dataset, generate_deck
-    from kipl_ml.network.network import NetworkContext
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info("Loading model %s …", model_id)
@@ -197,7 +198,9 @@ def _generate_deck(
 
     logger.info(
         "Generating deck %s from %d traces × %d realizations …",
-        deck_path.name, n_traces_actual, n_realizations,
+        deck_path.name,
+        n_traces_actual,
+        n_realizations,
     )
     generate_deck(
         obs,
@@ -217,22 +220,24 @@ def _generate_deck(
         groups=groups,
     )
 
-    import shutil
     shutil.rmtree(data_dir, ignore_errors=True)
 
-    _write_gen_params(deck_path, dict(
-        model_id=model_id,
-        n_traces=n_traces,
-        n_realizations=n_realizations,
-        side=side,
-        chaos=chaos,
-        groups=groups,
-        seed=seed,
-        network_name=network_name,
-        tor_profile=tor_profile,
-        trace_n_packets=trace_n_packets,
-        trace_trim_beginning=trace_trim_beginning,
-        batch_size=batch_size,
-        dataset_name=dataset_name,
-    ))
+    _write_gen_params(
+        deck_path,
+        dict(
+            model_id=model_id,
+            n_traces=n_traces,
+            n_realizations=n_realizations,
+            side=side,
+            chaos=chaos,
+            groups=groups,
+            seed=seed,
+            network_name=network_name,
+            tor_profile=tor_profile,
+            trace_n_packets=trace_n_packets,
+            trace_trim_beginning=trace_trim_beginning,
+            batch_size=batch_size,
+            dataset_name=dataset_name,
+        ),
+    )
     logger.info("Deck %s ready", deck_path)

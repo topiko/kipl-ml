@@ -1,21 +1,89 @@
 from __future__ import annotations
 
+import json
 import os
+import random
 
+import numpy as np
 import torch
-from mbnt import MachineStore, sim_trace_from_file_advanced
+from mbnt import sim_trace_from_file_advanced
 
 from kipl_ml.data import assets
 from kipl_ml.data.utils import parse_trace_to_tensor_dict
 from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
-from kipl_ml.network.network import NetworkContext, NetworkContextIntDict
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
+from kipl_ml.network.network import NetworkContext, NetworkContextIntDict
 from kipl_ml.tools.rng_samplers import MachineRng
 from kipl_ml.trace.enums import Feats
 from kipl_ml.trace.params import EVENTS_MULTIPLIER, MAX_TRACE_LENGTH
 
 logger = get_logger(__name__)
+
+
+class _LazyMachineDeck:
+    """List-like container that draws one machine dict lazily on __getitem__.
+
+    Replaces the 55 GB eager expansion of ``deal_machines`` with on-demand
+    per-index construction.  Only the compact deck (~500 entries, ~20 MB)
+    is kept in memory.  Fraction limits are sampled deterministically per
+    index so repeated access to the same index returns identical values.
+    Budget ranges (``padding_budget``, ``blocking_budget``) are **not**
+    applied because they require deserialising opaque ``Machine`` strings
+    — the fraction limits enforced by the simulator are sufficient.
+    """
+
+    def __init__(
+        self,
+        deck_path: os.PathLike,
+        limits: dict,
+        n_machines: int,
+        scale: float,
+        seed: int | None = 42,
+    ):
+        with open(deck_path) as f:
+            lines = f.readlines()
+        self._defenses = [json.loads(line) for line in lines[1:]]
+
+        self._client_pf = limits["client"]["padding_frac"]
+        self._client_bf = limits["client"]["blocking_frac"]
+        self._server_pf = limits["server"]["padding_frac"]
+        self._server_bf = limits["server"]["blocking_frac"]
+
+        rng = random.Random(seed)
+        order = list(range(len(self._defenses)))
+        rng.shuffle(order)
+        repeats = (n_machines // len(self._defenses)) + 1
+        self._order = (order * repeats)[:n_machines]
+
+        self._n = n_machines
+        self._seed = seed
+
+    def __len__(self) -> int:
+        return self._n
+
+    def __getitem__(self, idx: int) -> dict:
+        if idx < 0:
+            idx += self._n
+        if idx < 0 or idx >= self._n:
+            raise IndexError(f"machine index {idx} out of range [0, {self._n})")
+
+        defense = self._defenses[self._order[idx]]
+
+        if self._seed is not None:
+            sub_seed = hash((self._seed, idx)) & 0xFFFFFFFF
+            rng = np.random.default_rng(sub_seed)
+        else:
+            rng = np.random.default_rng()
+
+        return {
+            "max_padding_frac_client": float(rng.uniform(*self._client_pf)),
+            "max_padding_frac_server": float(rng.uniform(*self._server_pf)),
+            "max_blocking_frac_client": float(rng.uniform(*self._client_bf)),
+            "max_blocking_frac_server": float(rng.uniform(*self._server_bf)),
+            "client_machines": list(defense["client"]),
+            "server_machines": list(defense["server"]),
+        }
 
 
 class Maybenot(_Def):
@@ -55,44 +123,21 @@ class Maybenot(_Def):
 
         self.scale = scale
         self.n_machines = n_machines
-        self._store_init = {
-            "deck_path": str(deck_path),
-            "limits": self.limits,
-            "n_machines": n_machines,
-            "scale": scale,
-            "seed": seed,
-        }
 
         if not os.path.isfile(deck_path):
             raise ValueError(f"No deck found in: {deck_path}")
 
-        self._init_machine_store()
-        self.machine_rng = MachineRng(self.machine_store.len(), seed=seed)
+        self.machines = _LazyMachineDeck(
+            str(deck_path), self.limits, n_machines, scale, seed=seed
+        )
+        self.machine_rng = MachineRng(len(self.machines))
         self.deck_path = deck_path
         self.simul_kwargs = simul_kwargs or {}
-
-    def _init_machine_store(self) -> None:
-        self.machine_store = MachineStore(
-            self._store_init["deck_path"],
-            self._store_init["limits"],
-            self._store_init["n_machines"],
-            self._store_init["scale"],
-            seed=self._store_init["seed"],
-        )
-
-    def __getstate__(self):
-        state = self.__dict__.copy()
-        state.pop("machine_store", None)
-        return state
-
-    def __setstate__(self, state):
-        self.__dict__.update(state)
-        self._init_machine_store()
 
     def report(self, to_log: bool = True) -> str:
         str_ = "Maybenot Defence:\n"
         str_ += f"\tDeck: {self.deck_path}\n"
-        str_ += f"\tN machines: {self.n_machines}\n"
+        str_ += f"\tN machines: {len(self.machines)}\n"
         str_ += f"\tScale: {self.scale}\n"
         str_ += f"\tFixed per trace: {self.FIXED_PER_TRACE}\n"
 
@@ -111,11 +156,11 @@ class Maybenot(_Def):
         idx = idx or self.machine_rng()
 
         try:
-            d = self.machine_store.get(int(idx))
+            d = self.machines[idx].copy()
         except IndexError as e:
             raise IndexError(
                 f"You provided machine {idx}, however there is only \
-                {self.n_machines} machines available!"
+                {len(self.machines)} machines available!"
             ) from e
 
         server_machines = d.pop("server_machines")
@@ -165,6 +210,6 @@ class Maybenot(_Def):
         d["fixed_per_trace"] = str(self.FIXED_PER_TRACE)
         d["scale"] = str(self.scale)
         d["deck"] = str(self.deck_path).rsplit("/", maxsplit=1)[-1]
-        d["n_machines"] = str(self.n_machines)
+        d["n_machines"] = str(len(self.machines))
 
         return d
