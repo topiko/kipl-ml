@@ -6,7 +6,7 @@ import random
 
 import numpy as np
 import torch
-from mbnt import sim_trace_from_file_advanced
+from mbnt import apply_machine_budget, sim_trace_from_file_advanced
 
 from kipl_ml.data import assets
 from kipl_ml.data.utils import parse_trace_to_tensor_dict
@@ -25,12 +25,11 @@ class _LazyMachineDeck:
     """List-like container that draws one machine dict lazily on __getitem__.
 
     Replaces the 55 GB eager expansion of ``deal_machines`` with on-demand
-    per-index construction.  Only the compact deck (~500 entries, ~20 MB)
-    is kept in memory.  Fraction limits are sampled deterministically per
-    index so repeated access to the same index returns identical values.
-    Budget ranges (``padding_budget``, ``blocking_budget``) are **not**
-    applied because they require deserialising opaque ``Machine`` strings
-    — the fraction limits enforced by the simulator are sufficient.
+    per-index construction.  Only the compact deck (~30k entries, ~200 MB)
+    is kept in memory.  Fraction limits and budget ranges are sampled on
+    the fly; budgets are applied via the Rust ``apply_machine_budget``
+    sidecar which deserialises, modifies, and re-serialises machine strings.
+    Repeated access to the same index returns identical values when seeded.
     """
 
     def __init__(
@@ -45,10 +44,19 @@ class _LazyMachineDeck:
             lines = f.readlines()
         self._defenses = [json.loads(line) for line in lines[1:]]
 
-        self._client_pf = limits["client"]["padding_frac"]
-        self._client_bf = limits["client"]["blocking_frac"]
-        self._server_pf = limits["server"]["padding_frac"]
-        self._server_bf = limits["server"]["blocking_frac"]
+        def _ordered(a, b):
+            return (min(a, b), max(a, b))
+
+        self._client_pf = _ordered(*limits["client"]["padding_frac"])
+        self._client_bf = _ordered(*limits["client"]["blocking_frac"])
+        self._server_pf = _ordered(*limits["server"]["padding_frac"])
+        self._server_bf = _ordered(*limits["server"]["blocking_frac"])
+
+        self._client_pb = limits["client"]["padding_budget"]
+        self._client_db = limits["client"]["blocking_budget"]
+        self._server_pb = limits["server"]["padding_budget"]
+        self._server_db = limits["server"]["blocking_budget"]
+        self._scale = scale
 
         rng = random.Random(seed)
         order = list(range(len(self._defenses)))
@@ -62,6 +70,13 @@ class _LazyMachineDeck:
     def __len__(self) -> int:
         return self._n
 
+    @staticmethod
+    def _sub_seed(seed: int | None, idx: int) -> int:
+        """Deterministic per-(seed, idx) 32-bit hash (not Python's randomized hash)."""
+        base = 0 if seed is None else seed
+        h = (base * 0x9E3779B9 + idx * 0x85EBCA6B + 0xC4CEB9FE) & 0xFFFFFFFF
+        return h
+
     def __getitem__(self, idx: int) -> dict:
         if idx < 0:
             idx += self._n
@@ -71,18 +86,35 @@ class _LazyMachineDeck:
         defense = self._defenses[self._order[idx]]
 
         if self._seed is not None:
-            sub_seed = hash((self._seed, idx)) & 0xFFFFFFFF
+            sub_seed = self._sub_seed(self._seed, idx)
             rng = np.random.default_rng(sub_seed)
         else:
             rng = np.random.default_rng()
 
+        # Sample fraction limits
+        max_padding_frac_client = float(rng.uniform(*self._client_pf))
+        max_padding_frac_server = float(rng.uniform(*self._server_pf))
+        max_blocking_frac_client = float(rng.uniform(*self._client_bf))
+        max_blocking_frac_server = float(rng.uniform(*self._server_bf))
+
+        # Sample budgets (scaled) and apply via Rust sidecar
+        cd_budget = rng.uniform(*self._client_pb) * self._scale
+        ck_budget = rng.uniform(*self._client_db) * self._scale
+        sd_budget = rng.uniform(*self._server_pb) * self._scale
+        sk_budget = rng.uniform(*self._server_db) * self._scale
+
+        client_machines, server_machines = apply_machine_budget(
+            defense["client"], defense["server"],
+            cd_budget, ck_budget, sd_budget, sk_budget,
+        )
+
         return {
-            "max_padding_frac_client": float(rng.uniform(*self._client_pf)),
-            "max_padding_frac_server": float(rng.uniform(*self._server_pf)),
-            "max_blocking_frac_client": float(rng.uniform(*self._client_bf)),
-            "max_blocking_frac_server": float(rng.uniform(*self._server_bf)),
-            "client_machines": list(defense["client"]),
-            "server_machines": list(defense["server"]),
+            "max_padding_frac_client": max_padding_frac_client,
+            "max_padding_frac_server": max_padding_frac_server,
+            "max_blocking_frac_client": max_blocking_frac_client,
+            "max_blocking_frac_server": max_blocking_frac_server,
+            "client_machines": list(client_machines),
+            "server_machines": list(server_machines),
         }
 
 
