@@ -55,16 +55,39 @@ class Maybenot(_Def):
 
         self.scale = scale
         self.n_machines = n_machines
+        self._store_init = {
+            "deck_path": str(deck_path),
+            "limits": self.limits,
+            "n_machines": n_machines,
+            "scale": scale,
+            "seed": seed,
+        }
 
         if not os.path.isfile(deck_path):
             raise ValueError(f"No deck found in: {deck_path}")
 
-        self.machine_store = MachineStore(
-            str(deck_path), self.limits, n_machines, scale, seed=seed
-        )
+        self._init_machine_store()
         self.machine_rng = MachineRng(self.machine_store.len(), seed=seed)
         self.deck_path = deck_path
         self.simul_kwargs = simul_kwargs or {}
+
+    def _init_machine_store(self) -> None:
+        self.machine_store = MachineStore(
+            self._store_init["deck_path"],
+            self._store_init["limits"],
+            self._store_init["n_machines"],
+            self._store_init["scale"],
+            seed=self._store_init["seed"],
+        )
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop("machine_store", None)
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._init_machine_store()
 
     def report(self, to_log: bool = True) -> str:
         str_ = "Maybenot Defence:\n"
