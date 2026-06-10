@@ -278,6 +278,7 @@ def _policy_rollout_impl(
     active = np.zeros(bs, dtype=bool)
     has_started = np.zeros_like(active, dtype=bool)
     long_enough = np.zeros_like(has_started)
+    terminated = np.zeros_like(has_started)
     next_bins = np.zeros(bs, dtype=np.int64)
     n_packets = np.zeros(bs)
     X_obs_l: list[dict[Feats, list[torch.Tensor]]] = [
@@ -312,7 +313,10 @@ def _policy_rollout_impl(
             client_actions, server_actions, max_silence_bins
         )
 
+        # The ones that are just now terminated.
+        just_terminated = np.asarray(simul_batch.is_done() & ~terminated)
         terminated = np.asarray(simul_batch.is_done() | long_enough, dtype=bool)
+
         next_active = has_started & ~terminated
         t1 = perf_counter()
         t_stepping_ += t1 - t0
@@ -334,9 +338,6 @@ def _policy_rollout_impl(
                 has_started[idx] = True
                 next_active[idx] = True
                 active[idx] = True
-                just_started = True
-            else:
-                just_started = False
 
             if not has_started[idx]:
                 next_bins[idx] += n_steps
@@ -351,21 +352,13 @@ def _policy_rollout_impl(
 
             current_bin = int(next_bins[idx])
 
-            if just_started:
-                prev_action = NoAction(time=current_bin)
-            elif active[idx] and just_started:
-                pass
-            elif active[idx] and not just_started:
-                aidx = np.nonzero(prev_action_idxs == idx)[0][0]
-                prev_action = actions_a[aidx]
-            elif not active[idx]:
+            if not active[idx]:
                 if has_started[idx] and not terminated[idx]:
                     raise
                 else:
                     continue
 
             if not terminated[idx]:
-                actions_l[idx].append(prev_action)
                 up_c = ((dirs == UPLOAD) & (decoys == 0)).sum()
                 down_c = ((dirs == DOWNLOAD) & (decoys == 0)).sum()
                 fd_w[Feats.UP_COUNT].append(up_c)
@@ -385,7 +378,6 @@ def _policy_rollout_impl(
             i += 1
 
         fd_w = {k: torch.tensor(v).reshape(-1, 1).float() for k, v in fd_w.items()}
-        prev_action_idxs = np.array(idxs)
 
         # Update which are active
         active = next_active
@@ -417,6 +409,9 @@ def _policy_rollout_impl(
                 fd_steps[f].append(fd_)
 
             act_time_bins_l.append(_densify(act_time_bins_a, active).detach().cpu())
+            for idx_, idx in enumerate(np.arange(bs)[active]):
+                actions_l[idx].append(actions_a[idx_])
+
             log_ps_l.append(_densify(log_ps_a, active))
             sel_probs_l.append(_densify(sel_probs_a, active))
             values_actor_l.append(_densify(values_a, active))

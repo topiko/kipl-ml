@@ -6,7 +6,14 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.rl.enums import Actions, StepActions
+from kipl_ml.rl.enums import (
+    ActDelayDown,
+    ActDelayUp,
+    Actions,
+    ActSendDown,
+    ActSendUp,
+    StepActions,
+)
 from kipl_ml.trace.features import Feats
 
 logger = get_logger(__name__)
@@ -359,8 +366,6 @@ def plot_actions(
 
     action_times = action_time_bins * dt_s
 
-    from kipl_ml.rl.enums import ActDelayDown, ActDelayUp, ActSendDown, ActSendUp
-
     def _plot_send(key: Actions, color: str, sign: int) -> None:
         for bypass, replace in (
             (False, False),
@@ -480,9 +485,10 @@ def plot_actions(
 
         t0 = action_times[i]
         if i + 1 == len(step_actions):
-            break
+            t1 = t0 + dt_s
+        else:
+            t1 = action_times[i + 1]
 
-        t1 = action_times[i + 1]
         ts += [t0, t0, t1, t1]
         ytop += [0, hmax, hmax, 0]
         ybot += [0, -hmax, -hmax, 0]
@@ -499,6 +505,8 @@ def plot_actions(
     )
 
     ax.vlines(action_times, -5, 5, color="black", lw=1.0)
+
+    print(action_times)
 
     return ax
 
