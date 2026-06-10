@@ -347,8 +347,12 @@ def _policy_rollout_impl(
             if n_packets[idx] > max_packets:
                 long_enough[idx] = True
 
-            if times.numel() > 0 and times.max().item() > max_duration_s:
+            if next_bins[idx] * obs.time_step > max_duration_s:
                 long_enough[idx] = True
+
+            if long_enough[idx]:
+                next_active[idx] = False
+                terminated[idx] = True
 
             current_bin = int(next_bins[idx])
 

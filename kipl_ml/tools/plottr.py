@@ -250,8 +250,6 @@ def plot_tam(
     if cl_probs is not None:
         _plot_probs(cl_probs, tam_times, ax, idx=idx, true_class=true_class)
 
-    ax.set_xlim(0, info_d["maxt"] * 1.01)
-
     return ax
 
 
