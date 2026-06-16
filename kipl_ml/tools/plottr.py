@@ -504,8 +504,6 @@ def plot_actions(
 
     ax.vlines(action_times, -5, 5, color="black", lw=1.0)
 
-    print(action_times)
-
     return ax
 
 
