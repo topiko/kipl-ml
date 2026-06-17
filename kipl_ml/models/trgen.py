@@ -197,6 +197,10 @@ class RNNCLF1(nn.Module):
 
         # (M, L, nfeat)
         inputs = torch.cat(fs, dim=-1)[mask, ...]
+        L = inputs.shape[1]
+
+        if (seq_lens[mask] > L).any():
+            raise ValueError("Too long seq. lens provided.")
 
         packed_inputs = pack_padded_sequence(
             inputs, seq_lens[mask], batch_first=True, enforce_sorted=False
