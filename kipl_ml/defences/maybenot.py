@@ -147,6 +147,7 @@ class Maybenot(_Def):
         fixed_per_trace: bool = False,
         simul_kwargs: dict | None = None,
         as_is: bool = False,
+        flavor: str | None = None,
     ):
         super().__init__(seed=seed, fixed_per_trace=fixed_per_trace)
 
@@ -168,6 +169,7 @@ class Maybenot(_Def):
         self.scale = scale
         self.n_machines = n_machines
         self.as_is = as_is
+        self.flavor = flavor
 
         if not os.path.isfile(deck_path):
             raise ValueError(f"No deck found in: {deck_path}")
@@ -181,6 +183,7 @@ class Maybenot(_Def):
 
     def report(self, to_log: bool = True) -> str:
         str_ = "Maybenot Defence:\n"
+        str_ += f"\tFlavor: {self.flavor or '<none>'}\n"
         str_ += f"\tDeck: {self.deck_path}\n"
         str_ += f"\tN machines: {len(self.machines)}\n"
         str_ += f"\tScale: {self.scale}\n"
@@ -257,6 +260,7 @@ class Maybenot(_Def):
         d["fixed_per_trace"] = str(self.FIXED_PER_TRACE)
         d["scale"] = str(self.scale)
         d["as_is"] = str(self.as_is)
+        d["flavor"] = self.flavor or ""
         d["deck"] = str(self.deck_path).rsplit("/", maxsplit=1)[-1]
         d["n_machines"] = str(len(self.machines))
 
