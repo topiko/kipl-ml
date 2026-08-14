@@ -253,6 +253,133 @@ def plot_tam(
     return ax
 
 
+def plot_as_tam(
+    trace_dict: dict[Feats, torch.Tensor],
+    dt: float = 0.05,
+    idx: int | None = None,
+    ax: plt.Axes | None = None,
+    cl_probs: torch.Tensor | None = None,
+    true_class: int | None = None,
+) -> plt.Axes:
+    if dt <= 0:
+        raise ValueError("dt must be positive")
+
+    try:
+        dirs = trace_dict[Feats.DIRS].detach().cpu().numpy()
+    except KeyError:
+        dirs = trace_dict[Feats.DIR_PROBS].argmax(dim=-1).detach().cpu().numpy() - 1
+
+    dirs = _squeeze_batched(dirs, idx).astype(int)
+
+    try:
+        times = _squeeze_batched(trace_dict[Feats.TIMES].detach().cpu().numpy(), idx)
+    except KeyError:
+        times = np.arange(dirs.shape[0], dtype=float) * dt
+
+    times = times.astype(float)
+    if Feats.DECOY in trace_dict:
+        pad = _squeeze_batched(trace_dict[Feats.DECOY].bool(), idx).astype(bool)
+    else:
+        pad = np.zeros_like(dirs, dtype=bool)
+
+    valid = np.isfinite(times) & ((dirs == UPLOAD) | (dirs == DOWNLOAD))
+    times = times[valid]
+    dirs = dirs[valid]
+    pad = pad[valid]
+
+    ax = ax or plt.subplots(figsize=(12, 3))[1]
+    ax.set_title(f"Packet counts binned at dt={dt:.02f} s")
+    ax.set_ylabel("packet count")
+
+    if times.size == 0:
+        ax.set_ylim(-1, 1)
+        ax.text(
+            0.98,
+            0.99,
+            "nup : 0\nndown : 0\nmaxt : 0.00",
+            transform=ax.transAxes,
+            va="top",
+            ha="right",
+        )
+        return ax
+
+    bin_idxs = np.floor(times / dt).astype(int)
+    n_bins = int(bin_idxs.max()) + 1
+    tam_times = np.arange(n_bins, dtype=float) * dt
+
+    tam_u_c = np.bincount(bin_idxs[dirs == UPLOAD], minlength=n_bins)
+    tam_d_c = np.bincount(bin_idxs[dirs == DOWNLOAD], minlength=n_bins)
+    tam_u_pad = np.bincount(bin_idxs[pad & (dirs == UPLOAD)], minlength=n_bins)
+    tam_d_pad = np.bincount(bin_idxs[pad & (dirs == DOWNLOAD)], minlength=n_bins)
+
+    miny = (-1) * _get_lims(tam_u_c, tam_d_c, 1)
+    maxy = _get_lims(tam_u_c, tam_d_c, 1)
+    ax.set_ylim(miny, maxy)
+
+    def _plot_stacked_counts(
+        signed_counts: np.ndarray, pad_signed: np.ndarray, direction: int
+    ) -> None:
+        if direction == UPLOAD:
+            color = UP_COLOR
+            visible = signed_counts - pad_signed
+            sh = visible
+        elif direction == DOWNLOAD:
+            color = DOWN_COLOR
+            visible = -(signed_counts - pad_signed)
+            sh = visible - pad_signed
+        else:
+            raise ValueError("Invalid direction")
+
+        _plot_boxes(
+            tam_times,
+            np.ones_like(tam_times) * dt,
+            visible,
+            ax,
+            start_heights=0.0,
+            color=color,
+            alpha=0.5,
+        )
+        if pad_signed.sum() > 0:
+            _plot_boxes(
+                tam_times,
+                np.ones_like(tam_times) * dt,
+                pad_signed,
+                ax,
+                start_heights=sh,
+                color=PAD_COLOR,
+                alpha=0.5,
+            )
+
+    _plot_stacked_counts(tam_u_c, tam_u_pad, UPLOAD)
+    _plot_stacked_counts(tam_d_c, tam_d_pad, DOWNLOAD)
+
+    info_d = {
+        "nup": tam_u_c.sum() - tam_u_pad.sum(),
+        "ndown": tam_d_c.sum() - tam_d_pad.sum(),
+        "maxt": times.max(),
+    }
+
+    if tam_u_pad.sum() > 0:
+        info_d["pad nup"] = tam_u_pad.sum()
+    if tam_d_pad.sum() > 0:
+        info_d["pad ndown"] = tam_d_pad.sum()
+
+    ax.text(
+        0.98,
+        0.99,
+        "\n".join([f"{k} : {_format_val(v)}" for k, v in info_d.items()]),
+        transform=ax.transAxes,
+        va="top",
+        ha="right",
+    )
+    ax.set_xlim(0, max(dt, n_bins * dt))
+
+    if cl_probs is not None:
+        _plot_probs(cl_probs, tam_times, ax, idx=idx, true_class=true_class)
+
+    return ax
+
+
 def plot_trace(
     trace_dict: dict[Feats, torch.tensor],
     idx: int | None = None,
