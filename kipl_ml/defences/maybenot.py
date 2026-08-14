@@ -88,10 +88,10 @@ class _MachineDeck:
 
         if self._as_is:
             return {
-                "max_padding_frac_client": 1.0,
-                "max_padding_frac_server": 1.0,
-                "max_blocking_frac_client": 1.0,
-                "max_blocking_frac_server": 1.0,
+                "max_padding_frac_client": 0.0,
+                "max_padding_frac_server": 0.0,
+                "max_blocking_frac_client": 0.0,
+                "max_blocking_frac_server": 0.0,
                 "client_machines": list(defense["client"]),
                 "server_machines": list(defense["server"]),
             }
@@ -231,6 +231,11 @@ class Maybenot(_Def):
         pad_bloc_fracs, (client_machines, server_machines) = self._get_machines(
             machine_idx
         )
+        random_state = (
+            self.simul_kwargs["random_state"]
+            if "random_state" in self.simul_kwargs
+            else self.simul_rng()
+        )
         times, dirs, paddings = sim_trace_from_file_advanced(
             str(trace_path),
             client_machines,
@@ -240,7 +245,7 @@ class Maybenot(_Def):
             max_trace_length=self.simul_kwargs.get(
                 "max_trace_length", MAX_TRACE_LENGTH
             ),
-            random_state=self.simul_rng(),
+            random_state=random_state,
             events_multiplier=self.simul_kwargs.get(
                 "events_multiplier", EVENTS_MULTIPLIER
             ),
