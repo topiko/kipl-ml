@@ -21,16 +21,8 @@ from kipl_ml.trace.params import EVENTS_MULTIPLIER, MAX_TRACE_LENGTH
 logger = get_logger(__name__)
 
 
-class _LazyMachineDeck:
-    """List-like container that draws one machine dict lazily on __getitem__.
-
-    Replaces the 55 GB eager expansion of ``deal_machines`` with on-demand
-    per-index construction.  Only the compact deck (~30k entries, ~200 MB)
-    is kept in memory.  Fraction limits and budget ranges are sampled on
-    the fly; budgets are applied via the Rust ``apply_machine_budget``
-    sidecar which deserialises, modifies, and re-serialises machine strings.
-    Repeated access to the same index returns identical values when seeded.
-    """
+class _MachineDeck:
+    """Deterministic shuffled view over concrete deck entries."""
 
     def __init__(
         self,
@@ -38,11 +30,21 @@ class _LazyMachineDeck:
         limits: dict,
         n_machines: int,
         scale: float,
+        as_is: bool = False,
         seed: int | None = 42,
     ):
         with open(deck_path) as f:
             lines = f.readlines()
         self._defenses = [json.loads(line) for line in lines[1:]]
+        self._as_is = as_is
+
+        if not self._defenses:
+            raise ValueError(f"No machine entries found in: {deck_path}")
+        if n_machines > len(self._defenses):
+            raise ValueError(
+                f"Requested {n_machines} machines from deck with "
+                f"{len(self._defenses)} entries: {deck_path}"
+            )
 
         def _ordered(a, b):
             return (min(a, b), max(a, b))
@@ -61,8 +63,7 @@ class _LazyMachineDeck:
         rng = random.Random(seed)
         order = list(range(len(self._defenses)))
         rng.shuffle(order)
-        repeats = (n_machines // len(self._defenses)) + 1
-        self._order = (order * repeats)[:n_machines]
+        self._order = order[:n_machines]
 
         self._n = n_machines
         self._seed = seed
@@ -84,6 +85,16 @@ class _LazyMachineDeck:
             raise IndexError(f"machine index {idx} out of range [0, {self._n})")
 
         defense = self._defenses[self._order[idx]]
+
+        if self._as_is:
+            return {
+                "max_padding_frac_client": 1.0,
+                "max_padding_frac_server": 1.0,
+                "max_blocking_frac_client": 1.0,
+                "max_blocking_frac_server": 1.0,
+                "client_machines": list(defense["client"]),
+                "server_machines": list(defense["server"]),
+            }
 
         if self._seed is not None:
             sub_seed = self._sub_seed(self._seed, idx)
@@ -135,6 +146,7 @@ class Maybenot(_Def):
         seed: int | None = 42,
         fixed_per_trace: bool = False,
         simul_kwargs: dict | None = None,
+        as_is: bool = False,
     ):
         super().__init__(seed=seed, fixed_per_trace=fixed_per_trace)
 
@@ -155,12 +167,13 @@ class Maybenot(_Def):
 
         self.scale = scale
         self.n_machines = n_machines
+        self.as_is = as_is
 
         if not os.path.isfile(deck_path):
             raise ValueError(f"No deck found in: {deck_path}")
 
-        self.machines = _LazyMachineDeck(
-            str(deck_path), self.limits, n_machines, scale, seed=seed
+        self.machines = _MachineDeck(
+            str(deck_path), self.limits, n_machines, scale, as_is=as_is, seed=seed
         )
         self.machine_rng = MachineRng(len(self.machines))
         self.deck_path = deck_path
@@ -171,6 +184,7 @@ class Maybenot(_Def):
         str_ += f"\tDeck: {self.deck_path}\n"
         str_ += f"\tN machines: {len(self.machines)}\n"
         str_ += f"\tScale: {self.scale}\n"
+        str_ += f"\tAs-is: {self.as_is}\n"
         str_ += f"\tFixed per trace: {self.FIXED_PER_TRACE}\n"
 
         if self.simul_kwargs:
@@ -185,7 +199,8 @@ class Maybenot(_Def):
     def _get_machines(
         self, idx: int | None = None
     ) -> tuple[dict[str, float], tuple[list[str], list[str]]]:
-        idx = idx or self.machine_rng()
+        if idx is None:
+            idx = self.machine_rng()
 
         try:
             d = self.machines[idx].copy()
@@ -241,6 +256,7 @@ class Maybenot(_Def):
         d[DEFENCE_TYPE_KW] = f"{self.__class__.__name__.lower()}"
         d["fixed_per_trace"] = str(self.FIXED_PER_TRACE)
         d["scale"] = str(self.scale)
+        d["as_is"] = str(self.as_is)
         d["deck"] = str(self.deck_path).rsplit("/", maxsplit=1)[-1]
         d["n_machines"] = str(len(self.machines))
 
