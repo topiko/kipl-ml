@@ -42,7 +42,18 @@ def _parse_df(
         "params.network_state",
     ]
 
-    if metric in {"sim.missing", "def.bandwidth", "def.delay", "test_accuracy"}:
+    if metric in {
+        "sim.missing",
+        "def.bandwidth_median",
+        "def.bandwidth_mean",
+        "def.bandwidth_std",
+        "def.bandwidth_full_mean",
+        "def.delay_median",
+        "def.delay_mean",
+        "def.delay_std",
+        "def.delay_full_mean",
+        "test_accuracy",
+    }:
         metric = f"metrics.{metric}"
         df.loc[:, metric] *= 100
         unit = "\\%"
@@ -215,10 +226,29 @@ def main():
         df = df[~mask]
 
     res_acc = _parse_df(df, "test_accuracy", make_bold=args.bold, latex=args.latex)
-    res_bw = _parse_df(df, "def.bandwidth")
-    res_delay = _parse_df(df, "def.delay")
+    res_bw_median = _parse_df(df, "def.bandwidth_median")
+    res_bw_mean = _parse_df(df, "def.bandwidth_mean")
+    res_bw_std = _parse_df(df, "def.bandwidth_std")
+    res_bw_full_mean = _parse_df(df, "def.bandwidth_full_mean")
+    res_delay_median = _parse_df(df, "def.delay_median")
+    res_delay_mean = _parse_df(df, "def.delay_mean")
+    res_delay_std = _parse_df(df, "def.delay_std")
+    res_delay_full_mean = _parse_df(df, "def.delay_full_mean")
 
-    res = pd.concat((res_acc, res_bw, res_delay), axis=1)
+    res = pd.concat(
+        (
+            res_acc,
+            res_bw_median,
+            res_bw_mean,
+            res_bw_std,
+            res_bw_full_mean,
+            res_delay_median,
+            res_delay_mean,
+            res_delay_std,
+            res_delay_full_mean,
+        ),
+        axis=1,
+    )
 
     if args.missing:
         res_missing = _parse_df(df, "sim.missing")

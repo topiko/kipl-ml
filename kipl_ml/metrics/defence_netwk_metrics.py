@@ -122,13 +122,35 @@ def get_overheads(
         overheads = compute_overheads(dirs[0], dirs[1], max_len, real_world)
 
     overheads_fin: dict[str, float] = {}
-    overheads_fin["def.bandwidth"] = overheads["load"]
-    overheads_fin["def.delay"] = overheads["delay"]
-    overheads_fin["sim.missing"] = overheads["missing"]
+    overheads_fin["def.bandwidth_median"] = overheads[
+        "overhead_data_median_multiple"
+    ]
+    overheads_fin["def.delay_median"] = overheads[
+        "overhead_duration_median_multiple"
+    ]
+    overheads_fin["def.bandwidth_mean"] = overheads["overhead_data_mean_multiple"]
+    overheads_fin["def.bandwidth_std"] = overheads[
+        "overhead_data_std_dev_multiple"
+    ]
+    overheads_fin["def.delay_mean"] = overheads["overhead_duration_mean_multiple"]
+    overheads_fin["def.delay_std"] = overheads[
+        "overhead_duration_std_dev_multiple"
+    ]
+    overheads_fin["def.bandwidth_full_mean"] = overheads[
+        "overhead_data_full_mean_multiple"
+    ]
+    overheads_fin["def.delay_full_mean"] = overheads[
+        "overhead_duration_full_mean_multiple"
+    ]
+    overheads_fin["sim.missing"] = (
+        overheads["missing_mean_packets"] / overheads["base_mean_packets"]
+        if overheads["base_mean_packets"]
+        else 0.0
+    )
 
     if full_output:
         for k, v in overheads.items():
-            if k in {"delay", "missing"}:
+            if k == "missing":
                 continue
             overheads_fin[k] = v
     return overheads_fin

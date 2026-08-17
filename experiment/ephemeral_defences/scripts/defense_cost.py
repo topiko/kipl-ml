@@ -13,8 +13,8 @@ COLS = [
     FLAVOR_COL,
     "params.defence.scale",
     "metrics.test_accuracy",
-    "metrics.def.bandwidth",
-    "metrics.def.delay",
+    "metrics.def.bandwidth_median",
+    "metrics.def.delay_median",
     "metrics.sim.missing",
 ]
 
@@ -103,8 +103,8 @@ def main():
         columns={
             "params.defence.flavor": FLAVOR_COL,
             "metrics.test_accuracy": "Accuracy",
-            "metrics.def.bandwidth": "bw",
-            "metrics.def.delay": "delay",
+            "metrics.def.bandwidth_median": "bw",
+            "metrics.def.delay_median": "delay",
             "params.defence.scale": "def-scale",
             "params.test_xv": "xv",
         }
