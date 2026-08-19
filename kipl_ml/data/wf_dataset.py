@@ -282,13 +282,13 @@ class WFDataset(Dataset):
 
         return len(self.meta_df)
 
-    def __getitem__(self, idx: int) -> tuple[dict[Feats, torch.Tensor], torch.Tensor]:
-        trace_dict = self._get_trace(idx)
+    def __getitem__(self, index: int) -> tuple[dict[Feats, torch.Tensor], torch.Tensor]:
+        trace_dict = self._get_trace(index)
 
         if self.feature_trs is not None:
             trace_dict = self.feature_trs(trace_dict)
 
-        label = self._get_label(idx)
+        label = self._get_label(index)
 
         return trace_dict, label
 
