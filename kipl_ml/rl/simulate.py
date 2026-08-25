@@ -145,12 +145,15 @@ def policy_rollout(
     max_packets: int | None = None,
     max_duration_s: float | None = None,
     trim_raw: int = 0,
+    required_real_packets: int | torch.Tensor | None = None,
     network_context: NetworkContextIntDict | dict[str, object] | None = None,
     seed: int = 0,
 ) -> _StreamingRollout:
     """Run policy stepwise on streamed windows and execute actions.
 
-    If max_packets is set, stops once base_packets + requested_decoy >= max_packets.
+    If required_real_packets is set, packet/time caps stop policy actions, but
+    no-action drain continues until the required emitted real-packet count is
+    reached or the underlying simulator ends.
     """
 
     res = cast(
@@ -165,6 +168,7 @@ def policy_rollout(
             max_packets=max_packets,
             max_duration_s=max_duration_s,
             trim_raw=trim_raw,
+            required_real_packets=required_real_packets,
             network_context=network_context,
             record_policy=True,
             seed=seed,
@@ -183,6 +187,7 @@ def policy_obfuscate_trace(
     max_packets: int | None = None,
     max_duration_s: float | None = None,
     trim_raw: int = 0,
+    required_real_packets: int | torch.Tensor | None = None,
     network_context: NetworkContextIntDict | None = None,
     seed: int = 0,
     profile: bool = False,
@@ -192,7 +197,9 @@ def policy_obfuscate_trace(
     This is a lighter-weight variant of policy_rollout() for inference
     use-cases (e.g. NN defences): it avoids storing per-step policy outputs.
 
-    If max_packets is set, stops once base_packets + requested_decoy >= max_packets.
+    If required_real_packets is set, packet/time caps stop policy actions, but
+    no-action drain continues until the required emitted real-packet count is
+    reached or the underlying simulator ends.
     """
 
     res = _policy_rollout_impl(
@@ -205,6 +212,7 @@ def policy_obfuscate_trace(
         max_packets=max_packets,
         max_duration_s=max_duration_s,
         trim_raw=trim_raw,
+        required_real_packets=required_real_packets,
         network_context=network_context,
         record_policy=False,
         seed=seed,
@@ -226,6 +234,7 @@ def _policy_rollout_impl(
     max_packets: int | None,
     max_duration_s: float | None,
     trim_raw: int,
+    required_real_packets: int | torch.Tensor | None,
     network_context: NetworkContextIntDict | dict[str, object] | None,
     record_policy: bool,
     seed: int,
@@ -262,6 +271,25 @@ def _policy_rollout_impl(
     )
 
     bs = len(trace_paths)
+    if required_real_packets is None:
+        required_real_packets_np = None
+    elif isinstance(required_real_packets, int):
+        required_real_packets_np = np.full(bs, required_real_packets, dtype=np.int64)
+    elif isinstance(required_real_packets, torch.Tensor):
+        if required_real_packets.shape != (bs,):
+            raise ValueError(
+                f"required_real_packets must have shape ({bs},), "
+                f"got {tuple(required_real_packets.shape)}"
+            )
+        required_real_packets_np = required_real_packets.detach().cpu().numpy().astype(
+            np.int64,
+            copy=False,
+        )
+    else:
+        raise TypeError(
+            "required_real_packets must be an int, tensor, or None; "
+            f"got {type(required_real_packets)}"
+        )
 
     # The streamer does per-trace stepping with Python control flow. If X lives on
     # CUDA, keep the streamer on CPU to avoid per-step GPU syncs.
@@ -280,7 +308,8 @@ def _policy_rollout_impl(
     long_enough = np.zeros_like(has_started)
     terminated = np.zeros_like(has_started)
     next_bins = np.zeros(bs, dtype=np.int64)
-    n_packets = np.zeros(bs)
+    n_packets = np.zeros(bs, dtype=np.int64)
+    n_real_packets = np.zeros(bs, dtype=np.int64)
     X_obs_l: list[dict[Feats, list[torch.Tensor]]] = [
         {Feats.TIMES: [], Feats.DIRS: [], Feats.DECOY: []} for _ in range(bs)
     ]
@@ -313,16 +342,20 @@ def _policy_rollout_impl(
             client_actions, server_actions, max_silence_bins
         )
 
-        # The ones that are just now terminated.
-        just_terminated = np.asarray(simul_batch.is_done() & ~terminated)
-        terminated = np.asarray(simul_batch.is_done() | long_enough, dtype=bool)
+        was_terminated = terminated.copy()
+        simulator_done = np.asarray(simul_batch.is_done(), dtype=bool)
+        if required_real_packets_np is None:
+            reached_required_real = np.ones(bs, dtype=bool)
+        else:
+            reached_required_real = n_real_packets >= required_real_packets_np
+        terminated = np.asarray(
+            simulator_done | (long_enough & reached_required_real),
+            dtype=bool,
+        )
 
-        next_active = has_started & ~terminated
+        next_active = has_started & ~long_enough & ~simulator_done
         t1 = perf_counter()
         t_stepping_ += t1 - t0
-
-        if terminated.sum() == bs:
-            break
 
         i = 0
         idxs = []
@@ -343,6 +376,13 @@ def _policy_rollout_impl(
                 next_bins[idx] += n_steps
 
             n_packets[idx] += times.numel()
+            n_real_packets[idx] += int(((dirs != 0) & (decoys == 0)).sum().item())
+            if required_real_packets_np is None:
+                reached_required = True
+            else:
+                reached_required = (
+                    n_real_packets[idx] >= required_real_packets_np[idx]
+                )
 
             if n_packets[idx] > max_packets:
                 long_enough[idx] = True
@@ -350,15 +390,21 @@ def _policy_rollout_impl(
             if next_bins[idx] * obs.time_step > max_duration_s:
                 long_enough[idx] = True
 
-            if long_enough[idx]:
+            if simulator_done[idx] or (long_enough[idx] and reached_required):
                 next_active[idx] = False
                 terminated[idx] = True
 
+            if has_started[idx] and times.numel() > 0 and not was_terminated[idx]:
+                X_obs_l[idx][Feats.TIMES].append(times)
+                X_obs_l[idx][Feats.DIRS].append(dirs)
+                X_obs_l[idx][Feats.DECOY].append(decoys)
+
             current_bin = int(next_bins[idx])
 
-            if not active[idx]:
+            if not next_active[idx]:
                 if has_started[idx] and not terminated[idx]:
-                    raise
+                    next_bins[idx] += n_steps
+                    continue
                 else:
                     continue
 
@@ -374,17 +420,20 @@ def _policy_rollout_impl(
 
                 next_bins[idx] += n_steps
 
-                # Store the observation.
-                X_obs_l[idx][Feats.TIMES].append(times)
-                X_obs_l[idx][Feats.DIRS].append(dirs)
-                X_obs_l[idx][Feats.DECOY].append(decoys)
-
             i += 1
+
+        if terminated.sum() == bs:
+            break
 
         fd_w = {k: torch.tensor(v).reshape(-1, 1).float() for k, v in fd_w.items()}
 
         # Update which are active
         active = next_active
+
+        if not active.any():
+            actions_a = []
+            step_count += 1
+            continue
 
         h_active = _hidden_w_mask(hobs, active)
 
@@ -437,6 +486,15 @@ def _policy_rollout_impl(
             f"store_policy={t_storing_policy_:.2f}s "
             f"steps={step_count}"
         )
+
+    if required_real_packets_np is not None:
+        missing_real = required_real_packets_np - n_real_packets
+        if (missing_real > 0).any():
+            raise RuntimeError(
+                "Rollout ended before all required real packets were emitted: "
+                f"required={required_real_packets_np.tolist()}, "
+                f"emitted={n_real_packets.tolist()}"
+            )
 
     X_obs = _batch_packet_level_features(X_obs_l, device)
 
