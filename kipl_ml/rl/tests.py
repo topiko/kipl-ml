@@ -1,13 +1,27 @@
+import json
+import tempfile
 import unittest
-import warnings
+from pathlib import Path
 
+import numpy as np
 import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
-from kipl_ml.rl.enums import Actions, ActSendDown, ActSendUp, NoAction, StepAction
-from kipl_ml.rl.streaming import (
-    WindowFeatureStreamer
+from kipl_ml.rl.enums import (
+    Actions,
+    ActSelector,
+    ActSendDown,
+    ActSendUp,
+    NoAction,
+    StepAction,
 )
+from kipl_ml.rl.lego import (
+    load_lego_brick_specs_from_defense_files,
+    load_lego_bricks_from_defense_files,
+    to_backend_brick_specs,
+)
+from kipl_ml.rl.simulate import LegoBatchController, NumpyTrace
+from kipl_ml.rl.streaming import WindowFeatureStreamer
 from kipl_ml.rl.utils import fill_after_seq_end
 from kipl_ml.trace.enums import Feats
 from kipl_ml.utils.time import (
@@ -172,6 +186,175 @@ class TestFillAfterSeqEnd(unittest.TestCase):
         self.assertTrue(torch.equal(result, expected))
 
 
+class FakeLegoBatch:
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[int], list[int]]] = []
+
+    def step(
+        self, client_brick_selectors: list[int], server_brick_selectors: list[int]
+    ) -> list[NumpyTrace]:
+        self.calls.append((client_brick_selectors, server_brick_selectors))
+        return []
+
+    def is_done(self) -> list[bool]:
+        return []
+
+
+class TestLegoBatchController(unittest.TestCase):
+    def test_dense_selectors_keep_current_on_missing_selector(self):
+        batch = FakeLegoBatch()
+        controller = LegoBatchController(batch, batch_size=3)
+
+        out = controller.step(
+            [
+                StepAction(0, {Actions.SELECTOR: ActSelector(selected=2)}),
+                NoAction(time=0),
+            ],
+            np.array([True, True, False]),
+        )
+
+        self.assertEqual(out, [])
+        self.assertEqual(batch.calls[-1], ([2, 0, -1], [2, 0, -1]))
+
+        controller.step(
+            [
+                NoAction(time=1),
+                StepAction(1, {Actions.SELECTOR: ActSelector(selected=1)}),
+            ],
+            np.array([True, True, False]),
+        )
+
+        self.assertEqual(batch.calls[-1], ([2, 1, -1], [2, 1, -1]))
+
+    def test_side_specific_selectors_are_independent(self):
+        batch = FakeLegoBatch()
+        controller = LegoBatchController(batch, batch_size=2)
+
+        controller.step(
+            [
+                StepAction(
+                    0,
+                    {
+                        Actions.CLIENT_BRICK_SELECT: ActSelector(selected=2),
+                        Actions.SERVER_BRICK_SELECT: ActSelector(selected=5),
+                    },
+                ),
+                NoAction(time=0),
+            ],
+            np.array([True, True]),
+        )
+
+        self.assertEqual(batch.calls[-1], ([2, 0], [5, 0]))
+
+        controller.step(
+            [
+                StepAction(1, {Actions.SERVER_BRICK_SELECT: ActSelector(selected=3)}),
+                StepAction(1, {Actions.CLIENT_BRICK_SELECT: ActSelector(selected=4)}),
+            ],
+            np.array([True, True]),
+        )
+
+        self.assertEqual(batch.calls[-1], ([2, 4], [3, 0]))
+
+    def test_side_specific_selectors_override_shared_selector(self):
+        batch = FakeLegoBatch()
+        controller = LegoBatchController(batch, batch_size=1)
+
+        controller.step(
+            [
+                StepAction(
+                    0,
+                    {
+                        Actions.SELECTOR: ActSelector(selected=1),
+                        Actions.CLIENT_BRICK_SELECT: ActSelector(selected=2),
+                    },
+                )
+            ],
+            np.array([True]),
+        )
+
+        self.assertEqual(batch.calls[-1], ([2], [1]))
+
+    def test_rejects_active_mask_shape_mismatch(self):
+        controller = LegoBatchController(FakeLegoBatch(), batch_size=2)
+
+        with self.assertRaisesRegex(ValueError, "active_mask must have shape"):
+            controller.step([], np.array([True]))
+
+    def test_rejects_action_count_mismatch(self):
+        controller = LegoBatchController(FakeLegoBatch(), batch_size=2)
+
+        with self.assertRaisesRegex(ValueError, "step_actions length"):
+            controller.step([], np.array([True, False]))
+
+
+class TestLegoBricks(unittest.TestCase):
+    def test_lego_brick_metadata_and_backend_conversion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "7" / "defense.def"
+            path.parent.mkdir()
+            path.write_text(
+                "example defense\n"
+                + json.dumps({"client": ["client-a"], "server": ["server-a"]})
+                + "\n"
+            )
+
+            client_bricks, server_bricks = load_lego_bricks_from_defense_files([path])
+            client_specs, server_specs = to_backend_brick_specs(
+                client_bricks, server_bricks
+            )
+
+        self.assertEqual(client_bricks[1].name, "7:c0")
+        self.assertEqual(client_bricks[1].kind, "compiled_machines")
+        self.assertEqual(client_bricks[1].side, "client")
+        self.assertEqual(client_bricks[1].tags, ("atlas", "brick"))
+        self.assertEqual(client_specs[1]["kind"], "machines")
+        self.assertEqual(client_specs[1]["machines"], ["client-a"])
+        self.assertEqual(server_specs[1]["machines"], ["server-a"])
+
+    def test_loads_aligned_brick_specs_from_defense_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "7" / "defense.def"
+            path.parent.mkdir()
+            path.write_text(
+                "example defense\n"
+                + json.dumps(
+                    {"client": ["client-a"], "server": ["server-a", "server-b"]}
+                )
+                + "\n"
+            )
+
+            load_specs = load_lego_brick_specs_from_defense_files
+            client_specs, server_specs = load_specs([path])
+
+        self.assertEqual(client_specs[0], {"kind": "noop"})
+        self.assertEqual(server_specs[0], {"kind": "noop"})
+        self.assertEqual(client_specs[1]["kind"], "machines")
+        self.assertEqual(server_specs[1]["kind"], "machines")
+        self.assertEqual(client_specs[1]["machines"], ["client-a"])
+        self.assertEqual(server_specs[1]["machines"], ["server-a"])
+        self.assertEqual(client_specs[1]["name"], "7:c0")
+        self.assertEqual(server_specs[1]["name"], "7:s0")
+        self.assertEqual(client_specs[2], {"kind": "noop"})
+        self.assertEqual(server_specs[2]["machines"], ["server-b"])
+        self.assertEqual(server_specs[2]["name"], "7:s1")
+
+    def test_default_brick_specs_are_independent_copies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "0" / "defense.def"
+            path.parent.mkdir()
+            path.write_text(
+                "example defense\n"
+                + json.dumps({"client": ["client-a"], "server": ["server-a"]})
+                + "\n"
+            )
+            load_specs = load_lego_brick_specs_from_defense_files
+            client_specs, server_specs = load_specs([path])
+
+        self.assertIsNot(client_specs, server_specs)
+        client_specs[0]["kind"] = "changed"
+        self.assertEqual(server_specs[0]["kind"], "noop")
+
 class TestWindowFeatureStreamer(unittest.TestCase):
     DT = 0.02
     MAX_SILENCE_S = 0.1
@@ -252,7 +435,6 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         decoy = torch.zeros_like(dirs, dtype=torch.bool)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
-        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         out = run_streaming_trace(
             X,
@@ -269,7 +451,6 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         decoy = torch.zeros_like(dirs, dtype=torch.bool)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
-        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         out = run_streaming_trace(
             X,
@@ -301,7 +482,6 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         decoy = torch.zeros_like(dirs, dtype=torch.bool)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
-        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         out = run_streaming_trace(
             X,
@@ -331,7 +511,6 @@ class TestWindowFeatureStreamer(unittest.TestCase):
         decoy = torch.zeros_like(dirs, dtype=torch.bool)
 
         X = {Feats.TIMES: times, Feats.DIRS: dirs, Feats.DECOY: decoy}
-        features = [Feats.TIME_BINS, Feats.Dt_BINS, Feats.UP_COUNT, Feats.DOWN_COUNT]
 
         out = run_streaming_trace(
             X,

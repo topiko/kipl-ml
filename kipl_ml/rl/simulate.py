@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from time import perf_counter
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 import mbnt
 import numpy as np
@@ -19,6 +20,11 @@ from kipl_ml.rl.enums import (
     StepAction,
     StepActions,
 )
+from kipl_ml.rl.lego import (
+    LegoBrick,
+    LegoBrickSpec,
+    to_backend_brick_spec_list,
+)
 from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
@@ -26,7 +32,7 @@ logger = get_logger(__name__)
 _StreamingRollout = tuple[
     dict[Feats, torch.Tensor],
     torch.Tensor,
-    list[list[StepActions]],
+    list[StepActions],
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
@@ -34,9 +40,37 @@ _StreamingRollout = tuple[
     dict[Feats, torch.Tensor],
 ]
 
+_ProfileTimers = dict[str, float]
+_PolicyRolloutImplReturn = (
+    dict[Feats, torch.Tensor]
+    | _StreamingRollout
+    | tuple[dict[Feats, torch.Tensor], _ProfileTimers]
+    | tuple[_StreamingRollout, _ProfileTimers]
+)
+_ActStepResult = tuple[
+    torch.Tensor,
+    StepActions,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    dict[str, torch.Tensor],
+    tuple[torch.Tensor, ...] | None,
+]
 
-def map_step_actions(
-    step_actions: list[StepAction], active_mask: np.array
+NumpyTrace = tuple[np.ndarray, np.ndarray, np.ndarray]
+LegoBrickCollection = Sequence[LegoBrickSpec | LegoBrick]
+
+
+class _LegoBatchLike(Protocol):
+    def step(
+        self, client_brick_selectors: list[int], server_brick_selectors: list[int]
+    ) -> list[NumpyTrace]: ...
+
+    def is_done(self) -> list[bool]: ...
+
+
+def map_step_actions(  # noqa: C901
+    step_actions: list[StepAction], active_mask: np.ndarray
 ) -> tuple[list[tuple[int, mbnt.RlAction]], list[tuple[int, mbnt.RlAction]]]:
     client_actions: list[tuple[int, mbnt.RlAction]] = []
     server_actions: list[tuple[int, mbnt.RlAction]] = []
@@ -84,6 +118,108 @@ def map_step_actions(
                     raise ValueError("Invalid ack")
 
     return client_actions, server_actions
+
+
+class LegoBatchController:
+    """Stateful Python adapter from policy selectors to `mbnt.LegoBatch`.
+
+    The Rust API wants dense per-side brick-index vectors. Policy outputs are
+    only available for active batch slots, so this class fills inactive slots
+    with `-1` and remembers the last selected brick for active slots. The legacy
+    `Actions.SELECTOR` applies to both sides; `Actions.CLIENT_BRICK_SELECT` and
+    `Actions.SERVER_BRICK_SELECT` override sides independently.
+    """
+
+    def __init__(
+        self,
+        batch: _LegoBatchLike,
+        batch_size: int,
+        initial_client_brick: int = 0,
+        initial_server_brick: int = 0,
+    ) -> None:
+        if batch_size < 0:
+            raise ValueError("batch_size must be >= 0")
+        self.batch = batch
+        self.batch_size = batch_size
+        self._client_bricks = [initial_client_brick] * batch_size
+        self._server_bricks = [initial_server_brick] * batch_size
+
+    @classmethod
+    def new(
+        cls,
+        trace_paths: Sequence[str],
+        window_duration_ns: int,
+        client_bricks: LegoBrickCollection,
+        server_bricks: LegoBrickCollection,
+        network_kwargs: Mapping[str, object],
+        max_trace_length: int,
+        seed: int,
+        trim_raw: int,
+        relative: bool = False,
+        num_machines: int = 4096,
+    ) -> LegoBatchController:
+        lego_batch = getattr(mbnt, "LegoBatch")
+        client_backend = _lego_backend_bricks(client_bricks)
+        server_backend = _lego_backend_bricks(server_bricks)
+        batch = lego_batch.new(
+            trace_paths=list(trace_paths),
+            window_duration_ns=window_duration_ns,
+            client_bricks=client_backend,
+            server_bricks=server_backend,
+            network_kwargs=dict(network_kwargs),
+            max_trace_length=max_trace_length,
+            seed=seed,
+            trim_raw=trim_raw,
+            relative=relative,
+            num_machines=num_machines,
+        )
+        return cls(cast(_LegoBatchLike, batch), len(trace_paths))
+
+    def step(
+        self, step_actions: list[StepAction], active_mask: np.ndarray
+    ) -> list[NumpyTrace]:
+        if active_mask.shape != (self.batch_size,):
+            raise ValueError(
+                f"active_mask must have shape ({self.batch_size},), "
+                f"got {active_mask.shape}"
+            )
+
+        active_indices = np.nonzero(active_mask)[0]
+        if len(step_actions) != active_indices.size:
+            raise ValueError("step_actions length must equal active_mask.sum()")
+
+        client_selectors = [-1] * self.batch_size
+        server_selectors = [-1] * self.batch_size
+        for batch_idx_np, step_action in zip(active_indices, step_actions, strict=True):
+            batch_idx = int(batch_idx_np)
+            if Actions.SELECTOR in step_action:
+                selected = int(step_action[Actions.SELECTOR].selected)
+                self._client_bricks[batch_idx] = selected
+                self._server_bricks[batch_idx] = selected
+            if Actions.CLIENT_BRICK_SELECT in step_action:
+                self._client_bricks[batch_idx] = int(
+                    step_action[Actions.CLIENT_BRICK_SELECT].selected
+                )
+            if Actions.SERVER_BRICK_SELECT in step_action:
+                self._server_bricks[batch_idx] = int(
+                    step_action[Actions.SERVER_BRICK_SELECT].selected
+                )
+
+            client_selectors[batch_idx] = self._client_bricks[batch_idx]
+            server_selectors[batch_idx] = self._server_bricks[batch_idx]
+
+        return self.batch.step(client_selectors, server_selectors)
+
+    def is_done(self) -> list[bool]:
+        return self.batch.is_done()
+
+
+def _lego_backend_bricks(bricks: LegoBrickCollection) -> list[LegoBrickSpec]:
+    if all(isinstance(entry, LegoBrick) for entry in bricks):
+        return to_backend_brick_spec_list(cast(Sequence[LegoBrick], bricks))
+    if all(isinstance(entry, dict) for entry in bricks):
+        return list(cast(Sequence[LegoBrickSpec], bricks))
+    raise TypeError("Lego input must contain only LegoBrick objects or only dicts")
 
 
 def _batch_packet_level_features(
@@ -219,12 +355,15 @@ def policy_obfuscate_trace(
         profile=profile,
     )
     if profile:
-        X_obs, timers = res
+        X_obs, timers = cast(
+            tuple[dict[Feats, torch.Tensor], _ProfileTimers],
+            res,
+        )
         return X_obs, timers
     return cast(dict[Feats, torch.Tensor], res)
 
 
-def _policy_rollout_impl(
+def _policy_rollout_impl(  # noqa: C901
     obs: AGENT1,
     trace_paths: list[str],
     device: torch.DeviceObjType,
@@ -239,7 +378,7 @@ def _policy_rollout_impl(
     record_policy: bool,
     seed: int,
     profile: bool = False,
-) -> dict[Feats, torch.Tensor] | _StreamingRollout:
+) -> _PolicyRolloutImplReturn:
     """Internal streaming rollout implementation.
 
     When record_policy=False, returns only X_obs. Otherwise returns the full
@@ -254,7 +393,9 @@ def _policy_rollout_impl(
 
     if network_context is None:
         raise ValueError("policy rollout requires explicit network_context")
-    network_kwargs = NetworkContext.to_rust_args_batch(network_context)
+    network_kwargs = NetworkContext.to_rust_args_batch(
+        cast(dict[str, int | Sequence[int] | object], network_context)
+    )
 
     num_machines = 4096
     max_silence_bins = int(round(obs.max_silence_s / obs.time_step))
@@ -409,8 +550,8 @@ def _policy_rollout_impl(
                     continue
 
             if not terminated[idx]:
-                up_c = ((dirs == UPLOAD) & (decoys == 0)).sum()
-                down_c = ((dirs == DOWNLOAD) & (decoys == 0)).sum()
+                up_c = float(((dirs == UPLOAD) & (decoys == 0)).sum().item())
+                down_c = float(((dirs == DOWNLOAD) & (decoys == 0)).sum().item())
                 fd_w[Feats.UP_COUNT].append(up_c)
                 fd_w[Feats.DOWN_COUNT].append(down_c)
                 fd_w[Feats.Dt_BINS].append(n_steps)
@@ -425,7 +566,9 @@ def _policy_rollout_impl(
         if terminated.sum() == bs:
             break
 
-        fd_w = {k: torch.tensor(v).reshape(-1, 1).float() for k, v in fd_w.items()}
+        fd_w_tensor = {
+            k: torch.tensor(v).reshape(-1, 1).float() for k, v in fd_w.items()
+        }
 
         # Update which are active
         active = next_active
@@ -440,16 +583,30 @@ def _policy_rollout_impl(
         t2 = perf_counter()
         t_marshall_ += t2 - t1
 
-        fd_w = dict_to_device(fd_w, device=device)
-        act_time_bins_a, actions_a, log_ps_a, sel_probs_a, values_a, ent_a, h_active = (
-            obs.act_step(fd_w, h_active, sample=sample)
+        fd_w_tensor = dict_to_device(fd_w_tensor, device=device)
+        act_step_result = cast(
+            _ActStepResult,
+            obs.act_step(fd_w_tensor, cast(Any, h_active), sample=sample),
         )
+        (
+            act_time_bins_a,
+            actions_a,
+            log_ps_a,
+            sel_probs_a,
+            values_a,
+            ent_a,
+            h_active,
+        ) = act_step_result
         t3 = perf_counter()
         t_forward_ += t3 - t2
 
         hobs = _hidden_w_mask(hobs, active, h_active)
 
-        if detach_period is not None and step_count % detach_period == 0:
+        if (
+            detach_period is not None
+            and step_count % detach_period == 0
+            and hobs is not None
+        ):
             hobs = tuple(h_.detach() for h_ in hobs)
 
         t4 = perf_counter()
@@ -458,7 +615,7 @@ def _policy_rollout_impl(
         if record_policy:
             for f in obs.features:
                 fd_ = torch.zeros((bs, 1))
-                fd_[active, 0] = fd_w[f].flatten().to("cpu")
+                fd_[active, 0] = fd_w_tensor[f].flatten().to("cpu")
                 fd_steps[f].append(fd_)
 
             act_time_bins_l.append(_densify(act_time_bins_a, active).detach().cpu())
@@ -528,7 +685,7 @@ def _policy_rollout_impl(
     fd[Feats.SEQ_LENS] = (act_time_bins > 0).sum(dim=1).long()
 
     fd = dict_to_device(fd, device)
-    act_time_bins = act_time_bins.to(device)
+    act_time_bins = act_time_bins.to(cast(Any, device))
 
     result = (
         fd,

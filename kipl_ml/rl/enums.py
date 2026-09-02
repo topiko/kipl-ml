@@ -11,6 +11,8 @@ class Actions(StrEnum):
     DELAY_UP = "delay_up"
     DELAY_DOWN = "delay_down"
     SELECTOR = "selector"
+    CLIENT_BRICK_SELECT = "client_brick_select"
+    SERVER_BRICK_SELECT = "server_brick_select"
 
 
 class ActionHeadKeys(StrEnum):
@@ -113,6 +115,10 @@ class StepAction:
     def __getitem__(self, key: Literal[Actions.DO_NOTHING]) -> ActDoNothing: ...
     @overload
     def __getitem__(self, key: Literal[Actions.SELECTOR]) -> ActSelector: ...
+    @overload
+    def __getitem__(self, key: Literal[Actions.CLIENT_BRICK_SELECT]) -> ActSelector: ...
+    @overload
+    def __getitem__(self, key: Literal[Actions.SERVER_BRICK_SELECT]) -> ActSelector: ...
     @overload
     def __getitem__(self, key: Actions) -> ActionType: ...
 
