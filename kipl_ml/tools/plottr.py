@@ -10,6 +10,7 @@ from kipl_ml.rl.enums import (
     ActDelayDown,
     ActDelayUp,
     Actions,
+    ActSelector,
     ActSendDown,
     ActSendUp,
     StepActions,
@@ -485,7 +486,7 @@ def plot_actions(
         breakpoint()
         raise ValueError("Duplicate action time bins!")
 
-    if np.diff(action_time_bins).min() <= 0:
+    if action_time_bins.size > 1 and np.diff(action_time_bins).min() <= 0:
         breakpoint()
         raise ValueError("Action time bins not strictly increasing!")
 
@@ -596,6 +597,64 @@ def plot_actions(
     # Delay spans: upward delays in upper half, downward delays in lower half.
     _plot_delay(Actions.DELAY_UP, "#5AC5ED")
     _plot_delay(Actions.DELAY_DOWN, "#E86646")
+
+    def _plot_brick_selectors() -> None:
+        client_xs: list[float] = []
+        client_ys: list[int] = []
+        server_xs: list[float] = []
+        server_ys: list[int] = []
+
+        for i, sa in enumerate(step_actions):
+            client_selected = None
+            server_selected = None
+            if Actions.SELECTOR in sa:
+                act = sa[Actions.SELECTOR]
+                assert isinstance(act, ActSelector)
+                client_selected = act.selected
+                server_selected = act.selected
+            if Actions.CLIENT_BRICK_SELECT in sa:
+                act = sa[Actions.CLIENT_BRICK_SELECT]
+                assert isinstance(act, ActSelector)
+                client_selected = act.selected
+            if Actions.SERVER_BRICK_SELECT in sa:
+                act = sa[Actions.SERVER_BRICK_SELECT]
+                assert isinstance(act, ActSelector)
+                server_selected = act.selected
+
+            if client_selected is not None:
+                client_xs.append(action_times[i])
+                client_ys.append(client_selected)
+            if server_selected is not None:
+                server_xs.append(action_times[i])
+                server_ys.append(server_selected)
+
+        if not client_xs and not server_xs:
+            return
+
+        ax_selector = ax.twinx()
+        if client_xs:
+            ax_selector.step(
+                client_xs,
+                client_ys,
+                where="post",
+                c=UP_COLOR,
+                ls="--",
+                lw=1.5,
+                label="client brick",
+            )
+        if server_xs:
+            ax_selector.step(
+                server_xs,
+                server_ys,
+                where="post",
+                c=DOWN_COLOR,
+                ls="--",
+                lw=1.5,
+                label="server brick",
+            )
+        ax_selector.set_ylabel("Brick index")
+
+    _plot_brick_selectors()
 
     # Do-nothing spans on the remaining steps.
     ts = []

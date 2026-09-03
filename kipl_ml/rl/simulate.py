@@ -20,11 +20,7 @@ from kipl_ml.rl.enums import (
     StepAction,
     StepActions,
 )
-from kipl_ml.rl.lego import (
-    LegoBrick,
-    LegoBrickSpec,
-    to_backend_brick_spec_list,
-)
+from kipl_ml.rl.lego import LegoBrickSpec
 from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
@@ -58,7 +54,7 @@ _ActStepResult = tuple[
 ]
 
 NumpyTrace = tuple[np.ndarray, np.ndarray, np.ndarray]
-LegoBrickCollection = Sequence[LegoBrickSpec | LegoBrick]
+LegoBrickCollection = Sequence[LegoBrickSpec]
 
 
 class _BrickBatchLike(Protocol):
@@ -155,8 +151,7 @@ class BrickBatchController:
         max_trace_length: int,
         seed: int,
         trim_raw: int,
-        relative: bool = False,
-        num_machines: int = 4096,
+        relative: bool,
     ) -> BrickBatchController:
         lego_batch = getattr(mbnt, "LegoBatch")
         client_backend = _lego_backend_bricks(client_bricks)
@@ -171,7 +166,6 @@ class BrickBatchController:
             seed=seed,
             trim_raw=trim_raw,
             relative=relative,
-            num_machines=num_machines,
         )
         return cls(cast(_BrickBatchLike, batch), len(trace_paths))
 
@@ -199,6 +193,10 @@ class BrickBatchController:
     def step(
         self, step_actions: list[StepAction], active_mask: np.ndarray
     ) -> list[NumpyTrace]:
+        self.select(step_actions, active_mask)
+        return self.step_current(active_mask)
+
+    def select(self, step_actions: list[StepAction], active_mask: np.ndarray) -> None:
         if active_mask.shape != (self.batch_size,):
             raise ValueError(
                 f"active_mask must have shape ({self.batch_size},), "
@@ -209,8 +207,6 @@ class BrickBatchController:
         if len(step_actions) != active_indices.size:
             raise ValueError("step_actions length must equal active_mask.sum()")
 
-        client_selectors = [-1] * self.batch_size
-        server_selectors = [-1] * self.batch_size
         for batch_idx_np, step_action in zip(active_indices, step_actions, strict=True):
             batch_idx = int(batch_idx_np)
             if Actions.SELECTOR in step_action:
@@ -226,6 +222,17 @@ class BrickBatchController:
                     step_action[Actions.SERVER_BRICK_SELECT].selected
                 )
 
+    def step_current(self, active_mask: np.ndarray) -> list[NumpyTrace]:
+        if active_mask.shape != (self.batch_size,):
+            raise ValueError(
+                f"active_mask must have shape ({self.batch_size},), "
+                f"got {active_mask.shape}"
+            )
+
+        client_selectors = [-1] * self.batch_size
+        server_selectors = [-1] * self.batch_size
+        for batch_idx_np in np.nonzero(active_mask)[0]:
+            batch_idx = int(batch_idx_np)
             client_selectors[batch_idx] = self._client_bricks[batch_idx]
             server_selectors[batch_idx] = self._server_bricks[batch_idx]
 
@@ -249,11 +256,9 @@ class BrickBatchController:
 
 
 def _lego_backend_bricks(bricks: LegoBrickCollection) -> list[LegoBrickSpec]:
-    if all(isinstance(entry, LegoBrick) for entry in bricks):
-        return to_backend_brick_spec_list(cast(Sequence[LegoBrick], bricks))
-    if all(isinstance(entry, dict) for entry in bricks):
-        return list(cast(Sequence[LegoBrickSpec], bricks))
-    raise TypeError("Lego input must contain only LegoBrick objects or only dicts")
+    if not all(isinstance(entry, dict) for entry in bricks):
+        raise TypeError("Lego input must contain only brick spec dicts")
+    return list(bricks)
 
 
 def _batch_packet_level_features(

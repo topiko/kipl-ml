@@ -1,12 +1,10 @@
-import json
-import tempfile
 import unittest
-from pathlib import Path
 
 import numpy as np
 import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
+from kipl_ml.rl.brick_simulate import brick_policy_rollout
 from kipl_ml.rl.enums import (
     Actions,
     ActSelector,
@@ -14,11 +12,7 @@ from kipl_ml.rl.enums import (
     ActSendUp,
     NoAction,
     StepAction,
-)
-from kipl_ml.rl.lego import (
-    load_lego_brick_specs_from_defense_files,
-    load_lego_bricks_from_defense_files,
-    to_backend_brick_specs,
+    StepActions,
 )
 from kipl_ml.rl.simulate import BrickBatchController, NumpyTrace
 from kipl_ml.rl.streaming import WindowFeatureStreamer
@@ -200,6 +194,121 @@ class FakeLegoBatch:
         return []
 
 
+class FakeBrickPolicy:
+    time_step: float = 0.1
+
+    def __init__(self) -> None:
+        self.features = (Feats.TIME_BINS, Feats.Dt_BINS)
+        self.current_calls: list[tuple[list[int], list[int]]] = []
+        self.feature_calls: list[tuple[Feats, ...]] = []
+
+    def act_step(
+        self,
+        x: dict[Feats, torch.Tensor],
+        current_client_bricks: torch.Tensor,
+        current_server_bricks: torch.Tensor,
+        sample: bool = True,
+    ) -> tuple[
+        torch.Tensor,
+        StepActions,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        dict[str, torch.Tensor],
+        None,
+    ]:
+        del sample
+        self.feature_calls.append(tuple(x))
+        self.current_calls.append(
+            (
+                current_client_bricks.detach().cpu().tolist(),
+                current_server_bricks.detach().cpu().tolist(),
+            )
+        )
+        bs = current_client_bricks.shape[0]
+        actions = [
+            StepAction(
+                int(
+                    x[Feats.TIME_BINS][idx, 0].item()
+                    + x[Feats.Dt_BINS][idx, 0].item()
+                ),
+                {
+                    Actions.CLIENT_BRICK_SELECT: ActSelector(selected=1),
+                    Actions.SERVER_BRICK_SELECT: ActSelector(selected=2),
+                },
+            )
+            for idx in range(bs)
+        ]
+        return (
+            x[Feats.TIME_BINS] + x[Feats.Dt_BINS],
+            actions,
+            torch.zeros(bs, 1),
+            torch.full((bs, 1, 5), 0.2),
+            torch.zeros(bs, 1),
+            {
+                "entropy_selection": torch.zeros(bs, 1),
+                "cond_entropy": torch.zeros(bs, 1),
+            },
+            None,
+        )
+
+
+class FakeBrickController:
+    def __init__(self, batch_size: int = 2) -> None:
+        self.batch_size = batch_size
+        self.client = [0] * batch_size
+        self.server = [0] * batch_size
+        self.step_count = 0
+        self.step_calls: list[tuple[list[int], list[int]]] = []
+        self.select_calls: list[tuple[list[int], list[int]]] = []
+
+    def current_client_bricks(
+        self, active_mask: np.ndarray | None = None
+    ) -> np.ndarray:
+        current = np.asarray(self.client, dtype=np.int64)
+        return current if active_mask is None else current[active_mask]
+
+    def current_server_bricks(
+        self, active_mask: np.ndarray | None = None
+    ) -> np.ndarray:
+        current = np.asarray(self.server, dtype=np.int64)
+        return current if active_mask is None else current[active_mask]
+
+    def step_current(self, active_mask: np.ndarray) -> list[NumpyTrace]:
+        self.step_calls.append((self.client.copy(), self.server.copy()))
+        self.step_count += 1
+        out = []
+        for is_active in active_mask:
+            if is_active:
+                out.append(
+                    (
+                        np.asarray([self.step_count * 100_000_000], dtype=np.uint64),
+                        np.asarray([UPLOAD], dtype=np.int8),
+                        np.asarray([False], dtype=bool),
+                    )
+                )
+            else:
+                out.append(
+                    (
+                        np.asarray([], dtype=np.uint64),
+                        np.asarray([], dtype=np.int8),
+                        np.asarray([], dtype=bool),
+                    )
+                )
+        return out
+
+    def select(self, step_actions: list[StepAction], active_mask: np.ndarray) -> None:
+        for batch_idx, action in zip(
+            np.nonzero(active_mask)[0], step_actions, strict=True
+        ):
+            self.client[int(batch_idx)] = action[Actions.CLIENT_BRICK_SELECT].selected
+            self.server[int(batch_idx)] = action[Actions.SERVER_BRICK_SELECT].selected
+        self.select_calls.append((self.client.copy(), self.server.copy()))
+
+    def is_done(self) -> list[bool]:
+        return [self.step_count >= 2] * self.batch_size
+
+
 class TestBrickBatchController(unittest.TestCase):
     def test_dense_selectors_keep_current_on_missing_selector(self):
         batch = FakeLegoBatch()
@@ -302,73 +411,68 @@ class TestBrickBatchController(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "active_mask must have shape"):
             controller.current_bricks(np.array([True]))
 
+    def test_step_current_uses_existing_state_before_select(self):
+        batch = FakeLegoBatch()
+        controller = BrickBatchController(batch, batch_size=2)
 
-class TestLegoBricks(unittest.TestCase):
-    def test_lego_brick_metadata_and_backend_conversion(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "7" / "defense.def"
-            path.parent.mkdir()
-            path.write_text(
-                "example defense\n"
-                + json.dumps({"client": ["client-a"], "server": ["server-a"]})
-                + "\n"
+        controller.step_current(np.array([True, True]))
+        controller.select(
+            [
+                StepAction(1, {Actions.CLIENT_BRICK_SELECT: ActSelector(selected=2)}),
+                StepAction(1, {Actions.SERVER_BRICK_SELECT: ActSelector(selected=3)}),
+            ],
+            np.array([True, True]),
+        )
+        controller.step_current(np.array([True, False]))
+
+        self.assertEqual(batch.calls[0], ([0, 0], [0, 0]))
+        self.assertEqual(batch.calls[1], ([2, -1], [0, -1]))
+
+
+class TestBrickPolicyRollout(unittest.TestCase):
+    def test_rollout_steps_current_bricks_then_selects_next_bricks(self):
+        policy = FakeBrickPolicy()
+        controller = FakeBrickController(batch_size=2)
+
+        fd, act_time_bins, actions, log_ps, sel_probs, values, entropies, X_obs = (
+            brick_policy_rollout(
+                policy=policy,
+                trace_paths=["a.log", "b.log"],
+                device="cpu",
+                client_bricks=None,
+                server_bricks=None,
+                network_context=None,
+                max_packets=10,
+                max_duration_s=10.0,
+                required_real_packets=None,
+                trim_raw=0,
+                seed=0,
+                sample=True,
+                relative=False,
+                max_steps=100,
+                controller=controller,
             )
+        )
 
-            client_bricks, server_bricks = load_lego_bricks_from_defense_files([path])
-            client_specs, server_specs = to_backend_brick_specs(
-                client_bricks, server_bricks
-            )
+        self.assertEqual(controller.step_calls[0], ([0, 0], [0, 0]))
+        self.assertEqual(controller.select_calls[0], ([1, 1], [2, 2]))
+        self.assertEqual(controller.step_calls[1], ([1, 1], [2, 2]))
+        self.assertEqual(policy.current_calls, [([0, 0], [0, 0])])
+        self.assertEqual(act_time_bins.tolist(), [[1], [1]])
+        self.assertEqual(fd[Feats.SEQ_LENS].tolist(), [1, 1])
+        self.assertEqual(set(policy.feature_calls[0]), set(policy.features))
+        self.assertEqual(fd[Feats.UP_COUNT].tolist(), [[1.0], [1.0]])
+        self.assertEqual(fd[Feats.DOWN_COUNT].tolist(), [[0.0], [0.0]])
+        self.assertEqual(log_ps.shape, (2, 1))
+        self.assertEqual(sel_probs.shape, (2, 1, 5))
+        self.assertEqual(values.shape, (2, 1))
+        self.assertEqual(entropies["selection_entropy"].shape, (2, 1))
+        self.assertEqual(entropies["conditional_entropy"].shape, (2, 1))
+        self.assertEqual(actions[0][0].time_bin, 1)
+        self.assertEqual(actions[0][0][Actions.CLIENT_BRICK_SELECT].selected, 1)
+        self.assertEqual(actions[0][0][Actions.SERVER_BRICK_SELECT].selected, 2)
+        self.assertEqual(X_obs[Feats.DIRS].shape, (2, 2))
 
-        self.assertEqual(client_bricks[1].name, "7:c0")
-        self.assertEqual(client_bricks[1].kind, "compiled_machines")
-        self.assertEqual(client_bricks[1].side, "client")
-        self.assertEqual(client_bricks[1].tags, ("atlas", "brick"))
-        self.assertEqual(client_specs[1]["kind"], "machines")
-        self.assertEqual(client_specs[1]["machines"], ["client-a"])
-        self.assertEqual(server_specs[1]["machines"], ["server-a"])
-
-    def test_loads_aligned_brick_specs_from_defense_files(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "7" / "defense.def"
-            path.parent.mkdir()
-            path.write_text(
-                "example defense\n"
-                + json.dumps(
-                    {"client": ["client-a"], "server": ["server-a", "server-b"]}
-                )
-                + "\n"
-            )
-
-            load_specs = load_lego_brick_specs_from_defense_files
-            client_specs, server_specs = load_specs([path])
-
-        self.assertEqual(client_specs[0], {"kind": "noop"})
-        self.assertEqual(server_specs[0], {"kind": "noop"})
-        self.assertEqual(client_specs[1]["kind"], "machines")
-        self.assertEqual(server_specs[1]["kind"], "machines")
-        self.assertEqual(client_specs[1]["machines"], ["client-a"])
-        self.assertEqual(server_specs[1]["machines"], ["server-a"])
-        self.assertEqual(client_specs[1]["name"], "7:c0")
-        self.assertEqual(server_specs[1]["name"], "7:s0")
-        self.assertEqual(client_specs[2], {"kind": "noop"})
-        self.assertEqual(server_specs[2]["machines"], ["server-b"])
-        self.assertEqual(server_specs[2]["name"], "7:s1")
-
-    def test_default_brick_specs_are_independent_copies(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "0" / "defense.def"
-            path.parent.mkdir()
-            path.write_text(
-                "example defense\n"
-                + json.dumps({"client": ["client-a"], "server": ["server-a"]})
-                + "\n"
-            )
-            load_specs = load_lego_brick_specs_from_defense_files
-            client_specs, server_specs = load_specs([path])
-
-        self.assertIsNot(client_specs, server_specs)
-        client_specs[0]["kind"] = "changed"
-        self.assertEqual(server_specs[0]["kind"], "noop")
 
 class TestWindowFeatureStreamer(unittest.TestCase):
     DT = 0.02
