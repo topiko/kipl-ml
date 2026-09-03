@@ -61,7 +61,7 @@ NumpyTrace = tuple[np.ndarray, np.ndarray, np.ndarray]
 LegoBrickCollection = Sequence[LegoBrickSpec | LegoBrick]
 
 
-class _LegoBatchLike(Protocol):
+class _BrickBatchLike(Protocol):
     def step(
         self, client_brick_selectors: list[int], server_brick_selectors: list[int]
     ) -> list[NumpyTrace]: ...
@@ -120,7 +120,7 @@ def map_step_actions(  # noqa: C901
     return client_actions, server_actions
 
 
-class LegoBatchController:
+class BrickBatchController:
     """Stateful Python adapter from policy selectors to `mbnt.LegoBatch`.
 
     The Rust API wants dense per-side brick-index vectors. Policy outputs are
@@ -132,7 +132,7 @@ class LegoBatchController:
 
     def __init__(
         self,
-        batch: _LegoBatchLike,
+        batch: _BrickBatchLike,
         batch_size: int,
         initial_client_brick: int = 0,
         initial_server_brick: int = 0,
@@ -157,7 +157,7 @@ class LegoBatchController:
         trim_raw: int,
         relative: bool = False,
         num_machines: int = 4096,
-    ) -> LegoBatchController:
+    ) -> BrickBatchController:
         lego_batch = getattr(mbnt, "LegoBatch")
         client_backend = _lego_backend_bricks(client_bricks)
         server_backend = _lego_backend_bricks(server_bricks)
@@ -173,7 +173,28 @@ class LegoBatchController:
             relative=relative,
             num_machines=num_machines,
         )
-        return cls(cast(_LegoBatchLike, batch), len(trace_paths))
+        return cls(cast(_BrickBatchLike, batch), len(trace_paths))
+
+    def current_client_bricks(
+        self, active_mask: np.ndarray | None = None
+    ) -> np.ndarray:
+        return self._current_side_bricks(self._client_bricks, active_mask)
+
+    def current_server_bricks(
+        self, active_mask: np.ndarray | None = None
+    ) -> np.ndarray:
+        return self._current_side_bricks(self._server_bricks, active_mask)
+
+    def current_bricks(self, active_mask: np.ndarray | None = None) -> np.ndarray:
+        client = self.current_client_bricks(active_mask)
+        server = self.current_server_bricks(active_mask)
+        if not np.array_equal(client, server):
+            raise ValueError(
+                "current_bricks requires shared client/server brick state; "
+                "use current_client_bricks or current_server_bricks for "
+                "side-specific state"
+            )
+        return client
 
     def step(
         self, step_actions: list[StepAction], active_mask: np.ndarray
@@ -212,6 +233,19 @@ class LegoBatchController:
 
     def is_done(self) -> list[bool]:
         return self.batch.is_done()
+
+    def _current_side_bricks(
+        self, bricks: list[int], active_mask: np.ndarray | None
+    ) -> np.ndarray:
+        current = np.asarray(bricks, dtype=np.int64)
+        if active_mask is None:
+            return current.copy()
+        if active_mask.shape != (self.batch_size,):
+            raise ValueError(
+                f"active_mask must have shape ({self.batch_size},), "
+                f"got {active_mask.shape}"
+            )
+        return current[active_mask].copy()
 
 
 def _lego_backend_bricks(bricks: LegoBrickCollection) -> list[LegoBrickSpec]:

@@ -20,7 +20,7 @@ from kipl_ml.rl.lego import (
     load_lego_bricks_from_defense_files,
     to_backend_brick_specs,
 )
-from kipl_ml.rl.simulate import LegoBatchController, NumpyTrace
+from kipl_ml.rl.simulate import BrickBatchController, NumpyTrace
 from kipl_ml.rl.streaming import WindowFeatureStreamer
 from kipl_ml.rl.utils import fill_after_seq_end
 from kipl_ml.trace.enums import Feats
@@ -200,10 +200,10 @@ class FakeLegoBatch:
         return []
 
 
-class TestLegoBatchController(unittest.TestCase):
+class TestBrickBatchController(unittest.TestCase):
     def test_dense_selectors_keep_current_on_missing_selector(self):
         batch = FakeLegoBatch()
-        controller = LegoBatchController(batch, batch_size=3)
+        controller = BrickBatchController(batch, batch_size=3)
 
         out = controller.step(
             [
@@ -215,6 +215,11 @@ class TestLegoBatchController(unittest.TestCase):
 
         self.assertEqual(out, [])
         self.assertEqual(batch.calls[-1], ([2, 0, -1], [2, 0, -1]))
+        self.assertEqual(controller.current_bricks().tolist(), [2, 0, 0])
+        self.assertEqual(
+            controller.current_bricks(np.array([True, True, False])).tolist(),
+            [2, 0],
+        )
 
         controller.step(
             [
@@ -228,7 +233,7 @@ class TestLegoBatchController(unittest.TestCase):
 
     def test_side_specific_selectors_are_independent(self):
         batch = FakeLegoBatch()
-        controller = LegoBatchController(batch, batch_size=2)
+        controller = BrickBatchController(batch, batch_size=2)
 
         controller.step(
             [
@@ -245,6 +250,10 @@ class TestLegoBatchController(unittest.TestCase):
         )
 
         self.assertEqual(batch.calls[-1], ([2, 0], [5, 0]))
+        self.assertEqual(controller.current_client_bricks().tolist(), [2, 0])
+        self.assertEqual(controller.current_server_bricks().tolist(), [5, 0])
+        with self.assertRaisesRegex(ValueError, "shared client/server"):
+            controller.current_bricks()
 
         controller.step(
             [
@@ -258,7 +267,7 @@ class TestLegoBatchController(unittest.TestCase):
 
     def test_side_specific_selectors_override_shared_selector(self):
         batch = FakeLegoBatch()
-        controller = LegoBatchController(batch, batch_size=1)
+        controller = BrickBatchController(batch, batch_size=1)
 
         controller.step(
             [
@@ -276,16 +285,22 @@ class TestLegoBatchController(unittest.TestCase):
         self.assertEqual(batch.calls[-1], ([2], [1]))
 
     def test_rejects_active_mask_shape_mismatch(self):
-        controller = LegoBatchController(FakeLegoBatch(), batch_size=2)
+        controller = BrickBatchController(FakeLegoBatch(), batch_size=2)
 
         with self.assertRaisesRegex(ValueError, "active_mask must have shape"):
             controller.step([], np.array([True]))
 
     def test_rejects_action_count_mismatch(self):
-        controller = LegoBatchController(FakeLegoBatch(), batch_size=2)
+        controller = BrickBatchController(FakeLegoBatch(), batch_size=2)
 
         with self.assertRaisesRegex(ValueError, "step_actions length"):
             controller.step([], np.array([True, False]))
+
+    def test_current_bricks_rejects_active_mask_shape_mismatch(self):
+        controller = BrickBatchController(FakeLegoBatch(), batch_size=2)
+
+        with self.assertRaisesRegex(ValueError, "active_mask must have shape"):
+            controller.current_bricks(np.array([True]))
 
 
 class TestLegoBricks(unittest.TestCase):
