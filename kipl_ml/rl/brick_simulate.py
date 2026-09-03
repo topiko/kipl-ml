@@ -244,13 +244,28 @@ def brick_policy_rollout(  # noqa: C901
 
     X_obs = _batch_packet_level_features(X_obs_l, device)
     if not act_time_bins_l:
-        raise RuntimeError(
-            "brick rollout ended before any policy actions were recorded"
+        fd = {f: torch.zeros((bs, 1), device=device) for f in fd_features}
+        fd[Feats.TIME_BINS] = torch.full((bs, 1), -1.0, device=device)
+        fd[Feats.SEQ_LENS] = torch.zeros(bs, dtype=torch.long, device=device)
+        zeros = torch.zeros((bs, 1), device=device)
+        return (
+            fd,
+            torch.full((bs, 1), -1, dtype=torch.long, device=device),
+            actions_l,
+            zeros,
+            torch.zeros((bs, 1, 1), device=device),
+            zeros,
+            {
+                "selection_entropy": zeros,
+                "conditional_entropy": zeros,
+            },
+            X_obs,
         )
 
     act_time_bins = torch.cat(act_time_bins_l, dim=1)
     act_time_bins[act_time_bins == 0] = -1
     fd = {f: torch.cat(vs, dim=1) for f, vs in fd_steps.items()}
+    fd[Feats.TIME_BINS] = fd[Feats.TIME_BINS].masked_fill(act_time_bins < 0, -1)
     fd[Feats.SEQ_LENS] = (act_time_bins > 0).sum(dim=1).long()
     fd = dict_to_device(fd, device=device)
 

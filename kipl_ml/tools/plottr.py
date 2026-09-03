@@ -226,10 +226,12 @@ def plot_tam(
     _plot_stacked_counts(tam_u_c, tam_u_pad, UPLOAD)
     _plot_stacked_counts(tam_d_c, tam_d_pad, DOWNLOAD)
 
+    packet_mask = (tam_u_c != 0) | (tam_d_c != 0)
+    maxt = tam_times[packet_mask].max().round(2) if packet_mask.any() else 0.0
     info_d = {
         "nup": tam_u_c.sum(),
         "ndown": tam_d_c.sum(),
-        "maxt": tam_times[(tam_u_c != 0) | (tam_d_c != 0)].max().round(2),
+        "maxt": maxt,
     }
 
     if tam_u_pad.sum() > 0:

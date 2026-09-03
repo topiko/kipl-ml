@@ -309,6 +309,11 @@ class FakeBrickController:
         return [self.step_count >= 2] * self.batch_size
 
 
+class FakeDoneAfterOneStepBrickController(FakeBrickController):
+    def is_done(self) -> list[bool]:
+        return [self.step_count >= 1] * self.batch_size
+
+
 class TestBrickBatchController(unittest.TestCase):
     def test_dense_selectors_keep_current_on_missing_selector(self):
         batch = FakeLegoBatch()
@@ -472,6 +477,41 @@ class TestBrickPolicyRollout(unittest.TestCase):
         self.assertEqual(actions[0][0][Actions.CLIENT_BRICK_SELECT].selected, 1)
         self.assertEqual(actions[0][0][Actions.SERVER_BRICK_SELECT].selected, 2)
         self.assertEqual(X_obs[Feats.DIRS].shape, (2, 2))
+
+    def test_rollout_returns_zero_length_batch_when_no_policy_step_is_reached(self):
+        policy = FakeBrickPolicy()
+        controller = FakeDoneAfterOneStepBrickController(batch_size=2)
+
+        fd, act_time_bins, actions, log_ps, sel_probs, values, entropies, X_obs = (
+            brick_policy_rollout(
+                policy=policy,
+                trace_paths=["a.log", "b.log"],
+                device="cpu",
+                client_bricks=None,
+                server_bricks=None,
+                network_context=None,
+                max_packets=10,
+                max_duration_s=10.0,
+                required_real_packets=None,
+                trim_raw=0,
+                seed=0,
+                sample=True,
+                relative=False,
+                max_steps=100,
+                controller=controller,
+            )
+        )
+
+        self.assertEqual(policy.current_calls, [])
+        self.assertEqual(fd[Feats.SEQ_LENS].tolist(), [0, 0])
+        self.assertEqual(fd[Feats.TIME_BINS].tolist(), [[-1.0], [-1.0]])
+        self.assertEqual(act_time_bins.tolist(), [[-1], [-1]])
+        self.assertEqual(actions, [[], []])
+        self.assertEqual(log_ps.shape, (2, 1))
+        self.assertEqual(sel_probs.shape, (2, 1, 1))
+        self.assertEqual(values.shape, (2, 1))
+        self.assertEqual(entropies["selection_entropy"].shape, (2, 1))
+        self.assertEqual(X_obs[Feats.DIRS].shape, (2, 1))
 
 
 class TestWindowFeatureStreamer(unittest.TestCase):
