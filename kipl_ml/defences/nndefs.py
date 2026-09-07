@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import os
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 import dotenv
 import mlflow
@@ -15,6 +15,11 @@ from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
 from kipl_ml.network.network import NetworkContextIntDict
+from kipl_ml.rl.brick_selection_agent import BrickSelectionAgent
+from kipl_ml.rl.brick_simulate import (
+    BrickSpecCollection,
+    brick_policy_rollout,
+)
 from kipl_ml.rl.simulate import policy_obfuscate_trace
 from kipl_ml.trace.enums import Feats
 
@@ -69,6 +74,13 @@ class _NNDef(_Def):
         self.defense_model.eval()
 
         self.simul_kwargs = simul_kwargs or {}
+
+    def _load_random_state_dict(self, rng: np.random.Generator) -> None:
+        if self.defence_model_state_dicts is None:
+            return
+        idx = int(rng.integers(len(self.defence_model_state_dicts)))
+        st_d = self.defence_model_state_dicts[idx]
+        self.defense_model.load_state_dict(st_d)
 
     def report(self, to_log: bool = False) -> str:
         str_ = self.__class__.__name__ + "\n"
@@ -145,9 +157,7 @@ class RNNDef(_NNDef):
     ) -> dict[Feats, torch.Tensor]:
         # Implement RNN specific logic
 
-        if self.defence_model_state_dicts is not None:
-            st_d = self.rng.choice(self.defence_model_state_dicts)
-            self.defense_model.load_state_dict(st_d)
+        self._load_random_state_dict(self.rng)
 
         add_tail_s = 0.0
 
@@ -157,19 +167,127 @@ class RNNDef(_NNDef):
             )
 
         with torch.inference_mode():
-            trace_d = policy_obfuscate_trace(
-                self.defense_model,
-                [str(trace_path)],
-                device=torch.device("cpu"),
-                sample=True,
-                max_packets=self._n_packets,
-                max_duration_s=self._max_dur_s,
-                add_tail_s=add_tail_s,
-                network_context=network_context,
-                seed=self.seed,
+            trace_d = cast(
+                dict[Feats, torch.Tensor],
+                policy_obfuscate_trace(
+                    self.defense_model,
+                    [str(trace_path)],
+                    device=cast(torch.DeviceObjType, torch.device("cpu")),
+                    sample=True,
+                    max_packets=self._n_packets,
+                    max_duration_s=self._max_dur_s,
+                    add_tail_s=add_tail_s,
+                    network_context=network_context,
+                    seed=0 if self.seed is None else self.seed,
+                ),
             )
 
         trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
         trace_d[Feats.SIZES] = torch.ones_like(trace_d[Feats.TIMES])
 
+        return trace_d
+
+
+class BrickSelectionDef(_NNDef):
+    def __init__(
+        self,
+        *args,
+        client_bricks: BrickSpecCollection,
+        server_bricks: BrickSpecCollection,
+        n_packets: int | None = 5000,
+        max_dur_s: float | None = None,
+        sample: bool = True,
+        relative: bool = True,
+        max_steps: int = 10_000,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        if not isinstance(self.defense_model, BrickSelectionAgent):
+            raise TypeError(
+                f"BrickSelectionDef requires BrickSelectionAgent, "
+                f"got {type(self.defense_model)}"
+            )
+        if max_steps <= 0:
+            raise ValueError("max_steps must be > 0")
+
+        self.client_bricks = list(client_bricks)
+        self.server_bricks = list(server_bricks)
+        self._n_packets = n_packets
+        self._max_dur_s = max_dur_s or math.inf
+        self.sample = sample
+        self.relative = relative
+        self.max_steps = int(max_steps)
+        self.rng = np.random.default_rng()
+
+    def report(self, to_log: bool = False) -> str:
+        str_ = self.__class__.__name__ + "\n"
+        str_ += f"\tFixed per trace: {self.FIXED_PER_TRACE}\n"
+
+        dm = self.defense_model
+        str_ += f"\t\t{dm.__class__.__name__}\n"
+        str_ += f"\t\t\tTime step: {dm.time_step}\n"
+        str_ += f"\t\t\tClient bricks: {dm.n_client_bricks}\n"
+        str_ += f"\t\t\tServer bricks: {dm.n_server_bricks}\n"
+        str_ += f"\t\t\tMax steps: {self.max_steps}\n"
+        str_ += "\t\t\tModel ids\n"
+        for id_ in self._model_ids:
+            str_ += f"\t\t\t\t{id_}\n"
+
+        if self.simul_kwargs:
+            str_ += "Simul. args\n"
+            for k, v in self.simul_kwargs.items():
+                str_ += f"\t{k} : {v}\n"
+
+        if to_log:
+            log_multiline(str_)
+
+        return str_
+
+    def _simulate(
+        self,
+        trace_path: os.PathLike,
+        machine_idx: int | None = None,
+        trim_raw: int = 0,
+        network_context: NetworkContextIntDict | None = None,
+    ) -> dict[Feats, torch.Tensor]:
+        if machine_idx is not None:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} does not support machine_idx argument."
+            )
+        if self._n_packets is None:
+            raise ValueError("BrickSelectionDef requires explicit n_packets")
+        if network_context is None:
+            raise ValueError(
+                f"{self.__class__.__name__} requires explicit network_context"
+            )
+
+        self._load_random_state_dict(self.rng)
+        raw_trace = self.load_data(
+            trace_path,
+            trim_raw=trim_raw,
+            network_context=network_context,
+        )
+        required_real_packets = int((raw_trace[Feats.DIRS] != 0).sum().item())
+        policy = cast(BrickSelectionAgent, self.defense_model)
+
+        with torch.inference_mode():
+            *_, trace_d = brick_policy_rollout(
+                policy=policy,
+                trace_paths=[str(trace_path)],
+                device=torch.device("cpu"),
+                client_bricks=self.client_bricks,
+                server_bricks=self.server_bricks,
+                network_context=network_context,
+                max_packets=self._n_packets,
+                max_duration_s=self._max_dur_s,
+                required_real_packets=required_real_packets,
+                trim_raw=trim_raw,
+                seed=0 if self.seed is None else self.seed,
+                sample=self.sample,
+                relative=self.relative,
+                max_steps=self.max_steps,
+            )
+
+        trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
+        trace_d[Feats.SIZES] = torch.ones_like(trace_d[Feats.TIMES])
         return trace_d
