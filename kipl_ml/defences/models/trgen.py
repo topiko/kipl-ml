@@ -6,6 +6,11 @@ from torch import nn
 from torch.distributions import Categorical
 from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence, pad_packed_sequence
 
+from kipl_ml.defences.models._time import (
+    get_time_step_s_attr,
+    resolve_time_step_s,
+    set_time_step_s_attr,
+)
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.rl.enums import (
     ActDelayDown,
@@ -387,12 +392,12 @@ def _forward_w_detach(
     return outputs_concat, h
 
 
-class AGENT1(nn.Module):
-    name: str = "agent"
+class RNNDefenceAgent(nn.Module):
+    name: str = "rnn-defence-agent"
 
     def __init__(
         self,
-        time_step: float = 0.05,
+        time_step_s: float | None = None,
         max_silence_s: float = 0.5,
         hsize: int = 256,
         nlayers: int = 3,
@@ -403,8 +408,11 @@ class AGENT1(nn.Module):
         prefer_wait_bias: float = 0.0,
         enable_delay: bool = False,
         train_env: dict[str, Any] | None = None,
+        *,
+        time_step: float | None = None,
     ):
         super().__init__()
+        time_step_s = resolve_time_step_s(time_step_s, time_step, default=0.05)
 
         self.train_env = train_env or {}
         self.enable_delay = bool(enable_delay)
@@ -455,18 +463,18 @@ class AGENT1(nn.Module):
         else:
             n_delay_durations = 0
 
-        ratio = float(max_silence_s) / float(time_step)
+        ratio = float(max_silence_s) / float(time_step_s)
         if abs(ratio - round(ratio)) > 1e-8:
             raise ValueError(
-                "max_silence_s should be a multiple of time_step."
-                + f" Got max_silence_s={max_silence_s}, time_step={time_step}."
+                "max_silence_s should be a multiple of time_step_s."
+                + f" Got max_silence_s={max_silence_s}, time_step_s={time_step_s}."
             )
 
         n_send_counts = len(self.send_count_bins)
         n_decay_times = len(self.send_after_bins)
 
         # Time step between feature extractions.
-        self.time_step = time_step
+        self.time_step_s = time_step_s
         # Maximum silence the model tolerates before acting.
         self.max_silence_s = max_silence_s
 
@@ -535,6 +543,14 @@ class AGENT1(nn.Module):
         if prefer_wait_bias != 0.0:
             self._init_action_selection_prefer_wait(prefer_wait_bias=prefer_wait_bias)
 
+    @property
+    def time_step_s(self) -> float:
+        return get_time_step_s_attr(self)
+
+    @time_step_s.setter
+    def time_step_s(self, value: float) -> None:
+        set_time_step_s_attr(self, value)
+
     def init_hidden(
         self, bs: int, device: torch.DeviceObjType = "cpu"
     ) -> tuple[torch.tensor, torch.tensor]:
@@ -570,7 +586,7 @@ class AGENT1(nn.Module):
 
         # Typically we have time in dim=1, here we always(?)
         # (N, L) x nfeat
-        fs = _feature_map(x, self.features, dt=float(self.time_step))
+        fs = _feature_map(x, self.features, dt=float(self.time_step_s))
 
         # (N, L, nfeat)
         inputs = torch.cat(fs, dim=-1)
@@ -857,12 +873,15 @@ class AGENT1(nn.Module):
         )
 
 
+AGENT1 = RNNDefenceAgent
+
+
 class CRITIC01(nn.Module):
     name: str = "critic"
 
     def __init__(
         self,
-        agent: AGENT1,
+        agent: RNNDefenceAgent,
         hsize: int = 256,
         nlayers: int = 3,
         dropout: float = 0.0,
@@ -876,7 +895,7 @@ class CRITIC01(nn.Module):
             logger.warning("Dropout on critic is bad idea?")
 
         # Time step between feature extractions.
-        self.time_step = agent.time_step
+        self.time_step_s = agent.time_step_s
         # Maximum silence the model tolerates before acting.
         self.max_silence_s = agent.max_silence_s
 
@@ -911,6 +930,14 @@ class CRITIC01(nn.Module):
 
         self.label_embedding = nn.Embedding(n_classes, label_embedding_dim)
 
+    @property
+    def time_step_s(self) -> float:
+        return get_time_step_s_attr(self)
+
+    @time_step_s.setter
+    def time_step_s(self, value: float) -> None:
+        set_time_step_s_attr(self, value)
+
     def forward(
         self,
         x: dict[Feats, torch.Tensor],
@@ -923,7 +950,7 @@ class CRITIC01(nn.Module):
 
         # Typically we have time in dim=1, here we always(?)
         # (N, L) x nfeat
-        fs = _feature_map(x, self.features, dt=float(self.time_step))
+        fs = _feature_map(x, self.features, dt=float(self.time_step_s))
 
         # (N, L, nfeat)
         inputs = torch.cat(fs, dim=-1)

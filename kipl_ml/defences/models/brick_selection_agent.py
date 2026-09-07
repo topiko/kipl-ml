@@ -6,10 +6,28 @@ import torch
 from torch import nn
 from torch.distributions import Categorical
 
+from kipl_ml.defences.models._time import (
+    get_time_step_s_attr,
+    resolve_time_step_s,
+    set_time_step_s_attr,
+)
 from kipl_ml.rl.enums import Actions, ActSelector, EntropyKeys, StepAction, StepActions
 from kipl_ml.trace.enums import Feats
 
 DEFAULT_BRICK_FEATURES = (Feats.TIME_BINS, Feats.Dt_BINS)
+
+
+def _resolve_n_time_steps(
+    n_time_steps: int | None,
+    time_steps: int | None,
+) -> int:
+    if n_time_steps is None:
+        if time_steps is None:
+            raise TypeError("n_time_steps is required")
+        return int(time_steps)
+    if time_steps is not None and int(n_time_steps) != int(time_steps):
+        raise ValueError("time_steps and n_time_steps must match")
+    return int(n_time_steps)
 
 
 class BrickSelectionAgent(nn.Module):
@@ -23,18 +41,25 @@ class BrickSelectionAgent(nn.Module):
 
     def __init__(
         self,
-        time_step: float,
-        time_steps: int,
-        n_client_bricks: int,
+        time_step_s: float | None = None,
+        n_time_steps: int | None = None,
+        n_client_bricks: int | None = None,
         n_server_bricks: int | None = None,
         features: Sequence[Feats] = DEFAULT_BRICK_FEATURES,
         prob_eps: float = 0.0,
         stay_bias: float = 0.0,
         train_env: dict[str, object] | None = None,
+        *,
+        time_step: float | None = None,
+        time_steps: int | None = None,
     ) -> None:
         super().__init__()
-        if time_steps <= 0:
-            raise ValueError("time_steps must be > 0")
+        time_step_s = resolve_time_step_s(time_step_s, time_step)
+        n_time_steps = _resolve_n_time_steps(n_time_steps, time_steps)
+        if n_client_bricks is None:
+            raise TypeError("n_client_bricks is required")
+        if n_time_steps <= 0:
+            raise ValueError("n_time_steps must be > 0")
         if n_client_bricks <= 0:
             raise ValueError("n_client_bricks must be > 0")
         if n_server_bricks is None:
@@ -44,8 +69,8 @@ class BrickSelectionAgent(nn.Module):
         if not (0.0 <= prob_eps <= 1.0):
             raise ValueError("prob_eps must be in [0, 1]")
 
-        self.time_step = float(time_step)
-        self.time_steps = int(time_steps)
+        self.time_step_s = time_step_s
+        self.n_time_steps = n_time_steps
         self.n_client_bricks = int(n_client_bricks)
         self.n_server_bricks = int(n_server_bricks)
         self.features = tuple(features)
@@ -53,10 +78,10 @@ class BrickSelectionAgent(nn.Module):
         self.train_env = {} if train_env is None else dict(train_env)
 
         client_logits = torch.zeros(
-            self.time_steps, self.n_client_bricks, self.n_client_bricks
+            self.n_time_steps, self.n_client_bricks, self.n_client_bricks
         )
         server_logits = torch.zeros(
-            self.time_steps, self.n_server_bricks, self.n_server_bricks
+            self.n_time_steps, self.n_server_bricks, self.n_server_bricks
         )
         if stay_bias != 0.0:
             client_diag = torch.arange(self.n_client_bricks)
@@ -67,8 +92,29 @@ class BrickSelectionAgent(nn.Module):
         self.client_transition_logits = nn.Parameter(client_logits)
         self.server_transition_logits = nn.Parameter(server_logits)
         self.value_table = nn.Parameter(
-            torch.zeros(self.time_steps, self.n_client_bricks, self.n_server_bricks)
+            torch.zeros(self.n_time_steps, self.n_client_bricks, self.n_server_bricks)
         )
+
+    @property
+    def time_step_s(self) -> float:
+        return get_time_step_s_attr(self)
+
+    @time_step_s.setter
+    def time_step_s(self, value: float) -> None:
+        set_time_step_s_attr(self, value)
+
+    @property
+    def n_time_steps(self) -> int:
+        value = self.__dict__.get("_n_time_steps")
+        if value is None:
+            value = self.__dict__["time_steps"]
+        return int(value)
+
+    @n_time_steps.setter
+    def n_time_steps(self, value: int) -> None:
+        value = int(value)
+        self.__dict__["_n_time_steps"] = value
+        self.__dict__["time_steps"] = value
 
     def client_transition_probs(self) -> torch.Tensor:
         return self._transition_probs(
@@ -122,7 +168,7 @@ class BrickSelectionAgent(nn.Module):
         if current_server.shape[0] != time_bins.shape[0]:
             raise ValueError("current_server_bricks length must match batch size")
 
-        time_idx = time_bins.squeeze(1).long().clamp(0, self.time_steps - 1)
+        time_idx = time_bins.squeeze(1).long().clamp(0, self.n_time_steps - 1)
         client_probs = self.client_transition_probs()[time_idx, current_client]
         server_probs = self.server_transition_probs()[time_idx, current_server]
         client_selected, client_log_ps, client_entropy = self._select(

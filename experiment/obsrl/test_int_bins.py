@@ -50,10 +50,10 @@ class TestObsrlIntBinsConsistency(TestCase):
 
     def test_delay_uses_dedicated_duration_head(self):
         """Delay duration should come from delay head, not Dt_BINS."""
-        from kipl_ml.defences.models.trgen import AGENT1
+        from kipl_ml.defences.models.trgen import RNNDefenceAgent
 
-        obs = AGENT1(
-            time_step=0.02,
+        obs = RNNDefenceAgent(
+            time_step_s=0.02,
             max_silence_s=0.02,
             hsize=16,
             nlayers=1,
@@ -92,10 +92,10 @@ class TestObsrlIntBinsConsistency(TestCase):
 
     def test_get_agent_uses_configurable_send_bins(self):
         """Sisyphus agent builder should honor send bins from config."""
-        from kipl_ml.defences.models.trgen import AGENT1
+        from kipl_ml.defences.models.trgen import RNNDefenceAgent
 
-        obs = AGENT1(
-            time_step=0.02,
+        obs = RNNDefenceAgent(
+            time_step_s=0.02,
             max_silence_s=0.02,
             hsize=16,
             nlayers=1,

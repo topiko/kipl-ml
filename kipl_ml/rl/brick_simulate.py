@@ -21,7 +21,7 @@ from kipl_ml.trace.enums import Feats
 
 @runtime_checkable
 class BrickPolicy(Protocol):
-    time_step: float
+    time_step_s: float
 
     @property
     def features(self) -> Sequence[Feats]: ...
@@ -114,7 +114,7 @@ def brick_policy_rollout(  # noqa: C901
         network_kwargs = NetworkContext.to_rust_args_batch(dict(network_context))
         controller = BrickBatchController.new(
             trace_paths=trace_paths,
-            window_duration_ns=int(round(float(policy.time_step) * 1e9)),
+            window_duration_ns=int(round(float(policy.time_step_s) * 1e9)),
             client_bricks=client_bricks,
             server_bricks=server_bricks,
             network_kwargs=network_kwargs,
@@ -178,7 +178,7 @@ def brick_policy_rollout(  # noqa: C901
             current_bin = int(next_bins[idx])
             next_bins[idx] += 1
             long_enough = n_packets[idx] >= max_packets or (
-                next_bins[idx] * float(policy.time_step) > max_duration_s
+                next_bins[idx] * float(policy.time_step_s) > max_duration_s
             )
             reached_required_real = _reached_required_real(
                 n_real_packets,

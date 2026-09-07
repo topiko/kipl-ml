@@ -6,7 +6,7 @@ from kipl_ml.defences.models.brick_selection_agent import (
     DEFAULT_BRICK_FEATURES,
     BrickSelectionAgent,
 )
-from kipl_ml.defences.models.trgen import AGENT1
+from kipl_ml.defences.models.trgen import AGENT1, RNNDefenceAgent
 from kipl_ml.rl.enums import Actions, AHKs, EntropyKeys, StepAction
 from kipl_ml.trace.features import Feats
 
@@ -50,14 +50,32 @@ def _force_server_transition(
 
 
 class TestBrickSelectionAgent(unittest.TestCase):
+    def test_time_step_compatibility_aliases(self) -> None:
+        model = BrickSelectionAgent(time_step=0.05, time_steps=3, n_client_bricks=4)
+
+        self.assertEqual(model.time_step_s, 0.05)
+        self.assertEqual(model.time_step, model.time_step_s)
+        self.assertEqual(model.n_time_steps, 3)
+        self.assertEqual(model.time_steps, model.n_time_steps)
+
+    def test_old_brick_artifact_time_step_fallback(self) -> None:
+        model = BrickSelectionAgent.__new__(BrickSelectionAgent)
+        model.__dict__["time_step"] = 0.05
+        model.__dict__["time_steps"] = 3
+
+        self.assertEqual(model.time_step_s, 0.05)
+        self.assertEqual(model.n_time_steps, 3)
+
     def test_transition_probs_are_time_indexed_stochastic_matrices(self) -> None:
         model = BrickSelectionAgent(
-            time_step=0.05,
-            time_steps=3,
+            time_step_s=0.05,
+            n_time_steps=3,
             n_client_bricks=4,
             n_server_bricks=5,
         )
 
+        self.assertEqual(model.time_step, model.time_step_s)
+        self.assertEqual(model.time_steps, model.n_time_steps)
         client_probs, server_probs = model.transition_probs()
 
         self.assertEqual(client_probs.shape, (3, 4, 4))
@@ -67,8 +85,8 @@ class TestBrickSelectionAgent(unittest.TestCase):
 
     def test_act_step_selects_from_time_and_current_brick_rows(self) -> None:
         model = BrickSelectionAgent(
-            time_step=0.05,
-            time_steps=4,
+            time_step_s=0.05,
+            n_time_steps=4,
             n_client_bricks=5,
             n_server_bricks=6,
         )
@@ -104,8 +122,8 @@ class TestBrickSelectionAgent(unittest.TestCase):
 
     def test_action_time_clamps_to_last_transition_matrix(self) -> None:
         model = BrickSelectionAgent(
-            time_step=0.05,
-            time_steps=2,
+            time_step_s=0.05,
+            n_time_steps=2,
             n_client_bricks=3,
             n_server_bricks=4,
         )
@@ -125,7 +143,9 @@ class TestBrickSelectionAgent(unittest.TestCase):
         self.assertEqual(actions[0][Actions.SERVER_BRICK_SELECT].selected, 3)
 
     def test_rejects_sequence_inputs(self) -> None:
-        model = BrickSelectionAgent(time_step=0.05, time_steps=2, n_client_bricks=2)
+        model = BrickSelectionAgent(
+            time_step_s=0.05, n_time_steps=2, n_client_bricks=2
+        )
 
         with self.assertRaisesRegex(ValueError, r"\(B,1\)"):
             model.act_step(
@@ -138,7 +158,9 @@ class TestBrickSelectionAgent(unittest.TestCase):
             )
 
     def test_rejects_invalid_current_bricks(self) -> None:
-        model = BrickSelectionAgent(time_step=0.05, time_steps=2, n_client_bricks=2)
+        model = BrickSelectionAgent(
+            time_step_s=0.05, n_time_steps=2, n_client_bricks=2
+        )
 
         with self.assertRaisesRegex(ValueError, "current_client_bricks"):
             model.act_step(
@@ -158,12 +180,29 @@ class TestBrickSelectionAgent(unittest.TestCase):
         self.assertEqual(DEFAULT_BRICK_FEATURES, (Feats.TIME_BINS, Feats.Dt_BINS))
 
 
-class TestAGENT1Forward(unittest.TestCase):
+class TestRNNDefenceAgentCompatibility(unittest.TestCase):
+    def test_agent1_is_compatibility_alias(self) -> None:
+        self.assertIs(AGENT1, RNNDefenceAgent)
+
+    def test_time_step_compatibility_alias(self) -> None:
+        model = RNNDefenceAgent(time_step=0.02, max_silence_s=0.04)
+
+        self.assertEqual(model.time_step_s, 0.02)
+        self.assertEqual(model.time_step, model.time_step_s)
+
+    def test_old_rnn_artifact_time_step_fallback(self) -> None:
+        model = RNNDefenceAgent.__new__(RNNDefenceAgent)
+        model.__dict__["time_step"] = 0.02
+
+        self.assertEqual(model.time_step_s, 0.02)
+
+
+class TestRNNDefenceAgentForward(unittest.TestCase):
     def setUp(self):
-        self.model = AGENT1(
+        self.model = RNNDefenceAgent(
             hsize=32,
             nlayers=1,
-            time_step=0.02,
+            time_step_s=0.02,
             max_silence_s=1.0,
             enable_delay=False,
         )
@@ -185,10 +224,10 @@ class TestAGENT1Forward(unittest.TestCase):
         self.assertEqual(out[AHKs.SEND_COUNT_D].shape, (B, L, 5))
 
     def test_forward_with_delay(self):
-        model = AGENT1(
+        model = RNNDefenceAgent(
             hsize=32,
             nlayers=1,
-            time_step=0.02,
+            time_step_s=0.02,
             max_silence_s=1.0,
             enable_delay=True,
         )
@@ -203,12 +242,12 @@ class TestAGENT1Forward(unittest.TestCase):
         self.assertIn(AHKs.DELAY_BINS_U, out)
 
 
-class TestAGENT1Act(unittest.TestCase):
+class TestRNNDefenceAgentAct(unittest.TestCase):
     def setUp(self):
-        self.model = AGENT1(
+        self.model = RNNDefenceAgent(
             hsize=32,
             nlayers=1,
-            time_step=0.02,
+            time_step_s=0.02,
             max_silence_s=1.0,
             enable_delay=False,
         )
@@ -245,10 +284,10 @@ class TestAGENT1Act(unittest.TestCase):
         self.assertIn(EntropyKeys.COND_ENTROPY, entropies)
 
     def test_act_selector_do_nothing(self):
-        model = AGENT1(
+        model = RNNDefenceAgent(
             hsize=32,
             nlayers=1,
-            time_step=0.02,
+            time_step_s=0.02,
             max_silence_s=1.0,
             enable_delay=False,
             prob_eps=1.0,
@@ -263,12 +302,12 @@ class TestAGENT1Act(unittest.TestCase):
         self.assertIsInstance(sa, StepAction)
 
 
-class TestAGENT1ActStep(unittest.TestCase):
+class TestRNNDefenceAgentActStep(unittest.TestCase):
     def setUp(self):
-        self.model = AGENT1(
+        self.model = RNNDefenceAgent(
             hsize=32,
             nlayers=1,
-            time_step=0.02,
+            time_step_s=0.02,
             max_silence_s=1.0,
             enable_delay=False,
         )
@@ -300,12 +339,12 @@ class TestAGENT1ActStep(unittest.TestCase):
         self.assertEqual(len(step_actions), B)
 
 
-class TestAGENT1WithDelay(unittest.TestCase):
+class TestRNNDefenceAgentWithDelay(unittest.TestCase):
     def setUp(self):
-        self.model = AGENT1(
+        self.model = RNNDefenceAgent(
             hsize=32,
             nlayers=1,
-            time_step=0.02,
+            time_step_s=0.02,
             max_silence_s=1.0,
             enable_delay=True,
         )

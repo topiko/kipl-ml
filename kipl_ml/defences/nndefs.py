@@ -88,7 +88,7 @@ class _NNDef(_Def):
 
         dm = self.defense_model
         str_ += f"\t\t{dm.__class__.__name__}\n"
-        str_ += f"\t\t\tTime step: {dm.time_step}\n"
+        str_ += f"\t\t\tTime step: {dm.time_step_s}\n"
         str_ += f"\t\t\tMax silence: {dm.max_silence_s}\n"
         str_ += "\t\t\tModel ids\n"
         for id_ in self._model_ids:
@@ -225,7 +225,7 @@ class BrickSelectionDef(_NNDef):
 
         dm = self.defense_model
         str_ += f"\t\t{dm.__class__.__name__}\n"
-        str_ += f"\t\t\tTime step: {dm.time_step}\n"
+        str_ += f"\t\t\tTime step: {dm.time_step_s}\n"
         str_ += f"\t\t\tClient bricks: {dm.n_client_bricks}\n"
         str_ += f"\t\t\tServer bricks: {dm.n_server_bricks}\n"
         str_ += f"\t\t\tMax steps: {self.max_steps}\n"

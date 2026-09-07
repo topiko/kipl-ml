@@ -205,7 +205,7 @@ def _install_delay_between_override(obs, start_s: float, end_s: float) -> None:
     if not getattr(obs, "enable_delay", False):
         raise ValueError("Delay override requested, but obs.enable_delay is False")
 
-    dt_s = float(obs.time_step)
+    dt_s = float(obs.time_step_s)
     original_act = obs.act
 
     def _act_override(
@@ -529,7 +529,7 @@ def _plot_indices(
                 G=G,
                 advantages=advantages,
                 weights=weights,
-                obs_dt_s=float(obs.time_step),
+                obs_dt_s=float(obs.time_step_s),
                 show=True,
             )
 
@@ -566,7 +566,7 @@ def main() -> None:
         obs_base = copy.deepcopy(obs)
 
     if delay_between is not None:
-        dense_step_s = float(obs.time_step)
+        dense_step_s = float(obs.time_step_s)
         if abs(float(obs.max_silence_s) - dense_step_s) > 1e-12:
             logger.info(
                 "delay_between active: overriding max_silence_s %.6f -> %.6f "

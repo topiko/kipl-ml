@@ -1,3 +1,6 @@
-from kipl_ml.defences.models.trgen_profile import ProfiledAGENT1
+from kipl_ml.defences.models.trgen_profile import (
+    ProfiledAGENT1,
+    ProfiledRNNDefenceAgent,
+)
 
-__all__ = ["ProfiledAGENT1"]
+__all__ = ["ProfiledAGENT1", "ProfiledRNNDefenceAgent"]

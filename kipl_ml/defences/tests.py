@@ -14,8 +14,8 @@ from kipl_ml.trace.enums import Feats
 class TestBrickSelectionDef(unittest.TestCase):
     def test_replays_brick_policy_as_defence(self) -> None:
         policy = BrickSelectionAgent(
-            time_step=0.1,
-            time_steps=2,
+            time_step_s=0.1,
+            n_time_steps=2,
             n_client_bricks=1,
             n_server_bricks=1,
         )

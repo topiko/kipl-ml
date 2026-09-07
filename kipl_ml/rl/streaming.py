@@ -396,7 +396,7 @@ class TraceStateCursor:
 class WindowFeatureStreamer:
     """Stream action-window features (B, 1) step-by-step.
 
-    This matches get_window_feature_dict() for the feature set used by AGENT1.
+    This matches get_window_feature_dict() for the feature set used by RNNDefenceAgent.
     """
 
     def __init__(

@@ -37,7 +37,7 @@ from kipl_ml.data.wf_dataset import (
     get_network_context_ranges,
     get_train_valid_test,
 )
-from kipl_ml.defences.models.trgen import AGENT1, CRITIC01
+from kipl_ml.defences.models.trgen import CRITIC01, RNNDefenceAgent
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.rl.enums import Actions, AHKs
 from kipl_ml.tools.mlflow_utils import (
@@ -85,7 +85,7 @@ def _avg_leaguescore(
 
 def train_obs_one_epoch(
     dl_train: torch.utils.data.DataLoader,
-    obs: AGENT1,
+    obs: RNNDefenceAgent,
     critic: CRITIC01 | None,
     discriminator: nn.Module,
     disc_feats: FeatureTrs,
@@ -360,7 +360,7 @@ def train_disc_on_league(
     discriminator: nn.Module,
     ds_train: WFDataset,
     disc_feats: FeatureTrs,
-    obs: AGENT1,
+    obs: RNNDefenceAgent,
     disc_league: list[tuple[int, torch.nn.Module.state_dict]],
     obs_league: list[tuple[int, dict]],
     device: torch.device,
@@ -422,7 +422,7 @@ def train_disc_on_league(
 
 def train_obs_on_league(
     obs_league: list[tuple[int, dict]],
-    obs: AGENT1,
+    obs: RNNDefenceAgent,
     critic: CRITIC01 | None,
     ds_train: WFDataset,
     discriminator: nn.Module,
@@ -433,7 +433,7 @@ def train_obs_on_league(
     device: torch.DeviceObjType,
     e: int,
     cfg: DictConfig,
-) -> tuple[list[tuple[int, nn.Module.state_dict]], AGENT1, CRITIC01 | None]:
+) -> tuple[list[tuple[int, nn.Module.state_dict]], RNNDefenceAgent, CRITIC01 | None]:
     reward_scales_ = reward_scales.copy()
     if not cfg.obs.reuse_obs_and_critic:
         obs, critic = get_agent_and_critic(cfg)
@@ -565,7 +565,7 @@ def train_obs_on_league(
     return obs_league, obs, critic
 
 
-def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
+def get_agent_and_critic(cfg: DictConfig) -> tuple[RNNDefenceAgent, CRITIC01 | None]:
     eps = cfg.obs.prob_eps
     f_ = 0.5
 
@@ -573,8 +573,8 @@ def get_agent_and_critic(cfg: DictConfig) -> tuple[AGENT1, CRITIC01 | None]:
     send_after_bins = [int(v) for v in cfg.obs.send_after_bins]
     delay_duration_bins = [int(v) for v in cfg.obs.delay_duration_bins]
 
-    obs = AGENT1(
-        time_step=cfg.obs.time_step_s,
+    obs = RNNDefenceAgent(
+        time_step_s=cfg.obs.time_step_s,
         max_silence_s=cfg.obs.max_silence_s,
         hsize=cfg.obs.hsize,
         nlayers=cfg.obs.nhidden,

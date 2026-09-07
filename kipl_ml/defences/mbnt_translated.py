@@ -22,7 +22,7 @@ _MAYBENOT_DECKS_PATH = os.environ.get("MAYBENOT_DECKS_PATH", ".maybenot-decks")
 
 
 class MbntTranslated(Maybenot):
-    """Maybenot defence whose deck is auto-generated from a trained AGENT1 model.
+    """Maybenot defence whose deck is auto-generated from a trained RNNDefenceAgent.
 
     The deck is stored at ``$MAYBENOT_DECKS_PATH/<name>_<hash>/`` where
     *hash* is derived from all generation params.  Different params produce
@@ -224,20 +224,20 @@ def _generate_deck(
 
     _write_gen_params(
         deck_path,
-        dict(
-            model_id=model_id,
-            n_traces=n_traces,
-            n_realizations=n_realizations,
-            side=side,
-            chaos=chaos,
-            groups=groups,
-            seed=seed,
-            network_name=network_name,
-            tor_profile=tor_profile,
-            trace_n_packets=trace_n_packets,
-            trace_trim_beginning=trace_trim_beginning,
-            batch_size=batch_size,
-            dataset_name=dataset_name,
-        ),
+        {
+            "model_id": model_id,
+            "n_traces": n_traces,
+            "n_realizations": n_realizations,
+            "side": side,
+            "chaos": chaos,
+            "groups": groups,
+            "seed": seed,
+            "network_name": network_name,
+            "tor_profile": tor_profile,
+            "trace_n_packets": trace_n_packets,
+            "trace_trim_beginning": trace_trim_beginning,
+            "batch_size": batch_size,
+            "dataset_name": dataset_name,
+        },
     )
     logger.info("Deck %s ready", deck_path)

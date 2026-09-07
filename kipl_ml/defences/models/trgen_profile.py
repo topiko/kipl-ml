@@ -4,7 +4,11 @@ from time import perf_counter
 
 import torch
 
-from kipl_ml.defences.models.trgen import AGENT1, _feature_map, _select_cat_from_logits
+from kipl_ml.defences.models.trgen import (
+    RNNDefenceAgent,
+    _feature_map,
+    _select_cat_from_logits,
+)
 from kipl_ml.rl.enums import (
     ActDelayDown,
     ActDelayUp,
@@ -19,8 +23,8 @@ from kipl_ml.rl.enums import (
 from kipl_ml.trace.features import Feats
 
 
-class ProfiledAGENT1(AGENT1):
-    """AGENT1 subclass with per-operation timer instrumentation.
+class ProfiledRNNDefenceAgent(RNNDefenceAgent):
+    """RNNDefenceAgent subclass with per-operation timer instrumentation.
 
     Accumulates wall-clock timers across calls.  Retrieve with
     ``get_timers(reset=True)``.
@@ -55,7 +59,7 @@ class ProfiledAGENT1(AGENT1):
             return super().forward(x, h, h_detach_period, seq_lens)
 
         t0 = perf_counter()
-        fs = _feature_map(x, self.features, dt=float(self.time_step))
+        fs = _feature_map(x, self.features, dt=float(self.time_step_s))
         inputs = torch.cat(fs, dim=-1)
         self._acc("fw_feature_map", perf_counter() - t0)
 
@@ -321,3 +325,6 @@ class ProfiledAGENT1(AGENT1):
                 raise ValueError("act_step expects each feature to be (B,1)")
 
         return self.act(x, h=h, h_detach_period=None, seq_lens=None, sample=sample)
+
+
+ProfiledAGENT1 = ProfiledRNNDefenceAgent

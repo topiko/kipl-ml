@@ -18,7 +18,7 @@ from experiment.obsrl.sim import rollout
 from experiment.utils.list_models import list_logged_models_for_run
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.defences.base import NoDefence
-from kipl_ml.defences.models.trgen import AGENT1
+from kipl_ml.defences.models.trgen import RNNDefenceAgent
 from kipl_ml.defences.nndefs import RNNDef
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.metrics.clf_metrics import Accuracy
@@ -709,12 +709,12 @@ def load_leagues_from_children(
     parent_run_id: str,
     discriminator_orig: nn.Module,
     discriminator_seed: nn.Module,
-    obs_seed: AGENT1,
+    obs_seed: RNNDefenceAgent,
     cfg: DictConfig,
 ) -> tuple[
     list[tuple[int, dict]],
     list[tuple[int, dict]],
-    AGENT1,
+    RNNDefenceAgent,
     nn.Module,
     dict | None,
 ]:
@@ -732,7 +732,7 @@ def load_leagues_from_children(
     )
     obs_league: list[tuple[int, nn.Module.state_dict]] = []
 
-    current_obs: AGENT1 = obs_seed
+    current_obs: RNNDefenceAgent = obs_seed
     current_disc: nn.Module = discriminator_seed
     latest_critic_state: nn.Module.state_dict | None = None
 

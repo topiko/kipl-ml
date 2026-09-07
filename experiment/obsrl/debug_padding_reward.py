@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
-from kipl_ml.defences.models.trgen import AGENT1
+from kipl_ml.defences.models.trgen import RNNDefenceAgent
 from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.simulate import policy_rollout
 from kipl_ml.trace.enums import Feats
@@ -78,8 +78,8 @@ def main():
     )
 
     # Create agent
-    agent = AGENT1(
-        time_step=dt,
+    agent = RNNDefenceAgent(
+        time_step_s=dt,
         max_silence_s=0.1,
         hsize=32,
         nlayers=1,

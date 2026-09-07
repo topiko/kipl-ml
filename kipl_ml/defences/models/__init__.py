@@ -2,8 +2,11 @@ from kipl_ml.defences.models.brick_selection_agent import (
     DEFAULT_BRICK_FEATURES,
     BrickSelectionAgent,
 )
-from kipl_ml.defences.models.trgen import AGENT1, CRITIC01, RNNCLF1
-from kipl_ml.defences.models.trgen_profile import ProfiledAGENT1
+from kipl_ml.defences.models.trgen import AGENT1, CRITIC01, RNNCLF1, RNNDefenceAgent
+from kipl_ml.defences.models.trgen_profile import (
+    ProfiledAGENT1,
+    ProfiledRNNDefenceAgent,
+)
 
 __all__ = [
     "AGENT1",
@@ -11,5 +14,7 @@ __all__ = [
     "DEFAULT_BRICK_FEATURES",
     "BrickSelectionAgent",
     "ProfiledAGENT1",
+    "ProfiledRNNDefenceAgent",
     "RNNCLF1",
+    "RNNDefenceAgent",
 ]

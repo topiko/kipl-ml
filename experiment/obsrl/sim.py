@@ -410,7 +410,7 @@ def rollout(
             reward_scales=reward_scales,
             X_obs=X_obs,
             X_raw=X,
-            obs_dt_s=float(obs.time_step),
+            obs_dt_s=float(obs.time_step_s),
             y=y,
             act_times=act_times,
             actions=actions,

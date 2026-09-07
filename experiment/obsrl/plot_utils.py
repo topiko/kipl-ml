@@ -142,7 +142,7 @@ def _plot_set(
                 G=G,
                 advantages=advantages,
                 weights=weights,
-                obs_dt_s=float(obs.time_step),
+                obs_dt_s=float(obs.time_step_s),
             )
 
 

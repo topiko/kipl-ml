@@ -10,7 +10,7 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.data.wf_dataset import dict_to_device
-from kipl_ml.defences.models.trgen import AGENT1, _hidden_w_mask
+from kipl_ml.defences.models.trgen import RNNDefenceAgent, _hidden_w_mask
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.network.network import NetworkContext, NetworkContextIntDict
 from kipl_ml.rl.enums import (
@@ -403,7 +403,7 @@ def policy_obfuscate_trace(
 
 
 def _policy_rollout_impl(  # noqa: C901
-    obs: AGENT1,
+    obs: RNNDefenceAgent,
     trace_paths: list[str],
     device: torch.DeviceObjType,
     detach_period: int | None,
@@ -437,11 +437,11 @@ def _policy_rollout_impl(  # noqa: C901
     )
 
     num_machines = 4096
-    max_silence_bins = int(round(obs.max_silence_s / obs.time_step))
+    max_silence_bins = int(round(obs.max_silence_s / obs.time_step_s))
 
     simul_batch = mbnt.Batch.new(
         trace_paths=trace_paths,
-        window_duration_ns=int(round(obs.time_step * 1e9)),
+        window_duration_ns=int(round(obs.time_step_s * 1e9)),
         num_machines=num_machines,
         network_kwargs=network_kwargs,
         max_trace_length=max_packets,
@@ -567,7 +567,7 @@ def _policy_rollout_impl(  # noqa: C901
             if n_packets[idx] > max_packets:
                 long_enough[idx] = True
 
-            if next_bins[idx] * obs.time_step > max_duration_s:
+            if next_bins[idx] * obs.time_step_s > max_duration_s:
                 long_enough[idx] = True
 
             if simulator_done[idx] or (long_enough[idx] and reached_required):

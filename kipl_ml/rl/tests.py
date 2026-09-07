@@ -195,7 +195,7 @@ class FakeLegoBatch:
 
 
 class FakeBrickPolicy:
-    time_step: float = 0.1
+    time_step_s: float = 0.1
 
     def __init__(self) -> None:
         self.features = (Feats.TIME_BINS, Feats.Dt_BINS)
