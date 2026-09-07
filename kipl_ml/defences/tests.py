@@ -6,8 +6,8 @@ from unittest.mock import Mock, patch
 
 import torch
 
+from kipl_ml.defences.models.brick_selection_agent import BrickSelectionAgent
 from kipl_ml.defences.nndefs import BrickSelectionDef
-from kipl_ml.rl.brick_selection_agent import BrickSelectionAgent
 from kipl_ml.trace.enums import Feats
 
 

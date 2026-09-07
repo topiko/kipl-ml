@@ -12,10 +12,10 @@ import torch
 from torch import nn
 
 from kipl_ml.defences.base import DEFENCE_TYPE_KW, _Def
+from kipl_ml.defences.models.brick_selection_agent import BrickSelectionAgent
 from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
 from kipl_ml.network.network import NetworkContextIntDict
-from kipl_ml.rl.brick_selection_agent import BrickSelectionAgent
 from kipl_ml.rl.brick_simulate import (
     BrickSpecCollection,
     brick_policy_rollout,

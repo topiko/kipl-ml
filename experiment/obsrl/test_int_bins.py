@@ -1,5 +1,6 @@
-import torch
 from unittest import TestCase
+
+import torch
 
 from kipl_ml.rl.enums import Actions, NoAction
 from kipl_ml.rl.streaming import WindowFeatureStreamer
@@ -49,7 +50,7 @@ class TestObsrlIntBinsConsistency(TestCase):
 
     def test_delay_uses_dedicated_duration_head(self):
         """Delay duration should come from delay head, not Dt_BINS."""
-        from kipl_ml.models.trgen import AGENT1
+        from kipl_ml.defences.models.trgen import AGENT1
 
         obs = AGENT1(
             time_step=0.02,
@@ -91,7 +92,7 @@ class TestObsrlIntBinsConsistency(TestCase):
 
     def test_get_agent_uses_configurable_send_bins(self):
         """Sisyphus agent builder should honor send bins from config."""
-        from kipl_ml.models.trgen import AGENT1
+        from kipl_ml.defences.models.trgen import AGENT1
 
         obs = AGENT1(
             time_step=0.02,

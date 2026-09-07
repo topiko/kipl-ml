@@ -37,8 +37,8 @@ from kipl_ml.data.wf_dataset import (
     get_network_context_ranges,
     get_train_valid_test,
 )
+from kipl_ml.defences.models.trgen import AGENT1, CRITIC01
 from kipl_ml.logging.logger import TQDM_W, get_logger
-from kipl_ml.models.trgen import AGENT1, CRITIC01
 from kipl_ml.rl.enums import Actions, AHKs
 from kipl_ml.tools.mlflow_utils import (
     find_parent_run_id,

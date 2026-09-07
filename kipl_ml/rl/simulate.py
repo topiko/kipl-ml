@@ -10,8 +10,8 @@ import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
 from kipl_ml.data.wf_dataset import dict_to_device
+from kipl_ml.defences.models.trgen import AGENT1, _hidden_w_mask
 from kipl_ml.logging.logger import get_logger
-from kipl_ml.models.trgen import AGENT1, _hidden_w_mask
 from kipl_ml.network.network import NetworkContext, NetworkContextIntDict
 from kipl_ml.rl.enums import (
     Actions,

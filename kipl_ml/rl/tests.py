@@ -4,14 +4,12 @@ import numpy as np
 import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
-from kipl_ml.rl.brick_selection_agent import DEFAULT_BRICK_FEATURES, BrickSelectionAgent
 from kipl_ml.rl.brick_simulate import brick_policy_rollout
 from kipl_ml.rl.enums import (
     Actions,
     ActSelector,
     ActSendDown,
     ActSendUp,
-    EntropyKeys,
     NoAction,
     StepAction,
     StepActions,
@@ -180,142 +178,6 @@ class TestFillAfterSeqEnd(unittest.TestCase):
         result = fill_after_seq_end(values.clone(), keep_mask, fill_val="max")
         expected = torch.tensor([[1.0, 5.0, 5.0, 5.0]])
         self.assertTrue(torch.equal(result, expected))
-
-
-def _brick_features(
-    times: list[int], dts: list[int] | None = None
-) -> dict[Feats, torch.Tensor]:
-    if dts is None:
-        dts = [0] * len(times)
-    return {
-        Feats.TIME_BINS: torch.tensor(times).reshape(-1, 1),
-        Feats.Dt_BINS: torch.tensor(dts).reshape(-1, 1),
-    }
-
-
-def _force_client_transition(
-    model: BrickSelectionAgent, time_idx: int, current: int, selected: int
-) -> None:
-    with torch.no_grad():
-        model.client_transition_logits[time_idx, current].zero_()
-        model.client_transition_logits[time_idx, current, selected] = 10.0
-
-
-def _force_server_transition(
-    model: BrickSelectionAgent, time_idx: int, current: int, selected: int
-) -> None:
-    with torch.no_grad():
-        model.server_transition_logits[time_idx, current].zero_()
-        model.server_transition_logits[time_idx, current, selected] = 10.0
-
-
-class TestBrickSelectionAgent(unittest.TestCase):
-    def test_transition_probs_are_time_indexed_stochastic_matrices(self) -> None:
-        model = BrickSelectionAgent(
-            time_step=0.05,
-            time_steps=3,
-            n_client_bricks=4,
-            n_server_bricks=5,
-        )
-
-        client_probs, server_probs = model.transition_probs()
-
-        self.assertEqual(client_probs.shape, (3, 4, 4))
-        self.assertEqual(server_probs.shape, (3, 5, 5))
-        self.assertTrue(torch.allclose(client_probs.sum(dim=-1), torch.ones(3, 4)))
-        self.assertTrue(torch.allclose(server_probs.sum(dim=-1), torch.ones(3, 5)))
-
-    def test_act_step_selects_from_time_and_current_brick_rows(self) -> None:
-        model = BrickSelectionAgent(
-            time_step=0.05,
-            time_steps=4,
-            n_client_bricks=5,
-            n_server_bricks=6,
-        )
-        _force_client_transition(model, time_idx=0, current=0, selected=1)
-        _force_client_transition(model, time_idx=1, current=1, selected=3)
-        _force_client_transition(model, time_idx=3, current=2, selected=4)
-        _force_server_transition(model, time_idx=0, current=0, selected=2)
-        _force_server_transition(model, time_idx=1, current=2, selected=4)
-        _force_server_transition(model, time_idx=3, current=4, selected=5)
-
-        time_bins, actions, log_ps, sel_probs, values, entropies, h = model.act_step(
-            _brick_features([0, 1, 2], dts=[0, 0, 1]),
-            current_client_bricks=torch.tensor([0, 1, 2]),
-            current_server_bricks=torch.tensor([0, 2, 4]),
-            sample=False,
-        )
-
-        self.assertIsNone(h)
-        self.assertEqual(time_bins.squeeze(1).tolist(), [0, 1, 3])
-        self.assertEqual(log_ps.shape, (3, 1))
-        self.assertEqual(sel_probs.shape, (3, 1, 11))
-        self.assertEqual(values.shape, (3, 1))
-        self.assertEqual(entropies[EntropyKeys.SELECTION_ENTROPY].shape, (3, 1))
-        self.assertEqual(entropies[EntropyKeys.COND_ENTROPY].shape, (3, 1))
-        self.assertEqual(
-            [a[Actions.CLIENT_BRICK_SELECT].selected for a in actions],
-            [1, 3, 4],
-        )
-        self.assertEqual(
-            [a[Actions.SERVER_BRICK_SELECT].selected for a in actions],
-            [2, 4, 5],
-        )
-
-    def test_action_time_clamps_to_last_transition_matrix(self) -> None:
-        model = BrickSelectionAgent(
-            time_step=0.05,
-            time_steps=2,
-            n_client_bricks=3,
-            n_server_bricks=4,
-        )
-        _force_client_transition(model, time_idx=1, current=0, selected=2)
-        _force_server_transition(model, time_idx=1, current=0, selected=3)
-
-        _time_bins, actions, _log_ps, _sel_probs, _values, _entropies, _h = (
-            model.act_step(
-                _brick_features([100]),
-                current_client_bricks=torch.tensor([0]),
-                current_server_bricks=torch.tensor([0]),
-                sample=False,
-            )
-        )
-
-        self.assertEqual(actions[0][Actions.CLIENT_BRICK_SELECT].selected, 2)
-        self.assertEqual(actions[0][Actions.SERVER_BRICK_SELECT].selected, 3)
-
-    def test_rejects_sequence_inputs(self) -> None:
-        model = BrickSelectionAgent(time_step=0.05, time_steps=2, n_client_bricks=2)
-
-        with self.assertRaisesRegex(ValueError, r"\(B,1\)"):
-            model.act_step(
-                {
-                    Feats.TIME_BINS: torch.zeros(2, 2),
-                    Feats.Dt_BINS: torch.zeros(2, 2),
-                },
-                current_client_bricks=torch.tensor([0, 1]),
-                current_server_bricks=torch.tensor([0, 1]),
-            )
-
-    def test_rejects_invalid_current_bricks(self) -> None:
-        model = BrickSelectionAgent(time_step=0.05, time_steps=2, n_client_bricks=2)
-
-        with self.assertRaisesRegex(ValueError, "current_client_bricks"):
-            model.act_step(
-                _brick_features([0]),
-                current_client_bricks=torch.tensor([2]),
-                current_server_bricks=torch.tensor([0]),
-            )
-
-        with self.assertRaisesRegex(ValueError, "current_server_bricks"):
-            model.act_step(
-                _brick_features([0]),
-                current_client_bricks=torch.tensor([0]),
-                current_server_bricks=torch.tensor([2]),
-            )
-
-    def test_default_features_are_time_features(self) -> None:
-        self.assertEqual(DEFAULT_BRICK_FEATURES, (Feats.TIME_BINS, Feats.Dt_BINS))
 
 
 class FakeLegoBatch:

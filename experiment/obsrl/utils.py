@@ -18,11 +18,11 @@ from experiment.obsrl.sim import rollout
 from experiment.utils.list_models import list_logged_models_for_run
 from kipl_ml.data.wf_dataset import WFDataset, dict_to_device
 from kipl_ml.defences.base import NoDefence
+from kipl_ml.defences.models.trgen import AGENT1
 from kipl_ml.defences.nndefs import RNNDef
 from kipl_ml.logging.logger import TQDM_W, get_logger
 from kipl_ml.metrics.clf_metrics import Accuracy
 from kipl_ml.model_eval.evaluate import evaluate_model
-from kipl_ml.models.trgen import AGENT1
 from kipl_ml.rl.advantages import get_gae, get_returns
 from kipl_ml.tools.mlflow_utils import (
     list_child_runs,

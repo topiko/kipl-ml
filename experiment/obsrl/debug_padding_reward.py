@@ -1,13 +1,13 @@
 """Debug padding reward computation."""
 
-import torch
 import numpy as np
+import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
-from kipl_ml.models.trgen import AGENT1
+from kipl_ml.defences.models.trgen import AGENT1
+from kipl_ml.rl.enums import Actions
 from kipl_ml.rl.simulate import policy_rollout
 from kipl_ml.trace.enums import Feats
-from kipl_ml.rl.enums import Actions
 
 
 def make_synth_trace(
