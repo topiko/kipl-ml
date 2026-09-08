@@ -204,6 +204,7 @@ class FakeBrickPolicy:
         self.features = STANDARD_BRICK_ROLLOUT_FEATURES
         self.current_calls: list[tuple[list[int], list[int]]] = []
         self.feature_calls: list[tuple[Feats, ...]] = []
+        self.feature_value_calls: list[dict[Feats, torch.Tensor]] = []
 
     def act_step(
         self,
@@ -222,6 +223,9 @@ class FakeBrickPolicy:
     ]:
         del sample
         self.feature_calls.append(tuple(x))
+        self.feature_value_calls.append(
+            {feature: value.detach().cpu().clone() for feature, value in x.items()}
+        )
         self.current_calls.append(
             (
                 current_client_bricks.detach().cpu().tolist(),
@@ -310,11 +314,6 @@ class FakeBrickController:
 
     def is_done(self) -> list[bool]:
         return [self.step_count >= 2] * self.batch_size
-
-
-class FakeDoneAfterOneStepBrickController(FakeBrickController):
-    def is_done(self) -> list[bool]:
-        return [self.step_count >= 1] * self.batch_size
 
 
 class FakeDecoyBrickController(FakeBrickController):
@@ -453,7 +452,7 @@ class TestBrickBatchController(unittest.TestCase):
 
 
 class TestBrickPolicyRollout(unittest.TestCase):
-    def test_rollout_steps_current_bricks_then_selects_next_bricks(self):
+    def test_rollout_selects_initial_bricks_before_first_window(self):
         policy = FakeBrickPolicy()
         controller = FakeBrickController(batch_size=2)
 
@@ -477,24 +476,25 @@ class TestBrickPolicyRollout(unittest.TestCase):
             )
         )
 
-        self.assertEqual(controller.step_calls[0], ([0, 0], [0, 0]))
         self.assertEqual(controller.select_calls[0], ([1, 1], [2, 2]))
+        self.assertEqual(controller.step_calls[0], ([1, 1], [2, 2]))
         self.assertEqual(controller.step_calls[1], ([1, 1], [2, 2]))
-        self.assertEqual(policy.current_calls, [([0, 0], [0, 0])])
-        self.assertEqual(act_time_bins.tolist(), [[1], [1]])
-        self.assertEqual(fd[Feats.SEQ_LENS].tolist(), [1, 1])
+        self.assertEqual(
+            policy.current_calls,
+            [([0, 0], [0, 0]), ([1, 1], [2, 2])],
+        )
+        self.assertEqual(act_time_bins.tolist(), [[0, 1], [0, 1]])
+        self.assertEqual(fd[Feats.SEQ_LENS].tolist(), [2, 2])
         self.assertEqual(set(policy.feature_calls[0]), set(policy.features))
-        self.assertEqual(fd[Feats.UP_COUNT].tolist(), [[1.0], [1.0]])
-        self.assertEqual(fd[Feats.DOWN_COUNT].tolist(), [[0.0], [0.0]])
-        self.assertEqual(fd[Feats.UP_DECOY_COUNT].tolist(), [[0.0], [0.0]])
-        self.assertEqual(fd[Feats.DOWN_DECOY_COUNT].tolist(), [[0.0], [0.0]])
-        self.assertEqual(fd[Feats.SILENCE_FLAG].tolist(), [[0.0], [0.0]])
-        self.assertEqual(log_ps.shape, (2, 1))
-        self.assertEqual(sel_probs.shape, (2, 1, 5))
-        self.assertEqual(values.shape, (2, 1))
-        self.assertEqual(entropies["selection_entropy"].shape, (2, 1))
-        self.assertEqual(entropies["conditional_entropy"].shape, (2, 1))
-        self.assertEqual(actions[0][0].time_bin, 1)
+        self.assertEqual(fd[Feats.UP_COUNT].tolist(), [[0.0, 1.0], [0.0, 1.0]])
+        self.assertEqual(fd[Feats.DOWN_COUNT].tolist(), [[0.0, 0.0], [0.0, 0.0]])
+        self.assertEqual(log_ps.shape, (2, 2))
+        self.assertEqual(sel_probs.shape, (2, 2, 5))
+        self.assertEqual(values.shape, (2, 2))
+        self.assertEqual(entropies["selection_entropy"].shape, (2, 2))
+        self.assertEqual(entropies["conditional_entropy"].shape, (2, 2))
+        self.assertEqual(actions[0][0].time_bin, 0)
+        self.assertEqual(actions[0][1].time_bin, 1)
         self.assertEqual(actions[0][0][Actions.CLIENT_BRICK_SELECT].selected, 1)
         self.assertEqual(actions[0][0][Actions.SERVER_BRICK_SELECT].selected, 2)
         self.assertEqual(X_obs[Feats.DIRS].shape, (2, 2))
@@ -521,10 +521,18 @@ class TestBrickPolicyRollout(unittest.TestCase):
             controller=controller,
         )
 
-        self.assertEqual(fd[Feats.UP_COUNT].tolist(), [[1.0], [1.0]])
-        self.assertEqual(fd[Feats.DOWN_COUNT].tolist(), [[0.0], [0.0]])
-        self.assertEqual(fd[Feats.UP_DECOY_COUNT].tolist(), [[0.0], [0.0]])
-        self.assertEqual(fd[Feats.DOWN_DECOY_COUNT].tolist(), [[1.0], [1.0]])
+        self.assertEqual(fd[Feats.UP_COUNT].tolist(), [[0.0, 1.0], [0.0, 1.0]])
+        self.assertEqual(fd[Feats.DOWN_COUNT].tolist(), [[0.0, 0.0], [0.0, 0.0]])
+        self.assertEqual(
+            fd[Feats.UP_DECOY_COUNT].tolist(), [[0.0, 0.0], [0.0, 0.0]]
+        )
+        self.assertEqual(
+            fd[Feats.DOWN_DECOY_COUNT].tolist(), [[0.0, 1.0], [0.0, 1.0]]
+        )
+        self.assertEqual(
+            policy.feature_value_calls[1][Feats.DOWN_DECOY_COUNT].tolist(),
+            [[1.0], [1.0]],
+        )
         self.assertEqual(
             policy.feature_calls[0],
             STANDARD_BRICK_ROLLOUT_FEATURES,
@@ -557,42 +565,6 @@ class TestBrickPolicyRollout(unittest.TestCase):
             policy.feature_calls[0],
             (Feats.TIME_BINS, Feats.Dt_BINS),
         )
-
-    def test_rollout_returns_zero_length_batch_when_no_policy_step_is_reached(self):
-        policy = FakeBrickPolicy()
-        controller = FakeDoneAfterOneStepBrickController(batch_size=2)
-
-        fd, act_time_bins, actions, log_ps, sel_probs, values, entropies, X_obs = (
-            brick_policy_rollout(
-                policy=policy,
-                trace_paths=["a.log", "b.log"],
-                device="cpu",
-                client_bricks=None,
-                server_bricks=None,
-                network_context=None,
-                max_packets=10,
-                max_duration_s=10.0,
-                required_real_packets=None,
-                trim_raw=0,
-                seed=0,
-                sample=True,
-                relative=False,
-                max_steps=100,
-                controller=controller,
-            )
-        )
-
-        self.assertEqual(policy.current_calls, [])
-        self.assertEqual(fd[Feats.SEQ_LENS].tolist(), [0, 0])
-        self.assertEqual(fd[Feats.TIME_BINS].tolist(), [[-1.0], [-1.0]])
-        self.assertEqual(act_time_bins.tolist(), [[-1], [-1]])
-        self.assertEqual(actions, [[], []])
-        self.assertEqual(log_ps.shape, (2, 1))
-        self.assertEqual(sel_probs.shape, (2, 1, 1))
-        self.assertEqual(values.shape, (2, 1))
-        self.assertEqual(entropies["selection_entropy"].shape, (2, 1))
-        self.assertEqual(X_obs[Feats.DIRS].shape, (2, 1))
-
 
 class TestWindowFeatureStreamer(unittest.TestCase):
     DT = 0.02

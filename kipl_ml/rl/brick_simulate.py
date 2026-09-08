@@ -148,6 +148,66 @@ def brick_policy_rollout(  # noqa: C901
     ent_sel_l: list[torch.Tensor] = []
     ent_cond_l: list[torch.Tensor] = []
 
+    def apply_policy(
+        fd_w_tensor_all: dict[Feats, torch.Tensor],
+        active_for_policy: np.ndarray,
+    ) -> None:
+        fd_w_tensor_all = dict_to_device(fd_w_tensor_all, device=device)
+        policy_input_features = tuple(
+            dict.fromkeys((Feats.TIME_BINS, Feats.Dt_BINS, *policy.features))
+        )
+        fd_w_tensor = {f: fd_w_tensor_all[f] for f in policy_input_features}
+        current_client = torch.as_tensor(
+            controller.current_client_bricks(active_for_policy),
+            device=device,
+        )
+        current_server = torch.as_tensor(
+            controller.current_server_bricks(active_for_policy),
+            device=device,
+        )
+        (
+            act_time_bins_a,
+            actions_a,
+            log_ps_a,
+            sel_probs_a,
+            values_a,
+            ent_a,
+            _h,
+        ) = policy.act_step(
+            fd_w_tensor,
+            current_client,
+            current_server,
+            sample=sample,
+        )
+
+        active_t = torch.as_tensor(active_for_policy, device=act_time_bins_a.device)
+        for feature in fd_features:
+            fd_steps[feature].append(
+                _densify(fd_w_tensor_all[feature], active_t, bs).cpu()
+            )
+        act_time_bins_l.append(
+            _densify(act_time_bins_a, active_t, bs, fill_value=-1).detach().cpu()
+        )
+        log_ps_l.append(_densify(log_ps_a, active_t, bs))
+        sel_probs_l.append(_densify(sel_probs_a, active_t, bs))
+        values_actor_l.append(_densify(values_a, active_t, bs))
+        ent_sel_l.append(_densify(ent_a[EntropyKeys.SELECTION_ENTROPY], active_t, bs))
+        ent_cond_l.append(_densify(ent_a[EntropyKeys.COND_ENTROPY], active_t, bs))
+        for local_idx, batch_idx in enumerate(np.nonzero(active_for_policy)[0]):
+            actions_l[int(batch_idx)].append(actions_a[local_idx])
+        controller.select(actions_a, active_for_policy)
+
+    initial_active = ~np.asarray(controller.is_done(), dtype=bool)
+    if initial_active.any():
+        initial_values = {
+            feature: [
+                _feature_value(feature, 0, 0, 0.0, 0.0, 0.0, 0.0)
+            ]
+            * int(initial_active.sum())
+            for feature in fd_features
+        }
+        apply_policy(_feature_tensors(initial_values), initial_active)
+
     for _step in range(max_steps):
         simulator_done = np.asarray(controller.is_done(), dtype=bool)
         active = ~terminated & ~simulator_done
@@ -209,59 +269,7 @@ def brick_policy_rollout(  # noqa: C901
         if not active_for_policy.any():
             continue
 
-        fd_w_tensor_all = {
-            k: torch.tensor(
-                v,
-                dtype=(
-                    torch.long
-                    if k in (Feats.TIME_BINS, Feats.Dt_BINS)
-                    else torch.float32
-                ),
-            ).reshape(-1, 1)
-            for k, v in fd_w.items()
-        }
-        fd_w_tensor_all = dict_to_device(fd_w_tensor_all, device=device)
-        policy_input_features = tuple(
-            dict.fromkeys((Feats.TIME_BINS, Feats.Dt_BINS, *policy.features))
-        )
-        fd_w_tensor = {f: fd_w_tensor_all[f] for f in policy_input_features}
-        current_client = torch.as_tensor(
-            controller.current_client_bricks(active_for_policy),
-            device=device,
-        )
-        current_server = torch.as_tensor(
-            controller.current_server_bricks(active_for_policy),
-            device=device,
-        )
-        (
-            act_time_bins_a,
-            actions_a,
-            log_ps_a,
-            sel_probs_a,
-            values_a,
-            ent_a,
-            _h,
-        ) = policy.act_step(
-            fd_w_tensor,
-            current_client,
-            current_server,
-            sample=sample,
-        )
-
-        active_t = torch.as_tensor(active_for_policy, device=act_time_bins_a.device)
-        for feature in fd_features:
-            fd_steps[feature].append(
-                _densify(fd_w_tensor_all[feature], active_t, bs).cpu()
-            )
-        act_time_bins_l.append(_densify(act_time_bins_a, active_t, bs).detach().cpu())
-        log_ps_l.append(_densify(log_ps_a, active_t, bs))
-        sel_probs_l.append(_densify(sel_probs_a, active_t, bs))
-        values_actor_l.append(_densify(values_a, active_t, bs))
-        ent_sel_l.append(_densify(ent_a[EntropyKeys.SELECTION_ENTROPY], active_t, bs))
-        ent_cond_l.append(_densify(ent_a[EntropyKeys.COND_ENTROPY], active_t, bs))
-        for local_idx, batch_idx in enumerate(np.nonzero(active_for_policy)[0]):
-            actions_l[int(batch_idx)].append(actions_a[local_idx])
-        controller.select(actions_a, active_for_policy)
+        apply_policy(_feature_tensors(fd_w), active_for_policy)
     else:
         raise RuntimeError(f"brick rollout reached max_steps={max_steps}")
 
@@ -286,10 +294,9 @@ def brick_policy_rollout(  # noqa: C901
         )
 
     act_time_bins = torch.cat(act_time_bins_l, dim=1)
-    act_time_bins[act_time_bins == 0] = -1
     fd = {f: torch.cat(vs, dim=1) for f, vs in fd_steps.items()}
     fd[Feats.TIME_BINS] = fd[Feats.TIME_BINS].masked_fill(act_time_bins < 0, -1)
-    fd[Feats.SEQ_LENS] = (act_time_bins > 0).sum(dim=1).long()
+    fd[Feats.SEQ_LENS] = (act_time_bins >= 0).sum(dim=1).long()
     fd = dict_to_device(fd, device=device)
 
     return (
@@ -356,7 +363,33 @@ def _feature_value(
     raise ValueError(f"unsupported brick policy feature: {feature}")
 
 
-def _densify(x: torch.Tensor, active: torch.Tensor, bs: int) -> torch.Tensor:
-    full = torch.zeros((bs,) + x.shape[1:], device=x.device, dtype=x.dtype)
+def _feature_tensors(
+    values: dict[Feats, list[float]],
+) -> dict[Feats, torch.Tensor]:
+    return {
+        feature: torch.tensor(
+            feature_values,
+            dtype=(
+                torch.long
+                if feature in (Feats.TIME_BINS, Feats.Dt_BINS)
+                else torch.float32
+            ),
+        ).reshape(-1, 1)
+        for feature, feature_values in values.items()
+    }
+
+
+def _densify(
+    x: torch.Tensor,
+    active: torch.Tensor,
+    bs: int,
+    fill_value: int | float = 0,
+) -> torch.Tensor:
+    full = torch.full(
+        (bs,) + x.shape[1:],
+        fill_value=fill_value,
+        device=x.device,
+        dtype=x.dtype,
+    )
     full[active] = x
     return full
