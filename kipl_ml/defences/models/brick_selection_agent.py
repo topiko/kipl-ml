@@ -15,6 +15,24 @@ from kipl_ml.rl.enums import Actions, ActSelector, EntropyKeys, StepAction, Step
 from kipl_ml.trace.enums import Feats
 
 DEFAULT_BRICK_FEATURES = (Feats.TIME_BINS, Feats.Dt_BINS)
+SUPPORTED_BRICK_FEATURES = {
+    Feats.TIME_BINS,
+    Feats.Dt_BINS,
+    Feats.UP_COUNT,
+    Feats.DOWN_COUNT,
+    Feats.UP_DECOY_COUNT,
+    Feats.DOWN_DECOY_COUNT,
+    Feats.SILENCE_FLAG,
+}
+
+
+def _validate_features(features: Sequence[Feats]) -> tuple[Feats, ...]:
+    features = tuple(features)
+    unsupported = set(features) - SUPPORTED_BRICK_FEATURES
+    if unsupported:
+        names = sorted(map(str, unsupported))
+        raise ValueError(f"unsupported brick features: {names}")
+    return features
 
 
 def _resolve_n_time_steps(
@@ -30,13 +48,38 @@ def _resolve_n_time_steps(
     return int(n_time_steps)
 
 
+def _validate_init(
+    n_time_steps: int,
+    n_client_bricks: int | None,
+    n_server_bricks: int | None,
+    prob_eps: float,
+    feature_hidden_size: int,
+) -> tuple[int, int]:
+    if n_time_steps <= 0:
+        raise ValueError("n_time_steps must be > 0")
+    if n_client_bricks is None:
+        raise TypeError("n_client_bricks is required")
+    if n_client_bricks <= 0:
+        raise ValueError("n_client_bricks must be > 0")
+    n_server_bricks = n_client_bricks if n_server_bricks is None else n_server_bricks
+    if n_server_bricks <= 0:
+        raise ValueError("n_server_bricks must be > 0")
+    if not 0.0 <= prob_eps <= 1.0:
+        raise ValueError("prob_eps must be in [0, 1]")
+    if feature_hidden_size <= 0:
+        raise ValueError("feature_hidden_size must be > 0")
+    return int(n_client_bricks), int(n_server_bricks)
+
+
 class BrickSelectionAgent(nn.Module):
-    """Time-indexed transition policy over client/server brick indices.
+    """Feature-conditioned transition policy over client/server brick indices.
 
     For each action time `t`, `client_transition_probs()[t, i, j]` is the
-    probability of moving client brick `i` to `j`; server transitions are
-    analogous. The module stores logits, not probabilities, so rows remain
-    normalized while RL optimizes unconstrained parameters.
+    baseline probability of moving client brick `i` to `j`; server transitions
+    are analogous. A reactive MLP adds residual logits and value based on the
+    completed window and current brick state. Residual outputs start at zero, so
+    initialization exactly matches the tabular policy. An empty feature list
+    disables the residual MLP and leaves a static transition-table policy.
     """
 
     def __init__(
@@ -46,6 +89,8 @@ class BrickSelectionAgent(nn.Module):
         n_client_bricks: int | None = None,
         n_server_bricks: int | None = None,
         features: Sequence[Feats] = DEFAULT_BRICK_FEATURES,
+        feature_hidden_size: int = 64,
+        learn_values: bool = True,
         prob_eps: float = 0.0,
         stay_bias: float = 0.0,
         train_env: dict[str, object] | None = None,
@@ -56,24 +101,21 @@ class BrickSelectionAgent(nn.Module):
         super().__init__()
         time_step_s = resolve_time_step_s(time_step_s, time_step)
         n_time_steps = _resolve_n_time_steps(n_time_steps, time_steps)
-        if n_client_bricks is None:
-            raise TypeError("n_client_bricks is required")
-        if n_time_steps <= 0:
-            raise ValueError("n_time_steps must be > 0")
-        if n_client_bricks <= 0:
-            raise ValueError("n_client_bricks must be > 0")
-        if n_server_bricks is None:
-            n_server_bricks = n_client_bricks
-        if n_server_bricks <= 0:
-            raise ValueError("n_server_bricks must be > 0")
-        if not (0.0 <= prob_eps <= 1.0):
-            raise ValueError("prob_eps must be in [0, 1]")
+        n_client_bricks, n_server_bricks = _validate_init(
+            n_time_steps,
+            n_client_bricks,
+            n_server_bricks,
+            prob_eps,
+            feature_hidden_size,
+        )
 
         self.time_step_s = time_step_s
         self.n_time_steps = n_time_steps
-        self.n_client_bricks = int(n_client_bricks)
-        self.n_server_bricks = int(n_server_bricks)
-        self.features = tuple(features)
+        self.n_client_bricks = n_client_bricks
+        self.n_server_bricks = n_server_bricks
+        self.features = _validate_features(features)
+        self.feature_hidden_size = int(feature_hidden_size)
+        self.learn_values = bool(learn_values)
         self.prob_eps = float(prob_eps)
         self.train_env = {} if train_env is None else dict(train_env)
 
@@ -91,9 +133,48 @@ class BrickSelectionAgent(nn.Module):
 
         self.client_transition_logits = nn.Parameter(client_logits)
         self.server_transition_logits = nn.Parameter(server_logits)
-        self.value_table = nn.Parameter(
-            torch.zeros(self.n_time_steps, self.n_client_bricks, self.n_server_bricks)
+        value_table = torch.zeros(
+            self.n_time_steps, self.n_client_bricks, self.n_server_bricks
         )
+        if self.learn_values:
+            self.value_table = nn.Parameter(value_table)
+        else:
+            self.register_buffer("value_table", value_table)
+        self.feature_encoder: nn.Sequential | None = None
+        self.client_feature_head: nn.Sequential | None = None
+        self.server_feature_head: nn.Sequential | None = None
+        self.value_feature_head: nn.Sequential | None = None
+        if self.features:
+            self.feature_encoder = nn.Sequential(
+                nn.Linear(len(self.features), self.feature_hidden_size),
+                nn.Tanh(),
+            )
+            self.client_feature_head = self._feature_head(
+                self.feature_hidden_size + self.n_client_bricks,
+                self.n_client_bricks,
+            )
+            self.server_feature_head = self._feature_head(
+                self.feature_hidden_size + self.n_server_bricks,
+                self.n_server_bricks,
+            )
+            if self.learn_values:
+                self.value_feature_head = self._feature_head(
+                    self.feature_hidden_size
+                    + self.n_client_bricks
+                    + self.n_server_bricks,
+                    1,
+                )
+
+    def _feature_head(self, input_size: int, output_size: int) -> nn.Sequential:
+        output = nn.Linear(self.feature_hidden_size, output_size)
+        nn.init.zeros_(output.weight)
+        nn.init.zeros_(output.bias)
+        head = nn.Sequential(
+            nn.Linear(input_size, self.feature_hidden_size),
+            nn.Tanh(),
+            output,
+        )
+        return head
 
     @property
     def time_step_s(self) -> float:
@@ -169,8 +250,34 @@ class BrickSelectionAgent(nn.Module):
             raise ValueError("current_server_bricks length must match batch size")
 
         time_idx = time_bins.squeeze(1).long().clamp(0, self.n_time_steps - 1)
-        client_probs = self.client_transition_probs()[time_idx, current_client]
-        server_probs = self.server_transition_probs()[time_idx, current_server]
+        client_logits = self.client_transition_logits[time_idx, current_client]
+        server_logits = self.server_transition_logits[time_idx, current_server]
+        values = self.value_table[time_idx, current_client, current_server].unsqueeze(1)
+        if self.feature_encoder is not None:
+            if (
+                self.client_feature_head is None
+                or self.server_feature_head is None
+            ):
+                raise RuntimeError("feature heads are not initialized")
+            features = self.feature_encoder(self._feature_vector(x, time_bins))
+            client_state = nn.functional.one_hot(
+                current_client, num_classes=self.n_client_bricks
+            ).to(features.dtype)
+            server_state = nn.functional.one_hot(
+                current_server, num_classes=self.n_server_bricks
+            ).to(features.dtype)
+            client_logits = client_logits + self.client_feature_head(
+                torch.cat((features, client_state), dim=1)
+            )
+            server_logits = server_logits + self.server_feature_head(
+                torch.cat((features, server_state), dim=1)
+            )
+            if self.value_feature_head is not None:
+                values = values + self.value_feature_head(
+                    torch.cat((features, client_state, server_state), dim=1)
+                )
+        client_probs = self._transition_probs(client_logits, self.n_client_bricks)
+        server_probs = self._transition_probs(server_logits, self.n_server_bricks)
         client_selected, client_log_ps, client_entropy = self._select(
             client_probs, sample
         )
@@ -197,7 +304,6 @@ class BrickSelectionAgent(nn.Module):
             EntropyKeys.SELECTION_ENTROPY: entropy,
             EntropyKeys.COND_ENTROPY: torch.zeros_like(entropy),
         }
-        values = self.value_table[time_idx, current_client, current_server].unsqueeze(1)
         sel_probs = torch.cat([client_probs, server_probs], dim=-1).unsqueeze(1)
         return (
             time_bins,
@@ -224,13 +330,34 @@ class BrickSelectionAgent(nn.Module):
         return selected, log_ps, dist.entropy().unsqueeze(1)
 
     def _action_time_bins(self, x: dict[Feats, torch.Tensor]) -> torch.Tensor:
-        for feature in self.features:
+        required = tuple(
+            dict.fromkeys((Feats.TIME_BINS, Feats.Dt_BINS, *self.features))
+        )
+        for feature in required:
             value = x[feature]
             if value.ndim != 2 or value.shape[1] != 1:
                 raise ValueError(
                     "BrickSelectionAgent.act_step expects each feature to be (B,1)"
                 )
         return x[Feats.TIME_BINS] + x[Feats.Dt_BINS]
+
+    def _feature_vector(
+        self,
+        x: dict[Feats, torch.Tensor],
+        time_bins: torch.Tensor,
+    ) -> torch.Tensor:
+        values = []
+        for feature in self.features:
+            value = x[feature].to(torch.float32)
+            if feature == Feats.TIME_BINS:
+                time_s = time_bins.to(torch.float32) * self.time_step_s
+                value = time_s / (time_s + 10.0)
+            elif feature == Feats.Dt_BINS:
+                value = torch.log1p(value * self.time_step_s)
+            elif feature != Feats.SILENCE_FLAG:
+                value = torch.log1p(value)
+            values.append(value)
+        return torch.cat(values, dim=1)
 
     def _current_bricks(
         self,

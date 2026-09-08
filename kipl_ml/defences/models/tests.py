@@ -6,7 +6,7 @@ from kipl_ml.defences.models.brick_selection_agent import (
     DEFAULT_BRICK_FEATURES,
     BrickSelectionAgent,
 )
-from kipl_ml.defences.models.trgen import AGENT1, RNNDefenceAgent
+from kipl_ml.defences.models.trgen import AGENT1, CRITIC01, RNNDefenceAgent
 from kipl_ml.rl.enums import Actions, AHKs, EntropyKeys, StepAction
 from kipl_ml.trace.features import Feats
 
@@ -30,6 +30,19 @@ def _brick_features(
     return {
         Feats.TIME_BINS: torch.tensor(times).reshape(-1, 1),
         Feats.Dt_BINS: torch.tensor(dts).reshape(-1, 1),
+    }
+
+
+def _brick_context_features(up_counts: list[int]) -> dict[Feats, torch.Tensor]:
+    batch_size = len(up_counts)
+    return {
+        Feats.TIME_BINS: torch.zeros(batch_size, 1),
+        Feats.Dt_BINS: torch.ones(batch_size, 1),
+        Feats.UP_COUNT: torch.tensor(up_counts).reshape(-1, 1),
+        Feats.DOWN_COUNT: torch.zeros(batch_size, 1),
+        Feats.UP_DECOY_COUNT: torch.zeros(batch_size, 1),
+        Feats.DOWN_DECOY_COUNT: torch.zeros(batch_size, 1),
+        Feats.SILENCE_FLAG: (torch.tensor(up_counts) == 0).reshape(-1, 1),
     }
 
 
@@ -142,6 +155,167 @@ class TestBrickSelectionAgent(unittest.TestCase):
         self.assertEqual(actions[0][Actions.CLIENT_BRICK_SELECT].selected, 2)
         self.assertEqual(actions[0][Actions.SERVER_BRICK_SELECT].selected, 3)
 
+    def test_single_time_table_entropy_depends_on_current_brick_not_time(self) -> None:
+        model = BrickSelectionAgent(
+            time_step_s=0.05,
+            n_time_steps=1,
+            n_client_bricks=3,
+            n_server_bricks=3,
+        )
+        with torch.no_grad():
+            model.client_transition_logits[0, 0] = torch.tensor([4.0, 0.0, 0.0])
+
+        _, _, _, _, _, same_row_entropies, _ = model.act_step(
+            _brick_features([0, 100]),
+            current_client_bricks=torch.tensor([0, 0]),
+            current_server_bricks=torch.tensor([0, 0]),
+            sample=False,
+        )
+        _, _, _, _, _, different_row_entropies, _ = model.act_step(
+            _brick_features([0, 0]),
+            current_client_bricks=torch.tensor([0, 1]),
+            current_server_bricks=torch.tensor([0, 0]),
+            sample=False,
+        )
+
+        same_row = same_row_entropies[EntropyKeys.SELECTION_ENTROPY].squeeze(1)
+        different_rows = different_row_entropies[
+            EntropyKeys.SELECTION_ENTROPY
+        ].squeeze(1)
+        torch.testing.assert_close(same_row[0], same_row[1])
+        self.assertNotEqual(
+            float(different_rows[0].detach()),
+            float(different_rows[1].detach()),
+        )
+
+    def test_feature_residual_can_condition_policy_and_value(self) -> None:
+        features = tuple(_brick_context_features([0]))
+        model = BrickSelectionAgent(
+            time_step_s=1.0,
+            n_time_steps=1,
+            n_client_bricks=2,
+            n_server_bricks=2,
+            features=features,
+            feature_hidden_size=2,
+        )
+        up_idx = features.index(Feats.UP_COUNT)
+        with torch.no_grad():
+            encoder = model.feature_encoder[0]
+            encoder.weight.zero_()
+            encoder.bias.zero_()
+            encoder.weight[0, up_idx] = 1.0
+
+            client_hidden = model.client_feature_head[0]
+            client_hidden.weight.zero_()
+            client_hidden.bias.zero_()
+            client_hidden.weight[0, 0] = 1.0
+            client_output = model.client_feature_head[-1]
+            client_output.weight.zero_()
+            client_output.bias.zero_()
+            client_output.weight[0, 0] = 1.0
+
+            value_hidden = model.value_feature_head[0]
+            value_hidden.weight.zero_()
+            value_hidden.bias.zero_()
+            value_hidden.weight[0, 0] = 1.0
+            value_output = model.value_feature_head[-1]
+            value_output.weight.zero_()
+            value_output.bias.zero_()
+            value_output.weight[0, 0] = 1.0
+
+        _, _, _, probs, values, _, _ = model.act_step(
+            _brick_context_features([0, 20]),
+            current_client_bricks=torch.tensor([0, 0]),
+            current_server_bricks=torch.tensor([0, 0]),
+            sample=False,
+        )
+
+        self.assertNotEqual(
+            float(probs[0, 0, 0].detach()),
+            float(probs[1, 0, 0].detach()),
+        )
+        self.assertNotEqual(
+            float(values[0, 0].detach()),
+            float(values[1, 0].detach()),
+        )
+
+    def test_feature_heads_receive_gradients(self) -> None:
+        torch.manual_seed(0)
+        model = BrickSelectionAgent(
+            time_step_s=1.0,
+            n_time_steps=1,
+            n_client_bricks=2,
+            n_server_bricks=2,
+            features=tuple(_brick_context_features([0])),
+            feature_hidden_size=4,
+        )
+        current = torch.zeros(2, dtype=torch.long)
+        _, _, log_probs, _, values, _, _ = model.act_step(
+            _brick_context_features([0, 20]),
+            current_client_bricks=current,
+            current_server_bricks=current,
+            sample=True,
+        )
+
+        loss = -(log_probs * torch.tensor([[1.0], [-1.0]])).mean()
+        loss = loss + (values - torch.tensor([[0.0], [1.0]])).pow(2).mean()
+        loss.backward()
+
+        self.assertGreater(
+            float(model.client_feature_head[-1].weight.grad.abs().sum()), 0.0
+        )
+        self.assertGreater(
+            float(model.server_feature_head[-1].weight.grad.abs().sum()), 0.0
+        )
+        self.assertGreater(
+            float(model.value_feature_head[-1].weight.grad.abs().sum()), 0.0
+        )
+
+    def test_empty_features_use_static_tables_only(self) -> None:
+        model = BrickSelectionAgent(
+            time_step_s=1.0,
+            n_time_steps=1,
+            n_client_bricks=2,
+            n_server_bricks=2,
+            features=(),
+        )
+        with torch.no_grad():
+            model.client_transition_logits[0, 0] = torch.tensor([3.0, 0.0])
+
+        _, _, _, probs, values, _, _ = model.act_step(
+            _brick_features([0, 100]),
+            current_client_bricks=torch.tensor([0, 0]),
+            current_server_bricks=torch.tensor([0, 0]),
+            sample=False,
+        )
+
+        self.assertIsNone(model.feature_encoder)
+        self.assertIsNone(model.client_feature_head)
+        self.assertIsNone(model.server_feature_head)
+        self.assertIsNone(model.value_feature_head)
+        torch.testing.assert_close(probs[0], probs[1])
+        torch.testing.assert_close(values, torch.zeros_like(values))
+
+    def test_external_critic_disables_actor_value_parameters(self) -> None:
+        model = BrickSelectionAgent(
+            time_step_s=1.0,
+            n_time_steps=1,
+            n_client_bricks=2,
+            features=tuple(_brick_context_features([0])),
+            learn_values=False,
+        )
+
+        _, _, _, _, values, _, _ = model.act_step(
+            _brick_context_features([0]),
+            current_client_bricks=torch.tensor([0]),
+            current_server_bricks=torch.tensor([0]),
+            sample=False,
+        )
+
+        self.assertNotIn("value_table", dict(model.named_parameters()))
+        self.assertIsNone(model.value_feature_head)
+        torch.testing.assert_close(values, torch.zeros_like(values))
+
     def test_rejects_sequence_inputs(self) -> None:
         model = BrickSelectionAgent(
             time_step_s=0.05, n_time_steps=2, n_client_bricks=2
@@ -195,6 +369,45 @@ class TestRNNDefenceAgentCompatibility(unittest.TestCase):
         model.__dict__["time_step"] = 0.02
 
         self.assertEqual(model.time_step_s, 0.02)
+
+
+class TestBrickRecurrentCritic(unittest.TestCase):
+    def test_static_actor_can_use_feature_conditioned_recurrent_critic(self) -> None:
+        agent = BrickSelectionAgent(
+            time_step_s=1.0,
+            n_time_steps=1,
+            n_client_bricks=2,
+            features=(),
+        )
+        features = (
+            Feats.TIME_BINS,
+            Feats.Dt_BINS,
+            Feats.UP_COUNT,
+            Feats.DOWN_COUNT,
+            Feats.UP_DECOY_COUNT,
+            Feats.DOWN_DECOY_COUNT,
+            Feats.SILENCE_FLAG,
+        )
+        critic = CRITIC01(
+            agent,
+            hsize=8,
+            nlayers=1,
+            features=features,
+        )
+        x = {
+            feature: torch.zeros(2, 3)
+            for feature in features
+        }
+        x[Feats.Dt_BINS].fill_(1)
+        x[Feats.UP_COUNT][1].fill_(10)
+
+        output, _ = critic(x)
+        values = output[Feats.STATE_VALUE]
+        values.sum().backward()
+
+        self.assertEqual(critic.features, list(features))
+        self.assertEqual(values.shape, (2, 3))
+        self.assertGreater(float(critic.rnn.weight_ih_l0.grad.abs().sum()), 0.0)
 
 
 class TestRNNDefenceAgentForward(unittest.TestCase):

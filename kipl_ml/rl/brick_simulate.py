@@ -80,6 +80,9 @@ STANDARD_BRICK_ROLLOUT_FEATURES = (
     Feats.Dt_BINS,
     Feats.UP_COUNT,
     Feats.DOWN_COUNT,
+    Feats.UP_DECOY_COUNT,
+    Feats.DOWN_DECOY_COUNT,
+    Feats.SILENCE_FLAG,
 )
 
 
@@ -103,9 +106,6 @@ def brick_policy_rollout(  # noqa: C901
 ) -> BrickRollout:
     if max_steps <= 0:
         raise ValueError("max_steps must be > 0")
-    if Feats.TIME_BINS not in policy.features or Feats.Dt_BINS not in policy.features:
-        raise ValueError("brick rollout requires TIME_BINS and Dt_BINS policy features")
-
     if controller is None:
         if client_bricks is None or server_bricks is None:
             raise ValueError("client_bricks and server_bricks are required")
@@ -172,6 +172,10 @@ def brick_policy_rollout(  # noqa: C901
 
             up_count = float(((dirs == UPLOAD) & (decoys == 0)).sum().item())
             down_count = float(((dirs == DOWNLOAD) & (decoys == 0)).sum().item())
+            up_decoy_count = float(((dirs == UPLOAD) & (decoys != 0)).sum().item())
+            down_decoy_count = float(
+                ((dirs == DOWNLOAD) & (decoys != 0)).sum().item()
+            )
             n_packets[idx] += times.numel()
             n_real_packets[idx] += int(up_count + down_count)
 
@@ -191,17 +195,36 @@ def brick_policy_rollout(  # noqa: C901
             active_for_policy[idx] = True
             for feature in fd_features:
                 fd_w[feature].append(
-                    _feature_value(feature, current_bin, 1, up_count, down_count)
+                    _feature_value(
+                        feature,
+                        current_bin,
+                        1,
+                        up_count,
+                        down_count,
+                        up_decoy_count,
+                        down_decoy_count,
+                    )
                 )
 
         if not active_for_policy.any():
             continue
 
         fd_w_tensor_all = {
-            k: torch.tensor(v).reshape(-1, 1).float() for k, v in fd_w.items()
+            k: torch.tensor(
+                v,
+                dtype=(
+                    torch.long
+                    if k in (Feats.TIME_BINS, Feats.Dt_BINS)
+                    else torch.float32
+                ),
+            ).reshape(-1, 1)
+            for k, v in fd_w.items()
         }
         fd_w_tensor_all = dict_to_device(fd_w_tensor_all, device=device)
-        fd_w_tensor = {f: fd_w_tensor_all[f] for f in policy.features}
+        policy_input_features = tuple(
+            dict.fromkeys((Feats.TIME_BINS, Feats.Dt_BINS, *policy.features))
+        )
+        fd_w_tensor = {f: fd_w_tensor_all[f] for f in policy_input_features}
         current_client = torch.as_tensor(
             controller.current_client_bricks(active_for_policy),
             device=device,
@@ -313,6 +336,8 @@ def _feature_value(
     n_steps: int,
     up_count: float,
     down_count: float,
+    up_decoy_count: float,
+    down_decoy_count: float,
 ) -> float:
     if feature == Feats.TIME_BINS:
         return float(current_bin)
@@ -322,6 +347,10 @@ def _feature_value(
         return up_count
     if feature == Feats.DOWN_COUNT:
         return down_count
+    if feature == Feats.UP_DECOY_COUNT:
+        return up_decoy_count
+    if feature == Feats.DOWN_DECOY_COUNT:
+        return down_decoy_count
     if feature == Feats.SILENCE_FLAG:
         return float(up_count == 0.0 and down_count == 0.0)
     raise ValueError(f"unsupported brick policy feature: {feature}")

@@ -1,4 +1,5 @@
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, Protocol
 
 import numpy as np
 import torch
@@ -27,6 +28,11 @@ from kipl_ml.rl.enums import (
 from kipl_ml.trace.features import Feats
 
 logger = get_logger(__name__)
+
+
+class FeatureAgent(Protocol):
+    time_step_s: float
+    features: Sequence[Feats]
 
 
 def _get_probs(logits: torch.Tensor, eps: float) -> torch.Tensor:
@@ -881,13 +887,14 @@ class CRITIC01(nn.Module):
 
     def __init__(
         self,
-        agent: RNNDefenceAgent,
+        agent: FeatureAgent,
         hsize: int = 256,
         nlayers: int = 3,
         dropout: float = 0.0,
         n_classes: int = 100,
         label_embedding_dim: int = 1,
         use_label: bool = False,
+        features: Sequence[Feats] | None = None,
     ):
         super().__init__()
 
@@ -896,10 +903,7 @@ class CRITIC01(nn.Module):
 
         # Time step between feature extractions.
         self.time_step_s = agent.time_step_s
-        # Maximum silence the model tolerates before acting.
-        self.max_silence_s = agent.max_silence_s
-
-        self.features = agent.features.copy()
+        self.features = list(agent.features if features is None else features)
 
         self.use_label = use_label
         if use_label:
@@ -911,6 +915,8 @@ class CRITIC01(nn.Module):
         self.hidden_size = hsize
         # scaler does not apply to embeddings
         nfeat = len(self.features) - use_label
+        if nfeat <= 0:
+            raise ValueError("critic requires at least one non-label feature")
 
         self.scaler = nn.Sequential(nn.Linear(nfeat, nfeat, bias=False), nn.Tanh())
         self.rnn = nn.LSTM(

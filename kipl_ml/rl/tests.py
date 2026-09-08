@@ -4,7 +4,10 @@ import numpy as np
 import torch
 
 from kipl_ml.data.utils import DOWNLOAD, UPLOAD
-from kipl_ml.rl.brick_simulate import brick_policy_rollout
+from kipl_ml.rl.brick_simulate import (
+    STANDARD_BRICK_ROLLOUT_FEATURES,
+    brick_policy_rollout,
+)
 from kipl_ml.rl.enums import (
     Actions,
     ActSelector,
@@ -198,7 +201,7 @@ class FakeBrickPolicy:
     time_step_s: float = 0.1
 
     def __init__(self) -> None:
-        self.features = (Feats.TIME_BINS, Feats.Dt_BINS)
+        self.features = STANDARD_BRICK_ROLLOUT_FEATURES
         self.current_calls: list[tuple[list[int], list[int]]] = []
         self.feature_calls: list[tuple[Feats, ...]] = []
 
@@ -312,6 +315,21 @@ class FakeBrickController:
 class FakeDoneAfterOneStepBrickController(FakeBrickController):
     def is_done(self) -> list[bool]:
         return [self.step_count >= 1] * self.batch_size
+
+
+class FakeDecoyBrickController(FakeBrickController):
+    def step_current(self, active_mask: np.ndarray) -> list[NumpyTrace]:
+        windows = super().step_current(active_mask)
+        return [
+            (
+                np.asarray([100_000_000, 200_000_000], dtype=np.uint64),
+                np.asarray([UPLOAD, DOWNLOAD], dtype=np.int8),
+                np.asarray([False, True]),
+            )
+            if active
+            else window
+            for active, window in zip(active_mask, windows, strict=True)
+        ]
 
 
 class TestBrickBatchController(unittest.TestCase):
@@ -468,6 +486,9 @@ class TestBrickPolicyRollout(unittest.TestCase):
         self.assertEqual(set(policy.feature_calls[0]), set(policy.features))
         self.assertEqual(fd[Feats.UP_COUNT].tolist(), [[1.0], [1.0]])
         self.assertEqual(fd[Feats.DOWN_COUNT].tolist(), [[0.0], [0.0]])
+        self.assertEqual(fd[Feats.UP_DECOY_COUNT].tolist(), [[0.0], [0.0]])
+        self.assertEqual(fd[Feats.DOWN_DECOY_COUNT].tolist(), [[0.0], [0.0]])
+        self.assertEqual(fd[Feats.SILENCE_FLAG].tolist(), [[0.0], [0.0]])
         self.assertEqual(log_ps.shape, (2, 1))
         self.assertEqual(sel_probs.shape, (2, 1, 5))
         self.assertEqual(values.shape, (2, 1))
@@ -477,6 +498,65 @@ class TestBrickPolicyRollout(unittest.TestCase):
         self.assertEqual(actions[0][0][Actions.CLIENT_BRICK_SELECT].selected, 1)
         self.assertEqual(actions[0][0][Actions.SERVER_BRICK_SELECT].selected, 2)
         self.assertEqual(X_obs[Feats.DIRS].shape, (2, 2))
+
+    def test_rollout_passes_completed_window_decoy_counts_to_policy(self):
+        policy = FakeBrickPolicy()
+        controller = FakeDecoyBrickController(batch_size=2)
+
+        fd, *_ = brick_policy_rollout(
+            policy=policy,
+            trace_paths=["a.log", "b.log"],
+            device="cpu",
+            client_bricks=None,
+            server_bricks=None,
+            network_context=None,
+            max_packets=10,
+            max_duration_s=10.0,
+            required_real_packets=None,
+            trim_raw=0,
+            seed=0,
+            sample=True,
+            relative=False,
+            max_steps=100,
+            controller=controller,
+        )
+
+        self.assertEqual(fd[Feats.UP_COUNT].tolist(), [[1.0], [1.0]])
+        self.assertEqual(fd[Feats.DOWN_COUNT].tolist(), [[0.0], [0.0]])
+        self.assertEqual(fd[Feats.UP_DECOY_COUNT].tolist(), [[0.0], [0.0]])
+        self.assertEqual(fd[Feats.DOWN_DECOY_COUNT].tolist(), [[1.0], [1.0]])
+        self.assertEqual(
+            policy.feature_calls[0],
+            STANDARD_BRICK_ROLLOUT_FEATURES,
+        )
+
+    def test_rollout_supplies_time_metadata_to_static_policy(self):
+        policy = FakeBrickPolicy()
+        policy.features = ()
+        controller = FakeBrickController(batch_size=2)
+
+        brick_policy_rollout(
+            policy=policy,
+            trace_paths=["a.log", "b.log"],
+            device="cpu",
+            client_bricks=None,
+            server_bricks=None,
+            network_context=None,
+            max_packets=10,
+            max_duration_s=10.0,
+            required_real_packets=None,
+            trim_raw=0,
+            seed=0,
+            sample=True,
+            relative=False,
+            max_steps=100,
+            controller=controller,
+        )
+
+        self.assertEqual(
+            policy.feature_calls[0],
+            (Feats.TIME_BINS, Feats.Dt_BINS),
+        )
 
     def test_rollout_returns_zero_length_batch_when_no_policy_step_is_reached(self):
         policy = FakeBrickPolicy()
