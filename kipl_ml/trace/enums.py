@@ -70,6 +70,9 @@ class Feats(StrEnum):
     WINDOW_BINS = "window-bins"
     SILENCE_FLAG = "silence_flag"
     DISC_ID = "disc_id"
+    # Pre-action selector state; -1 marks padded rollout entries.
+    CURRENT_CLIENT_BRICK = "current_client_brick"
+    CURRENT_SERVER_BRICK = "current_server_brick"
 
     def __str__(self) -> str:
         return self.value

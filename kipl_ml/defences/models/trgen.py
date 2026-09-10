@@ -32,7 +32,9 @@ logger = get_logger(__name__)
 
 class FeatureAgent(Protocol):
     time_step_s: float
-    features: Sequence[Feats]
+
+    @property
+    def features(self) -> Sequence[Feats]: ...
 
 
 def _get_probs(logits: torch.Tensor, eps: float) -> torch.Tensor:
@@ -342,7 +344,10 @@ def _forward_w_detach(
         x_chunk = {}
         for k, v in x.items():
             chunk = v[active_seqs, i * h_detach_period : (i + 1) * h_detach_period]
-            if chunk.is_floating_point():
+            if k in (Feats.CURRENT_CLIENT_BRICK, Feats.CURRENT_SERVER_BRICK):
+                # Preserve categorical padding for the critic's one-hot mapping.
+                x_chunk[k] = chunk
+            elif chunk.is_floating_point():
                 x_chunk[k] = torch.where(chunk.isfinite(), chunk, 0)
             else:
                 x_chunk[k] = torch.where(chunk >= 0, chunk, 0)
@@ -895,6 +900,7 @@ class CRITIC01(nn.Module):
         label_embedding_dim: int = 1,
         use_label: bool = False,
         features: Sequence[Feats] | None = None,
+        brick_counts: tuple[int, int] | None = None,
     ):
         super().__init__()
 
@@ -904,6 +910,18 @@ class CRITIC01(nn.Module):
         # Time step between feature extractions.
         self.time_step_s = agent.time_step_s
         self.features = list(agent.features if features is None else features)
+        self.brick_counts: dict[Feats, int] = {}
+        if brick_counts is not None:
+            if any(count <= 0 for count in brick_counts):
+                raise ValueError("brick_counts must be positive")
+            self.brick_counts = dict(
+                zip(
+                    (Feats.CURRENT_CLIENT_BRICK, Feats.CURRENT_SERVER_BRICK),
+                    brick_counts,
+                    strict=True,
+                )
+            )
+            self.features = list(dict.fromkeys((*self.features, *self.brick_counts)))
 
         self.use_label = use_label
         if use_label:
@@ -914,13 +932,13 @@ class CRITIC01(nn.Module):
         self.num_layers = nlayers
         self.hidden_size = hsize
         # scaler does not apply to embeddings
-        nfeat = len(self.features) - use_label
+        nfeat = len(self.features) - use_label - len(self.brick_counts)
         if nfeat <= 0:
             raise ValueError("critic requires at least one non-label feature")
 
         self.scaler = nn.Sequential(nn.Linear(nfeat, nfeat, bias=False), nn.Tanh())
         self.rnn = nn.LSTM(
-            nfeat + label_embedding_dim,
+            nfeat + label_embedding_dim + sum(self.brick_counts.values()),
             hsize,
             nlayers,
             batch_first=True,
@@ -956,7 +974,14 @@ class CRITIC01(nn.Module):
 
         # Typically we have time in dim=1, here we always(?)
         # (N, L) x nfeat
-        fs = _feature_map(x, self.features, dt=float(self.time_step_s))
+        # Old serialized critics have no brick_counts attribute; their numeric
+        # feature path and parameter shapes remain unchanged.
+        brick_counts = getattr(self, "brick_counts", {})
+        scalar_features = [
+            feature for feature in self.features if feature not in brick_counts
+        ]
+        fs = _feature_map(x, scalar_features, dt=float(self.time_step_s))
+        assert isinstance(fs, list)
 
         # (N, L, nfeat)
         inputs = torch.cat(fs, dim=-1)
@@ -965,6 +990,15 @@ class CRITIC01(nn.Module):
         inputs = self.scaler(inputs)
 
         # (N, L, nfeat * feat_scale + embed_dim + label_embed_dim)
+        if brick_counts:
+            states = []
+            for feature, count in brick_counts.items():
+                indices = x[feature].long()
+                if bool(((indices < -1) | (indices >= count)).any()):
+                    raise ValueError(f"Invalid {feature} index for {count} bricks")
+                encoded = nn.functional.one_hot(indices.clamp_min(0), num_classes=count)
+                states.append(encoded.to(inputs.dtype) * (indices >= 0).unsqueeze(-1))
+            inputs = torch.cat((inputs, *states), dim=-1)
         if self.use_label:
             inputs = torch.cat(
                 (inputs, self.label_embedding(x[Feats.LABEL].long())), dim=-1

@@ -140,6 +140,10 @@ def brick_policy_rollout(  # noqa: C901
         dict.fromkeys((*STANDARD_BRICK_ROLLOUT_FEATURES, *policy.features))
     )
     fd_steps: dict[Feats, list[torch.Tensor]] = {f: [] for f in fd_features}
+    brick_state_steps: dict[Feats, list[torch.Tensor]] = {
+        Feats.CURRENT_CLIENT_BRICK: [],
+        Feats.CURRENT_SERVER_BRICK: [],
+    }
     actions_l: list[StepActions] = [[] for _ in range(bs)]
     act_time_bins_l: list[torch.Tensor] = []
     log_ps_l: list[torch.Tensor] = []
@@ -181,6 +185,17 @@ def brick_policy_rollout(  # noqa: C901
         )
 
         active_t = torch.as_tensor(active_for_policy, device=act_time_bins_a.device)
+        # V(s_t) must see the brick active before sampling a_t, not the newly
+        # selected brick. Record the same current state passed to the actor.
+        for feature, current in (
+            (Feats.CURRENT_CLIENT_BRICK, current_client),
+            (Feats.CURRENT_SERVER_BRICK, current_server),
+        ):
+            brick_state_steps[feature].append(
+                _densify(current.unsqueeze(1), active_t, bs, fill_value=-1)
+                .detach()
+                .cpu()
+            )
         for feature in fd_features:
             fd_steps[feature].append(
                 _densify(fd_w_tensor_all[feature], active_t, bs).cpu()
@@ -276,6 +291,12 @@ def brick_policy_rollout(  # noqa: C901
     X_obs = _batch_packet_level_features(X_obs_l, device)
     if not act_time_bins_l:
         fd = {f: torch.zeros((bs, 1), device=device) for f in fd_features}
+        fd.update(
+            {
+                feature: torch.full((bs, 1), -1, dtype=torch.long, device=device)
+                for feature in brick_state_steps
+            }
+        )
         fd[Feats.TIME_BINS] = torch.full((bs, 1), -1.0, device=device)
         fd[Feats.SEQ_LENS] = torch.zeros(bs, dtype=torch.long, device=device)
         zeros = torch.zeros((bs, 1), device=device)
@@ -295,6 +316,7 @@ def brick_policy_rollout(  # noqa: C901
 
     act_time_bins = torch.cat(act_time_bins_l, dim=1)
     fd = {f: torch.cat(vs, dim=1) for f, vs in fd_steps.items()}
+    fd.update({f: torch.cat(vs, dim=1) for f, vs in brick_state_steps.items()})
     fd[Feats.TIME_BINS] = fd[Feats.TIME_BINS].masked_fill(act_time_bins < 0, -1)
     fd[Feats.SEQ_LENS] = (act_time_bins >= 0).sum(dim=1).long()
     fd = dict_to_device(fd, device=device)

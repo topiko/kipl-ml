@@ -179,9 +179,9 @@ class TestBrickSelectionAgent(unittest.TestCase):
         )
 
         same_row = same_row_entropies[EntropyKeys.SELECTION_ENTROPY].squeeze(1)
-        different_rows = different_row_entropies[
-            EntropyKeys.SELECTION_ENTROPY
-        ].squeeze(1)
+        different_rows = different_row_entropies[EntropyKeys.SELECTION_ENTROPY].squeeze(
+            1
+        )
         torch.testing.assert_close(same_row[0], same_row[1])
         self.assertNotEqual(
             float(different_rows[0].detach()),
@@ -317,9 +317,7 @@ class TestBrickSelectionAgent(unittest.TestCase):
         torch.testing.assert_close(values, torch.zeros_like(values))
 
     def test_rejects_sequence_inputs(self) -> None:
-        model = BrickSelectionAgent(
-            time_step_s=0.05, n_time_steps=2, n_client_bricks=2
-        )
+        model = BrickSelectionAgent(time_step_s=0.05, n_time_steps=2, n_client_bricks=2)
 
         with self.assertRaisesRegex(ValueError, r"\(B,1\)"):
             model.act_step(
@@ -332,9 +330,7 @@ class TestBrickSelectionAgent(unittest.TestCase):
             )
 
     def test_rejects_invalid_current_bricks(self) -> None:
-        model = BrickSelectionAgent(
-            time_step_s=0.05, n_time_steps=2, n_client_bricks=2
-        )
+        model = BrickSelectionAgent(time_step_s=0.05, n_time_steps=2, n_client_bricks=2)
 
         with self.assertRaisesRegex(ValueError, "current_client_bricks"):
             model.act_step(
@@ -372,6 +368,57 @@ class TestRNNDefenceAgentCompatibility(unittest.TestCase):
 
 
 class TestBrickRecurrentCritic(unittest.TestCase):
+    def test_brick_one_hot_inputs_preserve_padding_through_detach(self):
+        agent = BrickSelectionAgent(
+            time_step_s=1.0, n_time_steps=2, n_client_bricks=2, n_server_bricks=3
+        )
+        critic = CRITIC01(
+            agent, hsize=8, nlayers=1, features=[Feats.TIME_BINS], brick_counts=(2, 3)
+        )
+        x = {
+            Feats.TIME_BINS: torch.tensor([[0, 1, 2], [0, -1, -1]]),
+            Feats.CURRENT_CLIENT_BRICK: torch.tensor([[0, 1, 1], [1, -1, -1]]),
+            Feats.CURRENT_SERVER_BRICK: torch.tensor([[0, 2, 1], [2, -1, -1]]),
+        }
+        captured = []
+        handle = critic.rnn.register_forward_pre_hook(
+            lambda _module, args: captured.append(args[0].detach().clone())
+        )
+        try:
+            output, _ = critic(x, h_detach_period=2, seq_lens=torch.tensor([3, 1]))
+        finally:
+            handle.remove()
+        self.assertEqual(critic.rnn.input_size, 6)
+        torch.testing.assert_close(
+            captured[0][0, :, 1:],
+            torch.tensor(
+                [
+                    [1.0, 0.0, 1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+        )
+        torch.testing.assert_close(captured[0][1, 1, 1:], torch.zeros(5))
+        torch.testing.assert_close(
+            captured[1][0, 0, 1:], torch.tensor([0.0, 1.0, 0.0, 1.0, 0.0])
+        )
+        values = output[Feats.STATE_VALUE]
+        self.assertEqual(values.shape, (2, 3))
+        (values[0].sum() + values[1, 0]).backward()
+        self.assertGreater(critic.rnn.weight_ih_l0.grad[:, 1:].abs().sum().item(), 0)
+
+    def test_numeric_critic_and_old_artifact_do_not_require_brick_inputs(self):
+        agent = RNNDefenceAgent(time_step_s=0.1, max_silence_s=0.2)
+        critic = CRITIC01(agent, hsize=8, nlayers=1, features=[Feats.TIME_BINS])
+        x = {Feats.TIME_BINS: torch.tensor([[0, 1]])}
+        expected, _ = critic(x)
+        del critic.brick_counts  # Simulate an artifact saved before this change.
+        actual, _ = critic(x)
+        torch.testing.assert_close(
+            actual[Feats.STATE_VALUE], expected[Feats.STATE_VALUE]
+        )
+        self.assertEqual(critic.rnn.input_size, 1)
+
     def test_static_actor_can_use_feature_conditioned_recurrent_critic(self) -> None:
         agent = BrickSelectionAgent(
             time_step_s=1.0,
@@ -394,10 +441,7 @@ class TestBrickRecurrentCritic(unittest.TestCase):
             nlayers=1,
             features=features,
         )
-        x = {
-            feature: torch.zeros(2, 3)
-            for feature in features
-        }
+        x = {feature: torch.zeros(2, 3) for feature in features}
         x[Feats.Dt_BINS].fill_(1)
         x[Feats.UP_COUNT][1].fill_(10)
 

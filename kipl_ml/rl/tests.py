@@ -236,8 +236,7 @@ class FakeBrickPolicy:
         actions = [
             StepAction(
                 int(
-                    x[Feats.TIME_BINS][idx, 0].item()
-                    + x[Feats.Dt_BINS][idx, 0].item()
+                    x[Feats.TIME_BINS][idx, 0].item() + x[Feats.Dt_BINS][idx, 0].item()
                 ),
                 {
                     Actions.CLIENT_BRICK_SELECT: ActSelector(selected=1),
@@ -488,6 +487,9 @@ class TestBrickPolicyRollout(unittest.TestCase):
         self.assertEqual(set(policy.feature_calls[0]), set(policy.features))
         self.assertEqual(fd[Feats.UP_COUNT].tolist(), [[0.0, 1.0], [0.0, 1.0]])
         self.assertEqual(fd[Feats.DOWN_COUNT].tolist(), [[0.0, 0.0], [0.0, 0.0]])
+        self.assertEqual(fd[Feats.CURRENT_CLIENT_BRICK].tolist(), [[0, 1], [0, 1]])
+        self.assertEqual(fd[Feats.CURRENT_SERVER_BRICK].tolist(), [[0, 2], [0, 2]])
+        self.assertEqual(fd[Feats.CURRENT_CLIENT_BRICK].dtype, torch.long)
         self.assertEqual(log_ps.shape, (2, 2))
         self.assertEqual(sel_probs.shape, (2, 2, 5))
         self.assertEqual(values.shape, (2, 2))
@@ -523,12 +525,8 @@ class TestBrickPolicyRollout(unittest.TestCase):
 
         self.assertEqual(fd[Feats.UP_COUNT].tolist(), [[0.0, 1.0], [0.0, 1.0]])
         self.assertEqual(fd[Feats.DOWN_COUNT].tolist(), [[0.0, 0.0], [0.0, 0.0]])
-        self.assertEqual(
-            fd[Feats.UP_DECOY_COUNT].tolist(), [[0.0, 0.0], [0.0, 0.0]]
-        )
-        self.assertEqual(
-            fd[Feats.DOWN_DECOY_COUNT].tolist(), [[0.0, 1.0], [0.0, 1.0]]
-        )
+        self.assertEqual(fd[Feats.UP_DECOY_COUNT].tolist(), [[0.0, 0.0], [0.0, 0.0]])
+        self.assertEqual(fd[Feats.DOWN_DECOY_COUNT].tolist(), [[0.0, 1.0], [0.0, 1.0]])
         self.assertEqual(
             policy.feature_value_calls[1][Feats.DOWN_DECOY_COUNT].tolist(),
             [[1.0], [1.0]],
@@ -565,6 +563,37 @@ class TestBrickPolicyRollout(unittest.TestCase):
             policy.feature_calls[0],
             (Feats.TIME_BINS, Feats.Dt_BINS),
         )
+
+    def test_brick_state_padding_for_different_sequence_lengths(self):
+        class Controller(FakeBrickController):
+            def is_done(self):
+                return [self.step_count >= 1, self.step_count >= 3]
+
+        fd, *_ = brick_policy_rollout(
+            policy=FakeBrickPolicy(),
+            trace_paths=["a", "b"],
+            device="cpu",
+            client_bricks=None,
+            server_bricks=None,
+            network_context=None,
+            max_packets=10,
+            max_duration_s=10.0,
+            required_real_packets=None,
+            trim_raw=0,
+            seed=0,
+            sample=False,
+            relative=False,
+            max_steps=10,
+            controller=Controller(),
+        )
+        self.assertEqual(fd[Feats.SEQ_LENS].tolist(), [1, 3])
+        self.assertEqual(
+            fd[Feats.CURRENT_CLIENT_BRICK].tolist(), [[0, -1, -1], [0, 1, 1]]
+        )
+        self.assertEqual(
+            fd[Feats.CURRENT_SERVER_BRICK].tolist(), [[0, -1, -1], [0, 2, 2]]
+        )
+
 
 class TestWindowFeatureStreamer(unittest.TestCase):
     DT = 0.02
