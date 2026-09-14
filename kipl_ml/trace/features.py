@@ -720,30 +720,31 @@ class _TAM(_TR):
         self._output_sizes = {self.name: len_}
         return self
 
-    def _count_by_bin_idx(
+    def _packets_by_bin_idx(
         self, times: torch.Tensor, packet_mask: torch.Tensor
-    ) -> torch.Tensor:
-        """Count packets per TAM bin using the same integer binning as row2."""
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Select in-range packets and their bins for counts and timing statistics."""
 
         n_bins = len(self.bins) - 1
         if n_bins <= 0:
-            return torch.zeros((0,), device=times.device, dtype=torch.long)
-        counts = torch.zeros((n_bins,), device=times.device, dtype=torch.long)
+            return times[:0], torch.zeros((0,), device=times.device, dtype=torch.long)
 
         packet_times = times[packet_mask]
-        if packet_times.numel() == 0:
-            return counts
 
         # Match histc range behavior: include [0, max], ignore outside.
         tmax = float(self.bins[-1].item())
         packet_times = packet_times[(packet_times >= 0.0) & (packet_times <= tmax)]
-        if packet_times.numel() == 0:
-            return counts
 
         packet_bins = _time_to_bin_idx(packet_times, float(self.window_width_s))
         # Right edge (t == max) maps to n_bins; clamp into the final bin.
         packet_bins = packet_bins.clamp(min=0, max=n_bins - 1).to(torch.long)
-        return torch.bincount(packet_bins, minlength=n_bins)
+        return packet_times, packet_bins
+
+    def _count_by_bin_idx(
+        self, times: torch.Tensor, packet_mask: torch.Tensor
+    ) -> torch.Tensor:
+        _, packet_bins = self._packets_by_bin_idx(times, packet_mask)
+        return torch.bincount(packet_bins, minlength=len(self.bins) - 1)
 
     def _get_keep_mask(self, counts: torch.Tensor) -> torch.Tensor:
         if self.prune_empty:
@@ -1027,6 +1028,11 @@ def get_feature_tr(
 
     def _pad(n: int | None) -> PadOrCutTrace:
         return PadOrCutTrace(n, time_clamp=time_clamp)
+
+    if feature_name in (Feats.TAM_UP_TIME_STD, Feats.TAM_DOWN_TIME_STD):
+        from kipl_ml.trace.tam_stats import TAM_TIME_STD
+
+        return Compose(_pad(None), TAM_TIME_STD(feature_name, **tam_kwargs))
 
     match feature_name:
         case Feats.DIRS:

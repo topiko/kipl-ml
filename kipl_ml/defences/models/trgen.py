@@ -26,6 +26,7 @@ from kipl_ml.rl.enums import (
     StepActions,
 )
 from kipl_ml.trace.features import Feats
+from kipl_ml.trace.tam_stats import TAM_TIME_STD_FEATURES
 
 logger = get_logger(__name__)
 
@@ -126,8 +127,8 @@ def _feature_map(
             v = v.float() * dt
         else:
             v = v.float()
-        if fi == Feats.SILENCE_FLAG:
-            return v.unsqueeze(-1)  # keep 0/1
+        if fi == Feats.SILENCE_FLAG or fi in TAM_TIME_STD_FEATURES:
+            return v.unsqueeze(-1)  # Already dimensionless and bounded.
         if fi in (Feats.TIME_BINS, Feats.TAM_TIMES):
             return (v / (v + 10)).unsqueeze(-1)
         return torch.log1p(v).unsqueeze(-1)
@@ -165,6 +166,7 @@ class RNNCLF1(nn.Module):
                 Feats.TAM_UP_COUNTS,
                 Feats.TAM_DOWN_COUNTS,
                 Feats.TAM_TIMES,
+                *TAM_TIME_STD_FEATURES,
             }
         ):
             self.seq_len_fun = tam_seq_len_fun

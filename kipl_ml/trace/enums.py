@@ -53,6 +53,9 @@ class Feats(StrEnum):
     TAM_TIMES = "tam-times"
     TAM_BINS = "tam-bins"
     TAM_DOWN_COUNTS_MAX_NORMALIZED = f"{TAM_DOWN_COUNTS}_max_normalized"
+    # Per-direction population timestamp std, divided by the TAM window width.
+    TAM_UP_TIME_STD = "tam-upload-time-std"
+    TAM_DOWN_TIME_STD = "tam-download-time-std"
 
     # Helpers:
     DIR_PROBS = "dir_probs"
