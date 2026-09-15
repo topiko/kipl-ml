@@ -39,23 +39,26 @@ def _make_tmp(
     dir_orig: Path,
     dir_defended: Path,
     overhead_frac: float,
+    preserve_defence_limits: bool = False,
+    num_workers: int | None = None,
 ):
 
+    dataset = _unwrap_dataset(dataset)
     defence = deepcopy(dataset.defence)
 
-    if isinstance(defence, RNNDef):
+    if isinstance(defence, RNNDef) and not preserve_defence_limits:
         # We want to go over the full trace.
         # Set any simul restricting params to high values.
         defence._n_packets = 100_000_000
         defence._max_dur_s = 100_000
 
     # We create a new dataset w.o., defence.
-    dataset = _unwrap_dataset(dataset).clone(
+    dataset = dataset.clone(
         feature_trs=None,
         dataset_key="overheads",
         defence=None,
         defence_aug=0,
-        trim_raw=0,
+        trim_raw=dataset.trim_raw if preserve_defence_limits else 0,
     )
 
     dataset.meta_df = dataset.meta_df.sample(frac=overhead_frac, random_state=0)
@@ -66,13 +69,15 @@ def _make_tmp(
     dataset_name = dataset.meta_df.loc[:, DATASET].unique()[0]
 
     info_ds = InformativeDataset(dataset)
-    dl_kwargs = {
-        "batch_size": 128,
-        "shuffle": False,
-        "num_workers": min(24, os.cpu_count() or 1),
-        "collate_fn": _collate_overheads,
-    }
-    dl = DataLoader(info_ds, **dl_kwargs)
+    dl = DataLoader(
+        info_ds,
+        batch_size=128,
+        shuffle=False,
+        num_workers=min(24, os.cpu_count() or 1)
+        if num_workers is None
+        else num_workers,
+        collate_fn=_collate_overheads,
+    )
 
     with tqdm(dl, desc="tmp files", ncols=TQDM_W, total=len(dl)) as pbar:
         for batch in pbar:
@@ -107,7 +112,10 @@ def get_overheads(
     max_len: int = MAX_TRACE_LENGTH,
     real_world: bool = False,
     full_output: bool = False,
+    preserve_defence_limits: bool = False,
+    num_workers: int | None = None,
 ) -> dict[str, float]:
+    """Measure overheads; optionally retain the evaluated policy's caps and trim."""
     dataset = _unwrap_dataset(dataset).clone(dataset_key="overheads")
 
     logger.info("Compute overheads for: %s", dataset.defence.name)
@@ -117,25 +125,24 @@ def get_overheads(
             for prefix in ("orig", f"defended_{dataset.defence.name}")
         ]
 
-        _make_tmp(dataset, Path(dirs[0]), Path(dirs[1]), overhead_frac)
+        _make_tmp(
+            dataset,
+            Path(dirs[0]),
+            Path(dirs[1]),
+            overhead_frac,
+            preserve_defence_limits=preserve_defence_limits,
+            num_workers=num_workers,
+        )
 
         overheads = compute_overheads(dirs[0], dirs[1], max_len, real_world)
 
     overheads_fin: dict[str, float] = {}
-    overheads_fin["def.bandwidth_median"] = overheads[
-        "overhead_data_median_multiple"
-    ]
-    overheads_fin["def.delay_median"] = overheads[
-        "overhead_duration_median_multiple"
-    ]
+    overheads_fin["def.bandwidth_median"] = overheads["overhead_data_median_multiple"]
+    overheads_fin["def.delay_median"] = overheads["overhead_duration_median_multiple"]
     overheads_fin["def.bandwidth_mean"] = overheads["overhead_data_mean_multiple"]
-    overheads_fin["def.bandwidth_std"] = overheads[
-        "overhead_data_std_dev_multiple"
-    ]
+    overheads_fin["def.bandwidth_std"] = overheads["overhead_data_std_dev_multiple"]
     overheads_fin["def.delay_mean"] = overheads["overhead_duration_mean_multiple"]
-    overheads_fin["def.delay_std"] = overheads[
-        "overhead_duration_std_dev_multiple"
-    ]
+    overheads_fin["def.delay_std"] = overheads["overhead_duration_std_dev_multiple"]
     overheads_fin["def.bandwidth_full_mean"] = overheads[
         "overhead_data_full_mean_multiple"
     ]

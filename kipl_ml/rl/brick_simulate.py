@@ -245,6 +245,10 @@ def brick_policy_rollout(  # noqa: C901
                 X_obs_l[idx][Feats.DIRS].append(dirs)
                 X_obs_l[idx][Feats.DECOY].append(decoys)
 
+            # TODO (deferred): Share window-statistics primitives with TAM and
+            # simulate.py through an online observation builder. Keep simulator
+            # state/window handling in this adapter; preserve normal/decoy separation,
+            # completed-window timing, initial observations, and pre-action brick IDs.
             up_count = float(((dirs == UPLOAD) & (decoys == 0)).sum().item())
             down_count = float(((dirs == DOWNLOAD) & (decoys == 0)).sum().item())
             up_decoy_count = float(((dirs == UPLOAD) & (decoys != 0)).sum().item())

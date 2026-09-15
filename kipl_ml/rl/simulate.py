@@ -589,6 +589,10 @@ def _policy_rollout_impl(  # noqa: C901
                     continue
 
             if not terminated[idx]:
+                # TODO (deferred): Share window-statistics primitives with TAM and
+                # brick_simulate.py through an online observation builder. Keep
+                # simulator state/window handling in this adapter; preserve completed-
+                # window causality, variable n_steps, and normal-only counts/silence.
                 up_c = float(((dirs == UPLOAD) & (decoys == 0)).sum().item())
                 down_c = float(((dirs == DOWNLOAD) & (decoys == 0)).sum().item())
                 fd_w[Feats.UP_COUNT].append(up_c)
