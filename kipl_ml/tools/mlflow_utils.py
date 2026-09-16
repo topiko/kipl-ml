@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from mlflow.entities import ViewType
 from mlflow.tracking import MlflowClient
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, ListConfig, OmegaConf
 
 from kipl_ml.data.wf_dataset import WFDataset
 from kipl_ml.logging.logger import get_logger
@@ -60,9 +60,10 @@ def list_runs(
 def log_dataset(
     ds: WFDataset,
     store_cols: list[str],
-    target: str,
+    target: str | None,
     predictions: np.ndarray | None = None,
 ):
+    """Log raw-trace metadata; targets may be None for simulation-dependent labels."""
     df = ds.meta_df.loc[:, store_cols]
 
     pred_col = "predictions" if predictions is not None else None
@@ -78,7 +79,7 @@ def log_dataset(
     mlflow.log_input(dataset=ds_, context=f"{ds.name}_df.json")
 
 
-def log_hydra_conf(cfg: OmegaConf):
+def log_hydra_conf(cfg: DictConfig | ListConfig):
     d = OmegaConf.to_container(cfg, resolve=True)
     mlflow.log_dict(d, artifact_file="hydra_config.json")
 

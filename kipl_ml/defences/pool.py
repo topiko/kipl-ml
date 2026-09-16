@@ -21,6 +21,7 @@ class DefencePool(_Def):
         seed: int | None = 42,
         fixed_per_trace: bool = False,
         name: str | None = None,
+        member_ids: Sequence[str] | None = None,
     ):
         if not defences:
             raise ValueError("DefencePool requires at least one defence")
@@ -31,6 +32,21 @@ class DefencePool(_Def):
         self.defences = list(defences)
         self.defence_rng = MachineRng(len(self.defences), seed=seed)
         self.pool_name = name
+        self.member_ids = (
+            tuple(member_ids)
+            if member_ids is not None
+            else tuple(str(index) for index in range(len(defences)))
+        )
+        if (
+            len(self.member_ids) != len(defences)
+            or len(set(self.member_ids)) != len(defences)
+            or any(
+                not isinstance(member, str) or not member for member in self.member_ids
+            )
+        ):
+            raise ValueError(
+                "Pool member IDs must be unique nonempty strings, one per defence"
+            )
 
     @property
     def name(self) -> str:
@@ -46,18 +62,40 @@ class DefencePool(_Def):
         trim_raw: int = 0,
         network_context: NetworkContextIntDict | None = None,
     ) -> dict[Feats, torch.Tensor]:
+        trace, _ = self.simulate_with_metadata(
+            trace_path,
+            machine_idx=machine_idx,
+            trim_raw=trim_raw,
+            network_context=network_context,
+        )
+        return trace
+
+    def simulate_with_metadata(
+        self,
+        trace_path: os.PathLike,
+        machine_idx: int | None = None,
+        trim_raw: int = 0,
+        network_context: NetworkContextIntDict | None = None,
+    ) -> tuple[dict[Feats, torch.Tensor], dict[str, str]]:
+        if not isinstance(trace_path, os.PathLike):
+            raise TypeError(
+                f"Expected trace to be os.PathLike, got: {type(trace_path)}"
+            )
         if machine_idx is not None:
-            raise ValueError("DefencePool does not support legacy machine_idx selection")
+            raise ValueError(
+                "DefencePool does not support legacy machine_idx selection"
+            )
 
         defence_idx = self._select_defence_idx()
         defence = self.defences[defence_idx]
 
-        return defence(
+        trace, metadata = defence.simulate_with_metadata(
             trace_path,
             machine_idx=None,
             trim_raw=trim_raw,
             network_context=network_context,
         )
+        return trace, {**metadata, "defence_id": self.member_ids[defence_idx]}
 
     def report(self, to_log: bool = False) -> str:
         str_ = "DefencePool:\n"

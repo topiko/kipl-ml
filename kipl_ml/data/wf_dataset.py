@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import os
+import pickle
 import random
-import shutil
 from copy import deepcopy
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 import pandas as pd
 import torch
@@ -64,10 +65,12 @@ class WFDataset(Dataset):
 
         if self.defence.FIXED_PER_TRACE and self.defence_aug == 0:
             logger.warning(
-                "Def. augmentation is 0, i.e., infinite, however, you fix each defence to a trace."
+                "Def. augmentation is 0, i.e., infinite, however, "
+                "you fix each defence to a trace."
             )
             logger.warning(
-                "Infinite augmentation does not really make sense when you used fixed machines per trace."
+                "Infinite augmentation does not really make sense "
+                "when you used fixed machines per trace."
             )
 
         self.feature_trs = feature_trs
@@ -155,7 +158,7 @@ class WFDataset(Dataset):
     def wipe_cache(self) -> None:
         """Wipe the cached defended traces."""
         if self.tmp_dir is not None:
-            shutil.rmtree(self.tmp_dir.name)
+            self.tmp_dir.cleanup()
             self.tmp_dir = None
         self._defence_aug = 0
 
@@ -193,76 +196,85 @@ class WFDataset(Dataset):
     def _sample_network_context(self) -> NetworkContextIntDict:
         return self.network_context.sample_params()
 
-    def _get_trace_and_context(
+    def _get_trace_context_and_metadata(
         self, idx: int
-    ) -> tuple[dict[Feats, torch.Tensor], NetworkContextIntDict]:
+    ) -> tuple[dict[Feats, torch.Tensor], NetworkContextIntDict, dict[str, str]]:
         orig_idx, sub_idx = self._get_idx(idx)
 
         orig_trace_path = Path(self.meta_df.iloc[orig_idx][assets.TRACE_F_PATH])
 
         machine_idx = orig_idx if self.defence.FIXED_PER_TRACE else None
 
-        if self.defence_aug == 0:
+        def simulate():
             network_context = self._sample_network_context()
-            trace = self.defence(
+            trace, metadata = self.defence.simulate_with_metadata(
                 orig_trace_path,
                 machine_idx=machine_idx,
                 trim_raw=self.trim_raw,
                 network_context=network_context,
             )
+            return trace, network_context, metadata
+
+        if self.defence_aug == 0:
+            trace, network_context, metadata = simulate()
         else:
             if self.tmp_dir is None:
                 raise ValueError("Temporary directory not initialized")
 
-            tmp_trace_path = os.path.join(
-                self.tmp_dir.name, f"{orig_trace_path.name}.{sub_idx:03d}"
-            )
+            # Different source directories may contain the same basename.
+            trace_key = hashlib.sha256(os.fsencode(orig_trace_path)).hexdigest()
+            tmp_trace_path = Path(self.tmp_dir.name) / f"{trace_key}.{sub_idx:03d}.pt"
 
-            def safe_load() -> tuple[dict[Feats, torch.Tensor], NetworkContextIntDict]:
-                """
-                When using dataloaders, several threads can call reading of the same
-                trace file. This can cause some issues, here is an attempt to protect
-                against simultaneous access.
-                """
+            if not tmp_trace_path.exists():
+                # Recheck under the lock, then publish trace, network and label
+                # together. Concurrent readers must never see a partial payload.
                 with open(orig_trace_path, "rb") as f:
-                    fcntl.flock(f, fcntl.LOCK_EX)  # Acquire an exclusive lock
+                    fcntl.flock(f, fcntl.LOCK_EX)
                     try:
-                        network_context = self._sample_network_context()
-                        return self.defence(
-                            orig_trace_path,
-                            machine_idx=machine_idx,
-                            trim_raw=self.trim_raw,
-                            network_context=network_context,
-                        ), network_context
+                        if not tmp_trace_path.exists():
+                            trace, network_context, metadata = simulate()
+                            _save_trace_cache(
+                                tmp_trace_path,
+                                {
+                                    # Primitive keys avoid thread-global pickle
+                                    # allowlist state in concurrent readers.
+                                    "trace": {
+                                        key.value
+                                        if isinstance(key, Feats)
+                                        else key: value
+                                        for key, value in trace.items()
+                                    },
+                                    "network_context": network_context,
+                                    "metadata": metadata,
+                                },
+                            )
                     finally:
-                        fcntl.flock(f, fcntl.LOCK_UN)  # Release the lock
-
-            if not os.path.exists(tmp_trace_path):
-                trace, network_context = safe_load()
-                with open(tmp_trace_path, "wb") as f:
-                    torch.save(
-                        {"trace": trace, "network_context": network_context},
-                        f,
-                    )
+                        fcntl.flock(f, fcntl.LOCK_UN)
+            payload = _load_trace_cache(tmp_trace_path)
+            if isinstance(payload, dict) and "trace" in payload:
+                trace = payload["trace"]
+                network_context = payload["network_context"]
+                metadata = payload.get("metadata", {})
             else:
-                with torch.serialization.safe_globals([Feats]):
-                    with open(tmp_trace_path, "rb") as f:
-                        payload = torch.load(f, weights_only=True)
-                if isinstance(payload, dict) and "trace" in payload:
-                    trace = payload["trace"]
-                    network_context = payload["network_context"]
-                else:
-                    trace = payload
-                    network_context = self._sample_network_context()
+                trace = payload
+                network_context = self._sample_network_context()
+                metadata = {}
 
         converted: dict[Feats, torch.Tensor] = {}
         for key, val in trace.items():
+            key = Feats(key)
             if key == assets.DECOY:
                 converted[key] = val.to(dtype=torch.bool)
             else:
                 converted[key] = val.to(dtype=torch.float32)
 
-        return converted, network_context
+        return converted, network_context, metadata
+
+    def _get_trace_and_context(
+        self, idx: int
+    ) -> tuple[dict[Feats, torch.Tensor], NetworkContextIntDict]:
+        trace, network_context, _ = self._get_trace_context_and_metadata(idx)
+        return trace, network_context
 
     def _get_trace(self, idx: int) -> dict[Feats, torch.Tensor]:
         trace, _ = self._get_trace_and_context(idx)
@@ -293,33 +305,77 @@ class WFDataset(Dataset):
         return trace_dict, label
 
 
+def _load_trace_cache(path: Path):
+    try:
+        return torch.load(path, weights_only=True)
+    except pickle.UnpicklingError:
+        # Compatibility with older payloads that serialized enum keys.
+        with torch.serialization.safe_globals([Feats]):
+            return torch.load(path, weights_only=True)
+
+
+def _save_trace_cache(path: Path, payload: dict) -> None:
+    with NamedTemporaryFile(dir=path.parent, delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            torch.save(payload, stream)
+            stream.flush()
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
 class InformativeDataset(Dataset):
-    def __init__(self, base: WFDataset):
+    """Expose simulation context; cached augmentation requires explicit opt-in.
+
+    Leave cached access disabled for on-policy/RL consumers, where replaying a
+    previous defended realization would hide policy changes.
+    """
+
+    def __init__(
+        self,
+        base: WFDataset,
+        *,
+        include_metadata: bool = False,
+        allow_cached_defence_augmentation: bool = False,
+    ):
         self.base = base
+        self.include_metadata = include_metadata
+        self.allow_cached_defence_augmentation = allow_cached_defence_augmentation
 
     def __len__(self) -> int:
         return len(self.base)
 
     def __getitem__(self, idx: int):
-        # Override bases get_trace...
-
-        if self.defence_aug != 0:
-            raise ValueError("WithIDx dataset requires def aug == 0!")
-
-        trace_dict, network_context = self.base._get_trace_and_context(idx)
+        if self.defence_aug != 0 and self.allow_cached_defence_augmentation is not True:
+            raise ValueError(
+                "InformativeDataset requires defence_aug == 0; cached access must be "
+                "explicitly enabled with allow_cached_defence_augmentation=True"
+            )
+        if self.include_metadata:
+            trace_dict, network_context, metadata = (
+                self.base._get_trace_context_and_metadata(idx)
+            )
+        else:
+            trace_dict, network_context = self.base._get_trace_and_context(idx)
+            metadata = {}
 
         if self.feature_trs is not None:
             trace_dict = self.feature_trs(trace_dict)
 
         label = self._get_label(idx)
 
-        return trace_dict, label, idx, network_context
+        result = (trace_dict, label, idx, network_context)
+        return (*result, metadata) if self.include_metadata else result
 
     def get_meta(self, idx: int) -> pd.Series:
         return self.base.get_meta(idx)
 
     def __getattr__(self, name: str):
-        return getattr(self.base, name)
+        base = self.__dict__.get("base")
+        if base is None:
+            raise AttributeError(name)
+        return getattr(base, name)
 
 
 def dict_to_device(

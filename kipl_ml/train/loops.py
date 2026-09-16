@@ -131,7 +131,7 @@ def train_model(
     optimizer: torch.optim.Optimizer,
     loss_fn: Callable,
     metrics: list[GeneralMetric | ClassMetric],
-    lr_scheduler: ReduceLROnPlateau | LambdaLR | None = None,
+    lr_scheduler: ReduceLROnPlateau | LambdaLR | RFLRScheduler | None = None,
     early_stop_metric: GeneralMetric | ClassMetric | str = "loss",
     patience: int = 5,
     n_epochs: int | None = None,

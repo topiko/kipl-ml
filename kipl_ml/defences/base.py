@@ -73,7 +73,27 @@ class _Def(ABC):
         trim_raw: int = 0,
         network_context: NetworkContextIntDict | None = None,
     ) -> dict[Feats, torch.Tensor]:
-        return get_std_trace_dict(trace_path, network_context=network_context, trim_raw=trim_raw)
+        return get_std_trace_dict(
+            trace_path, network_context=network_context, trim_raw=trim_raw
+        )
+
+    def simulate_with_metadata(
+        self,
+        trace_path: os.PathLike,
+        machine_idx: int | None = None,
+        trim_raw: int = 0,
+        network_context: NetworkContextIntDict | None = None,
+    ) -> tuple[dict[Feats, torch.Tensor], dict[str, str]]:
+        """Simulate once and return provenance separately from model features."""
+        return (
+            self(
+                trace_path,
+                machine_idx=machine_idx,
+                trim_raw=trim_raw,
+                network_context=network_context,
+            ),
+            {},
+        )
 
     @abstractmethod
     def _simulate(
@@ -95,6 +115,7 @@ class _Def(ABC):
     @abstractmethod
     def _mlflow_log_params(self) -> dict[str, str]:
         raise NotImplementedError
+
 
 class NoDefence(_Def):
     def __init__(
