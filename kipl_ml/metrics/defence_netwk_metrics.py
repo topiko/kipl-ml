@@ -136,6 +136,18 @@ def get_overheads(
 
         overheads = compute_overheads(dirs[0], dirs[1], max_len, real_world)
 
+    overheads_fin = _format_overheads(overheads)
+
+    if full_output:
+        for k, v in overheads.items():
+            if k == "missing":
+                continue
+            overheads_fin[k] = v
+    return overheads_fin
+
+
+def _format_overheads(overheads: dict[str, float]) -> dict[str, float]:
+    """Expose native summaries, tolerating older bindings without tail statistics."""
     overheads_fin: dict[str, float] = {}
     overheads_fin["def.bandwidth_median"] = overheads["overhead_data_median_multiple"]
     overheads_fin["def.delay_median"] = overheads["overhead_duration_median_multiple"]
@@ -155,9 +167,43 @@ def get_overheads(
         else 0.0
     )
 
-    if full_output:
-        for k, v in overheads.items():
-            if k == "missing":
-                continue
-            overheads_fin[k] = v
+    for name, native in (
+        ("bandwidth", "overhead_data"),
+        ("delay", "overhead_duration"),
+        ("bandwidth_full", "overhead_data_full"),
+        ("delay_full", "overhead_duration_full"),
+    ):
+        count = overheads.get(f"{native}_count")
+        if count is not None:
+            overheads_fin[f"def.{name}_count"] = count
+        for stat, native_stat in (
+            ("min", "min"),
+            ("median", "median"),
+            ("mean", "mean"),
+            ("std", "std_dev"),
+            ("p90", "p90"),
+            ("p95", "p95"),
+            ("p99", "p99"),
+            ("max", "max"),
+        ):
+            key = f"{native}_{native_stat}_multiple"
+            if key in overheads:
+                overheads_fin[f"def.{name}_{stat}"] = (
+                    float("nan") if count == 0 else overheads[key]
+                )
+    for name, key in (
+        ("overhead_pairs", "trace_pairs_count"),
+        ("overhead_no_normal", "trace_pairs_no_normal_count"),
+    ):
+        if key in overheads:
+            overheads_fin[f"sim.{name}"] = overheads[key]
+    if "trace_pairs_count" in overheads:
+        pairs = overheads["trace_pairs_count"]
+        overheads_fin["sim.delay_coverage"] = (
+            overheads.get("overhead_duration_count", 0.0) / pairs
+            if pairs
+            else float("nan")
+        )
+        if overheads.get("base_count") == 0:
+            overheads_fin["sim.missing"] = float("nan")
     return overheads_fin
