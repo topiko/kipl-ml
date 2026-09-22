@@ -1,14 +1,13 @@
-import os
 from contextlib import ExitStack
 from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from mbnt import compute_overheads
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from kipl_ml.data.assets import DATASET, TRACE_F_PATH
+from kipl_ml.data.loading import make_dataloader
 from kipl_ml.data.utils import tensor_dict_to_str
 from kipl_ml.data.wf_dataset import InformativeDataset, WFDataset
 from kipl_ml.defences.nndefs import RNNDef
@@ -69,13 +68,11 @@ def _make_tmp(
     dataset_name = dataset.meta_df.loc[:, DATASET].unique()[0]
 
     info_ds = InformativeDataset(dataset)
-    dl = DataLoader(
+    dl = make_dataloader(
         info_ds,
         batch_size=128,
         shuffle=False,
-        num_workers=min(24, os.cpu_count() or 1)
-        if num_workers is None
-        else num_workers,
+        num_workers=num_workers,
         collate_fn=_collate_overheads,
     )
 

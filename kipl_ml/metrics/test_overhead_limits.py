@@ -46,7 +46,7 @@ class TestOverheadLimits(unittest.TestCase):
             patch.object(metrics, "RNNDef", Defence),
             patch.object(metrics, "InformativeDataset", Info),
             patch.object(
-                metrics, "DataLoader", return_value=[[("original", 0, {})]]
+                metrics, "make_dataloader", return_value=[[("original", 0, {})]]
             ) as loader,
             patch.object(metrics, "tensor_dict_to_str", return_value="defended"),
         ):
