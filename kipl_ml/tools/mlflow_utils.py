@@ -11,6 +11,7 @@ from omegaconf import DictConfig, ListConfig, OmegaConf
 
 from kipl_ml.data.wf_dataset import WFDataset
 from kipl_ml.logging.logger import get_logger
+from kipl_ml.tools.metric_logging import runs_to_dataframe
 
 dotenv.load_dotenv()
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
@@ -42,10 +43,11 @@ def list_runs(
         search_all_experiments=True,
         run_view_type=ViewType.ACTIVE_ONLY,
         experiment_names=experiment_names,
-        output_format="pandas",
+        output_format="list",
     )
 
-    assert isinstance(runs, pd.DataFrame)
+    assert isinstance(runs, list)
+    runs = runs_to_dataframe(runs)
 
     if only_finished:
         mask = runs.loc[:, "status"] == "FINISHED"

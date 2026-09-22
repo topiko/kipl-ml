@@ -7,7 +7,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from copy import deepcopy
 
-import mlflow
 import torch
 from torch import nn
 from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
@@ -20,6 +19,7 @@ from kipl_ml.metrics.clf_metrics import ClassMetric, GeneralMetric, Objective
 from kipl_ml.model_eval.evaluate import evaluate_model
 from kipl_ml.models.rf import RFLRScheduler
 from kipl_ml.tools.cuda_tools import get_device
+from kipl_ml.tools.metric_logging import log_metric, log_metrics
 
 logger = get_logger(__name__)
 
@@ -169,7 +169,7 @@ def train_model(
             if epoch == 0 and "loss" in m:
                 continue
             if isinstance(mv, float):
-                mlflow.log_metric(f"valid_{m}", mv, step=epoch)
+                log_metric(f"valid_{m}", mv, step=epoch)
 
         best_epoch, best_early_stop_val, best_model_state = _early_stop_logic(
             objective,
@@ -218,7 +218,7 @@ def train_model(
         model, train_loss = _one_epoch(
             model, train_loader, optimizer, loss_fn, n_epoch=epoch
         )
-        mlflow.log_metrics(
+        log_metrics(
             {"train_loss": train_loss, "lr": optimizer.param_groups[0]["lr"]},
             step=epoch,
         )
