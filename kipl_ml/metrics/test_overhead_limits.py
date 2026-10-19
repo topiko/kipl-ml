@@ -42,11 +42,21 @@ class TestOverheadLimits(unittest.TestCase):
             def get_meta(self, index):
                 return self.base.meta_df.iloc[index]
 
+            def __len__(self):
+                return len(self.base.meta_df)
+
+            def __getitem__(self, index):
+                return {}, 0, index, {}
+
+            @property
+            def trim_raw(self):
+                return self.base.trim_raw
+
         with (
             patch.object(metrics, "RNNDef", Defence),
             patch.object(metrics, "InformativeDataset", Info),
             patch.object(
-                metrics, "make_dataloader", return_value=[[("original", 0, {})]]
+                metrics, "make_dataloader", wraps=metrics.make_dataloader
             ) as loader,
             patch.object(metrics, "tensor_dict_to_str", return_value="defended"),
         ):

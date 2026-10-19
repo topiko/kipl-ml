@@ -2,6 +2,20 @@
 
 ML for WF.
 
+### Overhead simulation
+
+`get_overheads(..., num_workers=4)` runs four DataLoader processes. Each task
+simulates the original and defended trace with the same sampled network context
+and writes the paired temporary files. Only completion indices return to the
+parent, which computes the final statistics after all pairs finish.
+`num_workers=0` runs serially; `None` uses the shared automatic worker count.
+
+Sampling fractions, policy-limit preservation, and raw-trace trimming retain their
+existing meaning. Randomness is seeded per dataset-relative trace path using the
+caller's `torch.initial_seed()`, so changing the worker count does not change the
+realizations. These trace-local streams replace the old sequential streams;
+new measurements need not numerically reproduce historical overhead results.
+
 ### Setup:
 
 Create a virtual env using [uv](https://docs.astral.sh/uv/):

@@ -1,18 +1,22 @@
-from contextlib import ExitStack
+import hashlib
+import random
+from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import numpy as np
+import torch
 from mbnt import compute_overheads
+from torch.utils.data import Dataset
 from tqdm import tqdm
 
 from kipl_ml.data.assets import DATASET, TRACE_F_PATH
-from kipl_ml.data.loading import make_dataloader
+from kipl_ml.data.loading import _reseed_rngs, make_dataloader
 from kipl_ml.data.utils import tensor_dict_to_str
 from kipl_ml.data.wf_dataset import InformativeDataset, WFDataset
 from kipl_ml.defences.nndefs import RNNDef
 from kipl_ml.logging.logger import TQDM_W, get_logger
-from kipl_ml.network.network import NetworkContextIntDict
 from kipl_ml.trace.params import MAX_TRACE_LENGTH
 
 logger = get_logger(__name__)
@@ -24,13 +28,56 @@ def _unwrap_dataset(dataset: WFDataset | InformativeDataset) -> WFDataset:
     return dataset
 
 
-def _collate_overheads(
-    batch: list[tuple[dict, object, int, NetworkContextIntDict]],
-) -> list[tuple[str, int, NetworkContextIntDict]]:
-    out: list[tuple[str, int, NetworkContextIntDict]] = []
-    for trace_d, _, idx, _network_context in batch:
-        out.append((tensor_dict_to_str(trace_d), int(idx), _network_context))
-    return out
+@contextmanager
+def _trace_randomness(owner, seed: int):
+    """Seed private and global CPU RNGs; leave the caller's streams untouched."""
+    python_state = random.getstate()
+    numpy_state = np.random.get_state()
+    torch_state = torch.get_rng_state()
+    try:
+        random.seed(seed)
+        np.random.seed(seed % (2**32))
+        torch.random.default_generator.manual_seed(seed)
+        _reseed_rngs(owner, np.random.SeedSequence(seed), set())
+        yield
+    finally:
+        random.setstate(python_state)
+        np.random.set_state(numpy_state)
+        torch.set_rng_state(torch_state)
+
+
+class _OverheadDataset(Dataset):
+    """Write one paired simulation per worker task; return only its index."""
+
+    def __init__(self, dataset, defence, dir_orig, dir_defended, dataset_name):
+        self.base = InformativeDataset(dataset)
+        self.defence = defence
+        self.dir_orig = dir_orig
+        self.dir_defended = dir_defended
+        self.dataset_name = dataset_name
+        self.seed = torch.initial_seed()
+
+    def __len__(self):
+        return len(self.base)
+
+    def __getitem__(self, index):
+        trace_path = str(self.base.get_meta(index)[TRACE_F_PATH])
+        relative = trace_path.split(self.dataset_name)[-1][1:]
+        # Stable across process counts, scheduling, and source-directory moves.
+        digest = hashlib.sha256(f"{self.seed}:{relative}".encode()).digest()
+        seed = int.from_bytes(digest[:8], "big")
+        with _trace_randomness(self, seed):
+            original, _, _, network_context = self.base[index]
+            defended = self.defence(
+                Path(trace_path), None, trim_raw=self.base.trim_raw,
+                network_context=network_context,
+            )
+        for directory, trace in ((self.dir_orig, original),
+                                 (self.dir_defended, defended)):
+            path = directory / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(tensor_dict_to_str(trace), encoding="utf-8")
+        return index
 
 
 def _make_tmp(
@@ -67,40 +114,18 @@ def _make_tmp(
 
     dataset_name = dataset.meta_df.loc[:, DATASET].unique()[0]
 
-    info_ds = InformativeDataset(dataset)
+    pairs = _OverheadDataset(dataset, defence, dir_orig, dir_defended, dataset_name)
     dl = make_dataloader(
-        info_ds,
-        batch_size=128,
+        pairs,
+        batch_size=1,
         shuffle=False,
         num_workers=num_workers,
-        collate_fn=_collate_overheads,
+        generator=torch.Generator().manual_seed(pairs.seed),
     )
 
     with tqdm(dl, desc="tmp files", ncols=TQDM_W, total=len(dl)) as pbar:
-        for batch in pbar:
-            for undefended_str_trace, idx, network_context in batch:
-                trace_path = info_ds.get_meta(int(idx))[TRACE_F_PATH]
-                sub_folder = trace_path.split(dataset_name)[-1][1:]
-
-                orig_path = dir_orig.joinpath(sub_folder)
-                def_path = dir_defended.joinpath(sub_folder)
-
-                defended_trace = defence(
-                    Path(trace_path),
-                    None,
-                    trim_raw=dataset.trim_raw,
-                    network_context=network_context,
-                )
-                defended_str_trace = tensor_dict_to_str(defended_trace)
-                for p_, trace_str in (
-                    (orig_path, undefended_str_trace),
-                    (def_path, defended_str_trace),
-                ):
-                    if not p_.parent.exists():
-                        p_.parent.mkdir()
-
-                    with open(p_, "w", encoding="utf-8") as f:
-                        f.write(trace_str)
+        for _ in pbar:
+            pass  # Workers finish both files before returning a completion.
 
 
 def get_overheads(
@@ -112,7 +137,13 @@ def get_overheads(
     preserve_defence_limits: bool = False,
     num_workers: int | None = None,
 ) -> dict[str, float]:
-    """Measure overheads; optionally retain the evaluated policy's caps and trim."""
+    """Measure overheads with paired simulations in DataLoader worker processes.
+
+    Zero workers runs in-process. Trace-local seeds derive from the caller's
+    torch initial seed and dataset-relative path, independently of worker count.
+    This replaces the historical sequential RNG streams, so new realizations
+    need not equal measurements made before trace-local seeding was introduced.
+    """
     dataset = _unwrap_dataset(dataset).clone(dataset_key="overheads")
 
     logger.info("Compute overheads for: %s", dataset.defence.name)
