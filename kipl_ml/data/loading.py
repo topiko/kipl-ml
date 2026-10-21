@@ -62,20 +62,22 @@ def seed_worker(_worker_id: int) -> None:
         _reseed_rngs(worker.dataset, np.random.SeedSequence(seed), set())
 
 
-def default_num_workers() -> int:
-    """Bound the automatic count by CPUs available to this process and by 24."""
+def default_num_workers(concurrent_jobs: int = 1) -> int:
+    """Share available CPUs across jobs, reserving ten CPUs for other work."""
+    if type(concurrent_jobs) is not int or concurrent_jobs < 1:
+        raise ValueError("concurrent_jobs must be a positive integer")
     cpus = (
         len(os.sched_getaffinity(0))
         if hasattr(os, "sched_getaffinity")
         else os.cpu_count() or 1
     )
-    return min(24, cpus)
+    return max(1, (cpus - 10) // concurrent_jobs)
 
 
 def make_dataloader(
     dataset, batch_size: int, *, num_workers: int | None = None, **kwargs
 ) -> DataLoader:
-    """Use explicit worker counts, or a bounded automatic count when None.
+    """Use explicit worker counts, or the single-job CPU policy when None.
 
     Workers are nonpersistent by default so parent-side policy/dataset changes
     reach the next iterator. num_workers=0 retains the main-process RNG behavior.

@@ -115,11 +115,17 @@ class TestWorkerStreams(unittest.TestCase):
         self.assertTrue(torch.all(rows["worker"] == -1))
 
     @unittest.skipUnless(hasattr(os, "sched_getaffinity"), "Linux affinity")
-    def test_automatic_workers_respect_affinity_and_cap(self):
+    def test_automatic_workers_share_affinity_without_a_cap(self):
         with patch("os.sched_getaffinity", return_value={2, 3}):
-            self.assertEqual(default_num_workers(), 2)
-        with patch("os.sched_getaffinity", return_value=set(range(128))):
-            self.assertEqual(default_num_workers(), 24)
+            self.assertEqual(default_num_workers(), 1)
+            self.assertEqual(default_num_workers(4), 1)
+        with patch("os.sched_getaffinity", return_value=set(range(200))):
+            self.assertEqual(default_num_workers(), 190)
+            self.assertEqual(default_num_workers(4), 47)
+            loader = make_dataloader(range(2), 1, num_workers=32)
+            self.assertEqual(loader.num_workers, 32)
+        with self.assertRaises(ValueError):
+            default_num_workers(0)
 
 
 if __name__ == "__main__":
