@@ -1,3 +1,4 @@
+import inspect
 import os
 import re
 
@@ -6,6 +7,7 @@ import mlflow
 import numpy as np
 import pandas as pd
 from mlflow.entities import ViewType
+from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 from omegaconf import DictConfig, ListConfig, OmegaConf
 
@@ -187,7 +189,25 @@ def get_mlflow_expr(experiment_name: str) -> str:
         return str(experiment.experiment_id)
 
     logger.info("Experiment '%s' does not exist --> create.", experiment_name)
-    return mlflow.create_experiment(experiment_name)
+    try:
+        return mlflow.create_experiment(experiment_name)
+    except MlflowException as exc:
+        if exc.error_code == "RESOURCE_ALREADY_EXISTS":
+            # Another worker may have created it after our initial lookup.
+            experiment = mlflow.get_experiment_by_name(experiment_name)
+            if experiment is not None and experiment.lifecycle_stage == "active":
+                return str(experiment.experiment_id)
+        raise
+
+
+def log_pytorch_model(model, **kwargs):
+    """Log an eager model, retaining Python methods and dictionary inputs."""
+    # Older MLflow 3.x already uses pickle and forwards unknown kwargs to
+    # torch.save. Newer versions default to traced pt2 graphs instead.
+    parameters = inspect.signature(mlflow.pytorch.save_model).parameters
+    if "serialization_format" in parameters:
+        kwargs["serialization_format"] = "pickle"
+    return mlflow.pytorch.log_model(model, **kwargs)
 
 
 def require_experiment_id(experiment_name: str) -> str:
