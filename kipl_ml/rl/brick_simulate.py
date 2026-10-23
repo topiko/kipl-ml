@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol, runtime_checkable
 
@@ -107,7 +108,10 @@ def brick_policy_rollout(  # noqa: C901
     max_steps: int,
     controller: BrickController | None = None,
     endpoint: RolloutEnd | None = None,
+    truncate_on_budget: bool = False,
 ) -> BrickRollout:
+    if truncate_on_budget and endpoint is not None:
+        raise ValueError("budget truncation can produce incomplete bootstrap windows")
     if max_steps <= 0:
         raise ValueError("max_steps must be > 0")
     if controller is None:
@@ -128,6 +132,7 @@ def brick_policy_rollout(  # noqa: C901
             relative=relative,
             stop_after_all_normal_packets=endpoint is not None,
             max_sim_steps=max_packets * 32 if endpoint is not None else None,
+            truncate_on_budget=truncate_on_budget,
         )
 
     bs = controller.batch_size
@@ -237,7 +242,17 @@ def brick_policy_rollout(  # noqa: C901
 
         windows = controller.step_current(active)
         simulator_done = np.asarray(controller.is_done(), dtype=bool)
-        reasons = controller.stop_reasons() if endpoint is not None else []
+        reasons = (
+            controller.stop_reasons()
+            if endpoint is not None or truncate_on_budget else []
+        )
+        if any(active[idx] and reason == "max_sim_steps"
+               for idx, reason in enumerate(reasons)):
+            warnings.warn(
+                "Brick simulation truncated at its iteration budget; the returned "
+                "trace is an observed prefix and may omit normal traffic.",
+                RuntimeWarning, stacklevel=2,
+            )
         active_for_policy = np.zeros(bs, dtype=bool)
         fd_w: dict[Feats, list[float]] = {f: [] for f in fd_features}
 

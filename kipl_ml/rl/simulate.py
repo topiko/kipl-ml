@@ -60,7 +60,8 @@ LegoBrickCollection = Sequence[LegoBrickSpec]
 
 class _BrickBatchLike(Protocol):
     def step(
-        self, client_brick_selectors: list[int], server_brick_selectors: list[int]
+        self, client_brick_selectors: list[int], server_brick_selectors: list[int],
+        *, truncate_on_budget: bool = False,
     ) -> list[NumpyTrace]: ...
 
     def is_done(self) -> list[bool]: ...
@@ -135,11 +136,13 @@ class BrickBatchController:
         batch_size: int,
         initial_client_brick: int = 0,
         initial_server_brick: int = 0,
+        truncate_on_budget: bool = False,
     ) -> None:
         if batch_size < 0:
             raise ValueError("batch_size must be >= 0")
         self.batch = batch
         self.batch_size = batch_size
+        self.truncate_on_budget = truncate_on_budget
         self._client_bricks = [initial_client_brick] * batch_size
         self._server_bricks = [initial_server_brick] * batch_size
 
@@ -157,6 +160,7 @@ class BrickBatchController:
         relative: bool,
         stop_after_all_normal_packets: bool = False,
         max_sim_steps: int | None = None,
+        truncate_on_budget: bool = False,
     ) -> BrickBatchController:
         lego_batch = getattr(mbnt, "LegoBatch")
         client_backend = _lego_backend_bricks(client_bricks)
@@ -174,7 +178,10 @@ class BrickBatchController:
             stop_after_all_normal_packets=stop_after_all_normal_packets,
             max_sim_steps=max_sim_steps,
         )
-        return cls(cast(_BrickBatchLike, batch), len(trace_paths))
+        return cls(
+            cast(_BrickBatchLike, batch), len(trace_paths),
+            truncate_on_budget=truncate_on_budget,
+        )
 
     def current_client_bricks(
         self, active_mask: np.ndarray | None = None
@@ -243,6 +250,10 @@ class BrickBatchController:
             client_selectors[batch_idx] = self._client_bricks[batch_idx]
             server_selectors[batch_idx] = self._server_bricks[batch_idx]
 
+        if self.truncate_on_budget:
+            return self.batch.step(
+                client_selectors, server_selectors, truncate_on_budget=True,
+            )
         return self.batch.step(client_selectors, server_selectors)
 
     def is_done(self) -> list[bool]:

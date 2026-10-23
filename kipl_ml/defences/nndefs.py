@@ -286,6 +286,7 @@ class BrickSelectionDef(_NNDef):
                 sample=self.sample,
                 relative=self.relative,
                 max_steps=self.max_steps,
+                truncate_on_budget=True,
             )
 
         trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}
