@@ -21,6 +21,7 @@ from kipl_ml.rl.enums import (
     StepActions,
 )
 from kipl_ml.rl.lego import LegoBrickSpec
+from kipl_ml.rl.rollout_end import RolloutEnd
 from kipl_ml.trace.enums import Feats
 
 logger = get_logger(__name__)
@@ -63,6 +64,8 @@ class _BrickBatchLike(Protocol):
     ) -> list[NumpyTrace]: ...
 
     def is_done(self) -> list[bool]: ...
+
+    def stop_reasons(self) -> list[str | None]: ...
 
 
 def map_step_actions(  # noqa: C901
@@ -152,6 +155,8 @@ class BrickBatchController:
         seed: int,
         trim_raw: int,
         relative: bool,
+        stop_after_all_normal_packets: bool = False,
+        max_sim_steps: int | None = None,
     ) -> BrickBatchController:
         lego_batch = getattr(mbnt, "LegoBatch")
         client_backend = _lego_backend_bricks(client_bricks)
@@ -166,6 +171,8 @@ class BrickBatchController:
             seed=seed,
             trim_raw=trim_raw,
             relative=relative,
+            stop_after_all_normal_packets=stop_after_all_normal_packets,
+            max_sim_steps=max_sim_steps,
         )
         return cls(cast(_BrickBatchLike, batch), len(trace_paths))
 
@@ -240,6 +247,9 @@ class BrickBatchController:
 
     def is_done(self) -> list[bool]:
         return self.batch.is_done()
+
+    def stop_reasons(self) -> list[str | None]:
+        return self.batch.stop_reasons()
 
     def _current_side_bricks(
         self, bricks: list[int], active_mask: np.ndarray | None
@@ -323,6 +333,7 @@ def policy_rollout(
     required_real_packets: int | torch.Tensor | None = None,
     network_context: NetworkContextIntDict | dict[str, object] | None = None,
     seed: int = 0,
+    endpoint: RolloutEnd | None = None,
 ) -> _StreamingRollout:
     """Run policy stepwise on streamed windows and execute actions.
 
@@ -347,6 +358,7 @@ def policy_rollout(
             network_context=network_context,
             record_policy=True,
             seed=seed,
+            endpoint=endpoint,
         ),
     )
     return res
@@ -417,6 +429,7 @@ def _policy_rollout_impl(  # noqa: C901
     record_policy: bool,
     seed: int,
     profile: bool = False,
+    endpoint: RolloutEnd | None = None,
 ) -> _PolicyRolloutImplReturn:
     """Internal streaming rollout implementation.
 
@@ -439,15 +452,22 @@ def _policy_rollout_impl(  # noqa: C901
     num_machines = 4096
     max_silence_bins = int(round(obs.max_silence_s / obs.time_step_s))
 
+    endpoint_kwargs = (
+        {"stop_after_all_normal_packets": True, "max_sim_steps": max_packets * 32}
+        if endpoint is not None else {}
+    )
     simul_batch = mbnt.Batch.new(
         trace_paths=trace_paths,
         window_duration_ns=int(round(obs.time_step_s * 1e9)),
         num_machines=num_machines,
         network_kwargs=network_kwargs,
-        max_trace_length=max_packets,
+        # Bootstrap observations must be at completed window boundaries, not
+        # halfway through a window cut short by the native per-call output cap.
+        max_trace_length=0 if endpoint is not None else max_packets,
         seed=seed,
         trim_raw=trim_raw,
         relative=True,
+        **endpoint_kwargs,
     )
 
     bs = len(trace_paths)
@@ -519,11 +539,13 @@ def _policy_rollout_impl(  # noqa: C901
             client_actions, server_actions = map_step_actions(actions_a, active)
 
         trace_windows, stepped_bins = simul_batch.step_until_emit(
-            client_actions, server_actions, max_silence_bins
+            client_actions, server_actions, max_silence_bins,
+            **({"active_mask": (~terminated).tolist()} if endpoint is not None else {}),
         )
 
         was_terminated = terminated.copy()
         simulator_done = np.asarray(simul_batch.is_done(), dtype=bool)
+        reasons = simul_batch.stop_reasons() if endpoint is not None else []
         if required_real_packets_np is None:
             reached_required_real = np.ones(bs, dtype=bool)
         else:
@@ -541,6 +563,10 @@ def _policy_rollout_impl(  # noqa: C901
         idxs = []
         fd_w: dict[Feats, list[float]] = {f: [] for f in obs.features}
         for idx, window, n_steps in zip(range(bs), trace_windows, stepped_bins):
+            if endpoint is not None and was_terminated[idx]:
+                terminated[idx] = True
+                next_active[idx] = False
+                continue
             times = torch.tensor(window[0] / 1e9).float()  # ns -> s
             dirs = torch.tensor(window[1]).float()  # dirs
             decoys = torch.tensor(window[2]).float()  # decoy
@@ -552,7 +578,7 @@ def _policy_rollout_impl(  # noqa: C901
                 next_active[idx] = True
                 active[idx] = True
 
-            if not has_started[idx]:
+            if not has_started[idx] and endpoint is None:
                 next_bins[idx] += n_steps
 
             n_packets[idx] += times.numel()
@@ -564,10 +590,10 @@ def _policy_rollout_impl(  # noqa: C901
                     n_real_packets[idx] >= required_real_packets_np[idx]
                 )
 
-            if n_packets[idx] > max_packets:
+            if endpoint is None and n_packets[idx] > max_packets:
                 long_enough[idx] = True
 
-            if next_bins[idx] * obs.time_step_s > max_duration_s:
+            if endpoint is None and next_bins[idx] * obs.time_step_s > max_duration_s:
                 long_enough[idx] = True
 
             if simulator_done[idx] or (long_enough[idx] and reached_required):
@@ -580,6 +606,38 @@ def _policy_rollout_impl(  # noqa: C901
                 X_obs_l[idx][Feats.DECOY].append(decoys)
 
             current_bin = int(next_bins[idx])
+            up_c = float(((dirs == UPLOAD) & (decoys == 0)).sum().item())
+            down_c = float(((dirs == DOWNLOAD) & (decoys == 0)).sum().item())
+
+            if endpoint is not None:
+                end_features = {
+                    key: torch.tensor(
+                        [[value]], device=endpoint.values.device, dtype=torch.float32,
+                    )
+                    for key, value in (
+                        (Feats.UP_COUNT, up_c), (Feats.DOWN_COUNT, down_c),
+                        (Feats.TIME_BINS, current_bin), (Feats.Dt_BINS, n_steps),
+                        (Feats.SILENCE_FLAG, float(up_c == 0 and down_c == 0)),
+                    )
+                }
+                cutoff = (
+                    "max_packets" if n_packets[idx] >= max_packets else
+                    "max_duration" if (current_bin + n_steps) * obs.time_step_s
+                    >= max_duration_s else None
+                )
+                if endpoint.record(
+                    idx, end_features, reasons[idx], cutoff, obs.time_step_s,
+                ):
+                    terminated[idx] = True
+                    next_active[idx] = False
+                    if endpoint.truncated[idx]:
+                        mask = np.arange(bs) == idx
+                        with torch.no_grad():
+                            output, _ = obs(end_features, _hidden_w_mask(hobs, mask))
+                        endpoint.values[idx] = output[Feats.STATE_VALUE].reshape(())
+                    continue
+                if not has_started[idx]:
+                    next_bins[idx] += n_steps
 
             if not next_active[idx]:
                 if has_started[idx] and not terminated[idx]:
@@ -593,8 +651,6 @@ def _policy_rollout_impl(  # noqa: C901
                 # brick_simulate.py through an online observation builder. Keep
                 # simulator state/window handling in this adapter; preserve completed-
                 # window causality, variable n_steps, and normal-only counts/silence.
-                up_c = float(((dirs == UPLOAD) & (decoys == 0)).sum().item())
-                down_c = float(((dirs == DOWNLOAD) & (decoys == 0)).sum().item())
                 fd_w[Feats.UP_COUNT].append(up_c)
                 fd_w[Feats.DOWN_COUNT].append(down_c)
                 fd_w[Feats.Dt_BINS].append(n_steps)
@@ -687,7 +743,7 @@ def _policy_rollout_impl(  # noqa: C901
             f"steps={step_count}"
         )
 
-    if required_real_packets_np is not None:
+    if endpoint is None and required_real_packets_np is not None:
         missing_real = required_real_packets_np - n_real_packets
         if (missing_real > 0).any():
             raise RuntimeError(
@@ -712,6 +768,14 @@ def _policy_rollout_impl(  # noqa: C901
 
     assert fd_steps is not None
 
+    if not act_time_bins_l:
+        # A short trace may finish before the first RNN decision.
+        zeros = torch.zeros((bs, 1), device=cast(Any, device))
+        fd = {feature: zeros.clone() for feature in obs.features}
+        fd[Feats.SEQ_LENS] = torch.zeros(bs, dtype=torch.long, device=zeros.device)
+        return (fd, torch.full_like(zeros, -1), actions_l, zeros,
+                zeros.unsqueeze(-1), zeros,
+                {"selection_entropy": zeros, "conditional_entropy": zeros}, X_obs)
     act_time_bins = torch.cat(act_time_bins_l, dim=1)
     # 0 is here used for padding, action time _can never be 0_..
     act_time_bins[act_time_bins == 0] = -1

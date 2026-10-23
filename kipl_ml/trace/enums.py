@@ -68,6 +68,9 @@ class Feats(StrEnum):
     ACTION_LOGITS = "action_logits"
     STATE_VALUE = "state_value"
     SEQ_LENS = "seq_lens"
+    TERMINATED = "terminated"
+    TRUNCATED = "truncated"
+    BOOTSTRAP_VALUE = "bootstrap_value"
     Dt_BINS = "dt_bins"  # Bin duration (int)
     Dt = "dt_s"  # Duration in seconds (float)
     WINDOW_BINS = "window-bins"

@@ -422,6 +422,7 @@ class RNNDefenceAgent(nn.Module):
         enable_delay: bool = False,
         train_env: dict[str, Any] | None = None,
         *,
+        detach_before_value_head: bool = False,
         time_step: float | None = None,
     ):
         super().__init__()
@@ -429,6 +430,7 @@ class RNNDefenceAgent(nn.Module):
 
         self.train_env = train_env or {}
         self.enable_delay = bool(enable_delay)
+        self.detach_before_value_head = bool(detach_before_value_head)
 
         # Action space:
         self.ACTIONS: list[Actions] = [Actions.SEND_UP, Actions.SEND_DOWN]
@@ -614,7 +616,11 @@ class RNNDefenceAgent(nn.Module):
         output = self.out_norm(output)
 
         # (N, L)
-        state_values = self.critic(output).squeeze(-1)
+        # Train the value head without sending its gradients into shared features.
+        # getattr preserves the behavior of older serialized models.
+        value_input = (output.detach()
+                       if getattr(self, "detach_before_value_head", False) else output)
+        state_values = self.critic(value_input).squeeze(-1)
 
         out = {k: mod_(output) for k, mod_ in self.actor.items()}
         out[Feats.STATE_VALUE] = state_values

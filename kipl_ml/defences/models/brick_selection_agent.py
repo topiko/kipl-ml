@@ -95,6 +95,7 @@ class BrickSelectionAgent(nn.Module):
         stay_bias: float = 0.0,
         train_env: dict[str, object] | None = None,
         *,
+        detach_before_value_head: bool = False,
         time_step: float | None = None,
         time_steps: int | None = None,
     ) -> None:
@@ -116,6 +117,7 @@ class BrickSelectionAgent(nn.Module):
         self.features = _validate_features(features)
         self.feature_hidden_size = int(feature_hidden_size)
         self.learn_values = bool(learn_values)
+        self.detach_before_value_head = bool(detach_before_value_head)
         self.prob_eps = float(prob_eps)
         self.train_env = {} if train_env is None else dict(train_env)
 
@@ -273,8 +275,14 @@ class BrickSelectionAgent(nn.Module):
                 torch.cat((features, server_state), dim=1)
             )
             if self.value_feature_head is not None:
+                # Isolate value regression from the shared policy feature encoder.
+                # Older serialized models retain their original gradient behavior.
+                value_features = (
+                    features.detach()
+                    if getattr(self, "detach_before_value_head", False) else features
+                )
                 values = values + self.value_feature_head(
-                    torch.cat((features, client_state, server_state), dim=1)
+                    torch.cat((value_features, client_state, server_state), dim=1)
                 )
         client_probs = self._transition_probs(client_logits, self.n_client_bricks)
         server_probs = self._transition_probs(server_logits, self.n_server_bricks)

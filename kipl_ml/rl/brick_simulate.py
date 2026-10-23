@@ -11,6 +11,7 @@ from kipl_ml.data.wf_dataset import dict_to_device
 from kipl_ml.network.network import NetworkContext
 from kipl_ml.rl.enums import EntropyKeys, StepAction, StepActions
 from kipl_ml.rl.lego import LegoBrickSpec
+from kipl_ml.rl.rollout_end import RolloutEnd
 from kipl_ml.rl.simulate import (
     BrickBatchController,
     NumpyTrace,
@@ -62,6 +63,8 @@ class BrickController(Protocol):
 
     def is_done(self) -> list[bool]: ...
 
+    def stop_reasons(self) -> list[str | None]: ...
+
 
 BrickRollout = tuple[
     dict[Feats, torch.Tensor],
@@ -103,6 +106,7 @@ def brick_policy_rollout(  # noqa: C901
     relative: bool,
     max_steps: int,
     controller: BrickController | None = None,
+    endpoint: RolloutEnd | None = None,
 ) -> BrickRollout:
     if max_steps <= 0:
         raise ValueError("max_steps must be > 0")
@@ -118,10 +122,12 @@ def brick_policy_rollout(  # noqa: C901
             client_bricks=client_bricks,
             server_bricks=server_bricks,
             network_kwargs=network_kwargs,
-            max_trace_length=max_packets,
+            max_trace_length=0 if endpoint is not None else max_packets,
             seed=seed,
             trim_raw=trim_raw,
             relative=relative,
+            stop_after_all_normal_packets=endpoint is not None,
+            max_sim_steps=max_packets * 32 if endpoint is not None else None,
         )
 
     bs = controller.batch_size
@@ -231,6 +237,7 @@ def brick_policy_rollout(  # noqa: C901
 
         windows = controller.step_current(active)
         simulator_done = np.asarray(controller.is_done(), dtype=bool)
+        reasons = controller.stop_reasons() if endpoint is not None else []
         active_for_policy = np.zeros(bs, dtype=bool)
         fd_w: dict[Feats, list[float]] = {f: [] for f in fd_features}
 
@@ -260,6 +267,39 @@ def brick_policy_rollout(  # noqa: C901
 
             current_bin = int(next_bins[idx])
             next_bins[idx] += 1
+            if endpoint is not None:
+                end_features = _feature_tensors({
+                    feature: [_feature_value(
+                        feature, current_bin, 1, up_count, down_count,
+                        up_decoy_count, down_decoy_count,
+                    )] for feature in fd_features
+                })
+                end_features[Feats.CURRENT_CLIENT_BRICK] = torch.tensor(
+                    [[controller.current_client_bricks()[idx]]],
+                )
+                end_features[Feats.CURRENT_SERVER_BRICK] = torch.tensor(
+                    [[controller.current_server_bricks()[idx]]],
+                )
+                cutoff = (
+                    "max_packets" if n_packets[idx] >= max_packets else
+                    "max_duration" if next_bins[idx] * float(policy.time_step_s)
+                    >= max_duration_s else None
+                )
+                if endpoint.record(
+                    idx, end_features, reasons[idx], cutoff, float(policy.time_step_s),
+                ):
+                    terminated[idx] = True
+                    if endpoint.truncated[idx]:
+                        end_features = dict_to_device(end_features, device=device)
+                        with torch.no_grad():
+                            result = policy.act_step(
+                                end_features,
+                                end_features[Feats.CURRENT_CLIENT_BRICK].flatten(),
+                                end_features[Feats.CURRENT_SERVER_BRICK].flatten(),
+                                sample=False,
+                            )
+                        endpoint.values[idx] = result[4].reshape(())
+                    continue
             long_enough = n_packets[idx] >= max_packets or (
                 next_bins[idx] * float(policy.time_step_s) > max_duration_s
             )
@@ -267,7 +307,9 @@ def brick_policy_rollout(  # noqa: C901
                 n_real_packets,
                 required_real_packets_np,
             )
-            if simulator_done[idx] or (long_enough and reached_required_real[idx]):
+            if endpoint is None and (
+                simulator_done[idx] or (long_enough and reached_required_real[idx])
+            ):
                 terminated[idx] = True
                 continue
 
