@@ -138,6 +138,28 @@ def _feature_map(
     return _map_one(f)
 
 
+def select_tam_prediction(
+    logits: torch.Tensor, seq_lens: torch.Tensor, ks: int,
+    *, mask_padding: bool = False,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Select the most confidently classified valid bin after confidence smoothing."""
+    bs, nt, _ = logits.shape
+    probs = nn.functional.softmax(logits, dim=2)
+    confidence = probs.max(dim=2)[0]
+    invalid = torch.arange(nt, device=logits.device)[None, :] >= seq_lens[:, None]
+    if mask_padding:
+        confidence = confidence.masked_fill(invalid, 0.0)
+    confidence = nn.functional.conv1d(
+        confidence.unsqueeze(1),
+        weight=logits.new_full((1, 1, ks), 1.0 / ks), padding="same",
+    ).squeeze(1)
+    confidence = confidence.masked_fill(invalid, 0.0)
+    columns = confidence.argmax(dim=1)
+    rows = torch.arange(bs, device=logits.device)
+    selected = logits[rows, columns]
+    return selected, selected.argmax(dim=-1)
+
+
 class RNNCLF1(nn.Module):
     name: str = "rnnclf1"
 
@@ -279,46 +301,9 @@ class RNNCLF1(nn.Module):
 
         # (N, nt, n_classes)
         logits, _ = self(x)
-        bs, nt, n_classes = logits.shape
-
-        # (N, nt, n_classes)
-        probs = nn.functional.softmax(logits, dim=2)
-
-        # (N, nt)
-        max_p = probs.max(dim=2)[0]
-
-        # (N, nt)
-        max_p = nn.functional.conv1d(
-            max_p.unsqueeze(1),
-            weight=torch.Tensor([1.0 / ks] * ks)
-            .to(max_p.device)
-            .unsqueeze(0)
-            .unsqueeze(0),
-            padding="same",
-        ).squeeze(1)
-
         if seq_lens is None:
             seq_lens = self.seq_len_fun(x)
-
-        # (N, nt)
-        seq_lens_mask = (
-            torch.arange(nt, device=max_p.device).unsqueeze(0).repeat(bs, 1)
-            > seq_lens.unsqueeze(1) - 1
-        )
-        # We are only interested in the domain of valid packets...
-        max_p = max_p.masked_fill(seq_lens_mask, 0.0)
-
-        # (N, )
-        col_idxs = max_p.argmax(dim=1)
-        row_idxs = torch.arange(bs).long()
-
-        # (N, n_classes)
-        logits = logits[row_idxs, col_idxs, :]
-
-        # (N, )
-        preds = probs[row_idxs, col_idxs, :].argmax(-1)
-
-        return logits, preds
+        return select_tam_prediction(logits, seq_lens, ks)
 
 
 def _forward_w_detach(
