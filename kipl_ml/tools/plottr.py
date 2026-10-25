@@ -585,16 +585,16 @@ def plot_actions(
                 lw=1,
             )
 
-    try:
-        hmax = max(
+    # Selector-only, delay-only, and idle traces need no packet-count scale.
+    hmax = max(
+        (
             s.count
             for sa in step_actions
             for s in sa.acts
             if isinstance(s, (ActSendUp, ActSendDown))
-        )
-    except ValueError:
-        logger.warning("No y limits found")
-        hmax = 1
+        ),
+        default=1,
+    )
 
     # Delay spans: upward delays in upper half, downward delays in lower half.
     _plot_delay(Actions.DELAY_UP, "#5AC5ED")
