@@ -449,8 +449,6 @@ def _policy_rollout_impl(  # noqa: C901
     tuple.
     """
 
-    if max_packets is None:
-        raise ValueError("Explicit max_packets required")
     if max_duration_s is None:
         raise ValueError("Explicit max_dur required")
 
@@ -463,10 +461,6 @@ def _policy_rollout_impl(  # noqa: C901
     num_machines = 4096
     max_silence_bins = int(round(obs.max_silence_s / obs.time_step_s))
 
-    endpoint_kwargs = (
-        {"stop_after_all_normal_packets": True, "max_sim_steps": max_packets * 32}
-        if endpoint is not None else {}
-    )
     simul_batch = mbnt.Batch.new(
         trace_paths=trace_paths,
         window_duration_ns=int(round(obs.time_step_s * 1e9)),
@@ -474,11 +468,13 @@ def _policy_rollout_impl(  # noqa: C901
         network_kwargs=network_kwargs,
         # Bootstrap observations must be at completed window boundaries, not
         # halfway through a window cut short by the native per-call output cap.
-        max_trace_length=0 if endpoint is not None else max_packets,
+        max_trace_length=0 if endpoint is not None else (max_packets or 0),
         seed=seed,
         trim_raw=trim_raw,
         relative=True,
-        **endpoint_kwargs,
+        stop_after_all_normal_packets=endpoint is not None,
+        # Disabling the packet cap must not disable the native safety budget.
+        max_sim_steps=1_000_000 if max_packets is None else max_packets * 32,
     )
 
     bs = len(trace_paths)
@@ -601,7 +597,8 @@ def _policy_rollout_impl(  # noqa: C901
                     n_real_packets[idx] >= required_real_packets_np[idx]
                 )
 
-            if endpoint is None and n_packets[idx] > max_packets:
+            if (endpoint is None and max_packets is not None
+                    and n_packets[idx] > max_packets):
                 long_enough[idx] = True
 
             if endpoint is None and next_bins[idx] * obs.time_step_s > max_duration_s:
@@ -632,7 +629,8 @@ def _policy_rollout_impl(  # noqa: C901
                     )
                 }
                 cutoff = (
-                    "max_packets" if n_packets[idx] >= max_packets else
+                    "max_packets" if max_packets is not None
+                    and n_packets[idx] >= max_packets else
                     "max_duration" if (current_bin + n_steps) * obs.time_step_s
                     >= max_duration_s else None
                 )
