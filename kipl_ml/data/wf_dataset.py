@@ -39,8 +39,6 @@ class WFDataset(Dataset):
         dataset_key: str | None = None,
         trim_raw: int = 0,
     ) -> None:
-        logger.info("Buidling dataset...")
-
         self.trim_raw = trim_raw
         dataset_key = dataset_key or "".join(
             [random.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(10)]
@@ -49,7 +47,7 @@ class WFDataset(Dataset):
             "|".join(meta_df.loc[:, "dataset"].unique().tolist()) + f"-{dataset_key}"
         )
 
-        logger.info(key_val_fmt("name", dataset, suffix=""))
+        logger.debug("Building dataset %s", dataset)
 
         self.meta_df = meta_df
         self.name = dataset
