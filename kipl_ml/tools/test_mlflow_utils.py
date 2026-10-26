@@ -5,12 +5,18 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import mlflow
+import pandas as pd
 import torch
 from mlflow.exceptions import RestException
 from mlflow.tracking import fluent
 from torch import nn
 
-from kipl_ml.tools.mlflow_utils import get_mlflow_expr, log_pytorch_model
+from kipl_ml.tools.mlflow_utils import (
+    get_mlflow_expr,
+    get_parent_run_id,
+    log_pytorch_model,
+    run_exists,
+)
 
 
 class DictModel(nn.Module):
@@ -100,6 +106,52 @@ class TestModelLogging(unittest.TestCase):
             finally:
                 mlflow.set_tracking_uri(old_uri)
                 fluent._last_active_run_id.set(last_run_id)
+
+
+class TestParentRunLookup(unittest.TestCase):
+    def test_fresh_experiment_with_top_level_runs_and_then_children(self):
+        old_uri = mlflow.get_tracking_uri()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mlflow.set_tracking_uri(f"sqlite:///{root / 'tracking.db'}")
+            try:
+                client = mlflow.MlflowClient()
+                experiment = client.create_experiment(
+                    "fresh", artifact_location=str(root / "artifacts"),
+                )
+                self.assertIsNone(get_parent_run_id("fresh", None, None))
+                self.assertFalse(run_exists("fresh", parent_run_name="expert-b"))
+                parent = client.create_run(
+                    experiment, tags={"mlflow.runName": "expert-a"},
+                )
+                # Reproduce other GPU workers searching before any child exists.
+                self.assertFalse(run_exists("fresh", parent_run_name="expert-b"))
+                self.assertTrue(run_exists("fresh", parent_run_name="expert-a"))
+                self.assertEqual(get_parent_run_id("fresh", None, "expert-a"),
+                                 [parent.info.run_id])
+                self.assertIsNone(get_parent_run_id("fresh", "expert-a", None))
+                self.assertIsNone(get_parent_run_id("fresh", None, None))
+                client.create_run(experiment, tags={
+                    "mlflow.runName": "fold-0",
+                    "mlflow.parentRunId": parent.info.run_id,
+                })
+                self.assertEqual(get_parent_run_id("fresh", "fold-0", None),
+                                 [parent.info.run_id])
+                self.assertEqual(get_parent_run_id("fresh", None, None),
+                                 [parent.info.run_id])
+            finally:
+                mlflow.set_tracking_uri(old_uri)
+
+    def test_absent_names_and_null_parent_ids(self):
+        for frame in (pd.DataFrame(), pd.DataFrame({"run_id": ["unnamed"]})):
+            with patch("kipl_ml.tools.mlflow_utils.list_runs", return_value=frame):
+                self.assertIsNone(get_parent_run_id("fresh", "child", None))
+                self.assertIsNone(get_parent_run_id("fresh", None, "parent"))
+        frame = pd.DataFrame({
+            "tags.mlflow.parentRunId": [None, float("nan"), pd.NA, "parent", "parent"],
+        })
+        with patch("kipl_ml.tools.mlflow_utils.list_runs", return_value=frame):
+            self.assertEqual(get_parent_run_id("fresh", None, None), ["parent"])
 
 
 if __name__ == "__main__":

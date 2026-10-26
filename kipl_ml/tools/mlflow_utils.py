@@ -92,23 +92,25 @@ def get_parent_run_id(
     experiment_name: str, run_name: str | None, parent_run_name: str | None
 ) -> list[str] | None:
     df = list_runs(experiment_name, only_finished=False, raise_on_empty=False)
-
-    if run_name is not None:
-        mask = df.loc[:, "tags.mlflow.runName"] == run_name
-    else:
-        mask = np.ones(len(df), dtype=bool)
-
-    parents = df.loc[mask, "tags.mlflow.parentRunId"].unique()
-    parents = parents[parents != None]
-
-    if parent_run_name is not None:
-        mask = df.loc[:, "tags.mlflow.runName"] == parent_run_name
-        parents = df.loc[mask, "run_id"]
-
-    if len(parents) == 0:
+    if df.empty or (
+        (run_name is not None or parent_run_name is not None)
+        and "tags.mlflow.runName" not in df
+    ):
         return None
 
-    return list(parents)
+    if parent_run_name is not None:
+        # A fresh experiment can contain only top-level runs. MLflow omits the
+        # optional parentRunId column until a child run exists.
+        mask = df.loc[:, "tags.mlflow.runName"] == parent_run_name
+        parents = df.loc[mask, "run_id"]
+    else:
+        if "tags.mlflow.parentRunId" not in df:
+            return None
+        mask = (df.loc[:, "tags.mlflow.runName"] == run_name
+                if run_name is not None else np.ones(len(df), dtype=bool))
+        parents = df.loc[mask, "tags.mlflow.parentRunId"]
+
+    return parents.dropna().unique().tolist() or None
 
 
 def run_exists(
