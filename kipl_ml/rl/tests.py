@@ -316,6 +316,9 @@ class FakeBrickController:
     def is_done(self) -> list[bool]:
         return [self.step_count >= 2] * self.batch_size
 
+    def stop_reasons(self) -> list[str | None]:
+        return ["all_normal_processed" if done else None for done in self.is_done()]
+
 
 class FakeDecoyBrickController(FakeBrickController):
     def step_current(self, active_mask: np.ndarray) -> list[NumpyTrace]:
@@ -467,7 +470,6 @@ class TestBrickPolicyRollout(unittest.TestCase):
                 network_context=None,
                 max_packets=10,
                 max_duration_s=10.0,
-                required_real_packets=None,
                 trim_raw=0,
                 seed=0,
                 sample=True,
@@ -522,7 +524,6 @@ class TestBrickPolicyRollout(unittest.TestCase):
             network_context=None,
             max_packets=10,
             max_duration_s=10.0,
-            required_real_packets=None,
             trim_raw=0,
             seed=0,
             sample=True,
@@ -558,7 +559,6 @@ class TestBrickPolicyRollout(unittest.TestCase):
             network_context=None,
             max_packets=10,
             max_duration_s=10.0,
-            required_real_packets=None,
             trim_raw=0,
             seed=0,
             sample=True,
@@ -586,7 +586,6 @@ class TestBrickPolicyRollout(unittest.TestCase):
             network_context=None,
             max_packets=10,
             max_duration_s=10.0,
-            required_real_packets=None,
             trim_raw=0,
             seed=0,
             sample=False,

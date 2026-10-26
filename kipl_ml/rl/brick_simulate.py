@@ -88,6 +88,7 @@ STANDARD_BRICK_ROLLOUT_FEATURES = (
     Feats.DOWN_DECOY_COUNT,
     Feats.SILENCE_FLAG,
 )
+DEFAULT_BRICK_MAX_SIM_STEPS = 1_000_000
 
 
 def brick_policy_rollout(  # noqa: C901
@@ -98,9 +99,8 @@ def brick_policy_rollout(  # noqa: C901
     client_bricks: BrickSpecCollection | None,
     server_bricks: BrickSpecCollection | None,
     network_context: Mapping[str, object] | None,
-    max_packets: int,
+    max_packets: int | None,
     max_duration_s: float,
-    required_real_packets: int | torch.Tensor | None,
     trim_raw: int,
     seed: int,
     sample: bool,
@@ -108,12 +108,17 @@ def brick_policy_rollout(  # noqa: C901
     max_steps: int,
     controller: BrickController | None = None,
     endpoint: RolloutEnd | None = None,
-    truncate_on_budget: bool = False,
+    max_sim_steps: int = DEFAULT_BRICK_MAX_SIM_STEPS,
 ) -> BrickRollout:
-    if truncate_on_budget and endpoint is not None:
-        raise ValueError("budget truncation can produce incomplete bootstrap windows")
+    """Shared replay/actor horizon; packet limits apply after complete windows."""
     if max_steps <= 0:
         raise ValueError("max_steps must be > 0")
+    if max_sim_steps <= 0:
+        raise ValueError("max_sim_steps must be > 0")
+    if max_packets is not None and max_packets <= 0:
+        raise ValueError("max_packets must be positive or None")
+    if max_duration_s <= 0:
+        raise ValueError("max_duration_s must be > 0")
     if controller is None:
         if client_bricks is None or server_bricks is None:
             raise ValueError("client_bricks and server_bricks are required")
@@ -126,24 +131,22 @@ def brick_policy_rollout(  # noqa: C901
             client_bricks=client_bricks,
             server_bricks=server_bricks,
             network_kwargs=network_kwargs,
-            max_trace_length=0 if endpoint is not None else max_packets,
+            max_trace_length=0,
             seed=seed,
             trim_raw=trim_raw,
             relative=relative,
-            stop_after_all_normal_packets=endpoint is not None,
-            max_sim_steps=max_packets * 32 if endpoint is not None else None,
-            truncate_on_budget=truncate_on_budget,
+            stop_after_all_normal_packets=True,
+            max_sim_steps=max_sim_steps,
         )
 
     bs = controller.batch_size
     if len(trace_paths) != bs:
         raise ValueError("trace_paths length must equal controller.batch_size")
 
-    required_real_packets_np = _required_real_packets(required_real_packets, bs)
     terminated = np.zeros(bs, dtype=bool)
     next_bins = np.zeros(bs, dtype=np.int64)
     n_packets = np.zeros(bs, dtype=np.int64)
-    n_real_packets = np.zeros(bs, dtype=np.int64)
+    packet_cutoffs = 0
     X_obs_l: list[dict[Feats, list[torch.Tensor]]] = [
         {Feats.TIMES: [], Feats.DIRS: [], Feats.DECOY: []} for _ in range(bs)
     ]
@@ -247,17 +250,10 @@ def brick_policy_rollout(  # noqa: C901
 
         windows = controller.step_current(active)
         simulator_done = np.asarray(controller.is_done(), dtype=bool)
-        reasons = (
-            controller.stop_reasons()
-            if endpoint is not None or truncate_on_budget else []
-        )
+        reasons = controller.stop_reasons()
         if any(active[idx] and reason == "max_sim_steps"
                for idx, reason in enumerate(reasons)):
-            warnings.warn(
-                "Brick simulation truncated at its iteration budget; the returned "
-                "trace is an observed prefix and may omit normal traffic.",
-                RuntimeWarning, stacklevel=2,
-            )
+            raise RuntimeError("brick simulator iteration budget exhausted")
         active_for_policy = np.zeros(bs, dtype=bool)
         fd_w: dict[Feats, list[float]] = {f: [] for f in fd_features}
 
@@ -283,10 +279,17 @@ def brick_policy_rollout(  # noqa: C901
                 ((dirs == DOWNLOAD) & (decoys != 0)).sum().item()
             )
             n_packets[idx] += times.numel()
-            n_real_packets[idx] += int(up_count + down_count)
 
             current_bin = int(next_bins[idx])
             next_bins[idx] += 1
+            cutoff = (
+                "max_duration" if next_bins[idx] * float(policy.time_step_s)
+                >= max_duration_s else
+                "max_packets" if max_packets is not None
+                and n_packets[idx] >= max_packets else None
+            )
+            if cutoff == "max_packets" and not simulator_done[idx]:
+                packet_cutoffs += 1
             if endpoint is not None:
                 end_features = _feature_tensors({
                     feature: [_feature_value(
@@ -299,11 +302,6 @@ def brick_policy_rollout(  # noqa: C901
                 )
                 end_features[Feats.CURRENT_SERVER_BRICK] = torch.tensor(
                     [[controller.current_server_bricks()[idx]]],
-                )
-                cutoff = (
-                    "max_packets" if n_packets[idx] >= max_packets else
-                    "max_duration" if next_bins[idx] * float(policy.time_step_s)
-                    >= max_duration_s else None
                 )
                 if endpoint.record(
                     idx, end_features, reasons[idx], cutoff, float(policy.time_step_s),
@@ -320,15 +318,8 @@ def brick_policy_rollout(  # noqa: C901
                             )
                         endpoint.values[idx] = result[4].reshape(())
                     continue
-            long_enough = n_packets[idx] >= max_packets or (
-                next_bins[idx] * float(policy.time_step_s) > max_duration_s
-            )
-            reached_required_real = _reached_required_real(
-                n_real_packets,
-                required_real_packets_np,
-            )
             if endpoint is None and (
-                simulator_done[idx] or (long_enough and reached_required_real[idx])
+                simulator_done[idx] or cutoff is not None
             ):
                 terminated[idx] = True
                 continue
@@ -348,11 +339,19 @@ def brick_policy_rollout(  # noqa: C901
                 )
 
         if not active_for_policy.any():
-            continue
+            break
 
         apply_policy(_feature_tensors(fd_w), active_for_policy)
     else:
         raise RuntimeError(f"brick rollout reached max_steps={max_steps}")
+
+    if packet_cutoffs:
+        warnings.warn(
+            f"Brick packet safety cutoff max_packets={max_packets} ended "
+            f"{packet_cutoffs}/{bs} traces before normal completion or the time "
+            "horizon. Set trace.n_packets=null to disable this cutoff.",
+            RuntimeWarning, stacklevel=2,
+        )
 
     X_obs = _batch_packet_level_features(X_obs_l, device)
     if not act_time_bins_l:
@@ -394,29 +393,6 @@ def brick_policy_rollout(  # noqa: C901
         {key: torch.cat(steps, dim=1) for key, steps in entropy_steps.items()},
         X_obs,
     )
-
-
-def _required_real_packets(
-    required_real_packets: int | torch.Tensor | None, bs: int
-) -> np.ndarray | None:
-    if required_real_packets is None:
-        return None
-    if isinstance(required_real_packets, int):
-        return np.full(bs, required_real_packets, dtype=np.int64)
-    if required_real_packets.shape != (bs,):
-        raise ValueError(
-            f"required_real_packets must have shape ({bs},), "
-            f"got {tuple(required_real_packets.shape)}"
-        )
-    return required_real_packets.detach().cpu().numpy().astype(np.int64, copy=False)
-
-
-def _reached_required_real(
-    n_real_packets: np.ndarray, required_real_packets: np.ndarray | None
-) -> np.ndarray:
-    if required_real_packets is None:
-        return np.ones_like(n_real_packets, dtype=bool)
-    return n_real_packets >= required_real_packets
 
 
 def _feature_value(

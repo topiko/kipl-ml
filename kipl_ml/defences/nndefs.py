@@ -17,6 +17,7 @@ from kipl_ml.logging.logger import get_logger
 from kipl_ml.logging.utils import log_multiline
 from kipl_ml.network.network import NetworkContextIntDict
 from kipl_ml.rl.brick_simulate import (
+    DEFAULT_BRICK_MAX_SIM_STEPS,
     BrickSpecCollection,
     brick_policy_rollout,
 )
@@ -199,6 +200,7 @@ class BrickSelectionDef(_NNDef):
         sample: bool = True,
         relative: bool = True,
         max_steps: int = 10_000,
+        max_sim_steps: int = DEFAULT_BRICK_MAX_SIM_STEPS,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -217,6 +219,7 @@ class BrickSelectionDef(_NNDef):
         self.sample = sample
         self.relative = relative
         self.max_steps = int(max_steps)
+        self.max_sim_steps = int(max_sim_steps)
         self.rng = np.random.default_rng()
 
     def report(self, to_log: bool = False) -> str:
@@ -254,20 +257,12 @@ class BrickSelectionDef(_NNDef):
             raise NotImplementedError(
                 f"{self.__class__.__name__} does not support machine_idx argument."
             )
-        if self._n_packets is None:
-            raise ValueError("BrickSelectionDef requires explicit n_packets")
         if network_context is None:
             raise ValueError(
                 f"{self.__class__.__name__} requires explicit network_context"
             )
 
         self._load_random_state_dict(self.rng)
-        raw_trace = self.load_data(
-            trace_path,
-            trim_raw=trim_raw,
-            network_context=network_context,
-        )
-        required_real_packets = int((raw_trace[Feats.DIRS] != 0).sum().item())
         policy = cast(BrickSelectionAgent, self.defense_model)
 
         with torch.inference_mode():
@@ -280,13 +275,12 @@ class BrickSelectionDef(_NNDef):
                 network_context=network_context,
                 max_packets=self._n_packets,
                 max_duration_s=self._max_dur_s,
-                required_real_packets=required_real_packets,
                 trim_raw=trim_raw,
                 seed=0 if self.seed is None else self.seed,
                 sample=self.sample,
                 relative=self.relative,
                 max_steps=self.max_steps,
-                truncate_on_budget=True,
+                max_sim_steps=self.max_sim_steps,
             )
 
         trace_d = {k: v.squeeze(0) for k, v in trace_d.items()}

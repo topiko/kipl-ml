@@ -23,12 +23,13 @@ class TestBrickSelectionDef(unittest.TestCase):
             policy,
             client_bricks=[{}],
             server_bricks=[{}],
-            n_packets=10,
+            n_packets=None,
             max_dur_s=1.0,
             seed=123,
             sample=False,
             relative=False,
             max_steps=7,
+            max_sim_steps=12345,
         )
         network_context = {"rtt": 0}
         defence.load_data = Mock(
@@ -53,14 +54,15 @@ class TestBrickSelectionDef(unittest.TestCase):
         kwargs = rollout.call_args.kwargs
         self.assertIs(kwargs["policy"], policy)
         self.assertEqual(kwargs["trace_paths"], ["trace.log"])
-        self.assertEqual(kwargs["max_packets"], 10)
+        self.assertIsNone(kwargs["max_packets"])
         self.assertEqual(kwargs["max_duration_s"], 1.0)
-        self.assertEqual(kwargs["required_real_packets"], 2)
+        defence.load_data.assert_not_called()
         self.assertEqual(kwargs["trim_raw"], 3)
         self.assertEqual(kwargs["seed"], 123)
         self.assertFalse(kwargs["sample"])
         self.assertFalse(kwargs["relative"])
         self.assertEqual(kwargs["max_steps"], 7)
+        self.assertEqual(kwargs["max_sim_steps"], 12345)
         torch.testing.assert_close(
             trace[Feats.TIMES], trace_batch[Feats.TIMES].squeeze(0)
         )
