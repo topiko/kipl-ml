@@ -36,6 +36,8 @@ class ActionHeadKeys(StrEnum):
 class EntropyKeys(StrEnum):
     SELECTION_ENTROPY = "entropy_selection"
     COND_ENTROPY = "cond_entropy"
+    CLIENT_ENTROPY = "client_entropy"
+    SERVER_ENTROPY = "server_entropy"
 
 
 AHKs = ActionHeadKeys

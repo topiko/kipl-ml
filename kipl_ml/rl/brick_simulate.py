@@ -160,8 +160,13 @@ def brick_policy_rollout(  # noqa: C901
     log_ps_l: list[torch.Tensor] = []
     sel_probs_l: list[torch.Tensor] = []
     values_actor_l: list[torch.Tensor] = []
-    ent_sel_l: list[torch.Tensor] = []
-    ent_cond_l: list[torch.Tensor] = []
+    entropy_keys = {
+        "selection_entropy": EntropyKeys.SELECTION_ENTROPY,
+        "conditional_entropy": EntropyKeys.COND_ENTROPY,
+        "client_entropy": EntropyKeys.CLIENT_ENTROPY,
+        "server_entropy": EntropyKeys.SERVER_ENTROPY,
+    }
+    entropy_steps: dict[str, list[torch.Tensor]] = {key: [] for key in entropy_keys}
 
     def apply_policy(
         fd_w_tensor_all: dict[Feats, torch.Tensor],
@@ -217,8 +222,8 @@ def brick_policy_rollout(  # noqa: C901
         log_ps_l.append(_densify(log_ps_a, active_t, bs))
         sel_probs_l.append(_densify(sel_probs_a, active_t, bs))
         values_actor_l.append(_densify(values_a, active_t, bs))
-        ent_sel_l.append(_densify(ent_a[EntropyKeys.SELECTION_ENTROPY], active_t, bs))
-        ent_cond_l.append(_densify(ent_a[EntropyKeys.COND_ENTROPY], active_t, bs))
+        for name, key in entropy_keys.items():
+            entropy_steps[name].append(_densify(ent_a[key], active_t, bs))
         for local_idx, batch_idx in enumerate(np.nonzero(active_for_policy)[0]):
             actions_l[int(batch_idx)].append(actions_a[local_idx])
         controller.select(actions_a, active_for_policy)
@@ -368,10 +373,7 @@ def brick_policy_rollout(  # noqa: C901
             zeros,
             torch.zeros((bs, 1, 1), device=device),
             zeros,
-            {
-                "selection_entropy": zeros,
-                "conditional_entropy": zeros,
-            },
+            dict.fromkeys(entropy_keys, zeros),
             X_obs,
         )
 
@@ -389,10 +391,7 @@ def brick_policy_rollout(  # noqa: C901
         torch.cat(log_ps_l, dim=1),
         torch.cat(sel_probs_l, dim=1),
         torch.cat(values_actor_l, dim=1),
-        {
-            "selection_entropy": torch.cat(ent_sel_l, dim=1),
-            "conditional_entropy": torch.cat(ent_cond_l, dim=1),
-        },
+        {key: torch.cat(steps, dim=1) for key, steps in entropy_steps.items()},
         X_obs,
     )
 

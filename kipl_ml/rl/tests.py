@@ -252,8 +252,10 @@ class FakeBrickPolicy:
             torch.full((bs, 1, 5), 0.2),
             torch.zeros(bs, 1),
             {
-                "entropy_selection": torch.zeros(bs, 1),
+                "entropy_selection": torch.ones(bs, 1),
                 "cond_entropy": torch.zeros(bs, 1),
+                "client_entropy": torch.full((bs, 1), 0.3),
+                "server_entropy": torch.full((bs, 1), 0.7),
             },
             None,
         )
@@ -495,6 +497,12 @@ class TestBrickPolicyRollout(unittest.TestCase):
         self.assertEqual(values.shape, (2, 2))
         self.assertEqual(entropies["selection_entropy"].shape, (2, 2))
         self.assertEqual(entropies["conditional_entropy"].shape, (2, 2))
+        torch.testing.assert_close(entropies["client_entropy"], torch.full((2, 2), 0.3))
+        torch.testing.assert_close(entropies["server_entropy"], torch.full((2, 2), 0.7))
+        torch.testing.assert_close(
+            entropies["selection_entropy"],
+            entropies["client_entropy"] + entropies["server_entropy"],
+        )
         self.assertEqual(actions[0][0].time_bin, 0)
         self.assertEqual(actions[0][1].time_bin, 1)
         self.assertEqual(actions[0][0][Actions.CLIENT_BRICK_SELECT].selected, 1)

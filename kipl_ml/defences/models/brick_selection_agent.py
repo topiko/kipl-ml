@@ -286,10 +286,10 @@ class BrickSelectionAgent(nn.Module):
                 )
         client_probs = self._transition_probs(client_logits, self.n_client_bricks)
         server_probs = self._transition_probs(server_logits, self.n_server_bricks)
-        client_selected, client_log_ps, client_entropy = self._select(
+        client_selected, client_log_ps = self._select(
             client_probs, sample
         )
-        server_selected, server_log_ps, server_entropy = self._select(
+        server_selected, server_log_ps = self._select(
             server_probs, sample
         )
 
@@ -307,10 +307,16 @@ class BrickSelectionAgent(nn.Module):
             )
             for idx in range(time_bins.shape[0])
         ]
+        # Regularize the learned distributions, before uniform exploration.
+        # Sampling and policy-gradient log probabilities still use the mixture.
+        client_entropy = Categorical(logits=client_logits).entropy().unsqueeze(1)
+        server_entropy = Categorical(logits=server_logits).entropy().unsqueeze(1)
         entropy = client_entropy + server_entropy
         entropies = {
             EntropyKeys.SELECTION_ENTROPY: entropy,
             EntropyKeys.COND_ENTROPY: torch.zeros_like(entropy),
+            EntropyKeys.CLIENT_ENTROPY: client_entropy,
+            EntropyKeys.SERVER_ENTROPY: server_entropy,
         }
         sel_probs = torch.cat([client_probs, server_probs], dim=-1).unsqueeze(1)
         return (
@@ -325,7 +331,7 @@ class BrickSelectionAgent(nn.Module):
 
     def _select(
         self, probs: torch.Tensor, sample: bool
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         dist = Categorical(probs=probs)
         if sample:
             selected = dist.sample()
@@ -335,7 +341,7 @@ class BrickSelectionAgent(nn.Module):
             log_ps = torch.log(
                 probs.gather(-1, selected.unsqueeze(1)).clamp(min=1e-12)
             )
-        return selected, log_ps, dist.entropy().unsqueeze(1)
+        return selected, log_ps
 
     def _action_time_bins(self, x: dict[Feats, torch.Tensor]) -> torch.Tensor:
         required = tuple(

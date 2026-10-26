@@ -63,6 +63,72 @@ def _force_server_transition(
 
 
 class TestBrickSelectionAgent(unittest.TestCase):
+    def test_entropy_and_its_gradient_ignore_exploration_but_log_probs_do_not(self):
+        logits = (torch.tensor([2., -1., .5]), torch.tensor([1., -1.]))
+        expected_entropies = []
+        expected_gradients = []
+        for z in logits:
+            p = z.softmax(dim=-1)
+            entropy = -(p * p.log()).sum()
+            expected_entropies.append(entropy)
+            expected_gradients.append(p * (p.log() + entropy))  # d(-H)/dz
+
+        for eps in (0., .05, 1.):
+            with self.subTest(eps=eps):
+                model = BrickSelectionAgent(
+                    time_step_s=1., n_time_steps=1, n_client_bricks=3,
+                    n_server_bricks=2, features=(), prob_eps=eps,
+                )
+                with torch.no_grad():
+                    model.client_transition_logits[0, 0].copy_(logits[0])
+                    model.server_transition_logits[0, 0].copy_(logits[1])
+                _, actions, log_ps, probs, _, entropies, _ = model.act_step(
+                    _brick_features([0]), torch.tensor([0]), torch.tensor([0]),
+                    sample=True,
+                )
+                expected_logp = torch.tensor(0.)
+                for z, action, actual, entropy_key, expected_entropy in zip(
+                    logits, (Actions.CLIENT_BRICK_SELECT, Actions.SERVER_BRICK_SELECT),
+                    probs[0, 0].split([3, 2]),
+                    (EntropyKeys.CLIENT_ENTROPY, EntropyKeys.SERVER_ENTROPY),
+                    expected_entropies, strict=True,
+                ):
+                    q = (1 - eps) * z.softmax(dim=-1) + eps / z.numel()
+                    torch.testing.assert_close(actual, q)
+                    expected_logp += q[actions[0][action].selected].log()
+                    torch.testing.assert_close(entropies[entropy_key].squeeze(),
+                                               expected_entropy)
+                torch.testing.assert_close(log_ps.squeeze(), expected_logp)
+                total = entropies[EntropyKeys.SELECTION_ENTROPY].squeeze()
+                torch.testing.assert_close(total, sum(expected_entropies))
+                (-total).backward()
+                for parameter, expected in zip(
+                    (model.client_transition_logits, model.server_transition_logits),
+                    expected_gradients, strict=True,
+                ):
+                    assert parameter.grad is not None
+                    torch.testing.assert_close(parameter.grad[0, 0], expected)
+
+    def test_pre_exploration_entropy_is_finite_at_saturation(self):
+        model = BrickSelectionAgent(
+            time_step_s=1., n_time_steps=1, n_client_bricks=3,
+            features=(), prob_eps=.05,
+        )
+        with torch.no_grad():
+            model.client_transition_logits[0, 0] = torch.tensor([1000., -1000., 0.])
+        *_, entropies, _ = model.act_step(
+            _brick_features([0]), torch.tensor([0]), torch.tensor([0]), sample=False,
+        )
+        self.assertEqual(entropies[EntropyKeys.CLIENT_ENTROPY].item(), 0.)
+        torch.testing.assert_close(
+            entropies[EntropyKeys.SERVER_ENTROPY].squeeze(), torch.tensor(3.).log(),
+        )
+        (-entropies[EntropyKeys.SELECTION_ENTROPY].sum()).backward()
+        assert model.client_transition_logits.grad is not None
+        assert model.server_transition_logits.grad is not None
+        self.assertTrue(torch.isfinite(model.client_transition_logits.grad).all())
+        self.assertTrue(torch.isfinite(model.server_transition_logits.grad).all())
+
     def test_time_step_compatibility_aliases(self) -> None:
         model = BrickSelectionAgent(time_step=0.05, time_steps=3, n_client_bricks=4)
 
