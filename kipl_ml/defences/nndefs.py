@@ -276,7 +276,9 @@ class BrickSelectionDef(_NNDef):
                 max_packets=self._n_packets,
                 max_duration_s=self._max_dur_s,
                 trim_raw=trim_raw,
-                seed=0 if self.seed is None else self.seed,
+                # Catalogue parameters are part of the sampled defence. Advance
+                # the worker-reseeded stream even when policy weights are fixed.
+                seed=int(self.simul_rng()),
                 sample=self.sample,
                 relative=self.relative,
                 max_steps=self.max_steps,

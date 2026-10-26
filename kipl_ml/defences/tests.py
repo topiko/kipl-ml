@@ -8,6 +8,7 @@ import torch
 
 from kipl_ml.defences.models.brick_selection_agent import BrickSelectionAgent
 from kipl_ml.defences.nndefs import BrickSelectionDef
+from kipl_ml.tools.rng_samplers import TraceSimulRng
 from kipl_ml.trace.enums import Feats
 
 
@@ -58,7 +59,7 @@ class TestBrickSelectionDef(unittest.TestCase):
         self.assertEqual(kwargs["max_duration_s"], 1.0)
         defence.load_data.assert_not_called()
         self.assertEqual(kwargs["trim_raw"], 3)
-        self.assertEqual(kwargs["seed"], 123)
+        self.assertEqual(kwargs["seed"], int(TraceSimulRng(123)()))
         self.assertFalse(kwargs["sample"])
         self.assertFalse(kwargs["relative"])
         self.assertEqual(kwargs["max_steps"], 7)
