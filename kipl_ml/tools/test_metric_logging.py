@@ -36,6 +36,10 @@ class TestMetricNames(unittest.TestCase):
             "train_loss": "train/loss",
             "test_0001 - classrecall": "test/0001 - classrecall",
             "attack_eval/def.bandwidth_mean": "attack_eval/overhead/bandwidth/mean",
+            "attack_eval/def.cumdelay_mean": "attack_eval/overhead/cumdelay/mean",
+            "attack_eval/sim.cumdelay_coverage": (
+                "attack_eval/simulation/cumdelay_coverage"
+            ),
             "attack_eval/test_accuracy": "attack_eval/test/accuracy",
         }
         for old, new in pairs.items():

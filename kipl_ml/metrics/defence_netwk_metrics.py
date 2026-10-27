@@ -200,6 +200,7 @@ def _format_overheads(overheads: dict[str, float]) -> dict[str, float]:
         ("delay", "overhead_duration"),
         ("bandwidth_full", "overhead_data_full"),
         ("delay_full", "overhead_duration_full"),
+        ("cumdelay", "overhead_cumdelay"),
     ):
         count = overheads.get(f"{native}_count")
         if count is not None:
@@ -219,19 +220,39 @@ def _format_overheads(overheads: dict[str, float]) -> dict[str, float]:
                 overheads_fin[f"def.{name}_{stat}"] = (
                     float("nan") if count == 0 else overheads[key]
                 )
+    if overheads.get("base_count") == 0:
+        overheads_fin["sim.missing"] = float("nan")
+    overheads_fin.update(_coverage_metrics(overheads))
+    return overheads_fin
+
+
+def _coverage_metrics(overheads: dict[str, float]) -> dict[str, float]:
+    result = {}
     for name, key in (
         ("overhead_pairs", "trace_pairs_count"),
         ("overhead_no_normal", "trace_pairs_no_normal_count"),
+        ("incomplete_traces", "trace_pairs_incomplete_count"),
     ):
         if key in overheads:
-            overheads_fin[f"sim.{name}"] = overheads[key]
-    if "trace_pairs_count" in overheads:
-        pairs = overheads["trace_pairs_count"]
-        overheads_fin["sim.delay_coverage"] = (
-            overheads.get("overhead_duration_count", 0.0) / pairs
-            if pairs
-            else float("nan")
-        )
-        if overheads.get("base_count") == 0:
-            overheads_fin["sim.missing"] = float("nan")
-    return overheads_fin
+            result[f"sim.{name}"] = overheads[key]
+    pairs = overheads.get("trace_pairs_count")
+    if pairs is None:
+        return result
+    for name, native in (("delay", "duration"), ("cumdelay", "cumdelay")):
+        key = f"overhead_{native}_count"
+        if key in overheads:
+            result[f"sim.{name}_coverage"] = (
+                overheads[key] / pairs
+                if pairs else float("nan")
+            )
+    if "trace_pairs_incomplete_count" in overheads:
+        incomplete = overheads["trace_pairs_incomplete_count"]
+        fraction = incomplete / pairs if pairs else float("nan")
+        result["sim.incomplete_fraction"] = fraction
+        if fraction > 0.05:
+            logger.warning(
+                "%d/%d overhead trace pairs (%.1f%%) lack complete normal "
+                "traffic; full-trace delay/cumdelay summaries exclude these pairs",
+                incomplete, pairs, 100 * fraction,
+            )
+    return result

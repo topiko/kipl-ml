@@ -21,12 +21,17 @@ ALIASES = {
     "sim.overhead_pairs": "simulation/overhead_pairs",
     "sim.overhead_no_normal": "simulation/overhead_no_normal",
     "sim.delay_coverage": "simulation/delay_coverage",
+    "sim.cumdelay_coverage": "simulation/cumdelay_coverage",
+    "sim.incomplete_traces": "simulation/incomplete_traces",
+    "sim.incomplete_fraction": "simulation/incomplete_fraction",
     "evaluation_seconds": "evaluation/seconds",
     "paired_mixed_accuracy": "test/paired_mixed/accuracy",
     "paired_mixed_loss": "test/paired_mixed/loss",
 }
-for _metric in ("bandwidth", "delay"):
+for _metric in ("bandwidth", "delay", "cumdelay"):
     for _full in (False, True):
+        if _metric == "cumdelay" and _full:
+            continue  # Cumulative delay only counts normal packets, never tail decoys.
         for _stat in (
             "min", "median", "mean", "std", "p90", "p95", "p99", "max", "count"
         ):
