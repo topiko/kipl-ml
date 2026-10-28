@@ -34,6 +34,7 @@ class BrickPolicy(Protocol):
         current_client_bricks: torch.Tensor,
         current_server_bricks: torch.Tensor,
         sample: bool = True,
+        state: torch.Tensor | None = None,
     ) -> tuple[
         torch.Tensor,
         StepActions,
@@ -41,7 +42,7 @@ class BrickPolicy(Protocol):
         torch.Tensor,
         torch.Tensor,
         dict[str, torch.Tensor],
-        None,
+        torch.Tensor | None,
     ]: ...
 
 
@@ -109,6 +110,7 @@ def brick_policy_rollout(  # noqa: C901
     controller: BrickController | None = None,
     endpoint: RolloutEnd | None = None,
     max_sim_steps: int = DEFAULT_BRICK_MAX_SIM_STEPS,
+    detach_period: int | None = None,
 ) -> BrickRollout:
     """Shared replay/actor horizon; packet limits apply after complete windows."""
     if max_steps <= 0:
@@ -170,11 +172,14 @@ def brick_policy_rollout(  # noqa: C901
         "server_entropy": EntropyKeys.SERVER_ENTROPY,
     }
     entropy_steps: dict[str, list[torch.Tensor]] = {key: [] for key in entropy_keys}
+    recurrent = getattr(policy, "is_recurrent", False)
+    policy_state: torch.Tensor | None = None
 
     def apply_policy(
         fd_w_tensor_all: dict[Feats, torch.Tensor],
         active_for_policy: np.ndarray,
     ) -> None:
+        nonlocal policy_state
         fd_w_tensor_all = dict_to_device(fd_w_tensor_all, device=device)
         policy_input_features = tuple(
             dict.fromkeys((Feats.TIME_BINS, Feats.Dt_BINS, *policy.features))
@@ -188,6 +193,14 @@ def brick_policy_rollout(  # noqa: C901
             controller.current_server_bricks(active_for_policy),
             device=device,
         )
+        active_t = torch.as_tensor(active_for_policy, device=device)
+        if (policy_state is not None and detach_period and detach_period > 0
+                and len(act_time_bins_l) % detach_period == 0):
+            policy_state = policy_state.detach()
+        state_kwargs = (
+            {"state": None if policy_state is None else policy_state[active_t]}
+            if recurrent else {}
+        )
         (
             act_time_bins_a,
             actions_a,
@@ -195,13 +208,19 @@ def brick_policy_rollout(  # noqa: C901
             sel_probs_a,
             values_a,
             ent_a,
-            _h,
+            next_state,
         ) = policy.act_step(
             fd_w_tensor,
             current_client,
             current_server,
             sample=sample,
+            **state_kwargs,
         )
+
+        if next_state is not None:
+            # Out-of-place scatter preserves autograd and original trace indices
+            # as the active batch shrinks. Finished histories are no longer needed.
+            policy_state = _densify(next_state, active_t, bs)
 
         active_t = torch.as_tensor(active_for_policy, device=act_time_bins_a.device)
         # V(s_t) must see the brick active before sampling a_t, not the newly
@@ -315,6 +334,8 @@ def brick_policy_rollout(  # noqa: C901
                                 end_features[Feats.CURRENT_CLIENT_BRICK].flatten(),
                                 end_features[Feats.CURRENT_SERVER_BRICK].flatten(),
                                 sample=False,
+                                **({"state": policy_state[idx:idx + 1]}
+                                   if policy_state is not None else {}),
                             )
                         endpoint.values[idx] = result[4].reshape(())
                     continue

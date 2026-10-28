@@ -72,14 +72,11 @@ def _validate_init(
 
 
 class BrickSelectionAgent(nn.Module):
-    """Feature-conditioned transition policy over client/server brick indices.
+    """Hybrid, stationary-table, or recurrent client/server brick controller.
 
-    For each action time `t`, `client_transition_probs()[t, i, j]` is the
-    baseline probability of moving client brick `i` to `j`; server transitions
-    are analogous. A reactive MLP adds residual logits and value based on the
-    completed window and current brick state. Residual outputs start at zero, so
-    initialization exactly matches the tabular policy. An empty feature list
-    disables the residual MLP and leaves a static transition-table policy.
+    Hybrid adds an observation-conditioned MLP to time-indexed transition tables.
+    Table uses only the current brick. RNN uses scaled observations and each
+    side's brick in separate GRUs; its (B, 2, H) state belongs to the rollout.
     """
 
     def __init__(
@@ -95,11 +92,15 @@ class BrickSelectionAgent(nn.Module):
         stay_bias: float = 0.0,
         train_env: dict[str, object] | None = None,
         *,
+        controller: str = "hybrid",
         detach_before_value_head: bool = False,
         time_step: float | None = None,
         time_steps: int | None = None,
     ) -> None:
         super().__init__()
+        if controller not in {"hybrid", "table", "rnn"}:
+            raise ValueError(f"unknown brick controller: {controller!r}")
+        self.controller = controller
         time_step_s = resolve_time_step_s(time_step_s, time_step)
         n_time_steps = _resolve_n_time_steps(n_time_steps, time_steps)
         n_client_bricks, n_server_bricks = _validate_init(
@@ -111,15 +112,36 @@ class BrickSelectionAgent(nn.Module):
         )
 
         self.time_step_s = time_step_s
-        self.n_time_steps = n_time_steps
+        self.n_time_steps = n_time_steps if controller == "hybrid" else 1
         self.n_client_bricks = n_client_bricks
         self.n_server_bricks = n_server_bricks
-        self.features = _validate_features(features)
+        self.features = _validate_features(features) if controller != "table" else ()
         self.feature_hidden_size = int(feature_hidden_size)
         self.learn_values = bool(learn_values)
         self.detach_before_value_head = bool(detach_before_value_head)
         self.prob_eps = float(prob_eps)
         self.train_env = {} if train_env is None else dict(train_env)
+
+        if controller == "rnn":
+            self.client_rnn = nn.GRUCell(
+                len(self.features) + self.n_client_bricks, self.feature_hidden_size,
+            )
+            self.server_rnn = nn.GRUCell(
+                len(self.features) + self.n_server_bricks, self.feature_hidden_size,
+            )
+            self.client_rnn_head = nn.Linear(
+                self.feature_hidden_size, self.n_client_bricks,
+            )
+            self.server_rnn_head = nn.Linear(
+                self.feature_hidden_size, self.n_server_bricks,
+            )
+            self.rnn_value_head = (
+                nn.Linear(2 * self.feature_hidden_size, 1)
+                if self.learn_values else None
+            )
+            # A fixed optional preference, not a trainable transition table.
+            self.stay_bias = float(stay_bias)
+            return
 
         client_logits = torch.zeros(
             self.n_time_steps, self.n_client_bricks, self.n_client_bricks
@@ -200,11 +222,15 @@ class BrickSelectionAgent(nn.Module):
         self.__dict__["time_steps"] = value
 
     def client_transition_probs(self) -> torch.Tensor:
+        if self.is_recurrent:
+            raise ValueError("recurrent controllers have no transition table")
         return self._transition_probs(
             self.client_transition_logits, self.n_client_bricks
         )
 
     def server_transition_probs(self) -> torch.Tensor:
+        if self.is_recurrent:
+            raise ValueError("recurrent controllers have no transition table")
         return self._transition_probs(
             self.server_transition_logits, self.n_server_bricks
         )
@@ -218,12 +244,18 @@ class BrickSelectionAgent(nn.Module):
             return probs
         return (1.0 - self.prob_eps) * probs + self.prob_eps / n_bricks
 
+    @property
+    def is_recurrent(self) -> bool:
+        # Pickled controllers from before controller selection are hybrid.
+        return getattr(self, "controller", "hybrid") == "rnn"
+
     def act_step(
         self,
         x: dict[Feats, torch.Tensor],
         current_client_bricks: torch.Tensor,
         current_server_bricks: torch.Tensor,
         sample: bool = True,
+        state: torch.Tensor | None = None,
     ) -> tuple[
         torch.Tensor,
         StepActions,
@@ -231,7 +263,7 @@ class BrickSelectionAgent(nn.Module):
         torch.Tensor,
         torch.Tensor,
         dict[str, torch.Tensor],
-        None,
+        torch.Tensor | None,
     ]:
         time_bins = self._action_time_bins(x)
         current_client = self._current_bricks(
@@ -251,6 +283,22 @@ class BrickSelectionAgent(nn.Module):
         if current_server.shape[0] != time_bins.shape[0]:
             raise ValueError("current_server_bricks length must match batch size")
 
+        if self.is_recurrent:
+            client_logits, server_logits, values, state = self._recurrent_outputs(
+                x, time_bins, current_client, current_server, state,
+            )
+        else:
+            client_logits, server_logits, values = self._tabular_outputs(
+                x, time_bins, current_client, current_server,
+            )
+        return self._action_outputs(
+            time_bins, client_logits, server_logits, values, state, sample,
+        )
+
+    def _tabular_outputs(
+        self, x: dict[Feats, torch.Tensor], time_bins: torch.Tensor,
+        current_client: torch.Tensor, current_server: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         time_idx = time_bins.squeeze(1).long().clamp(0, self.n_time_steps - 1)
         client_logits = self.client_transition_logits[time_idx, current_client]
         server_logits = self.server_transition_logits[time_idx, current_server]
@@ -284,6 +332,50 @@ class BrickSelectionAgent(nn.Module):
                 values = values + self.value_feature_head(
                     torch.cat((value_features, client_state, server_state), dim=1)
                 )
+        return client_logits, server_logits, values
+
+    def _recurrent_outputs(
+        self, x: dict[Feats, torch.Tensor], time_bins: torch.Tensor,
+        current_client: torch.Tensor, current_server: torch.Tensor,
+        state: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        features = self._feature_vector(x, time_bins)
+        client_brick = nn.functional.one_hot(
+            current_client, self.n_client_bricks,
+        ).to(features.dtype)
+        server_brick = nn.functional.one_hot(
+            current_server, self.n_server_bricks,
+        ).to(features.dtype)
+        client_h = self.client_rnn(
+            torch.cat((features, client_brick), dim=1),
+            None if state is None else state[:, 0],
+        )
+        server_h = self.server_rnn(
+            torch.cat((features, server_brick), dim=1),
+            None if state is None else state[:, 1],
+        )
+        state = torch.stack((client_h, server_h), dim=1)
+        value_input = state.flatten(1)
+        if self.detach_before_value_head:
+            value_input = value_input.detach()
+        values = (
+            self.rnn_value_head(value_input) if self.rnn_value_head is not None
+            else features.new_zeros((features.shape[0], 1))
+        )
+        return (
+            self.client_rnn_head(client_h) + self.stay_bias * client_brick,
+            self.server_rnn_head(server_h) + self.stay_bias * server_brick,
+            values, state,
+        )
+
+    def _action_outputs(
+        self, time_bins: torch.Tensor, client_logits: torch.Tensor,
+        server_logits: torch.Tensor, values: torch.Tensor,
+        state: torch.Tensor | None, sample: bool,
+    ) -> tuple[
+        torch.Tensor, StepActions, torch.Tensor, torch.Tensor, torch.Tensor,
+        dict[str, torch.Tensor], torch.Tensor | None,
+    ]:
         client_probs = self._transition_probs(client_logits, self.n_client_bricks)
         server_probs = self._transition_probs(server_logits, self.n_server_bricks)
         client_selected, client_log_ps = self._select(
@@ -326,7 +418,7 @@ class BrickSelectionAgent(nn.Module):
             sel_probs,
             values,
             entropies,
-            None,
+            state,
         )
 
     def _select(
@@ -371,7 +463,8 @@ class BrickSelectionAgent(nn.Module):
             elif feature != Feats.SILENCE_FLAG:
                 value = torch.log1p(value)
             values.append(value)
-        return torch.cat(values, dim=1)
+        return (torch.cat(values, dim=1) if values
+                else time_bins.new_empty((time_bins.shape[0], 0), dtype=torch.float32))
 
     def _current_bricks(
         self,
