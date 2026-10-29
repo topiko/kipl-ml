@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
+import math
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from numbers import Real
 
 import torch
 
@@ -10,6 +13,30 @@ from kipl_ml.logging.utils import log_multiline
 from kipl_ml.network.network import NetworkContextIntDict
 from kipl_ml.tools.rng_samplers import MachineRng
 from kipl_ml.trace.enums import Feats
+
+
+def family_probabilities(
+    member_ids: Sequence[str], probabilities: Mapping[str, float] | str | None = None,
+) -> tuple[float, ...]:
+    """Resolve ID-keyed probabilities; omitted IDs have zero mass."""
+    if not member_ids or len(set(member_ids)) != len(member_ids):
+        raise ValueError("Require nonempty, unique family IDs")
+    if probabilities is None or probabilities == "uniform":
+        return (1 / len(member_ids),) * len(member_ids)
+    if not isinstance(probabilities, Mapping):
+        raise ValueError("Family probabilities must be uniform or an ID-keyed mapping")
+    if set(probabilities) - set(member_ids):
+        raise ValueError("Family probabilities contain unknown member IDs")
+    values = tuple(probabilities.get(member, 0.0) for member in member_ids)
+    if any(isinstance(value, bool) or not isinstance(value, Real)
+           or not math.isfinite(value) or not 0 <= value <= 1 for value in values):
+        raise ValueError("Family probabilities must be finite numbers in [0, 1]")
+    total = math.fsum(values)
+    if not math.isclose(total, 1.0, rel_tol=0, abs_tol=1e-9):
+        raise ValueError("Family probabilities must sum to 1")
+    if len(set(values)) == 1:
+        return (1 / len(member_ids),) * len(member_ids)
+    return tuple(float(value / total) for value in values)
 
 
 class DefencePool(_Def):
@@ -22,6 +49,7 @@ class DefencePool(_Def):
         fixed_per_trace: bool = False,
         name: str | None = None,
         member_ids: Sequence[str] | None = None,
+        probabilities: Mapping[str, float] | str | None = None,
     ):
         if not defences:
             raise ValueError("DefencePool requires at least one defence")
@@ -47,13 +75,21 @@ class DefencePool(_Def):
             raise ValueError(
                 "Pool member IDs must be unique nonempty strings, one per defence"
             )
+        self.probabilities = family_probabilities(self.member_ids, probabilities)
+        self._uniform_sampling = len(set(self.probabilities)) == 1
 
     @property
     def name(self) -> str:
         return self.pool_name or self.__class__.__name__
 
     def _select_defence_idx(self) -> int:
-        return int(self.defence_rng())
+        # Keep family selection separate from simulation. A future conditional
+        # selector can extend this seam once trace context is passed explicitly.
+        if self._uniform_sampling:
+            return int(self.defence_rng())  # Preserve historical uniform RNG draws.
+        return int(self.defence_rng.rng.choice(
+            len(self.defences), p=self.probabilities,
+        ))
 
     def _simulate(
         self,
@@ -103,6 +139,8 @@ class DefencePool(_Def):
             str_ += f"\tName: {self.pool_name}\n"
         str_ += f"\tN defences: {len(self.defences)}\n"
         str_ += f"\tFixed per trace: {self.FIXED_PER_TRACE}\n"
+        probabilities = dict(zip(self.member_ids, self.probabilities))
+        str_ += f"\tFamily probabilities: {probabilities}\n"
         str_ += "\tMembers:\n"
         for idx, defence in enumerate(self.defences):
             member_report = defence.report(to_log=False).rstrip()
@@ -121,6 +159,9 @@ class DefencePool(_Def):
             "fixed_per_trace": str(self.FIXED_PER_TRACE),
             "n_defences": str(len(self.defences)),
             "member_types": ",".join(member_types),
+            "family_probabilities": json.dumps(dict(zip(
+                self.member_ids, self.probabilities,
+            )), sort_keys=True),
         }
         if self.pool_name is not None:
             d["pool_name"] = self.pool_name
