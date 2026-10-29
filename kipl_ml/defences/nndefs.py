@@ -144,11 +144,13 @@ class RNNDef(_NNDef):
         *args,
         n_packets: int | None = 5000,
         max_dur_s: float | None = None,
+        stop_after_all_normal_packets: bool = False,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self._n_packets = n_packets
         self._max_dur_s = max_dur_s or math.inf
+        self.stop_after_all_normal_packets = stop_after_all_normal_packets
         self.rng = np.random.default_rng()
 
     def _run_model(
@@ -180,6 +182,9 @@ class RNNDef(_NNDef):
                     add_tail_s=add_tail_s,
                     network_context=network_context,
                     seed=0 if self.seed is None else self.seed,
+                    stop_after_all_normal_packets=getattr(
+                        self, "stop_after_all_normal_packets", False,
+                    ),
                 ),
             )
 

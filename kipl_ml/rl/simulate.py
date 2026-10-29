@@ -389,6 +389,7 @@ def policy_obfuscate_trace(
     network_context: NetworkContextIntDict | None = None,
     seed: int = 0,
     profile: bool = False,
+    stop_after_all_normal_packets: bool = False,
 ) -> dict[Feats, torch.Tensor] | tuple[dict[Feats, torch.Tensor], dict[str, float]]:
     """Obfuscate a trace stepwise using the rollout simulator.
 
@@ -415,6 +416,7 @@ def policy_obfuscate_trace(
         record_policy=False,
         seed=seed,
         profile=profile,
+        stop_after_all_normal_packets=stop_after_all_normal_packets,
     )
     if profile:
         X_obs, timers = cast(
@@ -441,6 +443,7 @@ def _policy_rollout_impl(  # noqa: C901
     seed: int,
     profile: bool = False,
     endpoint: RolloutEnd | None = None,
+    stop_after_all_normal_packets: bool = False,
 ) -> _PolicyRolloutImplReturn:
     """Internal streaming rollout implementation.
 
@@ -472,7 +475,9 @@ def _policy_rollout_impl(  # noqa: C901
         seed=seed,
         trim_raw=trim_raw,
         relative=True,
-        stop_after_all_normal_packets=endpoint is not None,
+        stop_after_all_normal_packets=(
+            endpoint is not None or stop_after_all_normal_packets
+        ),
         # Disabling the packet cap must not disable the native safety budget.
         max_sim_steps=1_000_000 if max_packets is None else max_packets * 32,
     )
@@ -553,6 +558,10 @@ def _policy_rollout_impl(  # noqa: C901
         was_terminated = terminated.copy()
         simulator_done = np.asarray(simul_batch.is_done(), dtype=bool)
         reasons = simul_batch.stop_reasons() if endpoint is not None else []
+        if stop_after_all_normal_packets:
+            reasons = simul_batch.stop_reasons()
+            if "max_sim_steps" in reasons:
+                raise RuntimeError("simulator iteration budget exhausted")
         if required_real_packets_np is None:
             reached_required_real = np.ones(bs, dtype=bool)
         else:

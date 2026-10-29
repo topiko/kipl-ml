@@ -71,5 +71,5 @@ class TestOverheadLimits(unittest.TestCase):
                         num_workers=0,
                     )
             self.assertEqual(loader.call_args.kwargs["num_workers"], 0)
-        self.assertEqual(observed, [(100_000_000, 100_000, 0), (123, 7.0, 3)])
+        self.assertEqual(observed, [(None, float("inf"), 0), (123, 7.0, 3)])
         self.assertEqual(Dataset.defence._n_packets, 123)

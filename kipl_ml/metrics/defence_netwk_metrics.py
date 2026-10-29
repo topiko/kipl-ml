@@ -1,4 +1,5 @@
 import hashlib
+import math
 import random
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
@@ -15,9 +16,9 @@ from kipl_ml.data.assets import DATASET, TRACE_F_PATH
 from kipl_ml.data.loading import _reseed_rngs, make_dataloader
 from kipl_ml.data.utils import tensor_dict_to_str
 from kipl_ml.data.wf_dataset import InformativeDataset, WFDataset
-from kipl_ml.defences.nndefs import RNNDef
+from kipl_ml.defences.base import NoDefence
+from kipl_ml.defences.nndefs import BrickSelectionDef, RNNDef
 from kipl_ml.logging.logger import TQDM_W, get_logger
-from kipl_ml.trace.params import MAX_TRACE_LENGTH
 
 logger = get_logger(__name__)
 
@@ -92,17 +93,19 @@ def _make_tmp(
     dataset = _unwrap_dataset(dataset)
     defence = deepcopy(dataset.defence)
 
-    if isinstance(defence, RNNDef) and not preserve_defence_limits:
-        # We want to go over the full trace.
-        # Set any simul restricting params to high values.
-        defence._n_packets = 100_000_000
-        defence._max_dur_s = 100_000
+    if isinstance(defence, (RNNDef, BrickSelectionDef)) and not preserve_defence_limits:
+        # Measure complete normal traffic, independently of attack/training crops.
+        # Native iteration budgets remain enabled and exhaustion is an error.
+        defence._n_packets = None
+        defence._max_dur_s = math.inf
+        if isinstance(defence, RNNDef):
+            defence.stop_after_all_normal_packets = True
 
     # We create a new dataset w.o., defence.
     dataset = dataset.clone(
         feature_trs=None,
         dataset_key="overheads",
-        defence=None,
+        defence=NoDefence(simul_kwargs={"max_trace_length": 0}),
         defence_aug=0,
         trim_raw=dataset.trim_raw if preserve_defence_limits else 0,
     )
@@ -131,13 +134,17 @@ def _make_tmp(
 def get_overheads(
     dataset: WFDataset | InformativeDataset,
     overhead_frac: float,
-    max_len: int = MAX_TRACE_LENGTH,
+    max_len: int = 0,
     real_world: bool = False,
     full_output: bool = False,
     preserve_defence_limits: bool = False,
     num_workers: int | None = None,
 ) -> dict[str, float]:
     """Measure overheads with paired simulations in DataLoader worker processes.
+
+    By default neural policies run to normal-traffic completion, without packet
+    or time cutoffs. Simulator/rollout safety budgets remain enabled. max_len=0
+    aggregates entire paired traces, including traces with >60,000 events.
 
     Zero workers runs in-process. Trace-local seeds derive from the caller's
     torch initial seed and dataset-relative path, independently of worker count.
