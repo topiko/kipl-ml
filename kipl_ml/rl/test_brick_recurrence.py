@@ -36,10 +36,15 @@ def run(actor, lengths, bricks, *, horizon=10., detach_period=None):
 
 
 class TestBrickRecurrence(unittest.TestCase):
+    controller = "rnn"
+
+    def make_actor(self):
+        return make_actor(self.controller, transformer_max_tokens=4)
+
     def test_shrinking_batch_matches_independent_histories_and_resets(self):
         torch.manual_seed(42)
-        actor = make_actor("rnn")
-        lengths, bricks = [4, 1, 3], [0, 1, 2]
+        actor = self.make_actor()
+        lengths, bricks = [6, 1, 4], [0, 1, 2]
         batch, _ = run(actor, lengths, bricks)
         repeated, _ = run(actor, lengths, bricks)
         torch.testing.assert_close(batch[4], repeated[4])
@@ -49,10 +54,13 @@ class TestBrickRecurrence(unittest.TestCase):
                 torch.testing.assert_close(batch[output][row:row + 1, :length],
                                            single[output])
         batch[3][:, -1].sum().backward()
-        self.assertGreater(actor.client_rnn.weight_hh.grad.abs().sum().item(), 0.)
+        trunk = (actor.transformer if self.controller == "transformer"
+                 else actor.client_rnn)
+        self.assertTrue(any(p.grad is not None and p.grad.abs().sum() > 0
+                            for p in trunk.parameters()))
 
     def test_bootstrap_uses_full_history_without_an_extra_executed_action(self):
-        actor = make_actor("rnn")
+        actor = self.make_actor()
         result, end = run(actor, [5, 1, 5], [0, 1, 2], horizon=.25)
         self.assertEqual(end.truncated.tolist(), [True, False, True])
         fd = result[0]
@@ -76,13 +84,16 @@ class TestBrickRecurrence(unittest.TestCase):
         self.assertFalse(end.values.requires_grad)
 
     def test_detach_period_cuts_history_gradients_but_preserves_outputs(self):
-        actor = make_actor("rnn")
+        actor = self.make_actor()
         results = []
         for period in (None, 2):
             states = []
             original = actor.act_step
 
             def capture(*args, **kwargs):
+                # Transformer state holds raw tokens: probe history gradients via
+                # differentiable observations rather than recurrent parameters.
+                args[0][Feats.UP_COUNT].requires_grad_()
                 output = original(*args, **kwargs)
                 output[-1].retain_grad()
                 states.append(output[-1])
@@ -97,3 +108,7 @@ class TestBrickRecurrence(unittest.TestCase):
             results.append(result[4])
             actor.zero_grad(set_to_none=True)
         torch.testing.assert_close(*results)
+
+
+class TestBrickTransformerHistory(TestBrickRecurrence):
+    controller = "transformer"

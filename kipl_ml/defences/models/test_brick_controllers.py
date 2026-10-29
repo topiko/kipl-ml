@@ -85,7 +85,7 @@ class TestBrickControllers(unittest.TestCase):
 
     def test_checkpoints_and_legacy_hybrid_without_controller_attribute(self):
         current = torch.tensor([0])
-        for kind in ("hybrid", "table", "rnn"):
+        for kind in ("hybrid", "table", "rnn", "transformer"):
             actor = make_actor(kind)
             expected = actor.act_step(observation(), current, current, sample=False)
             if kind == "hybrid":

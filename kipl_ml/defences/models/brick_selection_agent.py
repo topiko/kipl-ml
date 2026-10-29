@@ -11,6 +11,7 @@ from kipl_ml.defences.models._time import (
     resolve_time_step_s,
     set_time_step_s_attr,
 )
+from kipl_ml.defences.models.brick_transformer import BrickTransformer
 from kipl_ml.rl.enums import Actions, ActSelector, EntropyKeys, StepAction, StepActions
 from kipl_ml.trace.enums import Feats
 
@@ -72,11 +73,12 @@ def _validate_init(
 
 
 class BrickSelectionAgent(nn.Module):
-    """Hybrid, stationary-table, or recurrent client/server brick controller.
+    """Hybrid, stationary-table, GRU, or transformer brick controller.
 
     Hybrid adds an observation-conditioned MLP to time-indexed transition tables.
     Table uses only the current brick. RNN uses scaled observations and each
     side's brick in separate GRUs; its (B, 2, H) state belongs to the rollout.
+    Transformer keeps a bounded (B, T, input_width) history of scaled tokens.
     """
 
     def __init__(
@@ -93,12 +95,15 @@ class BrickSelectionAgent(nn.Module):
         train_env: dict[str, object] | None = None,
         *,
         controller: str = "hybrid",
+        transformer_nhead: int = 2,
+        transformer_nlayer: int = 2,
+        transformer_max_tokens: int = 32,
         detach_before_value_head: bool = False,
         time_step: float | None = None,
         time_steps: int | None = None,
     ) -> None:
         super().__init__()
-        if controller not in {"hybrid", "table", "rnn"}:
+        if controller not in {"hybrid", "table", "rnn", "transformer"}:
             raise ValueError(f"unknown brick controller: {controller!r}")
         self.controller = controller
         time_step_s = resolve_time_step_s(time_step_s, time_step)
@@ -122,25 +127,11 @@ class BrickSelectionAgent(nn.Module):
         self.prob_eps = float(prob_eps)
         self.train_env = {} if train_env is None else dict(train_env)
 
-        if controller == "rnn":
-            self.client_rnn = nn.GRUCell(
-                len(self.features) + self.n_client_bricks, self.feature_hidden_size,
+        if self.is_recurrent:
+            self._init_history_controller(
+                stay_bias, transformer_nhead, transformer_nlayer,
+                transformer_max_tokens,
             )
-            self.server_rnn = nn.GRUCell(
-                len(self.features) + self.n_server_bricks, self.feature_hidden_size,
-            )
-            self.client_rnn_head = nn.Linear(
-                self.feature_hidden_size, self.n_client_bricks,
-            )
-            self.server_rnn_head = nn.Linear(
-                self.feature_hidden_size, self.n_server_bricks,
-            )
-            self.rnn_value_head = (
-                nn.Linear(2 * self.feature_hidden_size, 1)
-                if self.learn_values else None
-            )
-            # A fixed optional preference, not a trainable transition table.
-            self.stay_bias = float(stay_bias)
             return
 
         client_logits = torch.zeros(
@@ -188,6 +179,28 @@ class BrickSelectionAgent(nn.Module):
                     + self.n_server_bricks,
                     1,
                 )
+
+    def _init_history_controller(
+        self, stay_bias: float, nhead: int, nlayer: int, max_tokens: int,
+    ) -> None:
+        width = self.feature_hidden_size
+        if self.controller == "transformer":
+            self.transformer = BrickTransformer(
+                len(self.features), self.n_client_bricks, self.n_server_bricks,
+                width, nhead, nlayer, max_tokens,
+            )
+        else:
+            self.client_rnn = nn.GRUCell(
+                len(self.features) + self.n_client_bricks, width,
+            )
+            self.server_rnn = nn.GRUCell(
+                len(self.features) + self.n_server_bricks, width,
+            )
+        # Shared history heads; retain the original names for GRU checkpoints.
+        self.client_rnn_head = nn.Linear(width, self.n_client_bricks)
+        self.server_rnn_head = nn.Linear(width, self.n_server_bricks)
+        self.rnn_value_head = nn.Linear(2 * width, 1) if self.learn_values else None
+        self.stay_bias = float(stay_bias)
 
     def _feature_head(self, input_size: int, output_size: int) -> nn.Sequential:
         output = nn.Linear(self.feature_hidden_size, output_size)
@@ -246,8 +259,9 @@ class BrickSelectionAgent(nn.Module):
 
     @property
     def is_recurrent(self) -> bool:
+        """Whether step calls carry trace-local history (GRU or transformer)."""
         # Pickled controllers from before controller selection are hybrid.
-        return getattr(self, "controller", "hybrid") == "rnn"
+        return getattr(self, "controller", "hybrid") in {"rnn", "transformer"}
 
     def act_step(
         self,
@@ -346,16 +360,21 @@ class BrickSelectionAgent(nn.Module):
         server_brick = nn.functional.one_hot(
             current_server, self.n_server_bricks,
         ).to(features.dtype)
-        client_h = self.client_rnn(
-            torch.cat((features, client_brick), dim=1),
-            None if state is None else state[:, 0],
-        )
-        server_h = self.server_rnn(
-            torch.cat((features, server_brick), dim=1),
-            None if state is None else state[:, 1],
-        )
-        state = torch.stack((client_h, server_h), dim=1)
-        value_input = state.flatten(1)
+        if self.controller == "transformer":
+            client_h, server_h, state = self.transformer(
+                features, client_brick, server_brick, state,
+            )
+        else:
+            client_h = self.client_rnn(
+                torch.cat((features, client_brick), dim=1),
+                None if state is None else state[:, 0],
+            )
+            server_h = self.server_rnn(
+                torch.cat((features, server_brick), dim=1),
+                None if state is None else state[:, 1],
+            )
+            state = torch.stack((client_h, server_h), dim=1)
+        value_input = torch.cat((client_h, server_h), dim=1)
         if self.detach_before_value_head:
             value_input = value_input.detach()
         values = (
