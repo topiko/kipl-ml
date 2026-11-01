@@ -98,6 +98,7 @@ class BrickSelectionAgent(nn.Module):
         transformer_nhead: int = 2,
         transformer_nlayer: int = 2,
         transformer_max_tokens: int = 32,
+        transformer_qk_norm: bool = True,
         detach_before_value_head: bool = False,
         time_step: float | None = None,
         time_steps: int | None = None,
@@ -130,7 +131,7 @@ class BrickSelectionAgent(nn.Module):
         if self.is_recurrent:
             self._init_history_controller(
                 stay_bias, transformer_nhead, transformer_nlayer,
-                transformer_max_tokens,
+                transformer_max_tokens, transformer_qk_norm,
             )
             return
 
@@ -182,12 +183,13 @@ class BrickSelectionAgent(nn.Module):
 
     def _init_history_controller(
         self, stay_bias: float, nhead: int, nlayer: int, max_tokens: int,
+        qk_norm: bool,
     ) -> None:
         width = self.feature_hidden_size
         if self.controller == "transformer":
             self.transformer = BrickTransformer(
                 len(self.features), self.n_client_bricks, self.n_server_bricks,
-                width, nhead, nlayer, max_tokens,
+                width, nhead, nlayer, max_tokens, qk_norm=qk_norm,
             )
         else:
             self.client_rnn = nn.GRUCell(

@@ -30,10 +30,14 @@ def apply_rope(x: torch.Tensor, positions: torch.Tensor) -> torch.Tensor:
 class RoPEEncoderLayer(nn.Module):
     """Pre-norm encoder with rotary Q/K and explicit causal/padding masks."""
 
-    def __init__(self, d_model: int, nhead: int, dim_feedforward: int, dropout: float):
+    def __init__(
+        self, d_model: int, nhead: int, dim_feedforward: int, dropout: float,
+        *, qk_norm: bool = False,
+    ):
         super().__init__()
         self.nhead = nhead
         self.head_dim = d_model // nhead
+        self.qk_norm = qk_norm
         # Match MultiheadAttention's projection initialization for the comparison.
         self.qkv = nn.Linear(d_model, 3 * d_model)
         nn.init.xavier_uniform_(self.qkv.weight)
@@ -52,6 +56,13 @@ class RoPEEncoderLayer(nn.Module):
             batch, tokens, 3, self.nhead, self.head_dim,
         )
         query, key, value = qkv.permute(2, 0, 3, 1, 4).unbind(0)
+        # Old pickled layers retain their original, unnormalized attention.
+        if getattr(self, "qk_norm", False):
+            # Fixed per-head RMS, without gains: SDPA logits stay within
+            # +/-sqrt(head_dim), even as Q/K projection norms grow.
+            scale = self.head_dim ** 0.5
+            query = nn.functional.normalize(query, dim=-1, eps=1e-6) * scale
+            key = nn.functional.normalize(key, dim=-1, eps=1e-6) * scale
         positions = torch.arange(tokens, device=x.device)
         query, key = apply_rope(query, positions), apply_rope(key, positions)
         # SDPA boolean masks use True=allowed, opposite to TransformerEncoderLayer.

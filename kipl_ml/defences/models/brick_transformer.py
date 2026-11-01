@@ -17,6 +17,7 @@ class BrickTransformer(nn.Module):
     def __init__(
         self, n_features: int, n_client: int, n_server: int, width: int,
         nhead: int = 2, nlayer: int = 2, max_tokens: int = 32,
+        *, qk_norm: bool = True,
     ):
         super().__init__()
         if min(width, nhead, nlayer, max_tokens) <= 0 or width % nhead:
@@ -31,7 +32,7 @@ class BrickTransformer(nn.Module):
         self.client_projection = nn.Linear(n_features + n_client, width)
         self.server_projection = nn.Linear(n_features + n_server, width)
         self.layers = nn.ModuleList([
-            RoPEEncoderLayer(width, nhead, 2 * width, dropout=0.)
+            RoPEEncoderLayer(width, nhead, 2 * width, dropout=0., qk_norm=qk_norm)
             for _ in range(nlayer)
         ])
         self.norm = nn.LayerNorm(width)

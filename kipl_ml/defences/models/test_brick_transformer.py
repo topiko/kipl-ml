@@ -1,15 +1,67 @@
 """Causal attention, bounded context, value isolation and policy semantics."""
 
+import io
 import unittest
+from unittest.mock import patch
 
 import torch
 
+from kipl_ml.defences.models.tam_transformer import RoPEEncoderLayer
 from kipl_ml.defences.models.test_brick_controllers import make_actor, observation
 from kipl_ml.rl.enums import EntropyKeys
 from kipl_ml.trace.enums import Feats
 
 
 class TestBrickTransformer(unittest.TestCase):
+    def test_normalized_attention_bounds_logits_and_resists_projection_scaling(self):
+        torch.manual_seed(42)
+        layer = RoPEEncoderLayer(64, 2, 128, 0., qk_norm=True)
+        x = torch.randn(2, 20, 64, requires_grad=True)
+        causal = torch.ones(20, 20, dtype=torch.bool).triu(1)
+        padding = torch.zeros(2, 20, dtype=torch.bool)
+        sdpa = torch.nn.functional.scaled_dot_product_attention
+        logits = []
+
+        def capture(query, key, value, **kwargs):
+            logits.append(query @ key.transpose(-1, -2) / layer.head_dim ** .5)
+            return sdpa(query, key, value, **kwargs)
+
+        with patch("torch.nn.functional.scaled_dot_product_attention", capture):
+            expected = layer(x, causal, padding)
+            with torch.no_grad():
+                layer.qkv.weight[:128].mul_(1000.)
+                layer.qkv.bias[:128].mul_(1000.)
+            actual = layer(x, causal, padding)
+        torch.testing.assert_close(actual, expected)
+        for scores in logits:
+            self.assertLessEqual(scores.abs().max().item(), layer.head_dim ** .5 + 1e-5)
+        actual.square().mean().backward()
+        assert x.grad is not None and layer.qkv.weight.grad is not None
+        for grad in (x.grad, layer.qkv.weight.grad[:64], layer.qkv.weight.grad[64:128]):
+            self.assertTrue(torch.isfinite(grad).all())
+            self.assertGreater(grad.abs().sum().item(), 0.)
+        # Zero projections must also produce finite outputs and gradients.
+        layer.zero_grad()
+        with torch.no_grad():
+            layer.qkv.weight[:128].zero_()
+            layer.qkv.bias[:128].zero_()
+        layer(x, causal, padding).sum().backward()
+        assert layer.qkv.weight.grad is not None
+        self.assertTrue(torch.isfinite(layer.qkv.weight.grad).all())
+
+    def test_legacy_pickles_preserve_unnormalized_attention(self):
+        actor = make_actor("transformer", transformer_qk_norm=False)
+        history = torch.randn(2, 5, 10)
+        expected = actor.transformer.encode(history)
+        for layer in actor.transformer.layers:
+            del layer.qk_norm  # Attribute absent in original full-model checkpoints.
+        serialized = io.BytesIO()
+        torch.save(actor, serialized)
+        serialized.seek(0)
+        restored = torch.load(serialized, weights_only=False)
+        torch.testing.assert_close(restored.transformer.encode(history), expected)
+        self.assertFalse(RoPEEncoderLayer(16, 2, 32, 0.).qk_norm)
+
     def test_causal_encoder_cannot_see_future_tokens_or_other_sides_bricks(self):
         torch.manual_seed(42)
         actor = make_actor("transformer")
