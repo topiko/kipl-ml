@@ -37,6 +37,10 @@ for _metric in ("bandwidth", "delay", "cumdelay"):
         ):
             _legacy = f"def.{_metric}{'_full' if _full else ''}_{_stat}"
             ALIASES[_legacy] = f"overhead/{_metric}/{'full/' if _full else ''}{_stat}"
+for _stat in ("min", "median", "mean", "std", "p90", "p95", "p99", "max",
+              "count"):
+    ALIASES[f"def.cumdelay_seconds_{_stat}"] = (
+        f"overhead/cumdelay_seconds/{_stat}")
 REVERSE_ALIASES = {new: old for old, new in ALIASES.items()}
 STAGES = {"train": "train", "valid": "validation", "test": "test"}
 

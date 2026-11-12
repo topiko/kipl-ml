@@ -227,6 +227,20 @@ def _format_overheads(overheads: dict[str, float]) -> dict[str, float]:
                 overheads_fin[f"def.{name}_{stat}"] = (
                     float("nan") if count == 0 else overheads[key]
                 )
+    for stat, native_stat in (
+        ("min", "min"),
+        ("median", "median"),
+        ("mean", "mean"),
+        ("std", "std_dev"),
+        ("p90", "p90"),
+        ("p95", "p95"),
+        ("p99", "p99"),
+        ("max", "max"),
+    ):
+        # Mean added delay per normal packet in seconds: no duration normaliser.
+        key = f"overhead_cumdelay_seconds_{native_stat}_seconds"
+        if key in overheads:
+            overheads_fin[f"def.cumdelay_seconds_{stat}"] = overheads[key]
     if overheads.get("base_count") == 0:
         overheads_fin["sim.missing"] = float("nan")
     overheads_fin.update(_coverage_metrics(overheads))
