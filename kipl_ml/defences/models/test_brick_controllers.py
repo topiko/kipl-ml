@@ -44,6 +44,64 @@ class TestBrickControllers(unittest.TestCase):
         different = actor.act_step(first, torch.tensor([2]), current, sample=False)
         self.assertFalse(torch.equal(initial[3], different[3]))
 
+    def test_chybrid_tables_own_current_brick_dependence(self):
+        actor = make_actor("chybrid", learn_values=True)
+        self.assertEqual(actor.n_time_steps, 2)
+        self.assertEqual(actor.client_feature_head[0].in_features, 8)
+        self.assertEqual(actor.server_feature_head[0].in_features, 8)
+        old_hybrid = make_actor("hybrid")
+        self.assertEqual(old_hybrid.client_feature_head[0].in_features, 8 + 3)
+        self.assertEqual(old_hybrid.server_feature_head[0].in_features, 8 + 4)
+        # The value head still sees both current bricks.
+        self.assertEqual(actor.value_feature_head[0].in_features, 8 + 3 + 4)
+        with torch.no_grad():
+            actor.client_transition_logits.normal_()
+            actor.server_transition_logits.normal_()
+            actor.client_feature_head[-1].weight.normal_()
+            actor.server_feature_head[-1].weight.normal_()
+
+        x = observation(time=0., count=3.)
+        first = actor._tabular_outputs(x, torch.tensor([[0]]),
+                                       torch.tensor([0]), torch.tensor([0]))
+        second = actor._tabular_outputs(x, torch.tensor([[0]]),
+                                        torch.tensor([1]), torch.tensor([2]))
+        for side, table, old, new in (
+            (0, actor.client_transition_logits, 0, 1),
+            (1, actor.server_transition_logits, 0, 2),
+        ):
+            torch.testing.assert_close(
+                first[side] - table[0, old], second[side] - table[0, new],
+            )
+        # Both sources of logits receive gradients during training.
+        (first[0].square().sum() + first[1].square().sum()).backward()
+        self.assertGreater(actor.client_transition_logits.grad.abs().sum(), 0.)
+        self.assertGreater(actor.server_transition_logits.grad.abs().sum(), 0.)
+        self.assertGreater(actor.client_feature_head[-1].weight.grad.abs().sum(), 0.)
+        self.assertGreater(actor.server_feature_head[-1].weight.grad.abs().sum(), 0.)
+
+    def test_chybrid_uses_time_indexed_table_and_observation_dependent_head(self):
+        actor = make_actor("chybrid")
+        with torch.no_grad():
+            actor.client_transition_logits[0, 0, 1] = 2.
+            actor.client_transition_logits[1, 0, 2] = 3.
+            actor.client_feature_head[-1].weight.normal_()
+        current = torch.tensor([0])
+        early = actor._tabular_outputs(observation(time=0.), torch.tensor([[0]]),
+                                       current, current)[0]
+        later = actor._tabular_outputs(observation(time=1.), torch.tensor([[1]]),
+                                       current, current)[0]
+        early_head = actor.client_feature_head(actor.feature_encoder(
+            actor._feature_vector(observation(time=0.), torch.tensor([[0]]))))
+        later_head = actor.client_feature_head(actor.feature_encoder(
+            actor._feature_vector(observation(time=1.), torch.tensor([[1]]))))
+        torch.testing.assert_close(
+            early[0], actor.client_transition_logits[0, 0] + early_head[0],
+        )
+        torch.testing.assert_close(
+            later[0], actor.client_transition_logits[1, 0] + later_head[0],
+        )
+        self.assertFalse(torch.allclose(early_head, later_head))
+
     def test_rnn_history_changes_probabilities_and_receives_gradients(self):
         torch.manual_seed(42)
         actor = make_actor("rnn")
@@ -85,7 +143,7 @@ class TestBrickControllers(unittest.TestCase):
 
     def test_checkpoints_and_legacy_hybrid_without_controller_attribute(self):
         current = torch.tensor([0])
-        for kind in ("hybrid", "table", "rnn", "transformer"):
+        for kind in ("hybrid", "chybrid", "table", "rnn", "transformer"):
             actor = make_actor(kind)
             expected = actor.act_step(observation(), current, current, sample=False)
             if kind == "hybrid":

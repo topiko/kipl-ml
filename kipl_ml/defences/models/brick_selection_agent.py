@@ -73,9 +73,11 @@ def _validate_init(
 
 
 class BrickSelectionAgent(nn.Module):
-    """Hybrid, stationary-table, GRU, or transformer brick controller.
+    """Hybrid, CHybrid, stationary-table, GRU, or transformer brick controller.
 
-    Hybrid adds an observation-conditioned MLP to time-indexed transition tables.
+    Hybrid adds a brick-conditioned MLP to time-indexed transition tables.
+    CHybrid removes the current brick from the MLP, leaving the table as the
+    only source of current-brick-dependent actor logits.
     Table uses only the current brick. RNN uses scaled observations and each
     side's brick in separate GRUs; its (B, 2, H) state belongs to the rollout.
     Transformer keeps a bounded (B, T, input_width) history of scaled tokens.
@@ -104,7 +106,7 @@ class BrickSelectionAgent(nn.Module):
         time_steps: int | None = None,
     ) -> None:
         super().__init__()
-        if controller not in {"hybrid", "table", "rnn", "transformer"}:
+        if controller not in {"hybrid", "chybrid", "table", "rnn", "transformer"}:
             raise ValueError(f"unknown brick controller: {controller!r}")
         self.controller = controller
         time_step_s = resolve_time_step_s(time_step_s, time_step)
@@ -118,7 +120,7 @@ class BrickSelectionAgent(nn.Module):
         )
 
         self.time_step_s = time_step_s
-        self.n_time_steps = n_time_steps if controller == "hybrid" else 1
+        self.n_time_steps = n_time_steps if controller in {"hybrid", "chybrid"} else 1
         self.n_client_bricks = n_client_bricks
         self.n_server_bricks = n_server_bricks
         self.features = _validate_features(features) if controller != "table" else ()
@@ -165,13 +167,16 @@ class BrickSelectionAgent(nn.Module):
                 nn.Linear(len(self.features), self.feature_hidden_size),
                 nn.Tanh(),
             )
+            client_head_width = self.feature_hidden_size
+            server_head_width = self.feature_hidden_size
+            if controller != "chybrid":
+                client_head_width += self.n_client_bricks
+                server_head_width += self.n_server_bricks
             self.client_feature_head = self._feature_head(
-                self.feature_hidden_size + self.n_client_bricks,
-                self.n_client_bricks,
+                client_head_width, self.n_client_bricks,
             )
             self.server_feature_head = self._feature_head(
-                self.feature_hidden_size + self.n_server_bricks,
-                self.n_server_bricks,
+                server_head_width, self.n_server_bricks,
             )
             if self.learn_values:
                 self.value_feature_head = self._feature_head(
@@ -332,12 +337,13 @@ class BrickSelectionAgent(nn.Module):
             server_state = nn.functional.one_hot(
                 current_server, num_classes=self.n_server_bricks
             ).to(features.dtype)
-            client_logits = client_logits + self.client_feature_head(
-                torch.cat((features, client_state), dim=1)
-            )
-            server_logits = server_logits + self.server_feature_head(
-                torch.cat((features, server_state), dim=1)
-            )
+            if getattr(self, "controller", "hybrid") == "chybrid":
+                client_input = server_input = features
+            else:
+                client_input = torch.cat((features, client_state), dim=1)
+                server_input = torch.cat((features, server_state), dim=1)
+            client_logits = client_logits + self.client_feature_head(client_input)
+            server_logits = server_logits + self.server_feature_head(server_input)
             if self.value_feature_head is not None:
                 # Isolate value regression from the shared policy feature encoder.
                 # Older serialized models retain their original gradient behavior.
